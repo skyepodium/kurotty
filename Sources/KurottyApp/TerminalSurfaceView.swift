@@ -4,6 +4,7 @@ import AppKit
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let core = CoreBridge(cols: 120, rows: 40)
     private let shell = ShellSession()
+    private let metalView: TerminalMetalView
     private var rows: [[Character]] = [[]]
     private var cursorRow = 0
     private var cursorColumn = 0
@@ -15,9 +16,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let padding = NSEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
 
     override init(frame frameRect: NSRect) {
+        metalView = TerminalMetalView(font: font)
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
+        metalView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(metalView)
+        NSLayoutConstraint.activate([
+            metalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            metalView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            metalView.topAnchor.constraint(equalTo: topAnchor),
+            metalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
         shell.onOutput = { [weak self] text in
             Task { @MainActor in
                 self?.appendOutput(text)
@@ -57,31 +67,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         NSPasteboard.general.setString(visibleText(), forType: .string)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill()
-        dirtyRect.fill()
+    override func layout() {
+        super.layout()
+        updateMetalFrame()
+    }
 
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byClipping
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor(calibratedWhite: 0.92, alpha: 1),
-            .paragraphStyle: paragraph,
-        ]
-
+    private func updateMetalFrame() {
         let lineHeight = ceil(font.ascender - font.descender + font.leading) + 2
         let maxLines = max(1, Int((bounds.height - padding.top - padding.bottom) / lineHeight))
-        let visibleRows = makeVisibleRows(columns: terminalColumns())
-        let displayLines = Array(visibleRows.map(\.text).suffix(maxLines))
-        var y = bounds.height - padding.top - lineHeight
-
-        for line in displayLines {
-            let rect = NSRect(x: padding.left, y: y, width: bounds.width - padding.left - padding.right, height: lineHeight)
-            (line as NSString).draw(in: rect, withAttributes: attrs)
-            y -= lineHeight
+        let columns = terminalColumns()
+        let visibleRows = makeVisibleRows(columns: columns)
+        let firstVisibleIndex = max(0, visibleRows.count - maxLines)
+        let displayRows = Array(visibleRows.suffix(maxLines))
+        var cells: [TerminalCell] = []
+        for (visibleIndex, visualRow) in displayRows.enumerated() {
+            for (column, character) in visualRow.text.enumerated() where character != " " {
+                cells.append(TerminalCell(character: character, column: column, row: visibleIndex))
+            }
         }
+        let cursorVisualIndex = visualIndexForCursor(columns: columns)
+        let cursorDisplayRow = max(0, cursorVisualIndex - firstVisibleIndex)
 
-        drawCursor(lineHeight: lineHeight, maxLines: maxLines, visibleRows: visibleRows)
+        metalView.update(frame: TerminalFrame(
+            cells: cells,
+            cursorColumn: cursorColumn % columns,
+            cursorRow: min(maxLines - 1, cursorDisplayRow),
+            columns: columns,
+            visibleRows: maxLines,
+            cellSize: CGSize(width: max(8, "W".size(withAttributes: [.font: font]).width), height: lineHeight),
+            padding: CGPoint(x: padding.left, y: padding.top)
+        ))
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
@@ -168,28 +183,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             rows.removeFirst(removeCount)
             cursorRow = max(0, cursorRow - removeCount)
         }
-        needsDisplay = true
+        updateMetalFrame()
     }
 
     private func visibleText() -> String {
         rows.map { String($0) }.joined(separator: "\n")
-    }
-
-    private func drawCursor(lineHeight: CGFloat, maxLines: Int, visibleRows: [VisualRow]) {
-        let charWidth = max(8, "W".size(withAttributes: [.font: font]).width)
-        let columns = terminalColumns()
-        let cursorVisualIndex = visualIndexForCursor(columns: columns)
-        let firstVisibleIndex = max(0, visibleRows.count - maxLines)
-        guard cursorVisualIndex >= firstVisibleIndex else { return }
-
-        let visibleCursorRow = cursorVisualIndex - firstVisibleIndex
-        guard visibleCursorRow < maxLines else { return }
-
-        let wrappedCursorColumn = cursorColumn % columns
-        let x = padding.left + CGFloat(wrappedCursorColumn) * charWidth
-        let y = bounds.height - padding.top - lineHeight * CGFloat(visibleCursorRow + 1)
-        NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
-        NSRect(x: x, y: y + 2, width: 2, height: lineHeight - 4).fill()
     }
 
     private func terminalColumns() -> Int {
