@@ -16,6 +16,7 @@ final class ShellSession: @unchecked Sendable {
     private var childPid: pid_t = -1
     private var readSource: DispatchSourceRead?
     private var isStarted = false
+    private var pendingOutput = Data()
 
     func start() {
         guard !isStarted else { return }
@@ -51,6 +52,20 @@ final class ShellSession: @unchecked Sendable {
         }
     }
 
+    func resize(columns: Int, rows: Int) {
+        guard master >= 0 else { return }
+        var size = winsize(
+            ws_row: UInt16(max(1, rows)),
+            ws_col: UInt16(max(1, columns)),
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
+        _ = ioctl(master, TIOCSWINSZ, &size)
+        if childPid > 0 {
+            kill(childPid, SIGWINCH)
+        }
+    }
+
     func stop() {
         readSource?.cancel()
         readSource = nil
@@ -71,7 +86,8 @@ final class ShellSession: @unchecked Sendable {
             let count = Darwin.read(fd, &buffer, buffer.count)
             guard count > 0 else { return }
             let data = Data(buffer[0..<count])
-            guard let text = String(data: data, encoding: .utf8) else { return }
+            self?.pendingOutput.append(data)
+            guard let text = self?.takeDecodedOutput(), !text.isEmpty else { return }
             DispatchQueue.main.async {
                 self?.onOutput?(text)
             }
@@ -88,6 +104,26 @@ final class ShellSession: @unchecked Sendable {
         if flags >= 0 {
             _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
         }
+    }
+
+    private func takeDecodedOutput() -> String? {
+        if let text = String(data: pendingOutput, encoding: .utf8) {
+            pendingOutput.removeAll(keepingCapacity: true)
+            return text
+        }
+
+        let count = pendingOutput.count
+        guard count > 4 else { return nil }
+        for validCount in stride(from: count - 1, through: max(0, count - 4), by: -1) {
+            let prefix = pendingOutput.prefix(validCount)
+            if let text = String(data: prefix, encoding: .utf8) {
+                pendingOutput.removeFirst(validCount)
+                return text
+            }
+        }
+        let text = String(decoding: pendingOutput.prefix(count - 4), as: UTF8.self)
+        pendingOutput.removeFirst(count - 4)
+        return text
     }
 }
 

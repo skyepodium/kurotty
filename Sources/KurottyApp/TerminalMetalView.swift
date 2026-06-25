@@ -140,52 +140,39 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             .paragraphStyle: paragraph,
         ]
 
-        var rows = Array(repeating: "", count: max(terminalFrame.visibleRows, 1))
-        for cell in terminalFrame.cells where cell.row >= 0 && cell.row < rows.count {
-            var row = Array(rows[cell.row])
-            while row.count < cell.column {
-                row.append(" ")
-            }
-            if cell.column < row.count {
-                row[cell.column] = cell.character
-            } else {
-                row.append(cell.character)
-            }
-            rows[cell.row] = String(row)
-        }
-        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 && terminalFrame.cursorRow < rows.count {
-            var row = Array(rows[terminalFrame.cursorRow])
-            var column = terminalFrame.cursorColumn
-            for character in terminalFrame.markedText {
-                while row.count < column {
-                    row.append(" ")
-                }
-                if column < row.count {
-                    row[column] = character
-                } else {
-                    row.append(character)
-                }
-                column += 1
-            }
-            rows[terminalFrame.cursorRow] = String(row)
-        }
-        for (rowIndex, text) in rows.enumerated() where !text.isEmpty {
+        for cell in terminalFrame.cells where cell.row >= 0 && cell.row < terminalFrame.visibleRows {
             let rect = NSRect(
-                x: terminalFrame.padding.x,
-                y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(rowIndex + 1),
-                width: bounds.width - terminalFrame.padding.x * 2,
+                x: terminalFrame.padding.x + CGFloat(cell.column) * terminalFrame.cellSize.width,
+                y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(cell.row + 1),
+                width: terminalFrame.cellSize.width * 2,
                 height: lineHeight
             )
-            (text as NSString).draw(in: rect, withAttributes: attrs)
+            (String(cell.character) as NSString).draw(in: rect, withAttributes: attrs)
         }
 
-        NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
-        NSRect(
-            x: terminalFrame.padding.x + CGFloat(terminalFrame.cursorColumn) * terminalFrame.cellSize.width,
-            y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(terminalFrame.cursorRow + 1) + 2,
-            width: 2,
-            height: max(1, lineHeight - 4)
-        ).fill()
+        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 && terminalFrame.cursorRow < terminalFrame.visibleRows {
+            var column = terminalFrame.cursorColumn
+            for character in terminalFrame.markedText {
+                let rect = NSRect(
+                    x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
+                    y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(terminalFrame.cursorRow + 1),
+                    width: terminalFrame.cellSize.width * 2,
+                    height: lineHeight
+                )
+                (String(character) as NSString).draw(in: rect, withAttributes: attrs)
+                column += character.terminalColumnWidth
+            }
+        }
+
+        if terminalFrame.cursorRow >= 0 {
+            NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
+            NSRect(
+                x: terminalFrame.padding.x + CGFloat(terminalFrame.cursorColumn) * terminalFrame.cellSize.width,
+                y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(terminalFrame.cursorRow + 1) + 2,
+                width: 2,
+                height: max(1, lineHeight - 4)
+            ).fill()
+        }
     }
 
     private static func makePipeline(device: MTLDevice?) -> MTLRenderPipelineState? {
@@ -239,3 +226,31 @@ fragment float4 terminal_fragment(VertexOut in [[stage_in]],
     return terminal_texture.sample(terminal_sampler, in.uv);
 }
 """
+
+private extension Character {
+    var terminalColumnWidth: Int {
+        guard let scalar = unicodeScalars.first else { return 1 }
+        let value = scalar.value
+        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
+            return 0
+        }
+        if CharacterSet.nonBaseCharacters.contains(scalar) {
+            return 0
+        }
+        if value >= 0x1100 &&
+            (value <= 0x115f ||
+             value == 0x2329 || value == 0x232a ||
+             (0x2e80...0xa4cf).contains(value) ||
+             (0xac00...0xd7a3).contains(value) ||
+             (0xf900...0xfaff).contains(value) ||
+             (0xfe10...0xfe19).contains(value) ||
+             (0xfe30...0xfe6f).contains(value) ||
+             (0xff00...0xff60).contains(value) ||
+             (0xffe0...0xffe6).contains(value) ||
+             (0x1f300...0x1f64f).contains(value) ||
+             (0x1f900...0x1f9ff).contains(value)) {
+            return 2
+        }
+        return 1
+    }
+}
