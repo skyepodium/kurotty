@@ -20,9 +20,7 @@ jobs:
       - name: Scrollback stress
         run: zig build stress-scrollback
       - name: Leak check
-        run: zig build test -Doptimize=Debug
-        env:
-          ZIG_DEBUG_ALLOCATOR: "1"
+        run: zig build leak-check
       - name: Swift/AppKit shell build
         run: swift build
       - name: Swift rendering regression tests

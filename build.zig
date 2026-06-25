@@ -71,4 +71,17 @@ pub fn build(b: *std.Build) void {
     const run_scrollback_stress = b.addRunArtifact(scrollback_stress);
     const stress_step = b.step("stress-scrollback", "Run the one-million-line scrollback stress test");
     stress_step.dependOn(&run_scrollback_stress.step);
+
+    const leak_check = b.addExecutable(.{
+        .name = "kurotty-leak-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/leak_check.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
+    });
+    leak_check.root_module.addImport("kurotty_core", core_mod);
+    const run_leak_check = b.addRunArtifact(leak_check);
+    const leak_step = b.step("leak-check", "Run allocator-backed leak checks for core paths");
+    leak_step.dependOn(&run_leak_check.step);
 }

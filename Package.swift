@@ -14,6 +14,7 @@ let package = Package(
             name: "KurottyApp",
             resources: [
                 .process("Shaders"),
+                .copy("Resources/kurotty.png"),
             ]
         ),
         .testTarget(

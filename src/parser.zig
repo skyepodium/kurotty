@@ -9,6 +9,7 @@ pub const CsiEvent = struct {
 pub const Event = union(enum) {
     printable: struct { bytes: []const u8 },
     csi: CsiEvent,
+    osc: struct { bytes: []const u8 },
     control: u8,
 };
 
@@ -17,6 +18,7 @@ pub const Parser = struct {
     state: State = .normal,
     printable: std.ArrayList(u8) = .empty,
     control: std.ArrayList(u8) = .empty,
+    string: std.ArrayList(u8) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) Parser {
         return .{ .allocator = allocator };
@@ -25,6 +27,7 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self.printable.deinit(self.allocator);
         self.control.deinit(self.allocator);
+        self.string.deinit(self.allocator);
     }
 
     pub fn feed(self: *Parser, bytes: []const u8) ![]Event {
@@ -54,8 +57,12 @@ pub const Parser = struct {
                         self.state = .csi;
                     },
                     ']' => {
-                        self.control.clearRetainingCapacity();
+                        self.string.clearRetainingCapacity();
                         self.state = .osc;
+                    },
+                    'P', '^', '_' => {
+                        self.string.clearRetainingCapacity();
+                        self.state = .string_control;
                     },
                     else => {
                         try events.append(self.allocator, .{ .control = byte });
@@ -72,11 +79,31 @@ pub const Parser = struct {
                     }
                 },
                 .osc => switch (byte) {
-                    0x07 => self.state = .normal,
+                    0x07 => {
+                        try self.appendOsc(&events);
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    },
                     0x1b => self.state = .osc_escape,
-                    else => {},
+                    else => try self.string.append(self.allocator, byte),
                 },
                 .osc_escape => {
+                    if (byte == '\\') {
+                        try self.appendOsc(&events);
+                    }
+                    self.string.clearRetainingCapacity();
+                    self.state = .normal;
+                },
+                .string_control => switch (byte) {
+                    0x07 => {
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    },
+                    0x1b => self.state = .string_escape,
+                    else => try self.string.append(self.allocator, byte),
+                },
+                .string_escape => {
+                    self.string.clearRetainingCapacity();
                     self.state = .normal;
                 },
             }
@@ -93,9 +120,11 @@ pub const Parser = struct {
             switch (event) {
                 .printable => |printable_event| self.allocator.free(printable_event.bytes),
                 .csi => |csi_event| self.allocator.free(csi_event.params),
+                .osc => |osc_event| self.allocator.free(osc_event.bytes),
                 .control => {},
             }
         }
+        self.allocator.free(events);
     }
 
     fn flushPrintable(self: *Parser, events: *std.ArrayList(Event)) !void {
@@ -131,6 +160,11 @@ pub const Parser = struct {
             .params = try params.toOwnedSlice(self.allocator),
         } });
     }
+
+    fn appendOsc(self: *Parser, events: *std.ArrayList(Event)) !void {
+        const owned = try self.string.toOwnedSlice(self.allocator);
+        try events.append(self.allocator, .{ .osc = .{ .bytes = owned } });
+    }
 };
 
 const State = enum {
@@ -139,6 +173,8 @@ const State = enum {
     csi,
     osc,
     osc_escape,
+    string_control,
+    string_escape,
 };
 
 fn isCsiFinal(byte: u8) bool {

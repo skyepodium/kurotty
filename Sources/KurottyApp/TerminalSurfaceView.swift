@@ -6,6 +6,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let shell = ShellSession()
     private let metalView: TerminalMetalView
     private var screen = TerminalScreen(rows: 40, columns: 120)
+    private var scrollbackRows: [[TerminalScreenCell]] = []
+    private var scrollbackOffset = 0
     private var normalScreenSnapshot: TerminalScreen?
     private var cursorRow = 0
     private var cursorColumn = 0
@@ -13,6 +15,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var savedCursorColumn = 0
     private var cursorVisible = true
     private var isUsingAlternateScreen = false
+    private var bracketedPasteEnabled = false
+    private var currentStyle = TerminalTextStyle.default
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var markedText = NSMutableAttributedString()
@@ -62,6 +66,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         window?.makeFirstResponder(self)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        let lineDelta = max(1, Int(abs(event.scrollingDeltaY) / 8))
+        if event.scrollingDeltaY > 0 {
+            scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + lineDelta)
+        } else if event.scrollingDeltaY < 0 {
+            scrollbackOffset = max(0, scrollbackOffset - lineDelta)
+        }
+        updateMetalFrame()
+    }
+
     override func keyDown(with event: NSEvent) {
         core.recordKeyEvent()
         interpretKeyEvents([event])
@@ -73,7 +87,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        send(text)
+        if bracketedPasteEnabled {
+            send("\u{1b}[200~\(text)\u{1b}[201~")
+        } else {
+            send(text)
+        }
     }
 
     @objc func copy(_ sender: Any?) {
@@ -91,8 +109,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let metrics = terminalMetrics()
         guard metrics.size.columns > 0, metrics.size.rows > 0 else { return }
         if metrics.size != lastSentSize {
-            screen.resize(rows: metrics.size.rows, columns: metrics.size.columns)
-            cursorRow = min(cursorRow, metrics.size.rows - 1)
+            cursorRow = screen.resize(rows: metrics.size.rows, columns: metrics.size.columns, anchorRow: cursorRow)
             cursorColumn = min(cursorColumn, metrics.size.columns - 1)
             lastSentSize = metrics.size
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
@@ -103,20 +120,33 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func updateMetalFrame() {
         let metrics = terminalMetrics()
         var cells: [TerminalCell] = []
+        var backgrounds: [TerminalBackground] = []
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / 2)
-        for row in 0..<min(screen.rows, metrics.size.rows) {
-            for column in 0..<min(screen.columns, metrics.size.columns) {
-                let cell = screen.cells[row][column]
+        let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
+        for row in 0..<rowsToRender.count {
+            let sourceRow = rowsToRender[row]
+            for column in 0..<min(sourceRow.count, metrics.size.columns) {
+                let cell = sourceRow[column]
+                if cell.style.background != TerminalTextStyle.default.background && !cell.isContinuation {
+                    backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
+                }
                 if cell.character != " " && !cell.isContinuation {
-                    cells.append(TerminalCell(character: cell.character, column: column, row: row))
+                    cells.append(TerminalCell(
+                        character: cell.character,
+                        column: column,
+                        row: row,
+                        foreground: cell.style.effectiveForeground,
+                        background: cell.style.effectiveBackground
+                    ))
                 }
             }
         }
 
         metalView.update(frame: TerminalFrame(
             cells: cells,
+            backgrounds: backgrounds,
             cursorColumn: min(cursorColumn, metrics.size.columns - 1),
-            cursorRow: cursorVisible ? min(cursorRow, metrics.size.rows - 1) : -1,
+            cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
             markedText: markedText.string,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
@@ -137,6 +167,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             send("\r")
         case #selector(deleteBackward(_:)):
             send("\u{7f}")
+        case #selector(deleteForward(_:)):
+            send("\u{1b}[3~")
+        case #selector(moveToBeginningOfLine(_:)):
+            send("\u{1b}[H")
+        case #selector(moveToEndOfLine(_:)):
+            send("\u{1b}[F")
         case #selector(moveUp(_:)):
             send("\u{1b}[A")
         case #selector(moveDown(_:)):
@@ -145,6 +181,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             send("\u{1b}[D")
         case #selector(moveRight(_:)):
             send("\u{1b}[C")
+        case #selector(scrollPageUp(_:)):
+            send("\u{1b}[5~")
+        case #selector(scrollPageDown(_:)):
+            send("\u{1b}[6~")
         default:
             break
         }
@@ -185,6 +225,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendOutput(_ text: String) {
+        if !text.isEmpty {
+            scrollbackOffset = 0
+        }
         core.feed(text)
         for scalar in text.unicodeScalars {
             if consumeControl(scalar) {
@@ -211,9 +254,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func visibleText() -> String {
-        screen.cells.map { row in
+        visibleRowsForRendering(limit: screen.rows).map { row in
             String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
         }.joined(separator: "\n")
+    }
+
+    private func visibleRowsForRendering(limit: Int) -> [[TerminalScreenCell]] {
+        let allRows = scrollbackRows + screen.cells
+        guard !allRows.isEmpty else { return [] }
+        let visibleCount = max(1, limit)
+        let bottomStart = max(0, allRows.count - visibleCount)
+        let start = max(0, bottomStart - scrollbackOffset)
+        let end = min(allRows.count, start + visibleCount)
+        var rows = Array(allRows[start..<end])
+        if rows.count < visibleCount {
+            rows.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: screen.columns), count: visibleCount - rows.count))
+        }
+        return rows
     }
 
     private func terminalMetrics() -> TerminalMetrics {
@@ -234,16 +291,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 carriageReturnLineFeed()
             }
 
-            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width)
+            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)
             cursorColumn += width
         }
     }
 
     private func lineFeed() {
         if cursorRow == screen.rows - 1 {
-            screen.scrollUp()
+            appendScrollback(rows: screen.scrollUp())
         } else {
             cursorRow += 1
+        }
+    }
+
+    private func appendScrollback(rows: [[TerminalScreenCell]]) {
+        guard !isUsingAlternateScreen else { return }
+        scrollbackRows.append(contentsOf: rows)
+        let maxScrollbackRows = 1_000_000
+        if scrollbackRows.count > maxScrollbackRows {
+            scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
         }
     }
 
@@ -352,7 +418,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case "T":
             screen.scrollDown(count: parsed.value(at: 0, default: 1))
         case "m":
-            break
+            applySgr(parsed.values)
         case "s":
             savedCursorRow = cursorRow
             savedCursorColumn = cursorColumn
@@ -380,6 +446,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 } else {
                     leaveAlternateScreen()
                 }
+            case 2004:
+                bracketedPasteEnabled = enabled
             default:
                 break
             }
@@ -445,7 +513,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard isUsingAlternateScreen else { return }
         if let snapshot = normalScreenSnapshot {
             screen = snapshot
-            screen.resize(rows: lastSentSize.rows, columns: lastSentSize.columns)
+            cursorRow = screen.resize(rows: lastSentSize.rows, columns: lastSentSize.columns, anchorRow: cursorRow)
         } else {
             screen.clear()
         }
@@ -460,8 +528,65 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorRow = 0
         cursorColumn = 0
         cursorVisible = true
+        bracketedPasteEnabled = false
+        currentStyle = .default
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+    }
+
+    private func applySgr(_ values: [Int]) {
+        let codes = values.isEmpty ? [0] : values
+        var index = 0
+        while index < codes.count {
+            let code = codes[index]
+            switch code {
+            case 0:
+                currentStyle = .default
+            case 1:
+                currentStyle.bold = true
+            case 22:
+                currentStyle.bold = false
+            case 7:
+                currentStyle.inverse = true
+            case 27:
+                currentStyle.inverse = false
+            case 30...37:
+                currentStyle.foreground = TerminalTextStyle.ansiColor(code - 30, bright: currentStyle.bold)
+            case 39:
+                currentStyle.foreground = TerminalTextStyle.default.foreground
+            case 40...47:
+                currentStyle.background = TerminalTextStyle.ansiColor(code - 40, bright: false)
+            case 49:
+                currentStyle.background = TerminalTextStyle.default.background
+            case 90...97:
+                currentStyle.foreground = TerminalTextStyle.ansiColor(code - 90, bright: true)
+            case 100...107:
+                currentStyle.background = TerminalTextStyle.ansiColor(code - 100, bright: true)
+            case 38, 48:
+                let isForeground = code == 38
+                guard index + 1 < codes.count else { break }
+                if codes[index + 1] == 5, index + 2 < codes.count {
+                    let color = TerminalTextStyle.xterm256Color(codes[index + 2])
+                    if isForeground {
+                        currentStyle.foreground = color
+                    } else {
+                        currentStyle.background = color
+                    }
+                    index += 2
+                } else if codes[index + 1] == 2, index + 4 < codes.count {
+                    let color = TerminalTextStyle.rgb(red: codes[index + 2], green: codes[index + 3], blue: codes[index + 4])
+                    if isForeground {
+                        currentStyle.foreground = color
+                    } else {
+                        currentStyle.background = color
+                    }
+                    index += 4
+                }
+            default:
+                break
+            }
+            index += 1
+        }
     }
 }
 
@@ -487,6 +612,8 @@ private struct TerminalScreen {
     private(set) var rows: Int
     private(set) var columns: Int
     var cells: [[TerminalScreenCell]]
+    private var resizeHiddenRowsAbove: [[TerminalScreenCell]] = []
+    private var resizeHiddenRowsBelow: [[TerminalScreenCell]] = []
 
     init(rows: Int, columns: Int) {
         self.rows = max(1, rows)
@@ -494,23 +621,36 @@ private struct TerminalScreen {
         self.cells = Array(repeating: TerminalScreen.blankRow(columns: self.columns), count: self.rows)
     }
 
-    mutating func resize(rows newRows: Int, columns newColumns: Int) {
+    @discardableResult
+    mutating func resize(rows newRows: Int, columns newColumns: Int, anchorRow: Int? = nil) -> Int {
         let targetRows = max(1, newRows)
         let targetColumns = max(1, newColumns)
+        let oldRows = resizeHiddenRowsAbove + cells + resizeHiddenRowsBelow
+        let normalizedRows = oldRows.map { TerminalScreen.resize(row: $0, columns: targetColumns) }
+        let totalRows = max(1, normalizedRows.count)
+        let visibleStart = resizeHiddenRowsAbove.count
+        let clampedAnchor = min(max(0, anchorRow ?? rows - 1), max(0, rows - 1))
+        let anchorAbsoluteRow = min(totalRows - 1, visibleStart + clampedAnchor)
+        let preferredAnchorRow = min(clampedAnchor, targetRows - 1)
+        let maxStart = max(0, totalRows - targetRows)
+        let start = max(0, min(anchorAbsoluteRow - preferredAnchorRow, maxStart))
+        let end = min(totalRows, start + targetRows)
         var resized = Array(repeating: TerminalScreen.blankRow(columns: targetColumns), count: targetRows)
-        let rowOffset = max(0, rows - targetRows)
-        for row in 0..<min(rows, targetRows) {
-            let sourceRow = row + rowOffset
-            for column in 0..<min(columns, targetColumns) {
-                resized[row][column] = cells[sourceRow][column]
+        if !normalizedRows.isEmpty {
+            for targetRow in 0..<(end - start) {
+                resized[targetRow] = normalizedRows[start + targetRow]
             }
         }
+        resizeHiddenRowsAbove = start > 0 ? Array(normalizedRows[..<start]) : []
+        resizeHiddenRowsBelow = end < normalizedRows.count ? Array(normalizedRows[end...]) : []
         rows = targetRows
         columns = targetColumns
         cells = resized
+        return min(targetRows - 1, max(0, anchorAbsoluteRow - start))
     }
 
     mutating func clear() {
+        discardResizeHiddenRows()
         cells = Array(repeating: TerminalScreen.blankRow(columns: columns), count: rows)
     }
 
@@ -529,11 +669,12 @@ private struct TerminalScreen {
         }
     }
 
-    mutating func set(character: Character, row: Int, column: Int, width: Int) {
+    mutating func set(character: Character, row: Int, column: Int, width: Int, style: TerminalTextStyle = .default) {
+        discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        cells[row][column] = TerminalScreenCell(character: character, isContinuation: false)
+        cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style)
         if width == 2 && column + 1 < columns {
-            cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true)
+            cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
         }
         if column > 0 && cells[row][column - 1].isContinuation {
             cells[row][column - 1] = TerminalScreenCell()
@@ -543,19 +684,25 @@ private struct TerminalScreen {
         }
     }
 
-    mutating func scrollUp(count: Int = 1) {
+    @discardableResult
+    mutating func scrollUp(count: Int = 1) -> [[TerminalScreenCell]] {
+        discardResizeHiddenRows()
         let amount = min(max(1, count), rows)
+        let removed = Array(cells.prefix(amount))
         cells.removeFirst(amount)
         cells.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount))
+        return removed
     }
 
     mutating func scrollDown(count: Int = 1) {
+        discardResizeHiddenRows()
         let amount = min(max(1, count), rows)
         cells.removeLast(amount)
         cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount), at: 0)
     }
 
     mutating func insertLines(at row: Int, count: Int) {
+        discardResizeHiddenRows()
         guard rows > 0 else { return }
         let start = min(max(0, row), rows - 1)
         let amount = min(max(1, count), rows - start)
@@ -564,6 +711,7 @@ private struct TerminalScreen {
     }
 
     mutating func deleteLines(at row: Int, count: Int) {
+        discardResizeHiddenRows()
         guard rows > 0 else { return }
         let start = min(max(0, row), rows - 1)
         let amount = min(max(1, count), rows - start)
@@ -572,6 +720,7 @@ private struct TerminalScreen {
     }
 
     mutating func insertCharacters(row: Int, column: Int, count: Int) {
+        discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
@@ -581,6 +730,7 @@ private struct TerminalScreen {
     }
 
     mutating func deleteCharacters(row: Int, column: Int, count: Int) {
+        discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
@@ -589,14 +739,105 @@ private struct TerminalScreen {
         cells[row] = line
     }
 
-    private static func blankRow(columns: Int) -> [TerminalScreenCell] {
+    mutating func discardResizeHiddenRows() {
+        resizeHiddenRowsAbove.removeAll(keepingCapacity: true)
+        resizeHiddenRowsBelow.removeAll(keepingCapacity: true)
+    }
+
+    static func blankRow(columns: Int) -> [TerminalScreenCell] {
         Array(repeating: TerminalScreenCell(), count: columns)
+    }
+
+    private static func resize(row: [TerminalScreenCell], columns: Int) -> [TerminalScreenCell] {
+        if row.count == columns {
+            return row
+        }
+        if row.count > columns {
+            return Array(row.prefix(columns))
+        }
+        return row + Array(repeating: TerminalScreenCell(), count: columns - row.count)
     }
 }
 
 private struct TerminalScreenCell {
     var character: Character = " "
     var isContinuation = false
+    var style = TerminalTextStyle.default
+}
+
+private struct TerminalTextStyle: Equatable {
+    var foreground: SIMD4<Float>
+    var background: SIMD4<Float>
+    var bold = false
+    var inverse = false
+
+    static let `default` = TerminalTextStyle(
+        foreground: SIMD4<Float>(0.92, 0.92, 0.92, 1),
+        background: SIMD4<Float>(0, 0, 0, 1)
+    )
+
+    var effectiveForeground: SIMD4<Float> {
+        inverse ? background : (bold ? brighten(foreground) : foreground)
+    }
+
+    var effectiveBackground: SIMD4<Float> {
+        inverse ? foreground : background
+    }
+
+    static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
+        let normal: [SIMD3<Float>] = [
+            SIMD3<Float>(0.00, 0.00, 0.00),
+            SIMD3<Float>(0.80, 0.12, 0.12),
+            SIMD3<Float>(0.35, 0.70, 0.25),
+            SIMD3<Float>(0.78, 0.64, 0.20),
+            SIMD3<Float>(0.25, 0.45, 0.85),
+            SIMD3<Float>(0.70, 0.35, 0.80),
+            SIMD3<Float>(0.25, 0.70, 0.75),
+            SIMD3<Float>(0.86, 0.86, 0.86),
+        ]
+        let brightColors: [SIMD3<Float>] = [
+            SIMD3<Float>(0.40, 0.40, 0.40),
+            SIMD3<Float>(1.00, 0.30, 0.30),
+            SIMD3<Float>(0.55, 0.95, 0.45),
+            SIMD3<Float>(1.00, 0.85, 0.35),
+            SIMD3<Float>(0.45, 0.65, 1.00),
+            SIMD3<Float>(0.95, 0.55, 1.00),
+            SIMD3<Float>(0.45, 0.95, 1.00),
+            SIMD3<Float>(1.00, 1.00, 1.00),
+        ]
+        let color = (bright ? brightColors : normal)[max(0, min(index, 7))]
+        return SIMD4<Float>(color.x, color.y, color.z, 1)
+    }
+
+    static func rgb(red: Int, green: Int, blue: Int) -> SIMD4<Float> {
+        SIMD4<Float>(
+            Float(max(0, min(red, 255))) / 255,
+            Float(max(0, min(green, 255))) / 255,
+            Float(max(0, min(blue, 255))) / 255,
+            1
+        )
+    }
+
+    static func xterm256Color(_ value: Int) -> SIMD4<Float> {
+        let index = max(0, min(value, 255))
+        if index < 16 {
+            return ansiColor(index % 8, bright: index >= 8)
+        }
+        if index < 232 {
+            let cube = index - 16
+            let r = cube / 36
+            let g = (cube / 6) % 6
+            let b = cube % 6
+            func component(_ v: Int) -> Int { v == 0 ? 0 : 55 + v * 40 }
+            return rgb(red: component(r), green: component(g), blue: component(b))
+        }
+        let gray = 8 + (index - 232) * 10
+        return rgb(red: gray, green: gray, blue: gray)
+    }
+
+    private func brighten(_ color: SIMD4<Float>) -> SIMD4<Float> {
+        SIMD4<Float>(min(color.x * 1.15, 1), min(color.y * 1.15, 1), min(color.z * 1.15, 1), color.w)
+    }
 }
 
 private struct CsiParameters {

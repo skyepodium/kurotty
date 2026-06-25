@@ -37,6 +37,25 @@ test "parser keeps incomplete CSI until final byte arrives" {
     try std.testing.expectEqualStrings("!", second[1].printable.bytes);
 }
 
+test "parser parses private modes, 256 color, RGB SGR, and OSC strings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const events = try parser.feed("\x1b[?25l\x1b[38;5;196;48;2;1;2;3mred\x1b]0;kurotty\x07");
+
+    try std.testing.expectEqual(@as(usize, 4), events.len);
+    try std.testing.expect(events[0].csi.private);
+    try std.testing.expectEqual(@as(u8, 'l'), events[0].csi.final);
+    try std.testing.expectEqual(@as(u16, 25), events[0].csi.params[0]);
+    try std.testing.expectEqual(@as(u8, 'm'), events[1].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{ 38, 5, 196, 48, 2, 1, 2, 3 }, events[1].csi.params);
+    try std.testing.expectEqualStrings("red", events[2].printable.bytes);
+    try std.testing.expectEqualStrings("0;kurotty", events[3].osc.bytes);
+}
+
 test "grid applies printable text, cursor movement, and erase in display" {
     var grid = try core.Grid.init(std.testing.allocator, 4, 3);
     defer grid.deinit();

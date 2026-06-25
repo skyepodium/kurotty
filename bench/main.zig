@@ -9,10 +9,7 @@ pub fn main() !void {
     var parser = core.Parser.init(allocator);
     defer parser.deinit();
     const events = try parser.feed("hello\x1b[31mred\x1b[0m\n");
-    defer {
-        parser.freeEvents(events);
-        allocator.free(events);
-    }
+    defer parser.freeEvents(events);
 
     var grid = try core.Grid.init(allocator, 120, 40);
     defer grid.deinit();

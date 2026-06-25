@@ -44,10 +44,7 @@ export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: u
     const ptr = terminal orelse return 0;
     const input = bytes[0..len];
     const events = ptr.parser.feed(input) catch return 0;
-    defer {
-        ptr.parser.freeEvents(events);
-        ptr.allocator.free(events);
-    }
+    defer ptr.parser.freeEvents(events);
 
     var printable_bytes: usize = 0;
     for (events) |event| {
@@ -65,6 +62,7 @@ export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: u
             .csi => |csi| {
                 applyCsi(ptr, csi);
             },
+            .osc => {},
         }
     }
     return printable_bytes;

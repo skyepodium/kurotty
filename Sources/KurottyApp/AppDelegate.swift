@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesController: PreferencesWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installApplicationIcon()
         MainMenu.install(target: self)
         openNewWindow()
         NSApp.activate(ignoringOtherApps: true)
@@ -37,5 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func splitHorizontally() {
         windowController?.splitHorizontally()
+    }
+
+    private func installApplicationIcon() {
+        guard let url = Bundle.module.url(forResource: "kurotty", withExtension: "png"),
+              let image = NSImage(contentsOf: url)
+        else {
+            return
+        }
+        NSApp.applicationIconImage = image
     }
 }
