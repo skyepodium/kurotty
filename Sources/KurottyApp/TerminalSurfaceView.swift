@@ -12,6 +12,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var csiBuffer = ""
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+    private var protectedColumnsByRow: [Int: Int] = [:]
     private let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
     private let padding = NSEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
 
@@ -92,6 +93,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cells: cells,
             cursorColumn: cursorColumn % columns,
             cursorRow: min(maxLines - 1, cursorDisplayRow),
+            markedText: markedText.string,
             columns: columns,
             visibleRows: maxLines,
             cellSize: CGSize(width: max(8, "W".size(withAttributes: [.font: font]).width), height: lineHeight),
@@ -128,11 +130,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
+        updateMetalFrame()
     }
 
     func unmarkText() {
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+        updateMetalFrame()
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
@@ -164,7 +168,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             case 13:
                 cursorColumn = 0
             case 127, 8:
-                if cursorColumn > 0 {
+                if cursorColumn > protectedColumnsByRow[cursorRow, default: 0] {
                     cursorColumn -= 1
                     if cursorColumn < rows[cursorRow].count {
                         rows[cursorRow].remove(at: cursorColumn)
@@ -308,6 +312,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorColumn = max(0, cursorColumn - max(1, numbers.first ?? 1))
         case "P":
             deleteCharacters(count: max(1, numbers.first ?? 1))
+        case "h":
+            if params.contains("?2004") {
+                protectedColumnsByRow[cursorRow] = max(protectedColumnsByRow[cursorRow, default: 0], cursorColumn)
+            }
         default:
             break
         }
@@ -324,19 +332,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func eraseInLine(mode: Int) {
         ensureCursorRow()
+        let protectedColumn = protectedColumnsByRow[cursorRow, default: 0]
         switch mode {
         case 0:
             if cursorColumn < rows[cursorRow].count {
                 rows[cursorRow].removeSubrange(cursorColumn..<rows[cursorRow].count)
             }
         case 1:
-            let end = min(cursorColumn, rows[cursorRow].count)
+            let end = min(max(cursorColumn, protectedColumn), rows[cursorRow].count)
             if end > 0 {
-                rows[cursorRow].replaceSubrange(0..<end, with: Array(repeating: Character(" "), count: end))
+                rows[cursorRow].replaceSubrange(protectedColumn..<end, with: Array(repeating: Character(" "), count: max(0, end - protectedColumn)))
             }
         case 2:
-            rows[cursorRow].removeAll(keepingCapacity: true)
-            cursorColumn = 0
+            if protectedColumn < rows[cursorRow].count {
+                rows[cursorRow].removeSubrange(protectedColumn..<rows[cursorRow].count)
+            }
+            cursorColumn = protectedColumn
         default:
             break
         }
@@ -366,9 +377,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func deleteCharacters(count: Int) {
         ensureCursorRow()
-        guard cursorColumn < rows[cursorRow].count else { return }
-        let end = min(rows[cursorRow].count, cursorColumn + count)
-        rows[cursorRow].removeSubrange(cursorColumn..<end)
+        let protectedColumn = protectedColumnsByRow[cursorRow, default: 0]
+        let start = max(cursorColumn, protectedColumn)
+        guard start < rows[cursorRow].count else { return }
+        let end = min(rows[cursorRow].count, start + count)
+        rows[cursorRow].removeSubrange(start..<end)
     }
 }
 

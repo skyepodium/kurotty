@@ -13,6 +13,7 @@ struct TerminalFrame {
     let cells: [TerminalCell]
     let cursorColumn: Int
     let cursorRow: Int
+    let markedText: String
     let columns: Int
     let visibleRows: Int
     let cellSize: CGSize
@@ -25,7 +26,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var vertexBuffer: MTLBuffer?
     private var texture: MTLTexture?
     private let font: NSFont
-    private var terminalFrame = TerminalFrame(cells: [], cursorColumn: 0, cursorRow: 0, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], cursorColumn: 0, cursorRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     init(font: NSFont) {
         self.font = font
@@ -151,6 +152,22 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 row.append(cell.character)
             }
             rows[cell.row] = String(row)
+        }
+        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 && terminalFrame.cursorRow < rows.count {
+            var row = Array(rows[terminalFrame.cursorRow])
+            var column = terminalFrame.cursorColumn
+            for character in terminalFrame.markedText {
+                while row.count < column {
+                    row.append(" ")
+                }
+                if column < row.count {
+                    row[column] = character
+                } else {
+                    row.append(character)
+                }
+                column += 1
+            }
+            rows[terminalFrame.cursorRow] = String(row)
         }
         for (rowIndex, text) in rows.enumerated() where !text.isEmpty {
             let rect = NSRect(
