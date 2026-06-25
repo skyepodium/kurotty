@@ -473,13 +473,45 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func rasterizeGlyph(_ character: Character, x: Int, y: Int) -> RasterizedGlyph {
         var slot = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight * 4)
-        let logicalWidth = terminalFrame.cellSize.width * CGFloat(max(1, character.terminalColumnWidth))
+        let columnWidth = max(1, character.terminalColumnWidth)
+        let logicalAdvanceWidth = terminalFrame.cellSize.width * CGFloat(columnWidth)
         let logicalHeight = terminalFrame.cellSize.height
-        let scale = atlasScale(forLogicalWidth: logicalWidth, logicalHeight: logicalHeight)
-        let pixelWidth = min(glyphSlotWidth, max(1, Int(ceil(logicalWidth * scale))))
-        let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(logicalHeight * scale))))
+        let scale = atlasScale(forLogicalWidth: logicalAdvanceWidth, logicalHeight: logicalHeight)
+        let scaledFont = NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
+        let string = NSAttributedString(
+            string: String(character),
+            attributes: [
+                .font: scaledFont,
+                .foregroundColor: NSColor.white,
+            ]
+        )
+        let line = CTLineCreateWithAttributedString(string)
+        var typographicAscent: CGFloat = 0
+        var typographicDescent: CGFloat = 0
+        var typographicLeading: CGFloat = 0
+        let typographicWidth = max(
+            1,
+            CGFloat(CTLineGetTypographicBounds(line, &typographicAscent, &typographicDescent, &typographicLeading))
+        )
+        let imageBounds = CTLineGetImageBounds(line, nil)
+        let paddingPixels = Int(DesignTokens.Component.glyphSlotPaddingPX)
+        guard !imageBounds.isNull, imageBounds.width > 0, imageBounds.height > 0 else {
+            return RasterizedGlyph(drawOffset: .zero, drawSize: .zero)
+        }
+
+        let pixelWidth = min(glyphSlotWidth, max(1, Int(ceil(imageBounds.width)) + paddingPixels * 2))
+        let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(imageBounds.height)) + paddingPixels * 2))
+        let imageLogicalWidth = imageBounds.width / scale
+        let desiredInkLeft = columnWidth > 1 ? max(0, (logicalAdvanceWidth - imageLogicalWidth) * 0.5) : imageBounds.minX / scale
+        let scaledLogicalHeight = logicalHeight * scale
+        let typographicHeight = typographicAscent + typographicDescent
+        let verticalInset = max(0, (scaledLogicalHeight - typographicHeight) * 0.5)
+        let desiredInkBottom = (verticalInset + typographicDescent + imageBounds.minY) / scale
         let result = RasterizedGlyph(
-            drawOffset: .zero,
+            drawOffset: SIMD2<Float>(
+                Float(desiredInkLeft - CGFloat(paddingPixels) / scale),
+                Float(desiredInkBottom - CGFloat(paddingPixels) / scale)
+            ),
             drawSize: SIMD2<Float>(Float(CGFloat(pixelWidth) / scale), Float(CGFloat(pixelHeight) / scale))
         )
         guard let context = CGContext(
@@ -502,24 +534,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         context.interpolationQuality = .high
         context.textMatrix = .identity
 
-        let scaledFont = NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
-        let string = NSAttributedString(
-            string: String(character),
-            attributes: [
-                .font: scaledFont,
-                .foregroundColor: NSColor.white,
-            ]
-        )
-        let line = CTLineCreateWithAttributedString(string)
-        let contentHeight = font.ascender - font.descender
-        let topInset = max(0, (logicalHeight - contentHeight) * 0.5)
-        let baselineFromBottom = ceil((logicalHeight - topInset + font.descender) * scale)
-        let glyphWidth = max(1, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-        let availableWidth = max(1, logicalWidth * scale)
-        let horizontalScale = min(1, availableWidth / glyphWidth)
+        let baselineX = CGFloat(paddingPixels) - imageBounds.minX
+        let baselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY
+        let availableWidth = max(1, logicalAdvanceWidth * scale)
+        let horizontalScale = min(1, availableWidth / typographicWidth)
         context.saveGState()
+        context.translateBy(x: baselineX, y: baselineY)
         context.scaleBy(x: horizontalScale, y: 1)
-        context.textPosition = CGPoint(x: 0, y: baselineFromBottom)
+        context.textPosition = .zero
         CTLineDraw(line, context)
         context.restoreGState()
 
