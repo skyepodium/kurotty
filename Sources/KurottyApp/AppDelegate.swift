@@ -29,15 +29,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newTab() {
-        windowController?.newTab()
+        activeTerminalWindowController?.newTab()
     }
 
     @objc func splitVertically() {
-        windowController?.splitVertically()
+        activeTerminalWindowController?.splitVertically()
     }
 
     @objc func splitHorizontally() {
-        windowController?.splitHorizontally()
+        activeTerminalWindowController?.splitHorizontally()
+    }
+
+    private var activeTerminalWindowController: TerminalWindowController? {
+        if let controller = NSApp.keyWindow?.windowController as? TerminalWindowController {
+            return controller
+        }
+        if let controller = NSApp.mainWindow?.windowController as? TerminalWindowController {
+            return controller
+        }
+        return windowController
     }
 
     private func installApplicationIcon() {

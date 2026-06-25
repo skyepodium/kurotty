@@ -14,6 +14,13 @@ enum MainMenu {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
+        let settingsMenuItem = NSMenuItem()
+        settingsMenuItem.title = "Settings"
+        let settingsMenu = NSMenu(title: "Settings")
+        settingsMenu.addItem(NSMenuItem(title: "Open JSON Preferences...", action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
+        settingsMenuItem.submenu = settingsMenu
+        mainMenu.addItem(settingsMenuItem)
+
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(AppDelegate.openNewWindow), keyEquivalent: "n"))

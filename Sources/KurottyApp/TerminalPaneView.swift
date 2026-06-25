@@ -3,6 +3,18 @@ import AppKit
 final class TerminalPaneView: NSView {
     private let terminalSurfaceView = TerminalSurfaceView()
 
+    var ownsFirstResponder: Bool {
+        guard let firstResponder = window?.firstResponder else {
+            return false
+        }
+        guard let firstResponderView = firstResponder as? NSView else {
+            return firstResponder === terminalSurfaceView
+        }
+        return firstResponderView === self
+            || firstResponderView === terminalSurfaceView
+            || firstResponderView.isDescendant(of: self)
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -26,6 +38,10 @@ final class TerminalPaneView: NSView {
     }
 
     override func viewDidMoveToWindow() {
+        window?.makeFirstResponder(terminalSurfaceView)
+    }
+
+    func focusTerminal() {
         window?.makeFirstResponder(terminalSurfaceView)
     }
 }

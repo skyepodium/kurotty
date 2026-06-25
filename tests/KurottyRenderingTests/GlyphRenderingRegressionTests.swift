@@ -181,6 +181,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("dirtyRects: damage.rects"))
         XCTAssertTrue(surfaceSource.contains("isFullDamage: damage.isFull"))
     }
+
+    func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
+        let shellSource = try shellSessionSource()
+
+        XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
+        XCTAssertFalse(shellSource.contains("AppConstants.Shell.defaultWorkingDirectory"))
+        XCTAssertFalse(shellSource.contains("strdup(\"-f\")"))
+        XCTAssertTrue(shellSource.contains("setenv(\"ZDOTDIR\""))
+        XCTAssertTrue(shellSource.contains("alias ll="))
+        XCTAssertTrue(shellSource.contains("autoload -Uz compinit"))
+        XCTAssertTrue(shellSource.contains("compinit -d"))
+        XCTAssertTrue(shellSource.contains("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD"))
+        XCTAssertTrue(shellSource.contains("ZSH_DISABLE_COMPFIX"))
+    }
 }
 
 private struct TestGlyphVertex {
@@ -360,5 +374,11 @@ private func terminalMetalViewSource() throws -> String {
 private func terminalSurfaceViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func shellSessionSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/ShellSession.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }

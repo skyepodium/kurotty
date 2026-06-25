@@ -29,6 +29,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var inputOverlayColumn = 0
     private var inputOverlayRow = 0
     private var pendingOverlayEcho = ""
+    private var selectionAnchor: TerminalCellPosition?
+    private var selectionFocus: TerminalCellPosition?
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
@@ -104,6 +106,26 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        selectionAnchor = cellPosition(for: event)
+        selectionFocus = nil
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let anchor = selectionAnchor else { return }
+        let focus = cellPosition(for: event)
+        selectionFocus = focus == anchor ? nil : focus
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let anchor = selectionAnchor else { return }
+        let focus = cellPosition(for: event)
+        selectionFocus = focus == anchor ? nil : focus
+        markFullDamage()
+        updateMetalFrame()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -123,6 +145,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func keyDown(with event: NSEvent) {
         core.recordKeyEvent()
         if handleCommandKey(event) {
+            return
+        }
+        if handleTerminalControlKey(event) {
             return
         }
         interpretKeyEvents([event])
@@ -153,8 +178,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @objc func copy(_ sender: Any?) {
+        let text = selectedText() ?? visibleText()
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(visibleText(), forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @objc func cut(_ sender: Any?) {
@@ -182,6 +208,21 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             return false
         }
+    }
+
+    private func handleTerminalControlKey(_ event: NSEvent) -> Bool {
+        if let controlText = terminalControlText(for: event) {
+            send(controlText)
+            return true
+        }
+
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+              event.charactersIgnoringModifiers == "\t"
+        else {
+            return false
+        }
+        send("\t")
+        return true
     }
 
     @objc private func settingsDidChange(_ notification: Notification) {
@@ -219,12 +260,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         var decorations: [TerminalDecoration] = []
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / 2)
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
+        let selectedCells = selectedCellSet()
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
                 guard !cell.isContinuation else { continue }
-                if cell.style.background != terminalDefaultStyle.background {
+                let position = TerminalCellPosition(row: row, column: column)
+                let isSelected = selectedCells.contains(position)
+                if isSelected {
+                    backgrounds.append(TerminalBackground(column: column, row: row, color: TerminalSelectionStyle.backgroundColor))
+                } else if cell.style.effectiveBackground != terminalDefaultStyle.background {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
                 }
                 if cell.style.underline {
@@ -250,7 +296,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         character: cell.character,
                         column: column,
                         row: row,
-                        foreground: cell.style.effectiveForeground,
+                        foreground: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
                         background: cell.style.effectiveBackground
                     ))
                 }
@@ -287,6 +333,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         switch selector {
         case #selector(insertNewline(_:)):
             send("\r")
+        case #selector(insertTab(_:)):
+            send("\t")
         case #selector(deleteBackward(_:)):
             send("\u{7f}")
         case #selector(deleteForward(_:)):
@@ -346,6 +394,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func send(_ text: String) {
+        clearSelection()
         shell.write(text)
     }
 
@@ -410,6 +459,65 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         visibleRowsForRendering(limit: screen.rows).map { row in
             String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
         }.joined(separator: "\n")
+    }
+
+    private func selectedText() -> String? {
+        guard let range = normalizedSelectionRange() else { return nil }
+        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
+        guard !rows.isEmpty else { return nil }
+
+        var selectedLines: [String] = []
+        for rowIndex in range.start.row...range.end.row where rows.indices.contains(rowIndex) {
+            let row = rows[rowIndex]
+            let startColumn = rowIndex == range.start.row ? range.start.column : 0
+            let endColumn = rowIndex == range.end.row ? range.end.column : min(row.count - 1, screen.columns - 1)
+            guard startColumn <= endColumn, startColumn < row.count else {
+                selectedLines.append("")
+                continue
+            }
+            let cells = row[startColumn...min(endColumn, row.count - 1)]
+            selectedLines.append(String(cells.map(\.character)).trimmingCharacters(in: .whitespaces))
+        }
+        return selectedLines.joined(separator: "\n")
+    }
+
+    private func selectedCellSet() -> Set<TerminalCellPosition> {
+        guard let range = normalizedSelectionRange() else { return [] }
+        var cells = Set<TerminalCellPosition>()
+        for row in range.start.row...range.end.row {
+            let startColumn = row == range.start.row ? range.start.column : 0
+            let endColumn = row == range.end.row ? range.end.column : screen.columns - 1
+            guard startColumn <= endColumn else { continue }
+            for column in startColumn...endColumn {
+                cells.insert(TerminalCellPosition(row: row, column: column))
+            }
+        }
+        return cells
+    }
+
+    private func normalizedSelectionRange() -> TerminalSelectionRange? {
+        guard let anchor = selectionAnchor, let focus = selectionFocus, anchor != focus else { return nil }
+        if anchor < focus {
+            return TerminalSelectionRange(start: anchor, end: focus)
+        }
+        return TerminalSelectionRange(start: focus, end: anchor)
+    }
+
+    private func cellPosition(for event: NSEvent) -> TerminalCellPosition {
+        let metrics = terminalMetrics()
+        let location = convert(event.locationInWindow, from: nil)
+        let rawColumn = Int(floor((location.x - padding.left) / metrics.cellSize.width))
+        let rawRow = Int(floor((bounds.height - location.y - padding.top) / metrics.cellSize.height))
+        let column = max(0, min(metrics.size.columns - 1, rawColumn))
+        let row = max(0, min(metrics.size.rows - 1, rawRow))
+        return TerminalCellPosition(row: row, column: column)
+    }
+
+    private func clearSelection() {
+        guard selectionAnchor != nil || selectionFocus != nil else { return }
+        selectionAnchor = nil
+        selectionFocus = nil
+        markFullDamage()
     }
 
     private func visibleRowsForRendering(limit: Int) -> [[TerminalScreenCell]] {
@@ -896,6 +1004,41 @@ private enum StreamState {
     case oscEscape
 }
 
+private func terminalControlText(for event: NSEvent) -> String? {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.control), !flags.contains(.command), !flags.contains(.option) else {
+        return nil
+    }
+    guard let character = event.charactersIgnoringModifiers?.unicodeScalars.first else {
+        return nil
+    }
+
+    switch character.value {
+    case 0x00...0x1f, 0x7f:
+        return String(character)
+    case 0x40, 0x20:
+        return "\u{0}"
+    case 0x41...0x5a:
+        return String(UnicodeScalar(character.value - 0x40)!)
+    case 0x61...0x7a:
+        return String(UnicodeScalar(character.value - 0x60)!)
+    case 0x5b:
+        return "\u{1b}"
+    case 0x5c:
+        return "\u{1c}"
+    case 0x5d:
+        return "\u{1d}"
+    case 0x5e:
+        return "\u{1e}"
+    case 0x5f:
+        return "\u{1f}"
+    case 0x3f:
+        return "\u{7f}"
+    default:
+        return nil
+    }
+}
+
 private struct TerminalSize: Equatable {
     let columns: Int
     let rows: Int
@@ -904,6 +1047,25 @@ private struct TerminalSize: Equatable {
 private struct TerminalMetrics {
     let size: TerminalSize
     let cellSize: CGSize
+}
+
+private struct TerminalCellPosition: Hashable, Comparable {
+    let row: Int
+    let column: Int
+
+    static func < (lhs: TerminalCellPosition, rhs: TerminalCellPosition) -> Bool {
+        lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
+    }
+}
+
+private struct TerminalSelectionRange {
+    let start: TerminalCellPosition
+    let end: TerminalCellPosition
+}
+
+private enum TerminalSelectionStyle {
+    static let backgroundColor = SIMD4<Float>(0.22, 0.48, 0.82, 1)
+    static let foregroundColor = SIMD4<Float>(1, 1, 1, 1)
 }
 
 private struct TerminalFrameDamage {
@@ -1141,12 +1303,13 @@ private struct CsiParameters {
     let values: [Int]
 
     init(_ raw: String) {
-        isPrivate = raw.hasPrefix("?")
-        values = raw
-            .split(separator: ";", omittingEmptySubsequences: false)
+        let privatePrefixes = CharacterSet(charactersIn: "<=>?")
+        let trimmed = raw.trimmingCharacters(in: privatePrefixes)
+        isPrivate = raw.first.map { privatePrefixes.contains($0.unicodeScalars.first!) } ?? false
+        values = trimmed
+            .split(whereSeparator: { $0 == ";" || $0 == ":" })
             .map { part in
-                let digits = part.filter(\.isNumber)
-                return digits.isEmpty ? 0 : Int(digits) ?? 0
+                Int(part.filter(\.isNumber)) ?? 0
             }
     }
 
