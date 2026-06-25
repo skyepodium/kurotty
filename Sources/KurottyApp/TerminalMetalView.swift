@@ -454,7 +454,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         let rasterized = rasterizeGlyph(character, x: x, y: y)
-        let scale = atlasScale
+        let scale = atlasScale(forLogicalWidth: CGFloat(rasterized.drawSize.x), logicalHeight: CGFloat(rasterized.drawSize.y))
         let drawWidthPixels = min(glyphSlotWidth, max(1, Int(ceil(CGFloat(rasterized.drawSize.x) * scale))))
         let drawHeightPixels = min(glyphSlotHeight, max(1, Int(ceil(CGFloat(rasterized.drawSize.y) * scale))))
         uploadAtlas(region: MTLRegionMake2D(x, y, glyphSlotWidth, glyphSlotHeight))
@@ -473,9 +473,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func rasterizeGlyph(_ character: Character, x: Int, y: Int) -> RasterizedGlyph {
         var slot = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight * 4)
-        let scale = atlasScale
         let logicalWidth = terminalFrame.cellSize.width * CGFloat(max(1, character.terminalColumnWidth))
         let logicalHeight = terminalFrame.cellSize.height
+        let scale = atlasScale(forLogicalWidth: logicalWidth, logicalHeight: logicalHeight)
         let pixelWidth = min(glyphSlotWidth, max(1, Int(ceil(logicalWidth * scale))))
         let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(logicalHeight * scale))))
         let result = RasterizedGlyph(
@@ -544,8 +544,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         uploadAtlas()
     }
 
-    private var atlasScale: CGFloat {
-        max(backingScale, DesignTokens.Component.glyphAtlasMinimumScale)
+    private func atlasScale(forLogicalWidth logicalWidth: CGFloat, logicalHeight: CGFloat) -> CGFloat {
+        let preferredScale = max(backingScale, DesignTokens.Component.glyphAtlasMinimumScale)
+        let usableSlotWidth = max(1, CGFloat(glyphSlotWidth) - DesignTokens.Component.glyphSlotPaddingPX * 2)
+        let usableSlotHeight = max(1, CGFloat(glyphSlotHeight) - DesignTokens.Component.glyphSlotPaddingPX * 2)
+        let widthLimitedScale = usableSlotWidth / max(1, logicalWidth)
+        let heightLimitedScale = usableSlotHeight / max(1, logicalHeight)
+        return max(backingScale, min(preferredScale, widthLimitedScale, heightLimitedScale))
     }
 
     private var backingScale: CGFloat {
