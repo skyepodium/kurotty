@@ -349,7 +349,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             }
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = terminalFrame.cursorColumn
+            var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
             for character in terminalFrame.markedText {
                 appendGlyphInstance(character: character, column: column, row: terminalFrame.cursorRow, into: &instances)
                 column += character.terminalColumnWidth
@@ -622,7 +622,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = terminalFrame.cursorColumn
+            var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
             for character in terminalFrame.markedText {
                 (String(character) as NSString).draw(in: cellRect(column: column, row: terminalFrame.cursorRow, width: character.terminalColumnWidth), withAttributes: attrs)
                 column += character.terminalColumnWidth
@@ -647,6 +647,12 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             width: terminalFrame.cellSize.width * CGFloat(max(1, width)),
             height: terminalFrame.cellSize.height
         )
+    }
+
+    private func terminalColumnWidth(of text: String) -> Int {
+        text.reduce(0) { width, character in
+            width + character.terminalColumnWidth
+        }
     }
 
     private static func makePipeline(device: MTLDevice?) -> MTLRenderPipelineState? {
