@@ -77,6 +77,90 @@ test "parser parses private modes, 256 color, RGB SGR, and OSC strings" {
     try std.testing.expectEqualStrings("0;kurotty", events[3].osc.bytes);
 }
 
+test "parser handles SGR reset variants and colon color parameters" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const events = try parser.feed("\x1b[m\x1b[0;39;49;22;23;24;25;27;28;29m\x1b[38:2::1:2:3m");
+
+    try std.testing.expectEqual(@as(usize, 3), events.len);
+    try std.testing.expectEqualSlices(u16, &.{0}, events[0].csi.params);
+    try std.testing.expectEqualSlices(u16, &.{ 0, 39, 49, 22, 23, 24, 25, 27, 28, 29 }, events[1].csi.params);
+    try std.testing.expectEqualSlices(u16, &.{ 38, 2, 0, 1, 2, 3 }, events[2].csi.params);
+}
+
+test "parser preserves private cursor and report CSI sequences across fragments" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("\x1b[?2004");
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+
+    const second = try parser.feed("h\x1b[>0");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expect(second[0].csi.private);
+    try std.testing.expectEqual(@as(u8, 'h'), second[0].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{2004}, second[0].csi.params);
+
+    const third = try parser.feed("c\x1b[6n\x1b[?6n");
+    try std.testing.expectEqual(@as(usize, 3), third.len);
+    try std.testing.expect(third[0].csi.private);
+    try std.testing.expectEqual(@as(u8, 'c'), third[0].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{0}, third[0].csi.params);
+    try std.testing.expect(!third[1].csi.private);
+    try std.testing.expectEqual(@as(u8, 'n'), third[1].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{6}, third[1].csi.params);
+    try std.testing.expect(third[2].csi.private);
+    try std.testing.expectEqual(@as(u8, 'n'), third[2].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{6}, third[2].csi.params);
+}
+
+test "parser suppresses fragmented DCS PM and APC payloads until terminators" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("a\x1bP1$r");
+    try std.testing.expectEqual(@as(usize, 1), first.len);
+    try std.testing.expectEqualStrings("a", first[0].printable.bytes);
+
+    const second = try parser.feed("q\x1b\\b\x1b^pm");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("b", second[0].printable.bytes);
+
+    const third = try parser.feed("-ignored\x07c\x1b_apc");
+    try std.testing.expectEqual(@as(usize, 1), third.len);
+    try std.testing.expectEqualStrings("c", third[0].printable.bytes);
+
+    const fourth = try parser.feed("-ignored\x1b\\d");
+    try std.testing.expectEqual(@as(usize, 1), fourth.len);
+    try std.testing.expectEqualStrings("d", fourth[0].printable.bytes);
+}
+
+test "parser keeps OSC open when ESC is not a string terminator" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("\x1b]0;title\x1bX");
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+
+    const second = try parser.feed("-suffix\x07done");
+    try std.testing.expectEqual(@as(usize, 2), second.len);
+    try std.testing.expectEqualStrings("0;title\x1bX-suffix", second[0].osc.bytes);
+    try std.testing.expectEqualStrings("done", second[1].printable.bytes);
+}
+
 test "grid applies printable text, cursor movement, and erase in display" {
     var grid = try core.Grid.init(std.testing.allocator, 4, 3);
     defer grid.deinit();

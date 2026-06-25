@@ -90,9 +90,13 @@ pub const Parser = struct {
                 .osc_escape => {
                     if (byte == '\\') {
                         try self.appendOsc(&events);
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    } else {
+                        try self.string.append(self.allocator, 0x1b);
+                        try self.string.append(self.allocator, byte);
+                        self.state = .osc;
                     }
-                    self.string.clearRetainingCapacity();
-                    self.state = .normal;
                 },
                 .string_control => switch (byte) {
                     0x07 => {
@@ -100,11 +104,15 @@ pub const Parser = struct {
                         self.state = .normal;
                     },
                     0x1b => self.state = .string_escape,
-                    else => try self.string.append(self.allocator, byte),
+                    else => {},
                 },
                 .string_escape => {
-                    self.string.clearRetainingCapacity();
-                    self.state = .normal;
+                    if (byte == '\\') {
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    } else {
+                        self.state = .string_control;
+                    }
                 },
             }
         }
@@ -135,17 +143,18 @@ pub const Parser = struct {
 
     fn appendCsi(self: *Parser, events: *std.ArrayList(Event), final: u8) !void {
         const raw = self.control.items;
-        const private = raw.len > 0 and raw[0] == '?';
-        const params_raw = if (private) raw[1..] else raw;
+        const private_prefix_len = privatePrefixLen(raw);
+        const private = private_prefix_len > 0;
+        const params_raw = raw[private_prefix_len..];
         var params: std.ArrayList(u16) = .empty;
         errdefer params.deinit(self.allocator);
 
         if (params_raw.len == 0) {
             try params.append(self.allocator, 0);
         } else {
-            var it = std.mem.splitScalar(u8, params_raw, ';');
+            var it = std.mem.splitAny(u8, params_raw, ";:");
             while (it.next()) |part| {
-                const digits = trimParameterPrefix(part);
+                const digits = parameterDigits(part);
                 if (digits.len == 0) {
                     try params.append(self.allocator, 0);
                 } else {
@@ -181,8 +190,16 @@ fn isCsiFinal(byte: u8) bool {
     return byte >= 0x40 and byte <= 0x7e;
 }
 
-fn trimParameterPrefix(part: []const u8) []const u8 {
+fn privatePrefixLen(raw: []const u8) usize {
+    var len: usize = 0;
+    while (len < raw.len and raw[len] >= 0x3c and raw[len] <= 0x3f) : (len += 1) {}
+    return len;
+}
+
+fn parameterDigits(part: []const u8) []const u8 {
     var start: usize = 0;
     while (start < part.len and !std.ascii.isDigit(part[start])) : (start += 1) {}
-    return part[start..];
+    var end = start;
+    while (end < part.len and std.ascii.isDigit(part[end])) : (end += 1) {}
+    return part[start..end];
 }

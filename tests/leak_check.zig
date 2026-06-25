@@ -79,6 +79,22 @@ fn exerciseParserIncompleteSequences(allocator: std.mem.Allocator) !void {
     events = try parser.feed("h\x1b[?1049l");
     try expectEqual(@as(usize, 2), events.len);
     parser.freeEvents(events);
+
+    events = try parser.feed("\x1bP1$rq\x1b\\\x1b^pm");
+    try expectEqual(@as(usize, 0), events.len);
+    parser.freeEvents(events);
+
+    events = try parser.feed("-ignored\x07\x1b_apc");
+    try expectEqual(@as(usize, 0), events.len);
+    parser.freeEvents(events);
+
+    events = try parser.feed("-ignored\x1b\\\x1b]0;title\x1bX");
+    try expectEqual(@as(usize, 0), events.len);
+    parser.freeEvents(events);
+
+    events = try parser.feed("-suffix\x07");
+    try expectEqual(@as(usize, 1), events.len);
+    parser.freeEvents(events);
 }
 
 fn exerciseCoreAllocatorPaths(allocator: std.mem.Allocator) !void {

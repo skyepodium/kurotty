@@ -2,7 +2,7 @@ import Foundation
 
 enum AppConstants {
     enum Bundle {
-        static let displayName = "Kurotty"
+        static let displayName = "kurotty"
         static let iconResourceName = "kurotty"
         static let iconResourceExtension = "png"
     }

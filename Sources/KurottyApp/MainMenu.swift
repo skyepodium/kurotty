@@ -6,10 +6,11 @@ enum MainMenu {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu()
+        appMenuItem.title = AppConstants.Bundle.displayName
+        let appMenu = NSMenu(title: AppConstants.Bundle.displayName)
         appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Kurotty", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit \(AppConstants.Bundle.displayName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 

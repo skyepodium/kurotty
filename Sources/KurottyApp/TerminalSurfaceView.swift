@@ -33,6 +33,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
+    private var pendingDirtyRows = Set<Int>()
+    private var pendingFullDamage = true
     private let padding = NSEdgeInsets(
         top: DesignTokens.Space.terminalTopPX,
         left: DesignTokens.Space.terminalLeftPX,
@@ -106,10 +108,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func scrollWheel(with event: NSEvent) {
         let lineDelta = max(1, Int(abs(event.scrollingDeltaY) / 8))
+        let previousOffset = scrollbackOffset
         if event.scrollingDeltaY > 0 {
             scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + lineDelta)
         } else if event.scrollingDeltaY < 0 {
             scrollbackOffset = max(0, scrollbackOffset - lineDelta)
+        }
+        if scrollbackOffset != previousOffset {
+            markFullDamage()
         }
         updateMetalFrame()
     }
@@ -137,6 +143,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         inputOverlayColumn = cursorColumn
         inputOverlayRow = cursorRow
         pendingOverlayEcho = text
+        markDirty(row: inputOverlayRow)
         updateMetalFrame()
         if bracketedPasteEnabled {
             send("\u{1b}[200~\(text)\u{1b}[201~")
@@ -186,6 +193,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func layout() {
         super.layout()
+        markFullDamage()
         syncSizeWithView()
         updateMetalFrame()
     }
@@ -199,11 +207,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             lastSentSize = metrics.size
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
             core.resize(cols: UInt32(metrics.size.columns), rows: UInt32(metrics.size.rows))
+            markFullDamage()
         }
     }
 
     private func updateMetalFrame() {
         let metrics = terminalMetrics()
+        let damage = consumePendingDamage(metrics: metrics)
         var cells: [TerminalCell] = []
         var backgrounds: [TerminalBackground] = []
         var decorations: [TerminalDecoration] = []
@@ -251,6 +261,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
+            dirtyRows: damage.rows,
+            dirtyRects: damage.rects,
+            isFullDamage: damage.isFull,
             cursorColumn: min(cursorColumn + inputOverlayText.terminalColumnWidth + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
             inputOverlayText: inputOverlayText,
@@ -300,13 +313,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        markDirty(row: cursorRow)
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
+        markDirty(row: cursorRow)
         updateMetalFrame()
     }
 
     func unmarkText() {
+        markDirty(row: cursorRow)
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         updateMetalFrame()
@@ -334,11 +350,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendOutput(_ text: String) {
+        let previousCursorRow = cursorRow
+        let previousOverlayRow = inputOverlayRow
+        let previousScrollbackOffset = scrollbackOffset
         if shouldClearInputOverlay(for: text) {
             inputOverlayText = ""
+            markDirty(row: previousOverlayRow)
         }
         if !text.isEmpty {
             scrollbackOffset = 0
+        }
+        if previousScrollbackOffset != scrollbackOffset {
+            markFullDamage()
+        } else {
+            markDirty(row: previousCursorRow)
         }
         core.feed(text)
         for scalar in text.unicodeScalars {
@@ -362,6 +387,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 appendPrintable(String(scalar))
             }
         }
+        markDirty(row: cursorRow)
         updateMetalFrame()
     }
 
@@ -423,6 +449,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         currentStyle = terminalDefaultStyle
         if scrollbackRows.count > maxScrollbackRows {
             scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
+            markFullDamage()
         }
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
         metalView.applyAppearance(
@@ -430,6 +457,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             backgroundColor: terminalDefaultStyle.background,
             cursorColor: settings.terminal.colors.cursorColor
         )
+        markFullDamage()
         syncSizeWithView()
         updateMetalFrame()
     }
@@ -454,15 +482,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
 
             screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)
+            markDirty(row: cursorRow)
             cursorColumn += width
         }
     }
 
     private func lineFeed() {
+        markDirty(row: cursorRow)
         if cursorRow == screen.rows - 1 {
             appendScrollback(rows: screen.scrollUp())
+            markFullDamage()
         } else {
             cursorRow += 1
+            markDirty(row: cursorRow)
         }
     }
 
@@ -542,6 +574,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func executeCsi(final: Character, params: String) {
         let parsed = CsiParameters(params)
+        let previousCursorRow = cursorRow
         switch final {
         case "A":
             cursorRow = max(0, cursorRow - parsed.value(at: 0, default: 1))
@@ -568,16 +601,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             eraseInLine(mode: parsed.value(at: 0, default: 0))
         case "L":
             screen.insertLines(at: cursorRow, count: parsed.value(at: 0, default: 1))
+            markDirty(rows: cursorRow..<screen.rows)
         case "M":
             screen.deleteLines(at: cursorRow, count: parsed.value(at: 0, default: 1))
+            markDirty(rows: cursorRow..<screen.rows)
         case "P":
             screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
+            markDirty(row: cursorRow)
         case "@":
             screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
+            markDirty(row: cursorRow)
         case "S":
             screen.scrollUp(count: parsed.value(at: 0, default: 1))
+            markFullDamage()
         case "T":
             screen.scrollDown(count: parsed.value(at: 0, default: 1))
+            markFullDamage()
         case "m":
             applySgr(parsed.values)
         case "s":
@@ -593,6 +632,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             break
         }
+        if cursorRow != previousCursorRow {
+            markDirty(row: previousCursorRow)
+            markDirty(row: cursorRow)
+        }
     }
 
     private func setMode(params: CsiParameters, enabled: Bool) {
@@ -601,6 +644,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             switch value {
             case 25:
                 cursorVisible = enabled
+                markDirty(row: cursorRow)
             case 47, 1047, 1049:
                 if enabled {
                     enterAlternateScreen()
@@ -619,10 +663,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         switch mode {
         case 0:
             screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)
+            markDirty(row: cursorRow)
         case 1:
             screen.clear(row: cursorRow, from: 0, through: cursorColumn)
+            markDirty(row: cursorRow)
         case 2:
             screen.clear(row: cursorRow)
+            markDirty(row: cursorRow)
         default:
             break
         }
@@ -636,28 +683,34 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 for row in (cursorRow + 1)..<screen.rows {
                     screen.clear(row: row)
                 }
+                markDirty(rows: (cursorRow + 1)..<screen.rows)
             }
         case 1:
             if cursorRow > 0 {
                 for row in 0..<cursorRow {
                     screen.clear(row: row)
                 }
+                markDirty(rows: 0..<cursorRow)
             }
             eraseInLine(mode: 1)
         case 2, 3:
             screen.clear()
             cursorRow = 0
             cursorColumn = 0
+            markFullDamage()
         default:
             break
         }
     }
 
     private func reverseIndex() {
+        markDirty(row: cursorRow)
         if cursorRow == 0 {
             screen.scrollDown()
+            markFullDamage()
         } else {
             cursorRow -= 1
+            markDirty(row: cursorRow)
         }
     }
 
@@ -668,6 +721,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorRow = 0
         cursorColumn = 0
         isUsingAlternateScreen = true
+        markFullDamage()
     }
 
     private func leaveAlternateScreen() {
@@ -682,6 +736,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorColumn = min(cursorColumn, screen.columns - 1)
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+        markFullDamage()
     }
 
     private func resetTerminal() {
@@ -693,6 +748,46 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         currentStyle = terminalDefaultStyle
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+        markFullDamage()
+    }
+
+    private func markDirty(row: Int) {
+        guard row >= 0 else { return }
+        pendingDirtyRows.insert(row)
+    }
+
+    private func markDirty(rows: Range<Int>) {
+        for row in rows {
+            markDirty(row: row)
+        }
+    }
+
+    private func markFullDamage() {
+        pendingFullDamage = true
+    }
+
+    private func consumePendingDamage(metrics: TerminalMetrics) -> TerminalFrameDamage {
+        let visibleRows = max(1, metrics.size.rows)
+        let rows: [Int]
+        let isFull = pendingFullDamage
+        if isFull {
+            rows = Array(0..<visibleRows)
+        } else {
+            rows = pendingDirtyRows
+                .filter { $0 >= 0 && $0 < visibleRows }
+                .sorted()
+        }
+        let rects = rows.map { row in
+            CGRect(
+                x: padding.left,
+                y: bounds.height - padding.top - metrics.cellSize.height * CGFloat(row + 1),
+                width: metrics.cellSize.width * CGFloat(metrics.size.columns),
+                height: metrics.cellSize.height
+            )
+        }
+        pendingDirtyRows.removeAll(keepingCapacity: true)
+        pendingFullDamage = false
+        return TerminalFrameDamage(rows: rows, rects: rects, isFull: isFull)
     }
 
     private func applySgr(_ values: [Int]) {
@@ -809,6 +904,12 @@ private struct TerminalSize: Equatable {
 private struct TerminalMetrics {
     let size: TerminalSize
     let cellSize: CGSize
+}
+
+private struct TerminalFrameDamage {
+    let rows: [Int]
+    let rects: [CGRect]
+    let isFull: Bool
 }
 
 private struct TerminalScreen {

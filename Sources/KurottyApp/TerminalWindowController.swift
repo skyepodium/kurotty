@@ -10,7 +10,7 @@ final class TerminalWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Kurotty"
+        window.title = AppConstants.Bundle.displayName
         window.center()
         super.init(window: window)
         configureTabs()

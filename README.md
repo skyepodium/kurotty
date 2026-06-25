@@ -19,11 +19,33 @@ Kurotty is a macOS-first terminal emulator scaffold focused on low latency, low 
 - App-level scrollback is integrated into the visible terminal surface and can be viewed with mouse wheel scrolling.
 - Zig parser/grid/scrollback/metrics/renderer orchestration are covered by unit tests.
 - Parser coverage includes printable runs, CSI, private mode sequences, OSC strings, and string-control swallowing for DCS/PM/APC.
+- Swift rendering tests include an offscreen Metal framebuffer snapshot that compiles the production terminal shader source and renders deterministic terminal-frame glyph/background/decoration/cursor instance data without launching the app.
 - A 1,000,000-line scrollback stress gate exists at `zig build stress-scrollback`.
 - CI runs an allocator-backed leak check through `zig build leak-check`.
 - Zig core builds static and dynamic libraries; Swift loads the dynamic ABI at runtime when `zig-out/lib/libkurotty_core.dylib` exists.
 - Current limitation: the live AppKit surface still owns a Swift terminal-screen scaffold while the Zig grid/parser ABI is being integrated as the eventual source of truth.
-- Known remaining work: full xterm/VT conformance, Codex-class TUI compatibility, Zig-owned live screen state, glyph shaping/fallback fonts, damage-region clipping in the Swift renderer, and screenshot comparison automation that drives the full app.
+- Known remaining work: full xterm/VT conformance, Codex-class TUI compatibility, Zig-owned live screen state, glyph shaping/fallback fonts, and screenshot comparison automation that drives the full app.
+
+## Installation
+
+Kurotty currently builds from source on macOS.
+
+Prerequisites:
+
+- macOS 14 or newer
+- Xcode command line tools
+- Swift 6 toolchain
+- Zig
+
+```sh
+git clone git@github.com:skyepodium/kurotty.git
+cd kurotty
+zig build
+swift build
+./.build/debug/kurotty
+```
+
+Run `zig build` before launching the Swift app if you want the AppKit shell to call the Zig ABI through `zig-out/lib/libkurotty_core.dylib`.
 
 ## Commands
 
@@ -37,5 +59,4 @@ swift build
 swift test
 ```
 
-Run `zig build` before launching the Swift app if you want the AppKit shell to call the Zig ABI.
-The Swift debug executable is built at `.build/debug/Kurotty`.
+The Swift debug executable is built at `.build/debug/kurotty`.

@@ -16,6 +16,9 @@ struct TerminalFrame {
     let cells: [TerminalCell]
     let backgrounds: [TerminalBackground]
     let decorations: [TerminalDecoration]
+    let dirtyRows: [Int]
+    let dirtyRects: [CGRect]
+    let isFullDamage: Bool
     let cursorColumn: Int
     let cursorRow: Int
     let inputOverlayText: String
@@ -83,7 +86,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     init(
         font: NSFont,
@@ -126,7 +129,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
-        setNeedsDisplay(bounds)
+        if frame.isFullDamage || frame.dirtyRects.isEmpty {
+            setNeedsDisplay(bounds)
+        } else {
+            for rect in frame.dirtyRects {
+                setNeedsDisplay(rect)
+            }
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -258,6 +267,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     var diagnosticCPUTextureIsAllocated: Bool {
         texture != nil
+    }
+
+    var lastFrameDirtyRowsForDiagnostics: [Int] {
+        terminalFrame.dirtyRows
+    }
+
+    var lastFrameDirtyRectsForDiagnostics: [CGRect] {
+        terminalFrame.dirtyRects
+    }
+
+    var lastFrameDamageWasFullForDiagnostics: Bool {
+        terminalFrame.isFullDamage
     }
 
     private var atlasInstanceCount: Int {

@@ -15,7 +15,7 @@ final class PreferencesWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Kurotty Settings"
+        window.title = "\(AppConstants.Bundle.displayName) Settings"
         window.contentView = view
         super.init(window: window)
     }
