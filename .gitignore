@@ -1,0 +1,8 @@
+.zig-cache/
+zig-out/
+.build/
+.swiftpm/
+DerivedData/
+*.xcworkspace/
+*.xcodeproj/
+.DS_Store

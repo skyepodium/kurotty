@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: brew install zig
+      - name: Zig unit tests
+        run: zig build test
+      - name: Zig build libraries
+        run: zig build
+      - name: Benchmark smoke
+        run: zig build bench
+      - name: Scrollback stress
+        run: zig build stress-scrollback
+      - name: Swift/AppKit shell build
+        run: swift build
