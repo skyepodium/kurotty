@@ -44,7 +44,10 @@ export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: u
     const ptr = terminal orelse return 0;
     const input = bytes[0..len];
     const events = ptr.parser.feed(input) catch return 0;
-    defer ptr.allocator.free(events);
+    defer {
+        ptr.parser.freeEvents(events);
+        ptr.allocator.free(events);
+    }
 
     var printable_bytes: usize = 0;
     for (events) |event| {
@@ -52,8 +55,15 @@ export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: u
             .printable => |printable| {
                 printable_bytes += ptr.grid.writeBounded(printable.bytes) catch 0;
             },
+            .control => |control| switch (control) {
+                '\n' => ptr.grid.write("\n") catch {},
+                '\r' => ptr.grid.setCursor(ptr.grid.cursorRow(), 0),
+                0x08 => ptr.grid.moveCursor(.{ .col_delta = -1 }),
+                '\t' => ptr.grid.write("    ") catch {},
+                else => {},
+            },
             .csi => |csi| {
-                if (csi.final == 'J') ptr.grid.eraseDisplay(.below);
+                applyCsi(ptr, csi);
             },
         }
     }
@@ -99,4 +109,57 @@ export fn kurotty_terminal_begin_frame(terminal: ?*Terminal, visible_cells: u32)
 export fn kurotty_terminal_end_frame(terminal: ?*Terminal) void {
     const ptr = terminal orelse return;
     ptr.renderer.endFrame();
+}
+
+export fn kurotty_terminal_resize(terminal: ?*Terminal, width: u32, height: u32) void {
+    const ptr = terminal orelse return;
+    ptr.grid.resize(width, height) catch {};
+    ptr.renderer.markDamage(.{ .row = 0, .col = 0, .rows = height, .cols = width }) catch {};
+}
+
+export fn kurotty_terminal_cell_at(terminal: ?*Terminal, row: u32, col: u32) u8 {
+    const ptr = terminal orelse return ' ';
+    return ptr.grid.cellAt(row, col);
+}
+
+fn applyCsi(ptr: *Terminal, csi: core.CsiEvent) void {
+    const first = param(csi, 0, 1);
+    switch (csi.final) {
+        'A' => ptr.grid.moveCursor(.{ .row_delta = -@as(isize, @intCast(first)) }),
+        'B' => ptr.grid.moveCursor(.{ .row_delta = @intCast(first) }),
+        'C' => ptr.grid.moveCursor(.{ .col_delta = @intCast(first) }),
+        'D' => ptr.grid.moveCursor(.{ .col_delta = -@as(isize, @intCast(first)) }),
+        'G' => ptr.grid.setCursor(ptr.grid.cursorRow(), if (first == 0) 0 else first - 1),
+        'H', 'f' => {
+            const row = param(csi, 0, 1);
+            const col = param(csi, 1, 1);
+            ptr.grid.setCursor(if (row == 0) 0 else row - 1, if (col == 0) 0 else col - 1);
+        },
+        'J' => ptr.grid.eraseDisplay(switch (param(csi, 0, 0)) {
+            1 => .above,
+            2, 3 => .all,
+            else => .below,
+        }),
+        'K' => ptr.grid.eraseLine(switch (param(csi, 0, 0)) {
+            1 => .left,
+            2 => .all,
+            else => .right,
+        }),
+        'P' => ptr.grid.deleteCharacters(first),
+        '@' => ptr.grid.insertCharacters(first),
+        'L' => ptr.grid.insertLines(first),
+        'M' => ptr.grid.deleteLines(first),
+        'h' => if (csi.private) {
+            for (csi.params) |value| if (value == 47 or value == 1047 or value == 1049) ptr.grid.enterAlternateScreen() catch {};
+        },
+        'l' => if (csi.private) {
+            for (csi.params) |value| if (value == 47 or value == 1047 or value == 1049) ptr.grid.leaveAlternateScreen();
+        },
+        else => {},
+    }
+}
+
+fn param(csi: core.CsiEvent, index: usize, default: usize) usize {
+    if (index >= csi.params.len or csi.params[index] == 0) return default;
+    return csi.params[index];
 }

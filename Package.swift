@@ -16,5 +16,8 @@ let package = Package(
                 .process("Shaders"),
             ]
         ),
+        .testTarget(
+            name: "KurottyRenderingTests"
+        ),
     ]
 )

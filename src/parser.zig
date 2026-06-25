@@ -2,100 +2,151 @@ const std = @import("std");
 
 pub const CsiEvent = struct {
     final: u8,
+    private: bool = false,
     params: []const u16,
 };
 
 pub const Event = union(enum) {
     printable: struct { bytes: []const u8 },
     csi: CsiEvent,
+    control: u8,
 };
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
+    state: State = .normal,
+    printable: std.ArrayList(u8) = .empty,
+    control: std.ArrayList(u8) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) Parser {
         return .{ .allocator = allocator };
     }
 
     pub fn deinit(self: *Parser) void {
-        _ = self;
+        self.printable.deinit(self.allocator);
+        self.control.deinit(self.allocator);
     }
 
     pub fn feed(self: *Parser, bytes: []const u8) ![]Event {
         var events: std.ArrayList(Event) = .empty;
-        errdefer {
-            for (events.items) |event| freeEvent(self.allocator, event);
-            events.deinit(self.allocator);
-        }
+        errdefer self.freeEvents(events.items);
 
-        var i: usize = 0;
-        var printable_start: ?usize = null;
-        while (i < bytes.len) {
-            if (bytes[i] == 0x1b and i + 1 < bytes.len and bytes[i + 1] == '[') {
-                if (printable_start) |start| {
-                    try appendPrintable(self.allocator, &events, bytes[start..i]);
-                    printable_start = null;
-                }
-
-                var j = i + 2;
-                while (j < bytes.len and !isCsiFinal(bytes[j])) : (j += 1) {}
-                if (j >= bytes.len) break;
-
-                try appendCsi(self.allocator, &events, bytes[i + 2 .. j], bytes[j]);
-                i = j + 1;
-                continue;
+        for (bytes) |byte| {
+            switch (self.state) {
+                .normal => switch (byte) {
+                    0x1b => {
+                        try self.flushPrintable(&events);
+                        self.control.clearRetainingCapacity();
+                        self.state = .escape;
+                    },
+                    0x08, 0x09, 0x0a, 0x0d => {
+                        try self.flushPrintable(&events);
+                        try events.append(self.allocator, .{ .control = byte });
+                    },
+                    0x00...0x07, 0x0b...0x0c, 0x0e...0x1a, 0x1c...0x1f, 0x7f => {
+                        try self.flushPrintable(&events);
+                    },
+                    else => try self.printable.append(self.allocator, byte),
+                },
+                .escape => switch (byte) {
+                    '[' => {
+                        self.control.clearRetainingCapacity();
+                        self.state = .csi;
+                    },
+                    ']' => {
+                        self.control.clearRetainingCapacity();
+                        self.state = .osc;
+                    },
+                    else => {
+                        try events.append(self.allocator, .{ .control = byte });
+                        self.state = .normal;
+                    },
+                },
+                .csi => {
+                    if (isCsiFinal(byte)) {
+                        try self.appendCsi(&events, byte);
+                        self.control.clearRetainingCapacity();
+                        self.state = .normal;
+                    } else {
+                        try self.control.append(self.allocator, byte);
+                    }
+                },
+                .osc => switch (byte) {
+                    0x07 => self.state = .normal,
+                    0x1b => self.state = .osc_escape,
+                    else => {},
+                },
+                .osc_escape => {
+                    self.state = .normal;
+                },
             }
-
-            if (printable_start == null) printable_start = i;
-            i += 1;
         }
 
-        if (printable_start) |start| {
-            if (start < bytes.len) try appendPrintable(self.allocator, &events, bytes[start..]);
+        if (self.state == .normal) {
+            try self.flushPrintable(&events);
         }
-
         return events.toOwnedSlice(self.allocator);
+    }
+
+    pub fn freeEvents(self: *Parser, events: []const Event) void {
+        for (events) |event| {
+            switch (event) {
+                .printable => |printable_event| self.allocator.free(printable_event.bytes),
+                .csi => |csi_event| self.allocator.free(csi_event.params),
+                .control => {},
+            }
+        }
+    }
+
+    fn flushPrintable(self: *Parser, events: *std.ArrayList(Event)) !void {
+        if (self.printable.items.len == 0) return;
+        const owned = try self.printable.toOwnedSlice(self.allocator);
+        try events.append(self.allocator, .{ .printable = .{ .bytes = owned } });
+    }
+
+    fn appendCsi(self: *Parser, events: *std.ArrayList(Event), final: u8) !void {
+        const raw = self.control.items;
+        const private = raw.len > 0 and raw[0] == '?';
+        const params_raw = if (private) raw[1..] else raw;
+        var params: std.ArrayList(u16) = .empty;
+        errdefer params.deinit(self.allocator);
+
+        if (params_raw.len == 0) {
+            try params.append(self.allocator, 0);
+        } else {
+            var it = std.mem.splitScalar(u8, params_raw, ';');
+            while (it.next()) |part| {
+                const digits = trimParameterPrefix(part);
+                if (digits.len == 0) {
+                    try params.append(self.allocator, 0);
+                } else {
+                    try params.append(self.allocator, std.fmt.parseInt(u16, digits, 10) catch 0);
+                }
+            }
+        }
+
+        try events.append(self.allocator, .{ .csi = .{
+            .final = final,
+            .private = private,
+            .params = try params.toOwnedSlice(self.allocator),
+        } });
     }
 };
 
-fn appendPrintable(allocator: std.mem.Allocator, events: *std.ArrayList(Event), bytes: []const u8) !void {
-    if (bytes.len == 0) return;
-    const owned = try allocator.dupe(u8, bytes);
-    try events.append(allocator, .{ .printable = .{ .bytes = owned } });
-}
-
-fn appendCsi(
-    allocator: std.mem.Allocator,
-    events: *std.ArrayList(Event),
-    param_bytes: []const u8,
-    final: u8,
-) !void {
-    var params: std.ArrayList(u16) = .empty;
-    errdefer params.deinit(allocator);
-
-    if (param_bytes.len == 0) {
-        try params.append(allocator, 0);
-    } else {
-        var it = std.mem.splitScalar(u8, param_bytes, ';');
-        while (it.next()) |raw| {
-            if (raw.len == 0) {
-                try params.append(allocator, 0);
-            } else {
-                try params.append(allocator, try std.fmt.parseInt(u16, raw, 10));
-            }
-        }
-    }
-
-    try events.append(allocator, .{ .csi = .{ .final = final, .params = try params.toOwnedSlice(allocator) } });
-}
+const State = enum {
+    normal,
+    escape,
+    csi,
+    osc,
+    osc_escape,
+};
 
 fn isCsiFinal(byte: u8) bool {
     return byte >= 0x40 and byte <= 0x7e;
 }
 
-fn freeEvent(allocator: std.mem.Allocator, event: Event) void {
-    switch (event) {
-        .printable => |printable| allocator.free(printable.bytes),
-        .csi => |csi| allocator.free(csi.params),
-    }
+fn trimParameterPrefix(part: []const u8) []const u8 {
+    var start: usize = 0;
+    while (start < part.len and !std.ascii.isDigit(part[start])) : (start += 1) {}
+    return part[start..];
 }

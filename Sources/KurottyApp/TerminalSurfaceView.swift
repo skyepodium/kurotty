@@ -27,6 +27,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         metalView.translatesAutoresizingMaskIntoConstraints = false
+        metalView.onPresented = { [weak self] in
+            self?.metalFramePresented()
+        }
         addSubview(metalView)
         NSLayoutConstraint.activate([
             metalView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -64,6 +67,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         interpretKeyEvents([event])
     }
 
+    func metalFramePresented() {
+        core.recordFramePresented()
+    }
+
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         send(text)
@@ -89,6 +96,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorColumn = min(cursorColumn, metrics.size.columns - 1)
             lastSentSize = metrics.size
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
+            core.resize(cols: UInt32(metrics.size.columns), rows: UInt32(metrics.size.rows))
         }
     }
 
@@ -173,11 +181,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func send(_ text: String) {
-        core.feed(text)
         shell.write(text)
     }
 
     private func appendOutput(_ text: String) {
+        core.feed(text)
         for scalar in text.unicodeScalars {
             if consumeControl(scalar) {
                 continue

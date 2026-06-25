@@ -10,6 +10,8 @@ private typealias LastLatencyFn = @convention(c) (TerminalHandle?) -> UInt64
 private typealias MarkDamageFn = @convention(c) (TerminalHandle?, UInt32, UInt32, UInt32, UInt32) -> Void
 private typealias BeginFrameFn = @convention(c) (TerminalHandle?, UInt32) -> UInt32
 private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
+private typealias ResizeFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> Void
+private typealias CellAtFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> UInt8
 
 final class CoreBridge: @unchecked Sendable {
     private let symbols = CoreSymbols.load()
@@ -55,6 +57,14 @@ final class CoreBridge: @unchecked Sendable {
     func lastLatencyMicros() -> UInt64 {
         symbols?.lastLatency(handle) ?? 0
     }
+
+    func resize(cols: UInt32, rows: UInt32) {
+        symbols?.resize(handle, cols, rows)
+    }
+
+    func cell(row: UInt32, col: UInt32) -> UInt8 {
+        symbols?.cellAt(handle, row, col) ?? 32
+    }
 }
 
 private struct CoreSymbols {
@@ -68,9 +78,16 @@ private struct CoreSymbols {
     let markDamage: MarkDamageFn
     let beginFrame: BeginFrameFn
     let endFrame: EndFrameFn
+    let resize: ResizeFn
+    let cellAt: CellAtFn
 
     static func load() -> CoreSymbols? {
-        let names = ["./zig-out/lib/libkurotty_core.dylib", "./zig-out/lib/libkurotty_core.a"]
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let names = [
+            root.appendingPathComponent("zig-out/lib/libkurotty_core.dylib").path,
+            root.appendingPathComponent(".build/debug/libkurotty_core.dylib").path,
+            "./zig-out/lib/libkurotty_core.dylib",
+        ]
         guard let dylib = names.compactMap({ dlopen($0, RTLD_NOW | RTLD_LOCAL) }).first else {
             return nil
         }
@@ -84,7 +101,9 @@ private struct CoreSymbols {
             let lastLatency: LastLatencyFn = symbol(dylib, "kurotty_terminal_last_latency"),
             let markDamage: MarkDamageFn = symbol(dylib, "kurotty_terminal_mark_damage"),
             let beginFrame: BeginFrameFn = symbol(dylib, "kurotty_terminal_begin_frame"),
-            let endFrame: EndFrameFn = symbol(dylib, "kurotty_terminal_end_frame")
+            let endFrame: EndFrameFn = symbol(dylib, "kurotty_terminal_end_frame"),
+            let resize: ResizeFn = symbol(dylib, "kurotty_terminal_resize"),
+            let cellAt: CellAtFn = symbol(dylib, "kurotty_terminal_cell_at")
         else {
             dlclose(dylib)
             return nil
@@ -100,7 +119,9 @@ private struct CoreSymbols {
             lastLatency: lastLatency,
             markDamage: markDamage,
             beginFrame: beginFrame,
-            endFrame: endFrame
+            endFrame: endFrame,
+            resize: resize,
+            cellAt: cellAt
         )
     }
 

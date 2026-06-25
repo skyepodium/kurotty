@@ -21,6 +21,8 @@ struct TerminalFrame {
 }
 
 final class TerminalMetalView: MTKView, MTKViewDelegate {
+    var onPresented: (() -> Void)?
+
     private let commandQueue: MTLCommandQueue?
     private let pipeline: MTLRenderPipelineState?
     private var vertexBuffer: MTLBuffer?
@@ -77,6 +79,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
         encoder.endEncoding()
         commandBuffer.present(drawable)
+        commandBuffer.addCompletedHandler { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.onPresented?()
+            }
+        }
         commandBuffer.commit()
     }
 
@@ -120,46 +127,30 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        drawTextIntoCurrentGraphicsContext()
+        drawCells()
         NSGraphicsContext.restoreGraphicsState()
 
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
         descriptor.usage = [.shaderRead]
-        let newTexture = device.makeTexture(descriptor: descriptor)
-        newTexture?.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels, bytesPerRow: bytesPerRow)
-        texture = newTexture
+        let nextTexture = device.makeTexture(descriptor: descriptor)
+        nextTexture?.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels, bytesPerRow: bytesPerRow)
+        texture = nextTexture
     }
 
-    private func drawTextIntoCurrentGraphicsContext() {
-        let lineHeight = terminalFrame.cellSize.height
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byClipping
+    private func drawCells() {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor(calibratedWhite: 0.92, alpha: 1),
-            .paragraphStyle: paragraph,
         ]
-
         for cell in terminalFrame.cells where cell.row >= 0 && cell.row < terminalFrame.visibleRows {
-            let rect = NSRect(
-                x: terminalFrame.padding.x + CGFloat(cell.column) * terminalFrame.cellSize.width,
-                y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(cell.row + 1),
-                width: terminalFrame.cellSize.width * 2,
-                height: lineHeight
-            )
+            let rect = cellRect(column: cell.column, row: cell.row, width: cell.character.terminalColumnWidth)
             (String(cell.character) as NSString).draw(in: rect, withAttributes: attrs)
         }
 
-        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 && terminalFrame.cursorRow < terminalFrame.visibleRows {
+        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = terminalFrame.cursorColumn
             for character in terminalFrame.markedText {
-                let rect = NSRect(
-                    x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
-                    y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(terminalFrame.cursorRow + 1),
-                    width: terminalFrame.cellSize.width * 2,
-                    height: lineHeight
-                )
-                (String(character) as NSString).draw(in: rect, withAttributes: attrs)
+                (String(character) as NSString).draw(in: cellRect(column: column, row: terminalFrame.cursorRow, width: character.terminalColumnWidth), withAttributes: attrs)
                 column += character.terminalColumnWidth
             }
         }
@@ -167,29 +158,42 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         if terminalFrame.cursorRow >= 0 {
             NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
             NSRect(
-                x: terminalFrame.padding.x + CGFloat(terminalFrame.cursorColumn) * terminalFrame.cellSize.width,
-                y: bounds.height - terminalFrame.padding.y - lineHeight * CGFloat(terminalFrame.cursorRow + 1) + 2,
+                x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,
+                y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(0, terminalFrame.cursorRow) + 1) + 2,
                 width: 2,
-                height: max(1, lineHeight - 4)
+                height: max(1, terminalFrame.cellSize.height - 4)
             ).fill()
         }
     }
 
+    private func cellRect(column: Int, row: Int, width: Int) -> NSRect {
+        NSRect(
+            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
+            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1),
+            width: terminalFrame.cellSize.width * CGFloat(max(1, width)),
+            height: terminalFrame.cellSize.height
+        )
+    }
+
     private static func makePipeline(device: MTLDevice?) -> MTLRenderPipelineState? {
-        guard
-            let device,
-            let library = try? device.makeLibrary(source: metalShaderSource, options: nil),
-            let vertex = library.makeFunction(name: "terminal_vertex"),
-            let fragment = library.makeFunction(name: "terminal_fragment")
-        else {
+        guard let device else { return nil }
+        do {
+            let library = try device.makeLibrary(source: metalShaderSource, options: nil)
+            guard
+                let vertex = library.makeFunction(name: "terminal_vertex"),
+                let fragment = library.makeFunction(name: "terminal_fragment")
+            else {
+                return nil
+            }
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.vertexFunction = vertex
+            descriptor.fragmentFunction = fragment
+            descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+            return try device.makeRenderPipelineState(descriptor: descriptor)
+        } catch {
+            NSLog("Kurotty Metal pipeline failed: \(error)")
             return nil
         }
-
-        let descriptor = MTLRenderPipelineDescriptor()
-        descriptor.vertexFunction = vertex
-        descriptor.fragmentFunction = fragment
-        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-        return try? device.makeRenderPipelineState(descriptor: descriptor)
     }
 }
 
