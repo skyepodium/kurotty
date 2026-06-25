@@ -44,14 +44,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
             throw XCTSkip("Metal is not available")
         }
 
-        let library = try device.makeLibrary(source: testAtlasShaderSource, options: nil)
+        let library = try device.makeLibrary(source: productionMetalShaderSource(), options: nil)
         let descriptor = MTLRenderPipelineDescriptor()
-        descriptor.vertexFunction = library.makeFunction(name: "glyph_vertex")
-        descriptor.fragmentFunction = library.makeFunction(name: "glyph_fragment")
-        descriptor.colorAttachments[0].pixelFormat = .rgba8Unorm
+        descriptor.vertexFunction = library.makeFunction(name: "terminal_glyph_vertex")
+        descriptor.fragmentFunction = library.makeFunction(name: "terminal_glyph_fragment")
+        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
 
-        let targetDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 32, height: 32, mipmapped: false)
+        let targetDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 32, height: 32, mipmapped: false)
         targetDescriptor.usage = [.renderTarget, .shaderRead]
         targetDescriptor.storageMode = .shared
         let target = try XCTUnwrap(device.makeTexture(descriptor: targetDescriptor))
@@ -102,6 +102,22 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         target.getBytes(&output, bytesPerRow: 32 * 4, from: MTLRegionMake2D(0, 0, 32, 32), mipmapLevel: 0)
         XCTAssertGreaterThan(output.reduce(0) { $0 + Int($1) }, 32 * 32 * 255)
     }
+
+    func testTerminalMetalViewExposesAtlasDiagnosticsAndOptInCPUFallback() throws {
+        let source = try terminalMetalViewSource()
+        XCTAssertTrue(source.contains("var diagnosticCPUFallbackEnabled = false"))
+        XCTAssertTrue(source.contains("var isAtlasPathReadyForRendering: Bool"))
+        XCTAssertTrue(source.contains("var atlasResourcesAreAvailableForDiagnostics: Bool"))
+        XCTAssertTrue(source.contains("var atlasGlyphInstanceCountForDiagnostics: Int"))
+        XCTAssertTrue(source.contains("var atlasNonTransparentPixelCountForDiagnostics: Int"))
+        XCTAssertTrue(source.contains("var diagnosticCPUTextureIsAllocated: Bool"))
+        XCTAssertTrue(source.contains("commandQueue != nil &&"))
+        XCTAssertTrue(source.contains("atlasVertexBuffer != nil &&"))
+        XCTAssertTrue(source.contains("uniformsBuffer != nil &&"))
+        XCTAssertTrue(source.contains("atlasTexture != nil"))
+        XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled,\n           !isAtlasPathReadyForRendering"))
+        XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled {\n            rebuildTextTexture()"))
+    }
 }
 
 private struct TestGlyphVertex {
@@ -121,54 +137,22 @@ private struct TestUniforms {
     let viewport: SIMD2<Float>
 }
 
-private let testAtlasShaderSource = """
-#include <metal_stdlib>
-using namespace metal;
-
-struct GlyphVertex {
-    float2 position;
-    float2 uv;
-};
-
-struct GlyphInstance {
-    float2 origin;
-    float2 size;
-    float2 uvOrigin;
-    float2 uvSize;
-    float4 color;
-};
-
-struct Uniforms {
-    float2 viewport;
-};
-
-struct Out {
-    float4 position [[position]];
-    float2 uv;
-    float4 color;
-};
-
-vertex Out glyph_vertex(const device GlyphVertex *vertices [[buffer(0)]],
-                        const device GlyphInstance *instances [[buffer(1)]],
-                        constant Uniforms &uniforms [[buffer(2)]],
-                        uint vertex_id [[vertex_id]],
-                        uint instance_id [[instance_id]]) {
-    GlyphVertex glyph_vertex = vertices[vertex_id];
-    GlyphInstance instance = instances[instance_id];
-    float2 point = instance.origin + glyph_vertex.position * instance.size;
-    Out out;
-    out.position = float4((point.x / uniforms.viewport.x) * 2.0 - 1.0,
-                          (point.y / uniforms.viewport.y) * 2.0 - 1.0,
-                          0.0,
-                          1.0);
-    out.uv = instance.uvOrigin + glyph_vertex.uv * instance.uvSize;
-    out.color = instance.color;
-    return out;
+private func productionMetalShaderSource() throws -> String {
+    let source = try terminalMetalViewSource()
+    guard let assignmentRange = source.range(of: "let metalShaderSource = \"\"\"") else {
+        XCTFail("missing production Metal shader source")
+        return ""
+    }
+    let shaderStart = assignmentRange.upperBound
+    guard let shaderEnd = source[shaderStart...].range(of: "\"\"\"")?.lowerBound else {
+        XCTFail("unterminated production Metal shader source")
+        return ""
+    }
+    return String(source[shaderStart..<shaderEnd])
 }
 
-fragment float4 glyph_fragment(Out in [[stage_in]],
-                               texture2d<float> atlas [[texture(0)]]) {
-    constexpr sampler s(address::clamp_to_edge, filter::nearest);
-    return atlas.sample(s, in.uv) * in.color;
+private func terminalMetalViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
 }
-"""

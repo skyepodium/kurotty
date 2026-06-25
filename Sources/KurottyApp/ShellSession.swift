@@ -15,6 +15,8 @@ final class ShellSession: @unchecked Sendable {
     private var master: Int32 = -1
     private var childPid: pid_t = -1
     private var readSource: DispatchSourceRead?
+    private let readQueue = DispatchQueue(label: "dev.kurotty.shell-session.read", qos: .userInteractive)
+    private var inputDrainGeneration: UInt64 = 0
     private var isStarted = false
     private var pendingOutput = Data()
 
@@ -23,7 +25,12 @@ final class ShellSession: @unchecked Sendable {
         isStarted = true
 
         var fd: Int32 = -1
-        var size = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
+        var size = winsize(
+            ws_row: UInt16(AppConstants.Terminal.defaultRows),
+            ws_col: UInt16(AppConstants.Terminal.defaultColumns),
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
         let pid = withUnsafePointer(to: &size) { sizePointer in
             systemForkpty(&fd, nil, nil, sizePointer)
         }
@@ -48,8 +55,24 @@ final class ShellSession: @unchecked Sendable {
         guard let data = text.data(using: .utf8) else { return }
         data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.baseAddress else { return }
-            _ = Darwin.write(master, base, rawBuffer.count)
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(master, base.advanced(by: offset), rawBuffer.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written == -1 && errno == EINTR {
+                    continue
+                }
+                if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    usleep(1_000)
+                    continue
+                }
+                break
+            }
         }
+        scheduleOutputDrain()
     }
 
     func resize(columns: Int, rows: Int) {
@@ -80,23 +103,53 @@ final class ShellSession: @unchecked Sendable {
     }
 
     private func observeMaster(_ fd: Int32) {
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue.global(qos: .userInteractive))
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: readQueue)
         source.setEventHandler { [weak self] in
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            guard count > 0 else { return }
-            let data = Data(buffer[0..<count])
-            self?.pendingOutput.append(data)
-            guard let text = self?.takeDecodedOutput(), !text.isEmpty else { return }
-            DispatchQueue.main.async {
-                self?.onOutput?(text)
-            }
+            self?.drainOutput(fd)
         }
         source.setCancelHandler {
             close(fd)
         }
         readSource = source
         source.resume()
+    }
+
+    private func scheduleOutputDrain() {
+        let fd = master
+        guard fd >= 0 else { return }
+        inputDrainGeneration &+= 1
+        let generation = inputDrainGeneration
+        readQueue.async { [weak self] in
+            self?.drainOutput(fd)
+        }
+        for delay in [4, 8, 16, 32, 64, 120] {
+            readQueue.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
+                guard let self, self.inputDrainGeneration == generation else { return }
+                self.drainOutput(fd)
+            }
+        }
+    }
+
+    private func drainOutput(_ fd: Int32) {
+        var didRead = false
+        while true {
+            var buffer = [UInt8](repeating: 0, count: 8192)
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                pendingOutput.append(Data(buffer[0..<count]))
+                didRead = true
+                continue
+            }
+            if count == -1 && errno == EINTR {
+                continue
+            }
+            break
+        }
+
+        guard didRead, let text = takeDecodedOutput(), !text.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onOutput?(text)
+        }
     }
 
     private func setNonBlocking(_ fd: Int32) {
@@ -129,15 +182,15 @@ final class ShellSession: @unchecked Sendable {
 
 private func runChildShell() {
     let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-    setenv("TERM", "xterm-256color", 1)
-    setenv("COLORTERM", "truecolor", 1)
-    setenv("PWD", "/Users/skyepodium/dev/kurotty", 1)
-    setenv("PS1", "%n %~ ", 1)
-    setenv("PROMPT", "%n %~ ", 1)
+    setenv("TERM", AppConstants.Shell.term, 1)
+    setenv("COLORTERM", AppConstants.Shell.colorTerm, 1)
+    setenv("PWD", AppConstants.Shell.defaultWorkingDirectory, 1)
+    setenv("PS1", AppConstants.Shell.prompt, 1)
+    setenv("PROMPT", AppConstants.Shell.prompt, 1)
     setenv("RPROMPT", "", 1)
     setenv("RPS1", "", 1)
     setenv("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD", "true", 1)
-    chdir("/Users/skyepodium/dev/kurotty")
+    chdir(AppConstants.Shell.defaultWorkingDirectory)
 
     shell.withCString { shellPath in
         let arg0 = strdup(shellPath)

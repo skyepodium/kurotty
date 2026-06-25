@@ -37,6 +37,27 @@ test "parser keeps incomplete CSI until final byte arrives" {
     try std.testing.expectEqualStrings("!", second[1].printable.bytes);
 }
 
+test "parser keeps incomplete OSC until BEL or string terminator arrives" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("prefix\x1b]0;kur");
+    try std.testing.expectEqual(@as(usize, 1), first.len);
+    try std.testing.expectEqualStrings("prefix", first[0].printable.bytes);
+
+    const second = try parser.feed("otty");
+    try std.testing.expectEqual(@as(usize, 0), second.len);
+
+    const third = try parser.feed("\x1b\\suffix\x1b]1;tab\x07");
+    try std.testing.expectEqual(@as(usize, 3), third.len);
+    try std.testing.expectEqualStrings("0;kurotty", third[0].osc.bytes);
+    try std.testing.expectEqualStrings("suffix", third[1].printable.bytes);
+    try std.testing.expectEqualStrings("1;tab", third[2].osc.bytes);
+}
+
 test "parser parses private modes, 256 color, RGB SGR, and OSC strings" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -111,6 +132,23 @@ test "scrollback keeps line addresses with bounded lookup" {
     try std.testing.expect(scrollback.bytesUsed() < 1024 * 1024);
 }
 
+test "scrollback churns past capacity and releases evicted lines" {
+    const capacity = 128;
+    const appended = 4096;
+    var scrollback = try core.Scrollback.init(std.testing.allocator, capacity);
+    defer scrollback.deinit();
+
+    var i: usize = 0;
+    while (i < appended) : (i += 1) {
+        try scrollback.appendFmt("line-{d:0>4}-payload", .{i});
+    }
+
+    try std.testing.expectEqual(@as(usize, capacity), scrollback.len());
+    try std.testing.expectEqualStrings("line-3968-payload", scrollback.lineAt(0));
+    try std.testing.expectEqualStrings("line-4095-payload", scrollback.lineAt(capacity - 1));
+    try std.testing.expect(scrollback.bytesUsed() < 32 * 1024);
+}
+
 test "metrics records input to present latency samples" {
     var metrics = core.Metrics.init();
     metrics.recordKeyEvent(100);
@@ -134,4 +172,26 @@ test "renderer damage controls draw call scheduling" {
     const clean = renderer.beginFrame(100);
     try std.testing.expectEqual(@as(u32, 0), clean.draw_calls);
     try std.testing.expectEqual(@as(u32, 0), clean.dirty_rects);
+}
+
+test "renderer damage lifecycle reuses retained storage across frames" {
+    var renderer = core.RendererOrchestrator.init(std.testing.allocator);
+    defer renderer.deinit();
+
+    var frame: u32 = 0;
+    while (frame < 128) : (frame += 1) {
+        var rect: u32 = 0;
+        while (rect < 16) : (rect += 1) {
+            try renderer.markDamage(.{ .row = frame, .col = rect, .rows = 1, .cols = 2 });
+        }
+
+        const dirty = renderer.beginFrame(240);
+        try std.testing.expectEqual(@as(u32, 16), dirty.dirty_rects);
+        try std.testing.expectEqual(@as(u32, 1), dirty.draw_calls);
+
+        renderer.endFrame();
+        const clean = renderer.beginFrame(240);
+        try std.testing.expectEqual(@as(u32, 0), clean.dirty_rects);
+        try std.testing.expectEqual(@as(u32, 0), clean.draw_calls);
+    }
 }

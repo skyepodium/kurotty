@@ -19,7 +19,14 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         core.recordKeyEvent()
+        if handleCommandKey(event) {
+            return
+        }
         interpretKeyEvents([event])
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleCommandKey(event) || super.performKeyEquivalent(with: event)
     }
 
     @objc func paste(_ sender: Any?) {
@@ -31,6 +38,33 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     @objc func copy(_ sender: Any?) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString("", forType: .string)
+    }
+
+    @objc func cut(_ sender: Any?) {
+        copy(sender)
+    }
+
+    private func handleCommandKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command,
+              let characters = event.charactersIgnoringModifiers?.lowercased()
+        else {
+            return false
+        }
+
+        switch characters {
+        case "c":
+            copy(nil)
+            return true
+        case "v":
+            paste(nil)
+            return true
+        case "x":
+            cut(nil)
+            return true
+        default:
+            return false
+        }
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {

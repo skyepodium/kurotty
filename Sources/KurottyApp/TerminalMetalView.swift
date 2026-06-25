@@ -15,8 +15,12 @@ struct TerminalCell {
 struct TerminalFrame {
     let cells: [TerminalCell]
     let backgrounds: [TerminalBackground]
+    let decorations: [TerminalDecoration]
     let cursorColumn: Int
     let cursorRow: Int
+    let inputOverlayText: String
+    let inputOverlayColumn: Int
+    let inputOverlayRow: Int
     let markedText: String
     let columns: Int
     let visibleRows: Int
@@ -30,8 +34,31 @@ struct TerminalBackground {
     let color: SIMD4<Float>
 }
 
+struct TerminalDecoration {
+    let column: Int
+    let row: Int
+    let width: Int
+    let kind: Kind
+    let color: SIMD4<Float>
+
+    enum Kind {
+        case underline
+        case strikethrough
+    }
+}
+
 final class TerminalMetalView: MTKView, MTKViewDelegate {
     var onPresented: (() -> Void)?
+    var diagnosticCPUFallbackEnabled = false {
+        didSet {
+            if diagnosticCPUFallbackEnabled {
+                rebuildTextTexture()
+            } else {
+                texture = nil
+            }
+            setNeedsDisplay(bounds)
+        }
+    }
 
     private let commandQueue: MTLCommandQueue?
     private let pipeline: MTLRenderPipelineState?
@@ -41,6 +68,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var atlasVertexBuffer: MTLBuffer?
     private var atlasInstanceBuffer: MTLBuffer?
     private var backgroundInstanceBuffer: MTLBuffer?
+    private var decorationInstanceBuffer: MTLBuffer?
     private var cursorInstanceBuffer: MTLBuffer?
     private var uniformsBuffer: MTLBuffer?
     private var texture: MTLTexture?
@@ -49,14 +77,22 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var glyphs: [String: GlyphAtlasEntry] = [:]
     private var atlasSlot = 0
     private var atlasCellSize = CGSize.zero
-    private let font: NSFont
-    private let atlasSize = 2048
-    private let glyphSlotWidth = 128
-    private let glyphSlotHeight = 128
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], cursorColumn: 0, cursorRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var font: NSFont
+    private var backgroundColor: SIMD4<Float>
+    private var cursorColor: SIMD4<Float>
+    private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
+    private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
+    private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
-    init(font: NSFont) {
+    init(
+        font: NSFont,
+        backgroundColor: SIMD4<Float> = DesignTokens.Color.terminalDefaultBackground,
+        cursorColor: SIMD4<Float> = DesignTokens.Color.terminalCursor
+    ) {
         self.font = font
+        self.backgroundColor = backgroundColor
+        self.cursorColor = cursorColor
         let device = MTLCreateSystemDefaultDevice()
         self.commandQueue = device?.makeCommandQueue()
         self.pipeline = TerminalMetalView.makePipeline(device: device)
@@ -66,7 +102,12 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         super.init(frame: .zero, device: device)
         colorPixelFormat = .bgra8Unorm
         framebufferOnly = true
-        clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        clearColor = MTLClearColor(
+            red: Double(backgroundColor.x),
+            green: Double(backgroundColor.y),
+            blue: Double(backgroundColor.z),
+            alpha: Double(backgroundColor.w)
+        )
         enableSetNeedsDisplay = true
         isPaused = true
         delegate = self
@@ -82,13 +123,39 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     func update(frame: TerminalFrame) {
         terminalFrame = frame
         rebuildAtlasBuffers()
-        rebuildTextTexture()
+        if diagnosticCPUFallbackEnabled {
+            rebuildTextTexture()
+        }
         setNeedsDisplay(bounds)
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         rebuildVertexBuffer()
-        rebuildTextTexture()
+        if diagnosticCPUFallbackEnabled {
+            rebuildTextTexture()
+        }
+    }
+
+    func applyAppearance(
+        font: NSFont,
+        backgroundColor: SIMD4<Float>,
+        cursorColor: SIMD4<Float>
+    ) {
+        self.font = font
+        self.backgroundColor = backgroundColor
+        self.cursorColor = cursorColor
+        clearColor = MTLClearColor(
+            red: Double(backgroundColor.x),
+            green: Double(backgroundColor.y),
+            blue: Double(backgroundColor.z),
+            alpha: Double(backgroundColor.w)
+        )
+        resetAtlas()
+        rebuildAtlasBuffers()
+        if diagnosticCPUFallbackEnabled {
+            rebuildTextTexture()
+        }
+        setNeedsDisplay(bounds)
     }
 
     func draw(in view: MTKView) {
@@ -101,14 +168,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             return
         }
 
-        if !canDrawAtlas, let pipeline, let vertexBuffer, let texture {
+        if diagnosticCPUFallbackEnabled,
+           !isAtlasPathReadyForRendering,
+           let pipeline,
+           let vertexBuffer,
+           let texture {
             encoder.setRenderPipelineState(pipeline)
             encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
             encoder.setFragmentTexture(texture, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         }
 
-        if canDrawAtlas,
+        if isAtlasPathReadyForRendering,
            let atlasPipeline,
            let atlasVertexBuffer,
            let atlasInstanceBuffer,
@@ -131,6 +202,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             encoder.setFragmentTexture(atlasTexture, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: atlasInstanceCount)
 
+            if let solidPipeline,
+               let decorationInstanceBuffer,
+               decorationInstanceCount > 0 {
+                encoder.setRenderPipelineState(solidPipeline)
+                encoder.setVertexBuffer(atlasVertexBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(decorationInstanceBuffer, offset: 0, index: 1)
+                encoder.setVertexBuffer(uniformsBuffer, offset: 0, index: 2)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: decorationInstanceCount)
+            }
+
             if terminalFrame.cursorRow >= 0,
                let solidPipeline,
                let cursorInstanceBuffer {
@@ -152,8 +233,31 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         commandBuffer.commit()
     }
 
-    private var canDrawAtlas: Bool {
-        atlasPipeline != nil && solidPipeline != nil && atlasTexture != nil && atlasInstanceCount > 0
+    var isAtlasPathReadyForRendering: Bool {
+        atlasResourcesAreAvailableForDiagnostics && atlasInstanceCount > 0
+    }
+
+    var atlasResourcesAreAvailableForDiagnostics: Bool {
+        commandQueue != nil &&
+            atlasPipeline != nil &&
+            solidPipeline != nil &&
+            atlasVertexBuffer != nil &&
+            uniformsBuffer != nil &&
+            atlasTexture != nil
+    }
+
+    var atlasGlyphInstanceCountForDiagnostics: Int {
+        atlasInstanceCount
+    }
+
+    var atlasNonTransparentPixelCountForDiagnostics: Int {
+        stride(from: 3, to: atlasPixels.count, by: 4).reduce(0) { count, alphaIndex in
+            atlasPixels[alphaIndex] > 0 ? count + 1 : count
+        }
+    }
+
+    var diagnosticCPUTextureIsAllocated: Bool {
+        texture != nil
     }
 
     private var atlasInstanceCount: Int {
@@ -164,6 +268,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var backgroundInstanceCount: Int {
         guard let backgroundInstanceBuffer else { return 0 }
         return backgroundInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
+    }
+
+    private var decorationInstanceCount: Int {
+        guard let decorationInstanceBuffer else { return 0 }
+        return decorationInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
     }
 
     private func rebuildVertexBuffer() {
@@ -211,6 +320,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         for cell in terminalFrame.cells {
             appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, color: cell.foreground)
         }
+        if !terminalFrame.inputOverlayText.isEmpty && terminalFrame.inputOverlayRow >= 0 {
+            var column = terminalFrame.inputOverlayColumn
+            for character in terminalFrame.inputOverlayText {
+                appendGlyphInstance(character: character, column: column, row: terminalFrame.inputOverlayRow, into: &instances)
+                column += character.terminalColumnWidth
+            }
+        }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = terminalFrame.cursorColumn
             for character in terminalFrame.markedText {
@@ -242,6 +358,35 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
         }
 
+        var decorations: [GlyphInstance] = []
+        decorations.reserveCapacity(terminalFrame.decorations.count)
+        for decoration in terminalFrame.decorations where decoration.row >= 0 && decoration.row < terminalFrame.visibleRows {
+            let yOffset: CGFloat
+            switch decoration.kind {
+            case .underline:
+                yOffset = max(1, terminalFrame.cellSize.height - 3)
+            case .strikethrough:
+                yOffset = max(1, floor(terminalFrame.cellSize.height * 0.52))
+            }
+            decorations.append(GlyphInstance(
+                origin: SIMD2<Float>(
+                    Float(terminalFrame.padding.x + CGFloat(decoration.column) * terminalFrame.cellSize.width),
+                    Float(bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(decoration.row + 1) + yOffset)
+                ),
+                size: SIMD2<Float>(
+                    Float(terminalFrame.cellSize.width * CGFloat(max(1, decoration.width))),
+                    Float(max(1, backingScale.rounded(.up)))
+                ),
+                uvOrigin: .zero,
+                uvSize: .zero,
+                color: decoration.color
+            ))
+        }
+        decorationInstanceBuffer = decorations.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
+            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
+        }
+
         var cursor = GlyphInstance(
             origin: SIMD2<Float>(
                 Float(terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width),
@@ -250,7 +395,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             size: SIMD2<Float>(2, Float(max(1, terminalFrame.cellSize.height))),
             uvOrigin: .zero,
             uvSize: .zero,
-            color: SIMD4<Float>(0.85, 0.85, 0.85, 1)
+            color: cursorColor
         )
         cursorInstanceBuffer = device.makeBuffer(bytes: &cursor, length: MemoryLayout<GlyphInstance>.stride, options: .storageModeShared)
 
@@ -348,8 +493,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let contentHeight = font.ascender - font.descender
         let topInset = max(0, (logicalHeight - contentHeight) * 0.5)
         let baselineFromBottom = ceil((logicalHeight - topInset + font.descender) * scale)
+        let glyphWidth = max(1, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        let availableWidth = max(1, logicalWidth * scale)
+        let horizontalScale = min(1, availableWidth / glyphWidth)
+        context.saveGState()
+        context.scaleBy(x: horizontalScale, y: 1)
         context.textPosition = CGPoint(x: 0, y: baselineFromBottom)
         CTLineDraw(line, context)
+        context.restoreGState()
 
         for row in 0..<glyphSlotHeight {
             let src = row * glyphSlotWidth * 4
@@ -362,6 +513,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private func resetAtlasIfCellMetricsChanged() {
         guard terminalFrame.cellSize != .zero, terminalFrame.cellSize != atlasCellSize else { return }
         atlasCellSize = terminalFrame.cellSize
+        resetAtlas()
+    }
+
+    private func resetAtlas() {
         glyphs.removeAll(keepingCapacity: true)
         atlasSlot = 0
         atlasPixels = [UInt8](repeating: 0, count: atlasSize * atlasSize * 4)
@@ -369,7 +524,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private var atlasScale: CGFloat {
-        max(backingScale, 4)
+        max(backingScale, DesignTokens.Component.glyphAtlasMinimumScale)
     }
 
     private var backingScale: CGFloat {
@@ -561,7 +716,7 @@ private struct RasterizedGlyph {
     let drawSize: SIMD2<Float>
 }
 
-private let metalShaderSource = """
+let metalShaderSource = """
 #include <metal_stdlib>
 using namespace metal;
 

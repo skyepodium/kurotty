@@ -7,7 +7,7 @@ enum MainMenu {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "Preferences...", action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Kurotty", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
@@ -26,14 +26,21 @@ enum MainMenu {
 
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
-        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        let cut = NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        cut.target = nil
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        copy.target = nil
+        let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        paste.target = nil
+        editMenu.addItem(cut)
+        editMenu.addItem(copy)
+        editMenu.addItem(paste)
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
         for item in mainMenu.items {
             item.target = target
+            guard item.submenu !== editMenu else { continue }
             item.submenu?.items.forEach { $0.target = target }
         }
 

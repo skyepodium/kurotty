@@ -41,7 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installApplicationIcon() {
-        guard let url = Bundle.module.url(forResource: "kurotty", withExtension: "png"),
+        guard let url = Bundle.module.url(
+            forResource: AppConstants.Bundle.iconResourceName,
+            withExtension: AppConstants.Bundle.iconResourceExtension
+        ),
               let image = NSImage(contentsOf: url)
         else {
             return

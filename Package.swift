@@ -7,7 +7,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "KurottyApp", targets: ["KurottyApp"]),
+        .executable(name: "Kurotty", targets: ["KurottyApp"]),
     ],
     targets: [
         .executableTarget(

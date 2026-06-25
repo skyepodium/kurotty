@@ -2,10 +2,16 @@ import AppKit
 
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
-    private let core = CoreBridge(cols: 120, rows: 40)
+    private let core = CoreBridge(
+        cols: UInt32(AppConstants.Terminal.defaultColumns),
+        rows: UInt32(AppConstants.Terminal.defaultRows)
+    )
     private let shell = ShellSession()
     private let metalView: TerminalMetalView
-    private var screen = TerminalScreen(rows: 40, columns: 120)
+    private var terminalDefaultStyle: TerminalTextStyle
+    private var terminalAnsiColors: [SIMD4<Float>]
+    private var maxScrollbackRows: Int
+    private var screen = TerminalScreen(rows: AppConstants.Terminal.defaultRows, columns: AppConstants.Terminal.defaultColumns)
     private var scrollbackRows: [[TerminalScreenCell]] = []
     private var scrollbackOffset = 0
     private var normalScreenSnapshot: TerminalScreen?
@@ -16,20 +22,46 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var cursorVisible = true
     private var isUsingAlternateScreen = false
     private var bracketedPasteEnabled = false
-    private var currentStyle = TerminalTextStyle.default
+    private var currentStyle: TerminalTextStyle
     private var parserState = StreamState.normal
     private var csiBuffer = ""
+    private var inputOverlayText = ""
+    private var inputOverlayColumn = 0
+    private var inputOverlayRow = 0
+    private var pendingOverlayEcho = ""
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
-    private var lastSentSize = TerminalSize(columns: 120, rows: 40)
-    private let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
-    private let padding = NSEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
+    private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
+    private var font: NSFont
+    private let padding = NSEdgeInsets(
+        top: DesignTokens.Space.terminalTopPX,
+        left: DesignTokens.Space.terminalLeftPX,
+        bottom: DesignTokens.Space.terminalBottomPX,
+        right: DesignTokens.Space.terminalRightPX
+    )
 
     override init(frame frameRect: NSRect) {
-        metalView = TerminalMetalView(font: font)
+        let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        let configuredFont = NSFont(
+            name: settings.terminal.fontName,
+            size: CGFloat(settings.terminal.fontSize)
+        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        font = configuredFont
+        terminalDefaultStyle = TerminalTextStyle(
+            foreground: settings.terminal.colors.foregroundColor,
+            background: settings.terminal.colors.backgroundColor
+        )
+        terminalAnsiColors = Self.ansiColors(from: settings)
+        currentStyle = terminalDefaultStyle
+        maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
+        metalView = TerminalMetalView(
+            font: configuredFont,
+            backgroundColor: terminalDefaultStyle.background,
+            cursorColor: settings.terminal.colors.cursorColor
+        )
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = terminalDefaultStyle.background.cgColor
         metalView.translatesAutoresizingMaskIntoConstraints = false
         metalView.onPresented = { [weak self] in
             self?.metalFramePresented()
@@ -46,6 +78,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 self?.appendOutput(text)
             }
         }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange(_:)),
+            name: AppSettingsStore.didChangeNotification,
+            object: AppSettingsStore.shared
+        )
         shell.start()
     }
 
@@ -78,7 +116,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         core.recordKeyEvent()
+        if handleCommandKey(event) {
+            return
+        }
         interpretKeyEvents([event])
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleCommandKey(event) || super.performKeyEquivalent(with: event)
     }
 
     func metalFramePresented() {
@@ -87,6 +132,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        guard !text.isEmpty else { return }
+        inputOverlayText = text
+        inputOverlayColumn = cursorColumn
+        inputOverlayRow = cursorRow
+        pendingOverlayEcho = text
+        updateMetalFrame()
         if bracketedPasteEnabled {
             send("\u{1b}[200~\(text)\u{1b}[201~")
         } else {
@@ -97,6 +148,40 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     @objc func copy(_ sender: Any?) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(visibleText(), forType: .string)
+    }
+
+    @objc func cut(_ sender: Any?) {
+        copy(sender)
+    }
+
+    private func handleCommandKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command,
+              let characters = event.charactersIgnoringModifiers?.lowercased()
+        else {
+            return false
+        }
+
+        switch characters {
+        case "c":
+            copy(nil)
+            return true
+        case "v":
+            paste(nil)
+            return true
+        case "x":
+            cut(nil)
+            return true
+        default:
+            return false
+        }
+    }
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
+            return
+        }
+        apply(settings: settings)
     }
 
     override func layout() {
@@ -121,16 +206,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let metrics = terminalMetrics()
         var cells: [TerminalCell] = []
         var backgrounds: [TerminalBackground] = []
+        var decorations: [TerminalDecoration] = []
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / 2)
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
-                if cell.style.background != TerminalTextStyle.default.background && !cell.isContinuation {
+                guard !cell.isContinuation else { continue }
+                if cell.style.background != terminalDefaultStyle.background {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
                 }
-                if cell.character != " " && !cell.isContinuation {
+                if cell.style.underline {
+                    decorations.append(TerminalDecoration(
+                        column: column,
+                        row: row,
+                        width: max(1, cell.character.terminalColumnWidth),
+                        kind: .underline,
+                        color: cell.style.effectiveForeground
+                    ))
+                }
+                if cell.style.strikethrough {
+                    decorations.append(TerminalDecoration(
+                        column: column,
+                        row: row,
+                        width: max(1, cell.character.terminalColumnWidth),
+                        kind: .strikethrough,
+                        color: cell.style.effectiveForeground
+                    ))
+                }
+                if cell.character != " " {
                     cells.append(TerminalCell(
                         character: cell.character,
                         column: column,
@@ -145,8 +250,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         metalView.update(frame: TerminalFrame(
             cells: cells,
             backgrounds: backgrounds,
-            cursorColumn: min(cursorColumn, metrics.size.columns - 1),
+            decorations: decorations,
+            cursorColumn: min(cursorColumn + inputOverlayText.terminalColumnWidth + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
+            inputOverlayText: inputOverlayText,
+            inputOverlayColumn: inputOverlayColumn,
+            inputOverlayRow: inputOverlayRow,
             markedText: markedText.string,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
@@ -225,6 +334,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendOutput(_ text: String) {
+        if shouldClearInputOverlay(for: text) {
+            inputOverlayText = ""
+        }
         if !text.isEmpty {
             scrollbackOffset = 0
         }
@@ -242,7 +354,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             case 8:
                 cursorColumn = max(0, cursorColumn - 1)
             case 9:
-                let spaces = max(1, 8 - (cursorColumn % 8))
+                let spaces = max(1, AppConstants.Terminal.tabWidthColumns - (cursorColumn % AppConstants.Terminal.tabWidthColumns))
                 appendPrintable(String(repeating: " ", count: spaces))
             case 0..<32, 127:
                 continue
@@ -251,6 +363,21 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
         }
         updateMetalFrame()
+    }
+
+    private func shouldClearInputOverlay(for text: String) -> Bool {
+        guard !inputOverlayText.isEmpty, !pendingOverlayEcho.isEmpty, !text.isEmpty else { return false }
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        if normalized.contains(pendingOverlayEcho) {
+            pendingOverlayEcho = ""
+            return true
+        }
+        if pendingOverlayEcho.hasPrefix(normalized) {
+            pendingOverlayEcho.removeFirst(normalized.count)
+        }
+        return pendingOverlayEcho.isEmpty
     }
 
     private func visibleText() -> String {
@@ -275,10 +402,45 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func terminalMetrics() -> TerminalMetrics {
         let lineHeight = ceil(font.ascender - font.descender + font.leading) + 2
-        let width = max(8, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
+        let width = max(AppConstants.Terminal.minimumCellWidthPX, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
         let columns = max(1, Int((bounds.width - padding.left - padding.right) / width))
         let rows = max(1, Int((bounds.height - padding.top - padding.bottom) / lineHeight))
         return TerminalMetrics(size: TerminalSize(columns: columns, rows: rows), cellSize: CGSize(width: width, height: lineHeight))
+    }
+
+    private func apply(settings: AppSettings) {
+        let nextFont = NSFont(
+            name: settings.terminal.fontName,
+            size: CGFloat(settings.terminal.fontSize)
+        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        font = nextFont
+        terminalDefaultStyle = TerminalTextStyle(
+            foreground: settings.terminal.colors.foregroundColor,
+            background: settings.terminal.colors.backgroundColor
+        )
+        terminalAnsiColors = Self.ansiColors(from: settings)
+        maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
+        currentStyle = terminalDefaultStyle
+        if scrollbackRows.count > maxScrollbackRows {
+            scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
+        }
+        layer?.backgroundColor = terminalDefaultStyle.background.cgColor
+        metalView.applyAppearance(
+            font: nextFont,
+            backgroundColor: terminalDefaultStyle.background,
+            cursorColor: settings.terminal.colors.cursorColor
+        )
+        syncSizeWithView()
+        updateMetalFrame()
+    }
+
+    private static func ansiColors(from settings: AppSettings) -> [SIMD4<Float>] {
+        let configuredAnsiColors = settings.terminal.colors.ansi.map {
+            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+        }
+        return configuredAnsiColors.count >= TerminalColorSettings.requiredAnsiColorCount
+            ? Array(configuredAnsiColors.prefix(TerminalColorSettings.requiredAnsiColorCount))
+            : DesignTokens.Color.ansiNormal + DesignTokens.Color.ansiBright
     }
 
     private func appendPrintable(_ text: String) {
@@ -307,7 +469,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
         guard !isUsingAlternateScreen else { return }
         scrollbackRows.append(contentsOf: rows)
-        let maxScrollbackRows = 1_000_000
         if scrollbackRows.count > maxScrollbackRows {
             scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
         }
@@ -529,7 +690,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorColumn = 0
         cursorVisible = true
         bracketedPasteEnabled = false
-        currentStyle = .default
+        currentStyle = terminalDefaultStyle
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
     }
@@ -541,32 +702,51 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             let code = codes[index]
             switch code {
             case 0:
-                currentStyle = .default
+                currentStyle = terminalDefaultStyle
             case 1:
                 currentStyle.bold = true
+            case 2:
+                currentStyle.dim = true
+            case 3:
+                currentStyle.italic = true
+            case 4:
+                currentStyle.underline = true
+            case 5:
+                currentStyle.blink = true
+            case 9:
+                currentStyle.strikethrough = true
             case 22:
                 currentStyle.bold = false
+                currentStyle.dim = false
+            case 23:
+                currentStyle.italic = false
+            case 24:
+                currentStyle.underline = false
+            case 25:
+                currentStyle.blink = false
+            case 29:
+                currentStyle.strikethrough = false
             case 7:
                 currentStyle.inverse = true
             case 27:
                 currentStyle.inverse = false
             case 30...37:
-                currentStyle.foreground = TerminalTextStyle.ansiColor(code - 30, bright: currentStyle.bold)
+                currentStyle.foreground = terminalAnsiColor(code - 30, bright: currentStyle.bold)
             case 39:
-                currentStyle.foreground = TerminalTextStyle.default.foreground
+                currentStyle.foreground = terminalDefaultStyle.foreground
             case 40...47:
-                currentStyle.background = TerminalTextStyle.ansiColor(code - 40, bright: false)
+                currentStyle.background = terminalAnsiColor(code - 40, bright: false)
             case 49:
-                currentStyle.background = TerminalTextStyle.default.background
+                currentStyle.background = terminalDefaultStyle.background
             case 90...97:
-                currentStyle.foreground = TerminalTextStyle.ansiColor(code - 90, bright: true)
+                currentStyle.foreground = terminalAnsiColor(code - 90, bright: true)
             case 100...107:
-                currentStyle.background = TerminalTextStyle.ansiColor(code - 100, bright: true)
+                currentStyle.background = terminalAnsiColor(code - 100, bright: true)
             case 38, 48:
                 let isForeground = code == 38
                 guard index + 1 < codes.count else { break }
                 if codes[index + 1] == 5, index + 2 < codes.count {
-                    let color = TerminalTextStyle.xterm256Color(codes[index + 2])
+                    let color = xterm256Color(codes[index + 2])
                     if isForeground {
                         currentStyle.foreground = color
                     } else {
@@ -587,6 +767,29 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
             index += 1
         }
+    }
+
+    private func terminalAnsiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
+        let offset = bright ? DesignTokens.Color.ansiNormal.count : 0
+        let clampedIndex = max(0, min(offset + index, terminalAnsiColors.count - 1))
+        return terminalAnsiColors[clampedIndex]
+    }
+
+    private func xterm256Color(_ value: Int) -> SIMD4<Float> {
+        let index = max(0, min(value, 255))
+        if index < TerminalColorSettings.requiredAnsiColorCount {
+            return terminalAnsiColors[index]
+        }
+        if index < 232 {
+            let cube = index - 16
+            let red = cube / 36
+            let green = (cube / 6) % 6
+            let blue = cube % 6
+            func component(_ value: Int) -> Int { value == 0 ? 0 : 55 + value * 40 }
+            return TerminalTextStyle.rgb(red: component(red), green: component(green), blue: component(blue))
+        }
+        let gray = 8 + (index - 232) * 10
+        return TerminalTextStyle.rgb(red: gray, green: gray, blue: gray)
     }
 }
 
@@ -769,6 +972,11 @@ private struct TerminalTextStyle: Equatable {
     var foreground: SIMD4<Float>
     var background: SIMD4<Float>
     var bold = false
+    var dim = false
+    var italic = false
+    var underline = false
+    var blink = false
+    var strikethrough = false
     var inverse = false
 
     static let `default` = TerminalTextStyle(
@@ -777,7 +985,11 @@ private struct TerminalTextStyle: Equatable {
     )
 
     var effectiveForeground: SIMD4<Float> {
-        inverse ? background : (bold ? brighten(foreground) : foreground)
+        if inverse {
+            return background
+        }
+        let weighted = bold ? brighten(foreground) : foreground
+        return dim ? dimmed(weighted) : weighted
     }
 
     var effectiveBackground: SIMD4<Float> {
@@ -785,28 +997,7 @@ private struct TerminalTextStyle: Equatable {
     }
 
     static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
-        let normal: [SIMD3<Float>] = [
-            SIMD3<Float>(0.00, 0.00, 0.00),
-            SIMD3<Float>(0.80, 0.12, 0.12),
-            SIMD3<Float>(0.35, 0.70, 0.25),
-            SIMD3<Float>(0.78, 0.64, 0.20),
-            SIMD3<Float>(0.25, 0.45, 0.85),
-            SIMD3<Float>(0.70, 0.35, 0.80),
-            SIMD3<Float>(0.25, 0.70, 0.75),
-            SIMD3<Float>(0.86, 0.86, 0.86),
-        ]
-        let brightColors: [SIMD3<Float>] = [
-            SIMD3<Float>(0.40, 0.40, 0.40),
-            SIMD3<Float>(1.00, 0.30, 0.30),
-            SIMD3<Float>(0.55, 0.95, 0.45),
-            SIMD3<Float>(1.00, 0.85, 0.35),
-            SIMD3<Float>(0.45, 0.65, 1.00),
-            SIMD3<Float>(0.95, 0.55, 1.00),
-            SIMD3<Float>(0.45, 0.95, 1.00),
-            SIMD3<Float>(1.00, 1.00, 1.00),
-        ]
-        let color = (bright ? brightColors : normal)[max(0, min(index, 7))]
-        return SIMD4<Float>(color.x, color.y, color.z, 1)
+        (bright ? DesignTokens.Color.ansiBright : DesignTokens.Color.ansiNormal)[max(0, min(index, 7))]
     }
 
     static func rgb(red: Int, green: Int, blue: Int) -> SIMD4<Float> {
@@ -837,6 +1028,10 @@ private struct TerminalTextStyle: Equatable {
 
     private func brighten(_ color: SIMD4<Float>) -> SIMD4<Float> {
         SIMD4<Float>(min(color.x * 1.15, 1), min(color.y * 1.15, 1), min(color.z * 1.15, 1), color.w)
+    }
+
+    private func dimmed(_ color: SIMD4<Float>) -> SIMD4<Float> {
+        SIMD4<Float>(color.x * 0.62, color.y * 0.62, color.z * 0.62, color.w)
     }
 }
 
@@ -885,5 +1080,11 @@ private extension Character {
             return 2
         }
         return 1
+    }
+}
+
+private extension String {
+    var terminalColumnWidth: Int {
+        reduce(0) { $0 + $1.terminalColumnWidth }
     }
 }

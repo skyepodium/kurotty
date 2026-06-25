@@ -17,8 +17,12 @@ final class CoreBridge: @unchecked Sendable {
     private let symbols = CoreSymbols.load()
     private var handle: TerminalHandle?
     private var fallbackBuffer = ""
+    private var columns: UInt32
+    private var rows: UInt32
 
     init(cols: UInt32, rows: UInt32) {
+        columns = max(1, cols)
+        self.rows = max(1, rows)
         handle = symbols?.create(cols, rows)
     }
 
@@ -32,7 +36,7 @@ final class CoreBridge: @unchecked Sendable {
             _ = bytes.withUnsafeBufferPointer { buffer in
                 symbols.feed(handle, buffer.baseAddress!, buffer.count)
             }
-            symbols.markDamage(handle, 0, 0, 40, 120)
+            symbols.markDamage(handle, 0, 0, rows, columns)
         } else {
             fallbackBuffer.append(text)
         }
@@ -59,7 +63,9 @@ final class CoreBridge: @unchecked Sendable {
     }
 
     func resize(cols: UInt32, rows: UInt32) {
-        symbols?.resize(handle, cols, rows)
+        columns = max(1, cols)
+        self.rows = max(1, rows)
+        symbols?.resize(handle, columns, self.rows)
     }
 
     func cell(row: UInt32, col: UInt32) -> UInt8 {

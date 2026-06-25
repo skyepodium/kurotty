@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     leak_check.root_module.addImport("kurotty_core", core_mod);
+    leak_check.root_module.linkLibrary(static_lib);
     const run_leak_check = b.addRunArtifact(leak_check);
     const leak_step = b.step("leak-check", "Run allocator-backed leak checks for core paths");
     leak_step.dependOn(&run_leak_check.step);
