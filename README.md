@@ -14,6 +14,7 @@ Kurotty is a macOS-first terminal emulator scaffold focused on low latency, low 
 
 - Swift/AppKit shell includes window, tab, split, keyboard/IME, clipboard selectors, menu, lifecycle, preferences, and app icon wiring.
 - Settings are stored as editable JSON at `~/Library/Application Support/Kurotty/settings.json`, validated on save, and applied to existing terminal views after saving from `Kurotty > Settings...`.
+- Terminal themes support `kuro-dark`, `lightty`, and `custom`; set `"theme": "lightty"` for a bright preset inspired by colorful iTerm-style output.
 - Metal rendering uses a GPU glyph atlas with instanced glyph/cell rendering, cursor quads, foreground color, background color instances, and underline/strikethrough decoration instances.
 - The app screen model supports SGR color/style basics: 16-color, bright, dim, inverse, underline, strikethrough, `38;5`, `48;5`, `38;2`, and `48;2`.
 - App-level scrollback is integrated into the visible terminal surface and can be viewed with mouse wheel scrolling.

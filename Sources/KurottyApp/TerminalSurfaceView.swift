@@ -1263,7 +1263,7 @@ private struct TerminalTextStyle: Equatable {
             return background
         }
         let weighted = bold ? brighten(foreground) : foreground
-        return dim ? dimmed(weighted) : weighted
+        return dim ? dimmed(weighted, against: background) : weighted
     }
 
     var effectiveBackground: SIMD4<Float> {
@@ -1304,8 +1304,26 @@ private struct TerminalTextStyle: Equatable {
         SIMD4<Float>(min(color.x * 1.15, 1), min(color.y * 1.15, 1), min(color.z * 1.15, 1), color.w)
     }
 
-    private func dimmed(_ color: SIMD4<Float>) -> SIMD4<Float> {
-        SIMD4<Float>(color.x * 0.62, color.y * 0.62, color.z * 0.62, color.w)
+    private func dimmed(_ color: SIMD4<Float>, against background: SIMD4<Float>) -> SIMD4<Float> {
+        if luminance(background) > 0.5 {
+            return blend(color, background, amount: 0.48)
+        }
+        return SIMD4<Float>(color.x * 0.62, color.y * 0.62, color.z * 0.62, color.w)
+    }
+
+    private func blend(_ color: SIMD4<Float>, _ background: SIMD4<Float>, amount: Float) -> SIMD4<Float> {
+        let kept = max(0, min(1, 1 - amount))
+        let mixed = max(0, min(1, amount))
+        return SIMD4<Float>(
+            color.x * kept + background.x * mixed,
+            color.y * kept + background.y * mixed,
+            color.z * kept + background.z * mixed,
+            color.w
+        )
+    }
+
+    private func luminance(_ color: SIMD4<Float>) -> Float {
+        color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722
     }
 }
 

@@ -63,6 +63,7 @@ Design rules:
 - Domain constants describe protocol, ABI, shell, PTY, file paths, queue labels, and timing.
 - Design tokens describe UI color, typography, spacing, radius, opacity, window size, terminal cell defaults, and renderer dimensions.
 - Settings JSON stores user preferences such as font, theme, scrollback limit, cursor style, shell path, and renderer options.
+- Theme presets are named settings contracts. `kuro-dark` preserves the existing dark palette, `lightty` provides a bright colorful palette, and `custom` leaves user-provided color values intact.
 - Defaults live in typed settings/design-token code, not in views or controllers.
 - Settings changes that affect rendering or PTY behavior need validation, migration, and tests.
 

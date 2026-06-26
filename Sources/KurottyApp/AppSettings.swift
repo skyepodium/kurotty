@@ -9,6 +9,7 @@ struct AppSettings: Codable, Equatable {
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
         terminal: TerminalSettings(
+            theme: TerminalThemePreset.darkName,
             fontName: Defaults.fontName,
             fontSize: Defaults.fontSize,
             scrollbackLines: Defaults.scrollbackLines,
@@ -21,7 +22,7 @@ struct AppSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let schemaVersion = 3
+        static let schemaVersion = 4
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
@@ -50,10 +51,36 @@ struct AppSettings: Codable, Equatable {
 }
 
 struct TerminalSettings: Codable, Equatable {
+    var theme: String
     var fontName: String
     var fontSize: Double
     var scrollbackLines: Int
     var colors: TerminalColorSettings
+
+    private enum CodingKeys: String, CodingKey {
+        case theme
+        case fontName
+        case fontSize
+        case scrollbackLines
+        case colors
+    }
+
+    init(theme: String, fontName: String, fontSize: Double, scrollbackLines: Int, colors: TerminalColorSettings) {
+        self.theme = theme
+        self.fontName = fontName
+        self.fontSize = fontSize
+        self.scrollbackLines = scrollbackLines
+        self.colors = colors
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try container.decodeIfPresent(String.self, forKey: .theme) ?? ""
+        fontName = try container.decode(String.self, forKey: .fontName)
+        fontSize = try container.decode(Double.self, forKey: .fontSize)
+        scrollbackLines = try container.decode(Int.self, forKey: .scrollbackLines)
+        colors = try container.decode(TerminalColorSettings.self, forKey: .colors)
+    }
 }
 
 struct WindowSettings: Codable, Equatable {
@@ -113,6 +140,53 @@ struct TerminalColorSettings: Codable, Equatable {
     var cursorColor: SIMD4<Float> {
         ColorHexParser.parse(cursor, fallback: DesignTokens.Color.terminalCursor)
     }
+}
+
+enum TerminalThemePreset {
+    static let darkName = "kuro-dark"
+    static let lighttyName = "lightty"
+    static let customName = "custom"
+
+    static func colors(named name: String) -> TerminalColorSettings? {
+        switch canonicalName(name) {
+        case darkName:
+            return .default
+        case lighttyName:
+            return .lightty
+        default:
+            return nil
+        }
+    }
+
+    static func canonicalName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+extension TerminalColorSettings {
+    static let lightty = TerminalColorSettings(
+        foreground: "#202124",
+        background: "#F7F7F4",
+        cursor: "#111111",
+        ansi: [
+            "#AFA7F5",
+            "#AB4634",
+            "#55C236",
+            "#A63AB5",
+            "#3347C3",
+            "#B445B8",
+            "#58BEC0",
+            "#C9C9C9",
+            "#666666",
+            "#D47D78",
+            "#82DD96",
+            "#ECE848",
+            "#5B5AA2",
+            "#CF75D3",
+            "#46B1B3",
+            "#FFFFFF",
+        ]
+    )
 }
 
 enum ColorHexParser {
@@ -212,6 +286,7 @@ final class AppSettingsStore {
         if sourceSchemaVersion < currentSchemaVersion {
             migrateLegacyDefaults(&next)
         }
+        normalizeTheme(&next)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.terminal.fontName.isEmpty {
             next.terminal.fontName = AppSettings.default.terminal.fontName
@@ -229,6 +304,35 @@ final class AppSettingsStore {
             next.terminal.colors.ansi = Array(next.terminal.colors.ansi.prefix(TerminalColorSettings.requiredAnsiColorCount))
         }
         return next
+    }
+
+    private func normalizeTheme(_ settings: inout AppSettings) {
+        let theme = TerminalThemePreset.canonicalName(settings.terminal.theme)
+        if let presetColors = TerminalThemePreset.colors(named: theme) {
+            settings.terminal.theme = theme
+            settings.terminal.colors = presetColors
+            return
+        }
+
+        if theme.isEmpty {
+            settings.terminal.theme = inferredThemeName(for: settings.terminal.colors)
+            if let presetColors = TerminalThemePreset.colors(named: settings.terminal.theme) {
+                settings.terminal.colors = presetColors
+            }
+            return
+        }
+
+        settings.terminal.theme = TerminalThemePreset.customName
+    }
+
+    private func inferredThemeName(for colors: TerminalColorSettings) -> String {
+        if colors == .lightty {
+            return TerminalThemePreset.lighttyName
+        }
+        if colors == .default {
+            return TerminalThemePreset.darkName
+        }
+        return TerminalThemePreset.customName
     }
 
     private func migrateLegacyDefaults(_ settings: inout AppSettings) {
