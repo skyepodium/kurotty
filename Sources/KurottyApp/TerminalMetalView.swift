@@ -16,6 +16,7 @@ struct TerminalFrame {
     let cells: [TerminalCell]
     let backgrounds: [TerminalBackground]
     let decorations: [TerminalDecoration]
+    let defaultForeground: SIMD4<Float>
     let defaultBackground: SIMD4<Float>
     let dirtyRows: [Int]
     let dirtyRects: [CGRect]
@@ -136,7 +137,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     init(
         font: NSFont,
@@ -418,14 +419,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         if !terminalFrame.inputOverlayText.isEmpty && terminalFrame.inputOverlayRow >= 0 {
             var column = terminalFrame.inputOverlayColumn
             for character in terminalFrame.inputOverlayText {
-                appendGlyphInstance(character: character, column: column, row: terminalFrame.inputOverlayRow, into: &instances)
+                appendGlyphInstance(character: character, column: column, row: terminalFrame.inputOverlayRow, into: &instances, color: terminalFrame.defaultForeground)
                 column += character.terminalColumnWidth
             }
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
             for character in terminalFrame.markedText {
-                appendGlyphInstance(character: character, column: column, row: terminalFrame.cursorRow, into: &instances)
+                appendGlyphInstance(character: character, column: column, row: terminalFrame.cursorRow, into: &instances, color: terminalFrame.defaultForeground)
                 column += character.terminalColumnWidth
             }
         }

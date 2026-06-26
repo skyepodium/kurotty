@@ -19,7 +19,6 @@ final class ShellSession: @unchecked Sendable {
     private var inputDrainGeneration: UInt64 = 0
     private var isStarted = false
     private var pendingOutput = Data()
-    private var startupDirectoryPath: String?
 
     func start() {
         guard !isStarted else { return }
@@ -32,19 +31,17 @@ final class ShellSession: @unchecked Sendable {
             ws_xpixel: 0,
             ws_ypixel: 0
         )
-        let startupEnvironment = makeStartupEnvironment()
         let pid = withUnsafePointer(to: &size) { sizePointer in
             systemForkpty(&fd, nil, nil, sizePointer)
         }
 
         if pid < 0 {
-            removeStartupDirectory()
             onOutput?("failed to start PTY: \(String(cString: strerror(errno)))\n")
             return
         }
 
         if pid == 0 {
-            runChildShell(startupEnvironment: startupEnvironment)
+            runChildShell()
             _exit(127)
         }
 
@@ -103,7 +100,6 @@ final class ShellSession: @unchecked Sendable {
             close(master)
             master = -1
         }
-        removeStartupDirectory()
     }
 
     private func observeMaster(_ fd: Int32) {
@@ -182,99 +178,26 @@ final class ShellSession: @unchecked Sendable {
         pendingOutput.removeFirst(count - 4)
         return text
     }
-
-    private func makeStartupEnvironment() -> ShellStartupEnvironment {
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-        let startupDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(ShellStartupConstants.runtimeDirectoryPrefix + UUID().uuidString, isDirectory: true)
-
-        do {
-            try FileManager.default.createDirectory(
-                at: startupDirectory,
-                withIntermediateDirectories: true,
-                attributes: ShellStartupConstants.runtimeDirectoryAttributes
-            )
-            let zshrcPath = startupDirectory.appendingPathComponent(ShellStartupConstants.zshrcFileName)
-            try ShellStartupConstants.zshrcContents.write(to: zshrcPath, atomically: true, encoding: .utf8)
-            startupDirectoryPath = startupDirectory.path
-            return ShellStartupEnvironment(homeDirectory: homeDirectory, zshDotDirectory: startupDirectory.path)
-        } catch {
-            return ShellStartupEnvironment(homeDirectory: homeDirectory, zshDotDirectory: nil)
-        }
-    }
-
-    private func removeStartupDirectory() {
-        guard let startupDirectoryPath else { return }
-        try? FileManager.default.removeItem(atPath: startupDirectoryPath)
-        self.startupDirectoryPath = nil
-    }
 }
 
-private func runChildShell(startupEnvironment: ShellStartupEnvironment) {
+private func runChildShell() {
     let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     setenv("TERM", AppConstants.Shell.term, 1)
     setenv("COLORTERM", AppConstants.Shell.colorTerm, 1)
-    setenv("PWD", startupEnvironment.homeDirectory, 1)
-    setenv("HOME", startupEnvironment.homeDirectory, 1)
-    setenv("PS1", AppConstants.Shell.prompt, 1)
-    setenv("PROMPT", AppConstants.Shell.prompt, 1)
-    setenv("RPROMPT", "", 1)
-    setenv("RPS1", "", 1)
+    unsetenv("NO_COLOR")
+    unsetenv("ZDOTDIR")
+    setenv("PWD", homeDirectory, 1)
+    setenv("HOME", homeDirectory, 1)
+    setenv("HISTFILE", "\(homeDirectory)/.zsh_history", 1)
     setenv("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD", "true", 1)
     setenv("ZSH_DISABLE_COMPFIX", "true", 1)
-    if let zshDotDirectory = startupEnvironment.zshDotDirectory {
-        setenv("ZDOTDIR", zshDotDirectory, 1)
-    }
-    chdir(startupEnvironment.homeDirectory)
+    chdir(homeDirectory)
 
     shell.withCString { shellPath in
         let arg0 = strdup(shellPath)
-        var argv: [UnsafeMutablePointer<CChar>?] = [arg0, nil]
+        let interactive = strdup("-i")
+        var argv: [UnsafeMutablePointer<CChar>?] = [arg0, interactive, nil]
         execv(shellPath, &argv)
     }
-}
-
-private struct ShellStartupEnvironment {
-    let homeDirectory: String
-    let zshDotDirectory: String?
-}
-
-private enum ShellStartupConstants {
-    static let runtimeDirectoryPrefix = "kurotty-zdotdir-"
-    static let zshrcFileName = ".zshrc"
-    static let runtimeDirectoryPermissions = 0o700
-    static var runtimeDirectoryAttributes: [FileAttributeKey: Any] {
-        [
-            .posixPermissions: runtimeDirectoryPermissions,
-        ]
-    }
-    static let zshrcContents = """
-    unsetopt BEEP
-    setopt AUTO_CD
-    setopt AUTO_LIST
-    setopt AUTO_MENU
-    setopt COMPLETE_IN_WORD
-    setopt PROMPT_SUBST
-    unsetopt NOMATCH
-
-    export PROMPT='\(AppConstants.Shell.prompt)'
-    export PS1="$PROMPT"
-    export RPROMPT=''
-    export RPS1=''
-    export POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
-    export ZSH_DISABLE_COMPFIX=true
-
-    # ZDOTDIR points at Kurotty's runtime directory, so zsh would otherwise skip
-    # the user's normal oh-my-zsh/plugins/theme setup in ~/.zshrc.
-    [[ -r "$HOME/.zshrc" ]] && source "$HOME/.zshrc"
-
-    alias ll >/dev/null 2>&1 || alias ll='ls -la'
-    alias la >/dev/null 2>&1 || alias la='ls -A'
-    alias l >/dev/null 2>&1 || alias l='ls -CF'
-
-    if ! whence -w compdef >/dev/null 2>&1; then
-        autoload -Uz compinit
-        compinit -d "$ZDOTDIR/.zcompdump"
-    fi
-    """
 }

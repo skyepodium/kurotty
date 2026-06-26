@@ -307,6 +307,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
+            defaultForeground: terminalDefaultStyle.foreground,
             defaultBackground: terminalDefaultStyle.background,
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
@@ -742,6 +743,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             savedCursorRow = cursorRow
             savedCursorColumn = cursorColumn
         case "u":
+            guard !parsed.isPrivate else { break }
             cursorRow = min(screen.rows - 1, savedCursorRow)
             cursorColumn = min(screen.columns - 1, savedCursorColumn)
         case "h":
@@ -994,6 +996,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if index < TerminalColorSettings.requiredAnsiColorCount {
             return terminalAnsiColors[index]
         }
+        if terminalDefaultStyle.isLightBackground, index >= 250 {
+            return lightThemeGray(index)
+        }
         if index < 232 {
             let cube = index - 16
             let red = cube / 36
@@ -1004,6 +1009,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         let gray = 8 + (index - 232) * 10
         return TerminalTextStyle.rgb(red: gray, green: gray, blue: gray)
+    }
+
+    private func lightThemeGray(_ index: Int) -> SIMD4<Float> {
+        let clamped = max(250, min(index, 255))
+        // Keep Codex's muted gray panels visible without making them heavy blocks
+        // on the lightty background.
+        let component = 205 + (clamped - 250) * 6
+        return TerminalTextStyle.rgb(red: component, green: component, blue: component)
     }
 }
 
@@ -1270,6 +1283,10 @@ private struct TerminalTextStyle: Equatable {
         inverse ? foreground : background
     }
 
+    var isLightBackground: Bool {
+        luminance(background) > 0.5
+    }
+
     static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
         (bright ? DesignTokens.Color.ansiBright : DesignTokens.Color.ansiNormal)[max(0, min(index, 7))]
     }
@@ -1306,9 +1323,17 @@ private struct TerminalTextStyle: Equatable {
 
     private func dimmed(_ color: SIMD4<Float>, against background: SIMD4<Float>) -> SIMD4<Float> {
         if luminance(background) > 0.5 {
-            return blend(color, background, amount: 0.48)
+            return blend(color, background, amount: dimBlendAmount(for: color))
         }
         return SIMD4<Float>(color.x * 0.62, color.y * 0.62, color.z * 0.62, color.w)
+    }
+
+    private func dimBlendAmount(for color: SIMD4<Float>) -> Float {
+        chroma(color) > 0.08 ? 0.04 : 0.48
+    }
+
+    private func chroma(_ color: SIMD4<Float>) -> Float {
+        max(color.x, max(color.y, color.z)) - min(color.x, min(color.y, color.z))
     }
 
     private func blend(_ color: SIMD4<Float>, _ background: SIMD4<Float>, amount: Float) -> SIMD4<Float> {

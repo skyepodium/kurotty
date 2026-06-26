@@ -203,7 +203,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("let dirtyRows: [Int]"))
         XCTAssertTrue(metalSource.contains("let dirtyRects: [CGRect]"))
         XCTAssertTrue(metalSource.contains("let isFullDamage: Bool"))
+        XCTAssertTrue(metalSource.contains("let defaultForeground: SIMD4<Float>"))
         XCTAssertTrue(metalSource.contains("let defaultBackground: SIMD4<Float>"))
+        XCTAssertTrue(metalSource.contains("color: terminalFrame.defaultForeground"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
@@ -223,6 +225,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("dirtyRows: damage.rows"))
         XCTAssertTrue(surfaceSource.contains("dirtyRects: damage.rects"))
         XCTAssertTrue(surfaceSource.contains("isFullDamage: damage.isFull"))
+        XCTAssertTrue(surfaceSource.contains("defaultForeground: terminalDefaultStyle.foreground"))
     }
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
@@ -231,13 +234,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
         XCTAssertFalse(shellSource.contains("AppConstants.Shell.defaultWorkingDirectory"))
         XCTAssertFalse(shellSource.contains("strdup(\"-f\")"))
-        XCTAssertTrue(shellSource.contains("setenv(\"ZDOTDIR\""))
-        XCTAssertTrue(shellSource.contains("[[ -r \"$HOME/.zshrc\" ]] && source \"$HOME/.zshrc\""))
-        XCTAssertTrue(shellSource.contains("alias ll="))
-        XCTAssertTrue(shellSource.contains("autoload -Uz compinit"))
-        XCTAssertTrue(shellSource.contains("compinit -d"))
+        XCTAssertFalse(shellSource.contains("setenv(\"ZDOTDIR\","))
+        XCTAssertFalse(shellSource.contains("zshrcContents"))
+        XCTAssertTrue(shellSource.contains("setenv(\"HISTFILE\""))
+        XCTAssertTrue(shellSource.contains("strdup(\"-i\")"))
+        XCTAssertTrue(shellSource.contains("unsetenv(\"ZDOTDIR\")"))
+        XCTAssertFalse(shellSource.contains("compinit -d"))
         XCTAssertTrue(shellSource.contains("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD"))
         XCTAssertTrue(shellSource.contains("ZSH_DISABLE_COMPFIX"))
+        XCTAssertTrue(shellSource.contains("unsetenv(\"NO_COLOR\")"))
     }
 
     func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
@@ -256,14 +261,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("\"#AFA7F5\""))
         XCTAssertTrue(settingsSource.contains("\"#AB4634\""))
         XCTAssertTrue(settingsSource.contains("\"#55C236\""))
-        XCTAssertTrue(settingsSource.contains("\"#ECE848\""))
+        XCTAssertTrue(settingsSource.contains("\"#E59C26\""))
+        XCTAssertTrue(settingsSource.contains("\"#D99518\""))
         XCTAssertTrue(settingsSource.contains("\"#CF75D3\""))
         XCTAssertTrue(settingsSource.contains("normalizeTheme(&next)"))
 
         let surfaceSource = try terminalSurfaceViewSource()
         XCTAssertTrue(surfaceSource.contains("dimmed(weighted, against: background)"))
         XCTAssertTrue(surfaceSource.contains("luminance(background) > 0.5"))
-        XCTAssertTrue(surfaceSource.contains("blend(color, background, amount: 0.48)"))
+        XCTAssertTrue(surfaceSource.contains("dimBlendAmount(for: color)"))
+        XCTAssertTrue(surfaceSource.contains("chroma(color) > 0.08"))
+        XCTAssertTrue(surfaceSource.contains("if terminalDefaultStyle.isLightBackground, index >= 250"))
+        XCTAssertTrue(surfaceSource.contains("private func lightThemeGray(_ index: Int)"))
+        XCTAssertTrue(surfaceSource.contains("205 + (clamped - 250) * 6"))
+        XCTAssertTrue(surfaceSource.contains("guard !parsed.isPrivate else { break }"))
 
         XCTAssertTrue(settingsSource.contains("var window: WindowSettings"))
         XCTAssertTrue(settingsSource.contains("struct WindowSettings: Codable, Equatable"))
