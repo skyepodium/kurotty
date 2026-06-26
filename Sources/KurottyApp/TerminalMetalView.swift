@@ -37,6 +37,13 @@ struct TerminalBackground {
     let color: SIMD4<Float>
 }
 
+private struct BackgroundRun {
+    let column: Int
+    let row: Int
+    var width: Int
+    let color: SIMD4<Float>
+}
+
 struct TerminalDecoration {
     let column: Int
     let row: Int
@@ -48,6 +55,20 @@ struct TerminalDecoration {
         case underline
         case strikethrough
     }
+}
+
+struct TerminalRenderingDiagnostics {
+    let backingScaleFactor: CGFloat
+    let drawableSize: CGSize
+    let cellSizePoints: CGSize
+    let cellSizePixels: CGSize
+    let glyphAtlasSizePixels: Int
+    let lastGlyphRectPixels: CGRect
+    let lastGlyphUVOrigin: SIMD2<Float>
+    let lastGlyphUVSize: SIMD2<Float>
+    let lastGlyphDrawOffsetPoints: SIMD2<Float>
+    let pixelSnappingEnabled: Bool
+    let linearGlyphSamplingEnabled: Bool
 }
 
 final class TerminalMetalView: MTKView, MTKViewDelegate {
@@ -62,6 +83,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             setNeedsDisplay(bounds)
         }
     }
+    var diagnosticPixelSnappingEnabled = true {
+        didSet {
+            rebuildAtlasBuffers()
+            setNeedsDisplay(bounds)
+        }
+    }
+    var diagnosticLinearGlyphSamplingEnabled = true {
+        didSet {
+            setNeedsDisplay(bounds)
+        }
+    }
+    var diagnosticRenderingLogEnabled = false
 
     private let commandQueue: MTLCommandQueue?
     private let pipeline: MTLRenderPipelineState?
@@ -80,6 +113,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var glyphs: [String: GlyphAtlasEntry] = [:]
     private var atlasSlot = 0
     private var atlasCellSize = CGSize.zero
+    private var atlasBackingScale: CGFloat = 0
+    private var lastGlyphRectPixels = CGRect.zero
+    private var lastGlyphUVOrigin = SIMD2<Float>.zero
+    private var lastGlyphUVSize = SIMD2<Float>.zero
+    private var lastGlyphDrawOffsetPoints = SIMD2<Float>.zero
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -126,6 +164,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     func update(frame: TerminalFrame) {
         terminalFrame = frame
         rebuildAtlasBuffers()
+        logRenderingDiagnosticsIfNeeded()
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
@@ -140,6 +179,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         rebuildVertexBuffer()
+        resetAtlasIfBackingScaleChanged()
+        rebuildAtlasBuffers()
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
@@ -269,6 +310,26 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         texture != nil
     }
 
+    var renderingDiagnostics: TerminalRenderingDiagnostics {
+        let scale = backingScale
+        return TerminalRenderingDiagnostics(
+            backingScaleFactor: scale,
+            drawableSize: drawableSize,
+            cellSizePoints: terminalFrame.cellSize,
+            cellSizePixels: CGSize(
+                width: terminalFrame.cellSize.width * scale,
+                height: terminalFrame.cellSize.height * scale
+            ),
+            glyphAtlasSizePixels: atlasSize,
+            lastGlyphRectPixels: lastGlyphRectPixels,
+            lastGlyphUVOrigin: lastGlyphUVOrigin,
+            lastGlyphUVSize: lastGlyphUVSize,
+            lastGlyphDrawOffsetPoints: lastGlyphDrawOffsetPoints,
+            pixelSnappingEnabled: diagnosticPixelSnappingEnabled,
+            linearGlyphSamplingEnabled: diagnosticLinearGlyphSamplingEnabled
+        )
+    }
+
     var lastFrameDirtyRowsForDiagnostics: [Int] {
         terminalFrame.dirtyRows
     }
@@ -335,6 +396,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func rebuildAtlasBuffers() {
         guard let device, bounds.width > 0, bounds.height > 0 else { return }
+        resetAtlasIfBackingScaleChanged()
         resetAtlasIfCellMetricsChanged()
         var instances: [GlyphInstance] = []
         instances.reserveCapacity(terminalFrame.cells.count + terminalFrame.markedText.count)
@@ -361,16 +423,15 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         var backgrounds: [GlyphInstance] = []
-        backgrounds.reserveCapacity(terminalFrame.backgrounds.count)
-        for background in terminalFrame.backgrounds where background.row >= 0 && background.row < terminalFrame.visibleRows {
-            backgrounds.append(GlyphInstance(
-                origin: SIMD2<Float>(
-                    Float(terminalFrame.padding.x + CGFloat(background.column) * terminalFrame.cellSize.width),
-                    Float(bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(background.row + 1))
-                ),
-                size: SIMD2<Float>(Float(terminalFrame.cellSize.width), Float(terminalFrame.cellSize.height)),
-                uvOrigin: .zero,
-                uvSize: .zero,
+        let backgroundRuns = mergedBackgroundRuns()
+        backgrounds.reserveCapacity(backgroundRuns.count)
+        for background in backgroundRuns {
+            backgrounds.append(solidInstance(
+                column: background.column,
+                row: background.row,
+                width: background.width,
+                height: terminalFrame.cellSize.height,
+                yOffset: 0,
                 color: background.color
             ))
         }
@@ -389,17 +450,12 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             case .strikethrough:
                 yOffset = max(1, floor(terminalFrame.cellSize.height * 0.52))
             }
-            decorations.append(GlyphInstance(
-                origin: SIMD2<Float>(
-                    Float(terminalFrame.padding.x + CGFloat(decoration.column) * terminalFrame.cellSize.width),
-                    Float(bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(decoration.row + 1) + yOffset)
-                ),
-                size: SIMD2<Float>(
-                    Float(terminalFrame.cellSize.width * CGFloat(max(1, decoration.width))),
-                    Float(max(1, backingScale.rounded(.up)))
-                ),
-                uvOrigin: .zero,
-                uvSize: .zero,
+            decorations.append(solidInstance(
+                column: decoration.column,
+                row: decoration.row,
+                width: max(1, decoration.width),
+                height: max(1, backingScale.rounded(.up)),
+                yOffset: yOffset,
                 color: decoration.color
             ))
         }
@@ -408,19 +464,21 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
         }
 
-        var cursor = GlyphInstance(
-            origin: SIMD2<Float>(
-                Float(terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width),
-                Float(bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(0, terminalFrame.cursorRow) + 1))
-            ),
-            size: SIMD2<Float>(2, Float(max(1, terminalFrame.cellSize.height))),
-            uvOrigin: .zero,
-            uvSize: .zero,
-            color: cursorColor
+        var cursor = solidInstance(
+            column: max(0, terminalFrame.cursorColumn),
+            row: max(0, terminalFrame.cursorRow),
+            width: 1,
+            height: max(1, terminalFrame.cellSize.height),
+            yOffset: 0,
+            color: cursorColor,
+            overrideWidth: 2
         )
         cursorInstanceBuffer = device.makeBuffer(bytes: &cursor, length: MemoryLayout<GlyphInstance>.stride, options: .storageModeShared)
 
-        var uniforms = TerminalUniforms(viewport: SIMD2<Float>(Float(bounds.width), Float(bounds.height)))
+        var uniforms = TerminalUniforms(
+            viewport: SIMD2<Float>(Float(bounds.width), Float(bounds.height)),
+            useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
+        )
         uniformsBuffer = device.makeBuffer(bytes: &uniforms, length: MemoryLayout<TerminalUniforms>.stride, options: .storageModeShared)
     }
 
@@ -438,6 +496,57 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             uvSize: entry.uvSize,
             color: color
         ))
+    }
+
+    private func solidInstance(
+        column: Int,
+        row: Int,
+        width: Int,
+        height: CGFloat,
+        yOffset: CGFloat,
+        color: SIMD4<Float>,
+        overrideWidth: CGFloat? = nil
+    ) -> GlyphInstance {
+        let rect = snappedRect(
+            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
+            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1) + yOffset,
+            width: overrideWidth ?? terminalFrame.cellSize.width * CGFloat(max(1, width)),
+            height: height
+        )
+        return GlyphInstance(
+            origin: SIMD2<Float>(Float(rect.origin.x), Float(rect.origin.y)),
+            size: SIMD2<Float>(Float(rect.width), Float(rect.height)),
+            uvOrigin: .zero,
+            uvSize: .zero,
+            color: color
+        )
+    }
+
+    private func mergedBackgroundRuns() -> [BackgroundRun] {
+        let sorted = terminalFrame.backgrounds
+            .filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows }
+            .sorted {
+                if $0.row != $1.row { return $0.row < $1.row }
+                return $0.column < $1.column
+            }
+        var backgroundRuns: [BackgroundRun] = []
+        for background in sorted {
+            if var last = backgroundRuns.last,
+               last.row == background.row,
+               last.column + last.width == background.column,
+               last.color.sameColor(as: background.color) {
+                last.width += 1
+                backgroundRuns[backgroundRuns.count - 1] = last
+            } else {
+                backgroundRuns.append(BackgroundRun(
+                    column: background.column,
+                    row: background.row,
+                    width: 1,
+                    color: background.color
+                ))
+            }
+        }
+        return backgroundRuns
     }
 
     private func glyphEntry(for character: Character) -> GlyphAtlasEntry {
@@ -458,12 +567,23 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let drawWidthPixels = min(glyphSlotWidth, max(1, Int(ceil(CGFloat(rasterized.drawSize.x) * scale))))
         let drawHeightPixels = min(glyphSlotHeight, max(1, Int(ceil(CGFloat(rasterized.drawSize.y) * scale))))
         uploadAtlas(region: MTLRegionMake2D(x, y, glyphSlotWidth, glyphSlotHeight))
+        // Linear atlas sampling must sample texel centers, not slot edges, or neighboring glyphs bleed in.
+        let halfTexel = 0.5 / Float(atlasSize)
+        let uvOrigin = SIMD2<Float>(
+            Float(x) / Float(atlasSize) + halfTexel,
+            Float(y) / Float(atlasSize) + halfTexel
+        )
+        let uvSize = SIMD2<Float>(
+            Float(max(0, drawWidthPixels - 1)) / Float(atlasSize),
+            Float(max(0, drawHeightPixels - 1)) / Float(atlasSize)
+        )
+        lastGlyphRectPixels = CGRect(x: x, y: y, width: drawWidthPixels, height: drawHeightPixels)
+        lastGlyphUVOrigin = uvOrigin
+        lastGlyphUVSize = uvSize
+        lastGlyphDrawOffsetPoints = rasterized.drawOffset
         let entry = GlyphAtlasEntry(
-            uvOrigin: SIMD2<Float>(
-                Float(x) / Float(atlasSize),
-                Float(y) / Float(atlasSize)
-            ),
-            uvSize: SIMD2<Float>(Float(drawWidthPixels) / Float(atlasSize), Float(drawHeightPixels) / Float(atlasSize)),
+            uvOrigin: uvOrigin,
+            uvSize: uvSize,
             drawOffset: rasterized.drawOffset,
             drawSize: rasterized.drawSize
         )
@@ -559,6 +679,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         resetAtlas()
     }
 
+    private func resetAtlasIfBackingScaleChanged() {
+        let scale = backingScale
+        guard atlasBackingScale != scale else { return }
+        atlasBackingScale = scale
+        resetAtlas()
+    }
+
     private func resetAtlas() {
         glyphs.removeAll(keepingCapacity: true)
         atlasSlot = 0
@@ -580,7 +707,43 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func pixelAlign(_ value: CGFloat, scale: CGFloat) -> CGFloat {
-        round(value * scale) / scale
+        guard diagnosticPixelSnappingEnabled else { return value }
+        // Geometry stays in AppKit points; snapping converts through backing pixels and returns points.
+        return round(value * scale) / scale
+    }
+
+    private func snappedRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+        guard diagnosticPixelSnappingEnabled else {
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
+        let scale = backingScale
+        let minX = floor(x * scale) / scale
+        let minY = floor(y * scale) / scale
+        let maxX = ceil((x + width) * scale) / scale
+        let maxY = ceil((y + height) * scale) / scale
+        return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    private func logRenderingDiagnosticsIfNeeded() {
+        guard diagnosticRenderingLogEnabled else { return }
+        let diagnostics = renderingDiagnostics
+        NSLog(
+            "Kurotty render diagnostics: scale=%0.2f drawable=%@ cellPt=%@ cellPx=%@ atlasPx=%d glyphRectPx=%@ uvOrigin=(%0.6f,%0.6f) uvSize=(%0.6f,%0.6f) offsetPt=(%0.3f,%0.3f) snap=%@ linearSampler=%@",
+            diagnostics.backingScaleFactor,
+            NSStringFromSize(diagnostics.drawableSize),
+            NSStringFromSize(diagnostics.cellSizePoints),
+            NSStringFromSize(diagnostics.cellSizePixels),
+            diagnostics.glyphAtlasSizePixels,
+            NSStringFromRect(diagnostics.lastGlyphRectPixels),
+            diagnostics.lastGlyphUVOrigin.x,
+            diagnostics.lastGlyphUVOrigin.y,
+            diagnostics.lastGlyphUVSize.x,
+            diagnostics.lastGlyphUVSize.y,
+            diagnostics.lastGlyphDrawOffsetPoints.x,
+            diagnostics.lastGlyphDrawOffsetPoints.y,
+            diagnostics.pixelSnappingEnabled ? "on" : "off",
+            diagnostics.linearGlyphSamplingEnabled ? "on" : "off"
+        )
     }
 
     private func uploadAtlas(region: MTLRegion? = nil) {
@@ -756,6 +919,7 @@ private struct GlyphInstance {
 
 private struct TerminalUniforms {
     let viewport: SIMD2<Float>
+    let useLinearGlyphSampling: UInt32
 }
 
 private struct GlyphAtlasEntry {
@@ -794,6 +958,7 @@ struct GlyphInstance {
 
 struct TerminalUniforms {
     float2 viewport;
+    uint useLinearGlyphSampling;
 };
 
 struct VertexOut {
@@ -805,6 +970,7 @@ struct GlyphVertexOut {
     float4 position [[position]];
     float2 uv;
     float4 color;
+    uint useLinearGlyphSampling;
 };
 
 vertex VertexOut terminal_vertex(const device TexturedVertex *vertices [[buffer(0)]],
@@ -835,13 +1001,17 @@ vertex GlyphVertexOut terminal_glyph_vertex(const device GlyphVertex *vertices [
     out.position = float4(ndc, 0.0, 1.0);
     out.uv = instance.uvOrigin + glyph_vertex.uv * instance.uvSize;
     out.color = instance.color;
+    out.useLinearGlyphSampling = uniforms.useLinearGlyphSampling;
     return out;
 }
 
 fragment float4 terminal_glyph_fragment(GlyphVertexOut in [[stage_in]],
                                         texture2d<float> glyph_atlas [[texture(0)]]) {
-    constexpr sampler glyph_sampler(address::clamp_to_edge, filter::linear);
-    float4 sample = glyph_atlas.sample(glyph_sampler, in.uv);
+    constexpr sampler linear_glyph_sampler(address::clamp_to_edge, filter::linear);
+    constexpr sampler nearest_glyph_sampler(address::clamp_to_edge, filter::nearest);
+    float4 sample = in.useLinearGlyphSampling == 0
+        ? glyph_atlas.sample(nearest_glyph_sampler, in.uv)
+        : glyph_atlas.sample(linear_glyph_sampler, in.uv);
     return float4(in.color.rgb, sample.a * in.color.a);
 }
 
@@ -849,6 +1019,12 @@ fragment float4 terminal_solid_fragment(GlyphVertexOut in [[stage_in]]) {
     return in.color;
 }
 """
+
+private extension SIMD4 where Scalar == Float {
+    func sameColor(as other: SIMD4<Float>) -> Bool {
+        x == other.x && y == other.y && z == other.z && w == other.w
+    }
+}
 
 private extension Character {
     var terminalColumnWidth: Int {

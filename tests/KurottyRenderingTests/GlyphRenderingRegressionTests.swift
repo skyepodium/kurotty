@@ -90,7 +90,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         )
 
         let vertices = unitQuadVertices()
-        var uniforms = TestUniforms(viewport: SIMD2<Float>(Float(frame.size.x), Float(frame.size.y)))
+        var uniforms = TestUniforms(
+            viewport: SIMD2<Float>(Float(frame.size.x), Float(frame.size.y)),
+            useLinearGlyphSampling: 1
+        )
         let backgroundInstances = frame.backgrounds.map { frame.solidInstance(for: $0) }
         let glyphInstances = frame.cells.map { frame.glyphInstance(for: $0) }
         let decorationInstances = frame.decorations.map { frame.solidInstance(for: $0) }
@@ -147,10 +150,24 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testTerminalMetalViewExposesAtlasDiagnosticsAndOptInCPUFallback() throws {
         let source = try terminalMetalViewSource()
         XCTAssertTrue(source.contains("var diagnosticCPUFallbackEnabled = false"))
+        XCTAssertTrue(source.contains("var diagnosticPixelSnappingEnabled = true"))
+        XCTAssertTrue(source.contains("var diagnosticLinearGlyphSamplingEnabled = true"))
+        XCTAssertTrue(source.contains("var diagnosticRenderingLogEnabled = false"))
         XCTAssertTrue(source.contains("var isAtlasPathReadyForRendering: Bool"))
         XCTAssertTrue(source.contains("var atlasResourcesAreAvailableForDiagnostics: Bool"))
         XCTAssertTrue(source.contains("var atlasGlyphInstanceCountForDiagnostics: Int"))
         XCTAssertTrue(source.contains("var atlasNonTransparentPixelCountForDiagnostics: Int"))
+        XCTAssertTrue(source.contains("var renderingDiagnostics: TerminalRenderingDiagnostics"))
+        XCTAssertTrue(source.contains("let backingScaleFactor: CGFloat"))
+        XCTAssertTrue(source.contains("let drawableSize: CGSize"))
+        XCTAssertTrue(source.contains("let cellSizePoints: CGSize"))
+        XCTAssertTrue(source.contains("let cellSizePixels: CGSize"))
+        XCTAssertTrue(source.contains("let glyphAtlasSizePixels: Int"))
+        XCTAssertTrue(source.contains("let lastGlyphRectPixels: CGRect"))
+        XCTAssertTrue(source.contains("let lastGlyphUVOrigin: SIMD2<Float>"))
+        XCTAssertTrue(source.contains("let lastGlyphUVSize: SIMD2<Float>"))
+        XCTAssertTrue(source.contains("let lastGlyphDrawOffsetPoints: SIMD2<Float>"))
+        XCTAssertTrue(source.contains("Kurotty render diagnostics: scale="))
         XCTAssertTrue(source.contains("var diagnosticCPUTextureIsAllocated: Bool"))
         XCTAssertTrue(source.contains("commandQueue != nil &&"))
         XCTAssertTrue(source.contains("atlasVertexBuffer != nil &&"))
@@ -158,6 +175,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("atlasTexture != nil"))
         XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled,\n           !isAtlasPathReadyForRendering"))
         XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled {\n            rebuildTextTexture()"))
+    }
+
+    func testAtlasUVsUseHalfTexelInsetAndGeometryUsesPixelSnapping() throws {
+        let source = try terminalMetalViewSource()
+        XCTAssertTrue(source.contains("let halfTexel = 0.5 / Float(atlasSize)"))
+        XCTAssertTrue(source.contains("Float(x) / Float(atlasSize) + halfTexel"))
+        XCTAssertTrue(source.contains("Float(max(0, drawWidthPixels - 1)) / Float(atlasSize)"))
+        XCTAssertTrue(source.contains("snappedRect("))
+        XCTAssertTrue(source.contains("backgroundRuns"))
+        XCTAssertTrue(source.contains("sameColor(as:"))
+        XCTAssertTrue(source.contains("pixelAlign("))
     }
 
     func testTerminalFrameCarriesTrackedDamageDiagnostics() throws {
@@ -212,6 +240,7 @@ private struct TestGlyphInstance {
 
 private struct TestUniforms {
     let viewport: SIMD2<Float>
+    let useLinearGlyphSampling: UInt32
 }
 
 private struct TestTerminalFrame {
