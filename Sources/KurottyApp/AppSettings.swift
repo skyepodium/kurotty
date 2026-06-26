@@ -4,6 +4,7 @@ import simd
 struct AppSettings: Codable, Equatable {
     var schemaVersion: Int?
     var terminal: TerminalSettings
+    var window: WindowSettings
 
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
@@ -12,14 +13,39 @@ struct AppSettings: Codable, Equatable {
             fontSize: Defaults.fontSize,
             scrollbackLines: Defaults.scrollbackLines,
             colors: TerminalColorSettings.default
+        ),
+        window: WindowSettings(
+            width: Defaults.windowWidth,
+            height: Defaults.windowHeight
         )
     )
 
     private enum Defaults {
-        static let schemaVersion = 2
+        static let schemaVersion = 3
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
+        static let windowWidth = 1100.0
+        static let windowHeight = 720.0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case terminal
+        case window
+    }
+
+    init(schemaVersion: Int?, terminal: TerminalSettings, window: WindowSettings) {
+        self.schemaVersion = schemaVersion
+        self.terminal = terminal
+        self.window = window
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        terminal = try container.decode(TerminalSettings.self, forKey: .terminal)
+        window = try container.decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default
     }
 }
 
@@ -28,6 +54,13 @@ struct TerminalSettings: Codable, Equatable {
     var fontSize: Double
     var scrollbackLines: Int
     var colors: TerminalColorSettings
+}
+
+struct WindowSettings: Codable, Equatable {
+    var width: Double
+    var height: Double
+
+    static let `default` = WindowSettings(width: 1100, height: 720)
 }
 
 struct TerminalColorSettings: Codable, Equatable {
@@ -124,8 +157,8 @@ final class AppSettingsStore {
     }
 
     func loadRawJSON() throws -> String {
-        try ensureSettingsFileExists()
-        return try String(contentsOf: settingsURL, encoding: .utf8)
+        let data = try encoder.encode(load())
+        return String(data: data, encoding: .utf8) ?? "{}"
     }
 
     func load() throws -> AppSettings {
@@ -188,6 +221,8 @@ final class AppSettingsStore {
             AppConstants.Terminal.maxScrollbackRows,
             max(1_000, next.terminal.scrollbackLines)
         )
+        next.window.width = min(4_000, max(320, next.window.width))
+        next.window.height = min(3_000, max(240, next.window.height))
         if next.terminal.colors.ansi.count < TerminalColorSettings.requiredAnsiColorCount {
             next.terminal.colors.ansi = TerminalColorSettings.default.ansi
         } else if next.terminal.colors.ansi.count > TerminalColorSettings.requiredAnsiColorCount {

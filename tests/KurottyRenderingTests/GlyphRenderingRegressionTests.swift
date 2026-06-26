@@ -228,6 +228,28 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD"))
         XCTAssertTrue(shellSource.contains("ZSH_DISABLE_COMPFIX"))
     }
+
+    func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
+        let menuSource = try mainMenuSource()
+        XCTAssertFalse(menuSource.contains("settingsMenuItem.title = \"Settings\""))
+        XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
+
+        let settingsSource = try appSettingsSource()
+        XCTAssertTrue(settingsSource.contains("var window: WindowSettings"))
+        XCTAssertTrue(settingsSource.contains("struct WindowSettings: Codable, Equatable"))
+        XCTAssertTrue(settingsSource.contains("width: Defaults.windowWidth"))
+        XCTAssertTrue(settingsSource.contains("height: Defaults.windowHeight"))
+        XCTAssertTrue(settingsSource.contains("decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default"))
+        XCTAssertTrue(settingsSource.contains("next.window.width = min("))
+        XCTAssertTrue(settingsSource.contains("next.window.height = min("))
+
+        let windowSource = try terminalWindowControllerSource()
+        XCTAssertTrue(windowSource.contains("AppSettingsStore.shared.load()"))
+        XCTAssertTrue(windowSource.contains("contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height)"))
+        XCTAssertTrue(windowSource.contains("AppSettingsStore.didChangeNotification"))
+        XCTAssertTrue(windowSource.contains("@objc private func settingsDidChange(_ notification: Notification)"))
+        XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
+    }
 }
 
 private struct TestGlyphVertex {
@@ -414,5 +436,23 @@ private func terminalSurfaceViewSource() throws -> String {
 private func shellSessionSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/ShellSession.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func mainMenuSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/MainMenu.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func appSettingsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalWindowControllerSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalWindowController.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }

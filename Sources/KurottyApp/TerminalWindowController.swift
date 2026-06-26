@@ -1,11 +1,13 @@
 import AppKit
 
+@MainActor
 final class TerminalWindowController: NSWindowController {
     private let tabView = NSTabView()
 
     init() {
+        let settings = (try? AppSettingsStore.shared.load()) ?? .default
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -14,10 +16,15 @@ final class TerminalWindowController: NSWindowController {
         window.center()
         super.init(window: window)
         configureTabs()
+        observeSettings()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func newTab() {
@@ -48,6 +55,23 @@ final class TerminalWindowController: NSWindowController {
             tabView.bottomAnchor.constraint(equalTo: window!.contentView!.bottomAnchor),
         ])
         newTab()
+    }
+
+    private func observeSettings() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange(_:)),
+            name: AppSettingsStore.didChangeNotification,
+            object: AppSettingsStore.shared,
+        )
+    }
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
+            return
+        }
+        window?.setContentSize(NSSize(width: settings.window.width, height: settings.window.height))
+        window?.center()
     }
 
     private func currentSplitView() -> SplitTerminalView? {
