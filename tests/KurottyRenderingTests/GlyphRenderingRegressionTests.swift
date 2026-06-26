@@ -195,7 +195,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
         XCTAssertTrue(source.contains("let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY"))
         XCTAssertTrue(source.contains("let baselineDeltaX = (baselineX - unsnappedBaselineX) / scale"))
-        XCTAssertTrue(source.contains("let baselineDeltaY = (baselineY - unsnappedBaselineY) / scale"))
+        XCTAssertTrue(source.contains("let glyphCanvasBaselineY = canonicalMetrics.baselineOffsetPixels"))
+        XCTAssertTrue(source.contains("let bearingYPixels = max(0, Int(round(baselineY - CGFloat(bitmapBottomPixels))))"))
+        XCTAssertFalse(source.contains("let baselineDeltaY = (baselineY - unsnappedBaselineY) / scale"))
         XCTAssertFalse(source.contains("let snappedInkBottom = (imageBounds.minY + baselineY) / scale"))
         XCTAssertTrue(source.contains("physicalPixelsToPoints(1)"))
         XCTAssertTrue(source.contains("overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))"))
@@ -208,6 +210,39 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(tokenSource.contains("glyphAtlasOversampleScale"))
         XCTAssertTrue(source.contains("backingScale * DesignTokens.Component.glyphAtlasOversampleScale"))
         XCTAssertFalse(source.contains("glyphAtlasMinimumScale"))
+    }
+
+    func testMetalGlyphLayoutSeparatesCanonicalCellMetricsFromBitmapBounds() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("private struct FontCellMetrics"))
+        XCTAssertTrue(source.contains("private var fontCellMetrics: FontCellMetrics"))
+        XCTAssertTrue(source.contains("let baselineOffsetPixels: Int"))
+        XCTAssertTrue(source.contains("let cellWidthPixels: Int"))
+        XCTAssertTrue(source.contains("let cellHeightPixels: Int"))
+        XCTAssertTrue(source.contains("let cursorHeightPixels: Int"))
+        XCTAssertTrue(source.contains("private func rebuildFontCellMetrics()"))
+        XCTAssertTrue(source.contains("private func canonicalBaselinePointY(forRow row: Int) -> CGFloat"))
+        XCTAssertTrue(source.contains("let cellOrigin = physicalPixelCellOrigin(column: column, row: row)"))
+        XCTAssertTrue(source.contains("origin: SIMD2<Float>(Float(cellOrigin.x + entry.bearingXPixels), Float(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels))"))
+        XCTAssertTrue(source.contains("let canonicalMetrics = fontCellMetrics"))
+        XCTAssertTrue(source.contains("baselineOffsetPixels: canonicalMetrics.baselineOffsetPixels"))
+        XCTAssertTrue(source.contains("cellWidthPixels: canonicalMetrics.cellWidthPixels * columnWidth"))
+        XCTAssertTrue(source.contains("cellHeightPixels: canonicalMetrics.cellHeightPixels"))
+        XCTAssertTrue(source.contains("let glyphCanvasBaselineY = canonicalMetrics.baselineOffsetPixels"))
+        XCTAssertFalse(source.contains("let desiredInkBottom ="))
+        XCTAssertFalse(source.contains("verticalInset + typographicDescent + imageBounds.minY"))
+        XCTAssertFalse(source.contains("bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1) + CGFloat(entry.drawOffset.y)"))
+    }
+
+    func testCursorAndDebugBaselineUseCanonicalCellMetrics() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels))"))
+        XCTAssertTrue(source.contains("let baselineOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.baselineOffsetPixels))"))
+        XCTAssertTrue(source.contains("height: terminalFrame.cellSize.height\n            ).fill()"))
+        XCTAssertFalse(source.contains("height: max(1, terminalFrame.cellSize.height - 4)"))
+        XCTAssertFalse(source.contains("+ 2,\n                width: 2,"))
     }
 
     func testGlyphSamplerAndBlendConfigurationFavorSharpStraightAlphaText() throws {

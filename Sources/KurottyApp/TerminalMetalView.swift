@@ -161,6 +161,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
+    private var fontCellMetrics: FontCellMetrics = .empty
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     init(
@@ -192,6 +193,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         delegate = self
         rebuildVertexBuffer()
         rebuildAtlasVertexBuffer()
+        rebuildFontCellMetrics()
         initializeAtlas()
     }
 
@@ -222,6 +224,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     func update(frame: TerminalFrame) {
         terminalFrame = frame
+        rebuildFontCellMetrics()
         synchronizeBackingScaleAndDrawableSize()
         rebuildAtlasBuffers()
         logRenderingDiagnosticsIfNeeded()
@@ -260,6 +263,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             blue: Double(backgroundColor.z),
             alpha: Double(backgroundColor.w)
         )
+        rebuildFontCellMetrics()
         resetAtlas()
         rebuildAtlasBuffers()
         if diagnosticCPUFallbackEnabled {
@@ -522,15 +526,15 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             let yOffset: CGFloat
             switch decoration.kind {
             case .underline:
-                yOffset = max(0, terminalFrame.cellSize.height - physicalPixelsToPoints(2))
+                yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))
             case .strikethrough:
-                yOffset = max(1, floor(terminalFrame.cellSize.height * 0.52))
+                yOffset = pixelAlign(terminalFrame.cellSize.height * 0.52, scale: backingScale)
             }
             decorations.append(solidInstance(
                 column: decoration.column,
                 row: decoration.row,
                 width: max(1, decoration.width),
-                height: physicalPixelsToPoints(1),
+                height: physicalPixelsToPoints(CGFloat(fontCellMetrics.underlineThicknessPixels)),
                 yOffset: yOffset,
                 color: decoration.color
             ))
@@ -544,7 +548,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             column: max(0, terminalFrame.cursorColumn),
             row: max(0, terminalFrame.cursorRow),
             width: 1,
-            height: max(1, terminalFrame.cellSize.height),
+            height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels)),
             yOffset: 0,
             color: cursorColor,
             overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))
@@ -569,17 +573,17 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     ) {
         guard row >= 0, row < terminalFrame.visibleRows else { return }
         let entry = glyphEntry(for: character)
-        let pointOrigin = CGPoint(
-            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width + CGFloat(entry.drawOffset.x),
-            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1) + CGFloat(entry.drawOffset.y)
-        )
-        let origin = physicalPixelPoint(pointOrigin)
+        let cellOrigin = physicalPixelCellOrigin(column: column, row: row)
         let pixelSize = entry.pixelSize
         if diagnosticGlyphQuadOverlayEnabled {
-            debugRects.append(CGRect(origin: pointOrigin, size: CGSize(width: CGFloat(entry.drawSize.x), height: CGFloat(entry.drawSize.y))))
+            let origin = physicalPixelsToPoints(CGPoint(
+                x: CGFloat(cellOrigin.x + entry.bearingXPixels),
+                y: CGFloat(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels)
+            ))
+            debugRects.append(CGRect(origin: origin, size: CGSize(width: CGFloat(entry.drawSize.x), height: CGFloat(entry.drawSize.y))))
         }
         instances.append(GlyphInstance(
-            origin: SIMD2<Float>(Float(origin.x), Float(origin.y)),
+            origin: SIMD2<Float>(Float(cellOrigin.x + entry.bearingXPixels), Float(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels)),
             size: SIMD2<Float>(Float(pixelSize.width), Float(pixelSize.height)),
             uvOrigin: entry.uvOrigin,
             uvSize: entry.uvSize,
@@ -643,7 +647,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
         if diagnosticBaselineOverlayEnabled {
             let color = SIMD4<Float>(1, 0.55, 0.1, 0.75)
-            let baselineOffset = max(0, font.descender.magnitude)
+            let baselineOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.baselineOffsetPixels))
             for row in 0..<terminalFrame.visibleRows {
                 overlays.append(debugSolidInstance(
                     rect: CGRect(
@@ -742,7 +746,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let y = (atlasSlot / slotsPerRow) * glyphSlotHeight
         atlasSlot += 1
         if y + glyphSlotHeight > atlasSize {
-            return GlyphAtlasEntry(uvOrigin: .zero, uvSize: .zero, drawOffset: .zero, drawSize: .zero, pixelSize: PixelSize(width: 0, height: 0))
+            return GlyphAtlasEntry.empty(metrics: fontCellMetrics)
         }
 
         let rasterized = rasterizeGlyph(character, x: x, y: y)
@@ -768,7 +772,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             uvSize: uvSize,
             drawOffset: rasterized.drawOffset,
             drawSize: rasterized.drawSize,
-            pixelSize: rasterized.pixelSize
+            pixelSize: rasterized.pixelSize,
+            bearingXPixels: rasterized.bearingXPixels,
+            bearingYPixels: rasterized.bearingYPixels,
+            advancePixels: rasterized.advancePixels,
+            cellWidthPixels: rasterized.cellWidthPixels,
+            cellHeightPixels: rasterized.cellHeightPixels,
+            baselineOffsetPixels: rasterized.baselineOffsetPixels
         )
         glyphs[key] = entry
         return entry
@@ -799,32 +809,38 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let imageBounds = CTLineGetImageBounds(line, nil)
         let paddingPixels = Int(DesignTokens.Component.glyphSlotPaddingPX)
         guard !imageBounds.isNull, imageBounds.width > 0, imageBounds.height > 0 else {
-            return RasterizedGlyph(drawOffset: .zero, drawSize: .zero, pixelSize: PixelSize(width: 0, height: 0))
+            return RasterizedGlyph.empty(metrics: fontCellMetrics)
         }
 
+        let canonicalMetrics = fontCellMetrics
         let pixelWidth = min(glyphSlotWidth, max(1, Int(ceil(imageBounds.width)) + paddingPixels * 2))
         let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(imageBounds.height)) + paddingPixels * 2))
         let imageLogicalWidth = imageBounds.width / scale
-        let desiredInkLeft = columnWidth > 1 ? max(0, (logicalAdvanceWidth - imageLogicalWidth) * 0.5) : imageBounds.minX / scale
-        let scaledLogicalHeight = logicalHeight * scale
-        let typographicHeight = typographicAscent + typographicDescent
-        let verticalInset = max(0, (scaledLogicalHeight - typographicHeight) * 0.5)
-        let desiredInkBottom = (verticalInset + typographicDescent + imageBounds.minY) / scale
+        let desiredInkLeft = columnWidth > 1 ? max(0, (logicalAdvanceWidth - imageLogicalWidth) * 0.5) : 0
         // CoreText metrics are fractional pixels after scaling. Snap the atlas draw origin so
-        // bitmap rasterization and the later Metal quad use the same physical pixel grid.
+        // bitmap rasterization and the later Metal quad share one canonical row baseline.
         let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX
         let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY
         let baselineX = round(unsnappedBaselineX)
         let baselineY = round(unsnappedBaselineY)
         let baselineDeltaX = (baselineX - unsnappedBaselineX) / scale
-        let baselineDeltaY = (baselineY - unsnappedBaselineY) / scale
+        let glyphCanvasBaselineY = canonicalMetrics.baselineOffsetPixels
+        let bitmapBottomPixels = glyphSlotHeight - pixelHeight
+        let bearingXPixels = Int(round(desiredInkLeft * scale - baselineX))
+        let bearingYPixels = max(0, Int(round(baselineY - CGFloat(bitmapBottomPixels))))
         let result = RasterizedGlyph(
             drawOffset: SIMD2<Float>(
                 Float(desiredInkLeft + baselineDeltaX - CGFloat(paddingPixels) / scale),
-                Float(desiredInkBottom + baselineDeltaY - CGFloat(paddingPixels) / scale)
+                Float((CGFloat(glyphCanvasBaselineY - bearingYPixels)) / scale)
             ),
             drawSize: SIMD2<Float>(Float(CGFloat(pixelWidth) / scale), Float(CGFloat(pixelHeight) / scale)),
-            pixelSize: PixelSize(width: pixelWidth, height: pixelHeight)
+            pixelSize: PixelSize(width: pixelWidth, height: pixelHeight),
+            bearingXPixels: bearingXPixels,
+            bearingYPixels: bearingYPixels,
+            advancePixels: canonicalMetrics.cellWidthPixels * columnWidth,
+            cellWidthPixels: canonicalMetrics.cellWidthPixels * columnWidth,
+            cellHeightPixels: canonicalMetrics.cellHeightPixels,
+            baselineOffsetPixels: canonicalMetrics.baselineOffsetPixels
         )
         guard let context = CGContext(
             data: &slot,
@@ -976,7 +992,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private func logDisplaySynchronization(scale: CGFloat, drawableChanged: Bool, atlasInvalidated: Bool) {
         guard diagnosticRenderingLogEnabled || drawableChanged || atlasInvalidated else { return }
         NSLog(
-            "Kurotty display sync: screen=%@ scale=%0.2f contentsScale=%0.2f drawable=%@ viewport=%@ bounds=%@ atlasScale=%0.2f atlasPx=%d glyphTexturePixelFormat=%@ drawablePixelFormat=%@ sampler=nearest blend=straight-alpha sourceAlpha/oneMinusSourceAlpha colorSpacePolicy=sRGB values on bgra8Unorm font=%@ fontSize=%0.2f ascent=%0.2f descent=%0.2f leading=%0.2f cellPt=%@ cellPx=%@ baselinePt=%0.2f baselinePx=%0.2f projectionRebuild=%@ atlasInvalidate=%@ glyphCacheInvalidate=%@",
+            "Kurotty display sync: screen=%@ scale=%0.2f contentsScale=%0.2f drawable=%@ viewport=%@ bounds=%@ atlasScale=%0.2f atlasPx=%d glyphTexturePixelFormat=%@ drawablePixelFormat=%@ sampler=nearest blend=straight-alpha sourceAlpha/oneMinusSourceAlpha colorSpacePolicy=sRGB values on bgra8Unorm font=%@ fontSize=%0.2f ascentPx=%d descentPx=%d leadingPx=%d fixedCellPt=(%0.2f,%0.2f) fixedCellPx=(%d,%d) baselinePx=%d firstRowBaselinePx=%d cursorHeightPx=%d underlinePx=(%d,%d) projectionRebuild=%@ atlasInvalidate=%@ glyphCacheInvalidate=%@",
             window?.screen?.localizedName ?? "unknown",
             scale,
             layer?.contentsScale ?? 0,
@@ -989,13 +1005,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             "\(Self.renderTargetPixelFormat)",
             font.fontName,
             font.pointSize,
-            font.ascender,
-            font.descender,
-            font.leading,
-            NSStringFromSize(terminalFrame.cellSize),
-            NSStringFromSize(CGSize(width: terminalFrame.cellSize.width * scale, height: terminalFrame.cellSize.height * scale)),
-            font.descender.magnitude,
-            font.descender.magnitude * scale,
+            fontCellMetrics.ascenderPixels,
+            fontCellMetrics.descenderPixels,
+            fontCellMetrics.leadingPixels,
+            fontCellMetrics.fixedCellWidth,
+            fontCellMetrics.fixedCellHeight,
+            fontCellMetrics.cellWidthPixels,
+            fontCellMetrics.cellHeightPixels,
+            fontCellMetrics.baselineOffsetPixels,
+            terminalFrame.visibleRows > 0 ? canonicalBaselinePixelY(forRow: 0) : 0,
+            fontCellMetrics.cursorHeightPixels,
+            fontCellMetrics.underlinePositionPixels,
+            fontCellMetrics.underlineThicknessPixels,
             drawableChanged ? "yes" : "no",
             atlasInvalidated ? "yes" : "no",
             atlasInvalidated ? "yes" : "no"
@@ -1053,6 +1074,32 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func physicalPixelsToPoints(_ pixels: CGFloat) -> CGFloat {
         pixels / max(1, backingScale)
+    }
+
+    private func physicalPixelsToPoints(_ point: CGPoint) -> CGPoint {
+        let scale = max(1, backingScale)
+        return CGPoint(x: point.x / scale, y: point.y / scale)
+    }
+
+    private func physicalPixelCellOrigin(column: Int, row: Int) -> PixelPoint {
+        let pointOrigin = CGPoint(
+            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
+            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1)
+        )
+        let origin = physicalPixelPoint(pointOrigin)
+        return PixelPoint(x: Int(origin.x), y: Int(origin.y))
+    }
+
+    private func canonicalBaselinePointY(forRow row: Int) -> CGFloat {
+        physicalPixelsToPoints(CGFloat(canonicalBaselinePixelY(forRow: row)))
+    }
+
+    private func canonicalBaselinePixelY(forRow row: Int) -> Int {
+        physicalPixelCellOrigin(column: 0, row: row).y + fontCellMetrics.baselineOffsetPixels
+    }
+
+    private func rebuildFontCellMetrics() {
+        fontCellMetrics = FontCellMetrics(font: font, cellSize: terminalFrame.cellSize, scale: backingScale)
     }
 
     private func logRenderingDiagnosticsIfNeeded() {
@@ -1149,9 +1196,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
             NSRect(
                 x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,
-                y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(0, terminalFrame.cursorRow) + 1) + 2,
-                width: 2,
-                height: max(1, terminalFrame.cellSize.height - 4)
+                y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(0, terminalFrame.cursorRow) + 1),
+                width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
+                height: terminalFrame.cellSize.height
             ).fill()
         }
     }
@@ -1259,17 +1306,138 @@ private struct GlyphAtlasEntry {
     let drawOffset: SIMD2<Float>
     let drawSize: SIMD2<Float>
     let pixelSize: PixelSize
+    let bearingXPixels: Int
+    let bearingYPixels: Int
+    let advancePixels: Int
+    let cellWidthPixels: Int
+    let cellHeightPixels: Int
+    let baselineOffsetPixels: Int
+
+    static func empty(metrics: FontCellMetrics) -> GlyphAtlasEntry {
+        GlyphAtlasEntry(
+            uvOrigin: .zero,
+            uvSize: .zero,
+            drawOffset: .zero,
+            drawSize: .zero,
+            pixelSize: PixelSize(width: 0, height: 0),
+            bearingXPixels: 0,
+            bearingYPixels: 0,
+            advancePixels: metrics.cellWidthPixels,
+            cellWidthPixels: metrics.cellWidthPixels,
+            cellHeightPixels: metrics.cellHeightPixels,
+            baselineOffsetPixels: metrics.baselineOffsetPixels
+        )
+    }
 }
 
 private struct RasterizedGlyph {
     let drawOffset: SIMD2<Float>
     let drawSize: SIMD2<Float>
     let pixelSize: PixelSize
+    let bearingXPixels: Int
+    let bearingYPixels: Int
+    let advancePixels: Int
+    let cellWidthPixels: Int
+    let cellHeightPixels: Int
+    let baselineOffsetPixels: Int
+
+    static func empty(metrics: FontCellMetrics) -> RasterizedGlyph {
+        RasterizedGlyph(
+            drawOffset: .zero,
+            drawSize: .zero,
+            pixelSize: PixelSize(width: 0, height: 0),
+            bearingXPixels: 0,
+            bearingYPixels: 0,
+            advancePixels: metrics.cellWidthPixels,
+            cellWidthPixels: metrics.cellWidthPixels,
+            cellHeightPixels: metrics.cellHeightPixels,
+            baselineOffsetPixels: metrics.baselineOffsetPixels
+        )
+    }
 }
 
 private struct PixelSize {
     let width: Int
     let height: Int
+}
+
+private struct PixelPoint {
+    let x: Int
+    let y: Int
+}
+
+private struct FontCellMetrics {
+    let fixedCellWidth: CGFloat
+    let fixedCellHeight: CGFloat
+    let ascenderPixels: Int
+    let descenderPixels: Int
+    let leadingPixels: Int
+    let baselineOffsetPixels: Int
+    let underlinePositionPixels: Int
+    let underlineThicknessPixels: Int
+    let cursorHeightPixels: Int
+    let cellWidthPixels: Int
+    let cellHeightPixels: Int
+
+    static let empty = FontCellMetrics(
+        fixedCellWidth: 0,
+        fixedCellHeight: 0,
+        ascenderPixels: 0,
+        descenderPixels: 0,
+        leadingPixels: 0,
+        baselineOffsetPixels: 0,
+        underlinePositionPixels: 0,
+        underlineThicknessPixels: 1,
+        cursorHeightPixels: 1,
+        cellWidthPixels: 1,
+        cellHeightPixels: 1
+    )
+
+    init(
+        fixedCellWidth: CGFloat,
+        fixedCellHeight: CGFloat,
+        ascenderPixels: Int,
+        descenderPixels: Int,
+        leadingPixels: Int,
+        baselineOffsetPixels: Int,
+        underlinePositionPixels: Int,
+        underlineThicknessPixels: Int,
+        cursorHeightPixels: Int,
+        cellWidthPixels: Int,
+        cellHeightPixels: Int
+    ) {
+        self.fixedCellWidth = fixedCellWidth
+        self.fixedCellHeight = fixedCellHeight
+        self.ascenderPixels = ascenderPixels
+        self.descenderPixels = descenderPixels
+        self.leadingPixels = leadingPixels
+        self.baselineOffsetPixels = baselineOffsetPixels
+        self.underlinePositionPixels = underlinePositionPixels
+        self.underlineThicknessPixels = underlineThicknessPixels
+        self.cursorHeightPixels = cursorHeightPixels
+        self.cellWidthPixels = cellWidthPixels
+        self.cellHeightPixels = cellHeightPixels
+    }
+
+    init(font: NSFont, cellSize: CGSize, scale: CGFloat) {
+        let safeScale = max(1, scale)
+        let widthPixels = max(1, Int(round(cellSize.width * safeScale)))
+        let heightPixels = max(1, Int(round(cellSize.height * safeScale)))
+        let descenderPixels = max(0, Int(round(abs(font.descender) * safeScale)))
+        self.init(
+            fixedCellWidth: cellSize.width,
+            fixedCellHeight: cellSize.height,
+            ascenderPixels: Int(round(font.ascender * safeScale)),
+            descenderPixels: descenderPixels,
+            leadingPixels: Int(round(font.leading * safeScale)),
+            baselineOffsetPixels: descenderPixels,
+            underlinePositionPixels: max(0, heightPixels - 2),
+            underlineThicknessPixels: 1,
+            cursorHeightPixels: heightPixels,
+            cellWidthPixels: widthPixels,
+            cellHeightPixels: heightPixels
+        )
+    }
 }
 
 let metalShaderSource = """
