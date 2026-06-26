@@ -38,6 +38,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var font: NSFont
     private var pendingDirtyRows = Set<Int>()
     private var pendingFullDamage = true
+    private var windowScreenObserver: NSObjectProtocol?
+    private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
         top: DesignTokens.Space.terminalTopPX,
         left: DesignTokens.Space.terminalLeftPX,
@@ -102,7 +104,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func viewDidMoveToWindow() {
         window?.makeFirstResponder(self)
+        currentBackingScale = effectiveBackingScale
+        observeWindowScreenChanges()
         syncSizeWithView()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        removeWindowScreenObserver()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        handleDisplayConfigurationChanged()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -235,6 +249,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func layout() {
         super.layout()
+        markFullDamage()
+        syncSizeWithView()
+        updateMetalFrame()
+    }
+
+    private func observeWindowScreenChanges() {
+        removeWindowScreenObserver()
+        guard let window else { return }
+        windowScreenObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleDisplayConfigurationChanged()
+            }
+        }
+    }
+
+    private func removeWindowScreenObserver() {
+        guard let windowScreenObserver else { return }
+        NotificationCenter.default.removeObserver(windowScreenObserver)
+        self.windowScreenObserver = nil
+    }
+
+    private func handleDisplayConfigurationChanged() {
+        // Moving between Retina and 1x displays can change effective cell metrics and
+        // PTY dimensions. Force a full frame so Metal receives fresh cell geometry.
+        currentBackingScale = effectiveBackingScale
         markFullDamage()
         syncSizeWithView()
         updateMetalFrame()
@@ -548,11 +591,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func terminalMetrics() -> TerminalMetrics {
-        let lineHeight = ceil(font.ascender - font.descender + font.leading) + 2
-        let width = max(AppConstants.Terminal.minimumCellWidthPX, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
+        let scale = currentBackingScale
+        let rawLineHeight = ceil(font.ascender - font.descender + font.leading) + 2
+        let rawWidth = max(AppConstants.Terminal.minimumCellWidthPX, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
+        let lineHeight = snapMetricToPhysicalPixels(rawLineHeight, scale: scale)
+        let width = snapMetricToPhysicalPixels(rawWidth, scale: scale)
         let columns = max(1, Int((bounds.width - padding.left - padding.right) / width))
         let rows = max(1, Int((bounds.height - padding.top - padding.bottom) / lineHeight))
         return TerminalMetrics(size: TerminalSize(columns: columns, rows: rows), cellSize: CGSize(width: width, height: lineHeight))
+    }
+
+    private var effectiveBackingScale: CGFloat {
+        window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+    }
+
+    private func snapMetricToPhysicalPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        ceil(value * scale) / scale
     }
 
     private func apply(settings: AppSettings) {

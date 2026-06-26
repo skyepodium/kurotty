@@ -62,7 +62,7 @@ enum DesignTokens {
         static let glyphAtlasSizePX = 3072
         static let glyphSlotWidthPX = 192
         static let glyphSlotHeightPX = 192
-        static let glyphAtlasMinimumScale: CGFloat = 4
+        static let glyphAtlasOversampleScale: CGFloat = 1
         static let glyphSlotPaddingPX: CGFloat = 6
     }
 }

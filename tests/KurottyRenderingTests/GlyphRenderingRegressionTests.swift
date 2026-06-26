@@ -144,14 +144,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let digest = SHA256.hash(data: Data(output))
             .map { String(format: "%02x", $0) }
             .joined()
-        XCTAssertEqual(digest, "53e269239ab234b26c4cf5ec4133c1a9c3db0422e25ad68e3234d70372da9da4")
+        XCTAssertEqual(digest, "96f0d5d9e24f0406b1d3ddd744abee09187cc34e65f2ca246ea3668a93413c09")
     }
 
     func testTerminalMetalViewExposesAtlasDiagnosticsAndOptInCPUFallback() throws {
         let source = try terminalMetalViewSource()
         XCTAssertTrue(source.contains("var diagnosticCPUFallbackEnabled = false"))
         XCTAssertTrue(source.contains("var diagnosticPixelSnappingEnabled = true"))
-        XCTAssertTrue(source.contains("var diagnosticLinearGlyphSamplingEnabled = true"))
+        XCTAssertTrue(source.contains("var diagnosticLinearGlyphSamplingEnabled = false"))
+        XCTAssertTrue(source.contains("var diagnosticCellBoundaryOverlayEnabled = false"))
+        XCTAssertTrue(source.contains("var diagnosticBaselineOverlayEnabled = false"))
+        XCTAssertTrue(source.contains("var diagnosticGlyphQuadOverlayEnabled = false"))
         XCTAssertTrue(source.contains("var diagnosticRenderingLogEnabled = false"))
         XCTAssertTrue(source.contains("var isAtlasPathReadyForRendering: Bool"))
         XCTAssertTrue(source.contains("var atlasResourcesAreAvailableForDiagnostics: Bool"))
@@ -179,6 +182,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testAtlasUVsUseHalfTexelInsetAndGeometryUsesPixelSnapping() throws {
         let source = try terminalMetalViewSource()
+        let tokenSource = try designTokensSource()
         XCTAssertTrue(source.contains("let halfTexel = 0.5 / Float(atlasSize)"))
         XCTAssertTrue(source.contains("Float(x) / Float(atlasSize) + halfTexel"))
         XCTAssertTrue(source.contains("Float(max(0, drawWidthPixels - 1)) / Float(atlasSize)"))
@@ -186,6 +190,103 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("backgroundRuns"))
         XCTAssertTrue(source.contains("sameColor(as:"))
         XCTAssertTrue(source.contains("pixelAlign("))
+        XCTAssertTrue(source.contains("physicalPixelRect("))
+        XCTAssertTrue(source.contains("pointRect.applying(CGAffineTransform(scaleX: scale, y: scale))"))
+        XCTAssertTrue(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
+        XCTAssertTrue(source.contains("let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY"))
+        XCTAssertTrue(source.contains("let baselineDeltaX = (baselineX - unsnappedBaselineX) / scale"))
+        XCTAssertTrue(source.contains("let baselineDeltaY = (baselineY - unsnappedBaselineY) / scale"))
+        XCTAssertFalse(source.contains("let snappedInkBottom = (imageBounds.minY + baselineY) / scale"))
+        XCTAssertTrue(source.contains("physicalPixelsToPoints(1)"))
+        XCTAssertTrue(source.contains("overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))"))
+        XCTAssertTrue(source.contains("let pixelSize: PixelSize"))
+        XCTAssertTrue(source.contains("let drawWidthPixels = rasterized.pixelSize.width"))
+        XCTAssertTrue(source.contains("let drawHeightPixels = rasterized.pixelSize.height"))
+        XCTAssertTrue(source.contains("private func physicalPixelPoint(_ point: CGPoint) -> CGPoint"))
+        XCTAssertTrue(source.contains("viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height))"))
+        XCTAssertFalse(source.contains("viewport: SIMD2<Float>(Float(bounds.width), Float(bounds.height))"))
+        XCTAssertTrue(tokenSource.contains("glyphAtlasOversampleScale"))
+        XCTAssertTrue(source.contains("backingScale * DesignTokens.Component.glyphAtlasOversampleScale"))
+        XCTAssertFalse(source.contains("glyphAtlasMinimumScale"))
+    }
+
+    func testGlyphSamplerAndBlendConfigurationFavorSharpStraightAlphaText() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("var diagnosticLinearGlyphSamplingEnabled = false"))
+        XCTAssertTrue(source.contains("constexpr sampler nearest_glyph_sampler(address::clamp_to_edge, filter::nearest)"))
+        XCTAssertTrue(source.contains("? glyph_atlas.sample(linear_glyph_sampler, in.uv)"))
+        XCTAssertTrue(source.contains(": glyph_atlas.sample(nearest_glyph_sampler, in.uv)"))
+        XCTAssertTrue(source.contains("return float4(in.color.rgb, sample.a * in.color.a);"))
+        XCTAssertTrue(source.contains("sourceRGBBlendFactor = .sourceAlpha"))
+        XCTAssertTrue(source.contains("destinationRGBBlendFactor = .oneMinusSourceAlpha"))
+        XCTAssertTrue(source.contains("sourceAlphaBlendFactor = .one"))
+        XCTAssertTrue(source.contains("destinationAlphaBlendFactor = .oneMinusSourceAlpha"))
+        XCTAssertTrue(source.contains("let width = max(1, Int(ceil(bounds.width * scale)))"))
+        XCTAssertTrue(source.contains("let height = max(1, Int(ceil(bounds.height * scale)))"))
+        XCTAssertTrue(source.contains("MTLTextureDescriptor.texture2DDescriptor(pixelFormat: Self.glyphAtlasPixelFormat"))
+    }
+
+    func testMetalViewIncludesPixelSnappedDebugOverlays() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("private var debugOverlayInstanceBuffer: MTLBuffer?"))
+        XCTAssertTrue(source.contains("private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect])"))
+        XCTAssertTrue(source.contains("diagnosticCellBoundaryOverlayEnabled"))
+        XCTAssertTrue(source.contains("diagnosticBaselineOverlayEnabled"))
+        XCTAssertTrue(source.contains("diagnosticGlyphQuadOverlayEnabled"))
+        XCTAssertTrue(source.contains("debugSolidInstance(rect:"))
+        XCTAssertTrue(source.contains("let onePixel = physicalPixelsToPoints(1)"))
+        XCTAssertTrue(source.contains("debugOverlayInstanceCount > 0"))
+        XCTAssertTrue(source.contains("encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: debugOverlayInstanceCount)"))
+    }
+
+    func testMetalViewResynchronizesWhenDisplayBackingScaleChanges() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("override func viewDidMoveToWindow()"))
+        XCTAssertTrue(source.contains("override func viewDidChangeBackingProperties()"))
+        XCTAssertTrue(source.contains("private func synchronizeBackingScaleAndDrawableSize()"))
+        XCTAssertTrue(source.contains("private var windowScreenObserver: NSObjectProtocol?"))
+        XCTAssertTrue(source.contains("NSWindow.didChangeScreenNotification"))
+        XCTAssertTrue(source.contains("let scaledDrawableSize = CGSize("))
+        XCTAssertTrue(source.contains("drawableSize = scaledDrawableSize"))
+        XCTAssertTrue(source.contains("layer?.contentsScale = scale"))
+        XCTAssertTrue(source.contains("let atlasInvalidated = resetAtlasIfBackingScaleChanged()"))
+        XCTAssertTrue(source.contains("colorspace = CGColorSpace(name: CGColorSpace.sRGB)"))
+        XCTAssertTrue(source.contains("rebuildVertexBuffer()"))
+        XCTAssertTrue(source.contains("logDisplaySynchronization("))
+        XCTAssertTrue(source.contains("resetAtlasIfBackingScaleChanged()"))
+        XCTAssertTrue(source.contains("colorPixelFormat = TerminalMetalView.renderTargetPixelFormat"))
+        XCTAssertTrue(source.contains("static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm"))
+        XCTAssertTrue(source.contains("static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm"))
+        XCTAssertTrue(source.contains("colorSpacePolicy=sRGB values on bgra8Unorm"))
+        XCTAssertTrue(source.contains("sampler=nearest"))
+        XCTAssertTrue(source.contains("blend=straight-alpha sourceAlpha/oneMinusSourceAlpha"))
+    }
+
+    func testTerminalSurfaceRecomputesMetricsWhenWindowScreenChanges() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private var windowScreenObserver: NSObjectProtocol?"))
+        XCTAssertTrue(source.contains("NSWindow.didChangeScreenNotification"))
+        XCTAssertTrue(source.contains("override func viewDidChangeBackingProperties()"))
+        XCTAssertTrue(source.contains("private func handleDisplayConfigurationChanged()"))
+        XCTAssertTrue(source.contains("markFullDamage()"))
+        XCTAssertTrue(source.contains("syncSizeWithView()"))
+        XCTAssertTrue(source.contains("updateMetalFrame()"))
+    }
+
+    func testTerminalSurfaceSnapsCellMetricsToPhysicalPixels() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private var currentBackingScale: CGFloat"))
+        XCTAssertTrue(source.contains("let scale = currentBackingScale"))
+        XCTAssertTrue(source.contains("let lineHeight = snapMetricToPhysicalPixels(rawLineHeight, scale: scale)"))
+        XCTAssertTrue(source.contains("let width = snapMetricToPhysicalPixels(rawWidth, scale: scale)"))
+        XCTAssertTrue(source.contains("private func snapMetricToPhysicalPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat"))
+        XCTAssertTrue(source.contains("ceil(value * scale) / scale"))
+        XCTAssertTrue(source.contains("cellSize: CGSize(width: width, height: lineHeight)"))
     }
 
     func testGlyphAtlasUsesFontFallbackForPromptSymbols() throws {
@@ -425,7 +526,7 @@ private func makeGlyphPipeline(device: MTLDevice, library: MTLLibrary) throws ->
     descriptor.colorAttachments[0].isBlendingEnabled = true
     descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
     descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-    descriptor.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
+    descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
     descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
     return try device.makeRenderPipelineState(descriptor: descriptor)
 }
@@ -478,6 +579,12 @@ private func productionMetalShaderSource() throws -> String {
 private func terminalMetalViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func designTokensSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
