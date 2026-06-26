@@ -16,6 +16,7 @@ struct TerminalFrame {
     let cells: [TerminalCell]
     let backgrounds: [TerminalBackground]
     let decorations: [TerminalDecoration]
+    let defaultBackground: SIMD4<Float>
     let dirtyRows: [Int]
     let dirtyRects: [CGRect]
     let isFullDamage: Bool
@@ -124,7 +125,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     init(
         font: NSFont,
@@ -524,7 +525,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func mergedBackgroundRuns() -> [BackgroundRun] {
         let sorted = terminalFrame.backgrounds
-            .filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows }
+            .filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows && !$0.color.sameColor(as: terminalFrame.defaultBackground) }
             .sorted {
                 if $0.row != $1.row { return $0.row < $1.row }
                 return $0.column < $1.column

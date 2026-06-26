@@ -270,7 +270,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 let isSelected = selectedCells.contains(position)
                 if isSelected {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: TerminalSelectionStyle.backgroundColor))
-                } else if cell.style.effectiveBackground != terminalDefaultStyle.background {
+                } else if shouldRenderBackground(for: cell) {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
                 }
                 if cell.style.underline {
@@ -307,6 +307,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
+            defaultBackground: terminalDefaultStyle.background,
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
             isFullDamage: damage.isFull,
@@ -321,6 +322,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: CGPoint(x: padding.left, y: padding.top)
         ))
+    }
+
+    private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool {
+        guard !cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background) else {
+            return false
+        }
+        if cell.character == " ", !cell.isContinuation, cell.style == .default {
+            return false
+        }
+        return true
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
@@ -1350,5 +1361,11 @@ private extension Character {
 private extension String {
     var terminalColumnWidth: Int {
         reduce(0) { $0 + $1.terminalColumnWidth }
+    }
+}
+
+private extension SIMD4 where Scalar == Float {
+    func sameColor(as other: SIMD4<Float>) -> Bool {
+        x == other.x && y == other.y && z == other.z && w == other.w
     }
 }
