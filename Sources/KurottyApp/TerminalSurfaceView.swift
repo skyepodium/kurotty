@@ -25,6 +25,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var currentStyle: TerminalTextStyle
     private var parserState = StreamState.normal
     private var csiBuffer = ""
+    private var oscBuffer = ""
     private var inputOverlayText = ""
     private var inputOverlayColumn = 0
     private var inputOverlayRow = 0
@@ -645,6 +646,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 csiBuffer = ""
                 parserState = .csi
             case "]":
+                oscBuffer = ""
                 parserState = .osc
             case "7":
                 savedCursorRow = cursorRow
@@ -681,15 +683,44 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return true
         case .osc:
             if scalar.value == 0x07 {
+                executeOsc(oscBuffer)
+                oscBuffer = ""
                 parserState = .normal
             } else if scalar.value == 0x1b {
                 parserState = .oscEscape
+            } else {
+                oscBuffer.append(Character(scalar))
             }
             return true
         case .oscEscape:
+            if scalar == "\\" {
+                executeOsc(oscBuffer)
+            }
+            oscBuffer = ""
             parserState = .normal
             return true
         }
+    }
+
+    private func executeOsc(_ command: String) {
+        let parts = command.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[1] == "?" else { return }
+        switch parts[0] {
+        case "10":
+            send("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\")
+        case "11":
+            send("\u{1b}]11;\(terminalOscColor(terminalDefaultStyle.background))\u{1b}\\")
+        default:
+            break
+        }
+    }
+
+    private func terminalOscColor(_ color: SIMD4<Float>) -> String {
+        func component(_ value: Float) -> String {
+            let clamped = max(0, min(1, value))
+            return String(format: "%04x", Int((clamped * 65_535).rounded()))
+        }
+        return "rgb:\(component(color.x))/\(component(color.y))/\(component(color.z))"
     }
 
     private func executeCsi(final: Character, params: String) {
@@ -746,6 +777,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             guard !parsed.isPrivate else { break }
             cursorRow = min(screen.rows - 1, savedCursorRow)
             cursorColumn = min(screen.columns - 1, savedCursorColumn)
+        case "n":
+            if parsed.value(at: 0, default: 0) == 6 {
+                send(cursorPositionReport())
+            }
+        case "c":
+            send("\u{1b}[?1;2c")
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":
@@ -757,6 +794,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markDirty(row: previousCursorRow)
             markDirty(row: cursorRow)
         }
+    }
+
+    private func cursorPositionReport() -> String {
+        "\u{1b}[\(cursorRow + 1);\(cursorColumn + 1)R"
     }
 
     private func setMode(params: CsiParameters, enabled: Bool) {

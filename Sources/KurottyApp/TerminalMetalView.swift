@@ -436,7 +436,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         var backgrounds: [GlyphInstance] = []
-        let backgroundRuns = mergedBackgroundRuns()
+        let backgroundRuns = expandedInputBackgroundRuns(from: mergedBackgroundRuns())
         backgrounds.reserveCapacity(backgroundRuns.count)
         for background in backgroundRuns {
             backgrounds.append(solidInstance(
@@ -560,6 +560,29 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             }
         }
         return backgroundRuns
+    }
+
+    private func expandedInputBackgroundRuns(from runs: [BackgroundRun]) -> [BackgroundRun] {
+        runs.map { run in
+            guard run.row == terminalFrame.cursorRow,
+                  terminalFrame.cursorColumn >= run.column,
+                  terminalFrame.cursorColumn <= run.column + run.width
+            else {
+                return run
+            }
+            let expansionColumn = inputBackgroundExpansionColumn(for: run)
+            guard expansionColumn < run.column else { return run }
+            return BackgroundRun(
+                column: expansionColumn,
+                row: run.row,
+                width: run.width + run.column - expansionColumn,
+                color: run.color
+            )
+        }
+    }
+
+    private func inputBackgroundExpansionColumn(for run: BackgroundRun) -> Int {
+        max(0, min(run.column, terminalFrame.cursorColumn - 1))
     }
 
     private func glyphEntry(for character: Character) -> GlyphAtlasEntry {
