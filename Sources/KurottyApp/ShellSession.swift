@@ -264,11 +264,17 @@ private enum ShellStartupConstants {
     export POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
     export ZSH_DISABLE_COMPFIX=true
 
-    alias ll='ls -la'
-    alias la='ls -A'
-    alias l='ls -CF'
+    # ZDOTDIR points at Kurotty's runtime directory, so zsh would otherwise skip
+    # the user's normal oh-my-zsh/plugins/theme setup in ~/.zshrc.
+    [[ -r "$HOME/.zshrc" ]] && source "$HOME/.zshrc"
 
-    autoload -Uz compinit
-    compinit -d "$ZDOTDIR/.zcompdump"
+    alias ll >/dev/null 2>&1 || alias ll='ls -la'
+    alias la >/dev/null 2>&1 || alias la='ls -A'
+    alias l >/dev/null 2>&1 || alias l='ls -CF'
+
+    if ! whence -w compdef >/dev/null 2>&1; then
+        autoload -Uz compinit
+        compinit -d "$ZDOTDIR/.zcompdump"
+    fi
     """
 }

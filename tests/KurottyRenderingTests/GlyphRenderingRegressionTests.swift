@@ -188,6 +188,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("pixelAlign("))
     }
 
+    func testGlyphAtlasUsesFontFallbackForPromptSymbols() throws {
+        let source = try terminalMetalViewSource()
+        XCTAssertTrue(source.contains("private static let glyphFallbackFontNames"))
+        XCTAssertTrue(source.contains("private func scaledFont(for character: Character, scale: CGFloat) -> CTFont"))
+        XCTAssertTrue(source.contains("CTFontCreateForString"))
+        XCTAssertTrue(source.contains("fontSupports(character"))
+        XCTAssertTrue(source.contains("Symbols Nerd Font Mono"))
+        XCTAssertTrue(source.contains("MesloLGS NF"))
+    }
+
     func testTerminalFrameCarriesTrackedDamageDiagnostics() throws {
         let metalSource = try terminalMetalViewSource()
         XCTAssertTrue(metalSource.contains("let dirtyRows: [Int]"))
@@ -222,6 +232,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(shellSource.contains("AppConstants.Shell.defaultWorkingDirectory"))
         XCTAssertFalse(shellSource.contains("strdup(\"-f\")"))
         XCTAssertTrue(shellSource.contains("setenv(\"ZDOTDIR\""))
+        XCTAssertTrue(shellSource.contains("[[ -r \"$HOME/.zshrc\" ]] && source \"$HOME/.zshrc\""))
         XCTAssertTrue(shellSource.contains("alias ll="))
         XCTAssertTrue(shellSource.contains("autoload -Uz compinit"))
         XCTAssertTrue(shellSource.contains("compinit -d"))

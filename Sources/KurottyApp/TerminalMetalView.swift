@@ -73,6 +73,17 @@ struct TerminalRenderingDiagnostics {
 }
 
 final class TerminalMetalView: MTKView, MTKViewDelegate {
+    private static let glyphFallbackFontNames = [
+        "MesloLGS NF",
+        "MesloLGS Nerd Font Mono",
+        "Symbols Nerd Font Mono",
+        "Hack Nerd Font Mono",
+        "JetBrainsMono Nerd Font Mono",
+        "FiraCode Nerd Font Mono",
+        "SF Mono",
+        "Menlo",
+    ]
+
     var onPresented: (() -> Void)?
     var diagnosticCPUFallbackEnabled = false {
         didSet {
@@ -598,11 +609,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let logicalAdvanceWidth = terminalFrame.cellSize.width * CGFloat(columnWidth)
         let logicalHeight = terminalFrame.cellSize.height
         let scale = atlasScale(forLogicalWidth: logicalAdvanceWidth, logicalHeight: logicalHeight)
-        let scaledFont = NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
+        let scaledFont = scaledFont(for: character, scale: scale)
         let string = NSAttributedString(
             string: String(character),
             attributes: [
-                .font: scaledFont,
+                NSAttributedString.Key(kCTFontAttributeName as String): scaledFont,
                 .foregroundColor: NSColor.white,
             ]
         )
@@ -672,6 +683,39 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             atlasPixels.replaceSubrange(dst..<(dst + glyphSlotWidth * 4), with: slot[src..<(src + glyphSlotWidth * 4)])
         }
         return result
+    }
+
+    private func scaledFont(for character: Character, scale: CGFloat) -> CTFont {
+        let pointSize = font.pointSize * scale
+        let baseFont = CTFontCreateWithName(font.fontName as CFString, pointSize, nil)
+        if Self.fontSupports(character, font: baseFont) {
+            return baseFont
+        }
+
+        for fontName in Self.glyphFallbackFontNames {
+            let candidate = CTFontCreateWithName(fontName as CFString, pointSize, nil)
+            if Self.fontSupports(character, font: candidate) {
+                return candidate
+            }
+        }
+
+        let string = String(character) as CFString
+        let range = CFRange(location: 0, length: CFStringGetLength(string))
+        let cascadeFont = CTFontCreateForString(baseFont, string, range)
+        if Self.fontSupports(character, font: cascadeFont) {
+            return cascadeFont
+        }
+
+        return baseFont
+    }
+
+    private static func fontSupports(_ character: Character, font: CTFont) -> Bool {
+        let utf16 = Array(String(character).utf16)
+        guard !utf16.isEmpty else { return false }
+        var characters = utf16.map { UniChar($0) }
+        var glyphs = Array(repeating: CGGlyph(), count: characters.count)
+        let mapped = CTFontGetGlyphsForCharacters(font, &characters, &glyphs, characters.count)
+        return mapped && glyphs.contains { $0 != 0 }
     }
 
     private func resetAtlasIfCellMetricsChanged() {
