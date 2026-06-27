@@ -132,6 +132,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             name: AppSettingsStore.didChangeNotification,
             object: AppSettingsStore.shared
         )
+        observeInputSourceChanges()
         shell.start()
     }
 
@@ -339,6 +340,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         self.windowScreenObserver = nil
     }
 
+    private func observeInputSourceChanges() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(inputSourceDidChange(_:)),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func inputSourceDidChange(_ notification: Notification) {
+        handleInputSourceChanged()
+    }
+
+    private func handleInputSourceChanged() {
+        // Korean IME can leave stale marked-text state across an input source
+        // switch. Let AppKit discard the old composition instead of sending
+        // intermediate jamo to the PTY or hiding them in our router.
+        inputContext?.discardMarkedText()
+        resetMarkedTextForInputSourceChange()
+    }
+
+    private func resetMarkedTextForInputSourceChange() {
+        markMarkedTextDirty()
+        markedText = NSMutableAttributedString()
+        inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+        markedTextAnchor = nil
+        markDirty(row: cursorRow)
+        updateMetalFrame()
+    }
+
     private func handleDisplayConfigurationChanged() {
         // Moving between Retina and 1x displays can change effective cell metrics and
         // PTY dimensions. Force a full frame so Metal receives fresh cell geometry.
@@ -463,6 +494,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case #selector(insertTab(_:)):
             send("\t")
         case #selector(cancelOperation(_:)):
+            resetMarkedTextForInputSourceChange()
             send("\u{1b}")
         case #selector(deleteBackward(_:)):
             send("\u{7f}")
