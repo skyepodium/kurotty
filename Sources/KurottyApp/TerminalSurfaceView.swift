@@ -17,6 +17,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         rows: UInt32(AppConstants.Terminal.defaultRows)
     )
     private let shell = ShellSession()
+    private let notifier = TerminalNotifier.shared
     private let metalView: TerminalMetalView
     private let verticalScroller = NSScroller(frame: .zero)
     private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)
@@ -46,6 +47,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var selectionFocus: TerminalCellPosition?
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+    private var markedTextAnchor: TerminalCellPosition?
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
     private var pendingDirtyRows = Set<Int>()
@@ -107,6 +109,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         shell.onOutput = { [weak self] text in
             Task { @MainActor in
                 self?.appendOutput(text)
+            }
+        }
+        shell.onExit = { [weak self] status in
+            Task { @MainActor in
+                self?.notifyShellDidExit(status: status)
             }
         }
         if DebugOptions.ptyLog {
@@ -365,13 +372,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             let sourceRow = rowsToRender[row]
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
-                guard !cell.isContinuation else { continue }
                 let position = TerminalCellPosition(row: row, column: column)
                 let isSelected = selectedCells.contains(position)
                 if isSelected {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: TerminalSelectionStyle.backgroundColor))
                 } else if shouldRenderBackground(for: cell) {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
+                }
+                if cell.isContinuation {
+                    continue
                 }
                 if cell.style.underline {
                     decorations.append(TerminalDecoration(
@@ -402,7 +411,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-
         metalView.update(frame: TerminalFrame(
             cells: cells,
             backgrounds: backgrounds,
@@ -414,7 +422,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             isFullDamage: damage.isFull,
             cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
+            markedTextColumn: cursorColumn,
             markedText: markedText.string,
+            markedTextSelectedRange: NSRange(location: NSNotFound, length: 0),
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
             cellSize: metrics.cellSize,
@@ -436,8 +446,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        send(text)
         unmarkText()
+        send(text)
     }
 
     override func doCommand(by selector: Selector) {
@@ -446,6 +456,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             send("\r")
         case #selector(insertTab(_:)):
             send("\t")
+        case #selector(cancelOperation(_:)):
+            send("\u{1b}")
         case #selector(deleteBackward(_:)):
             send("\u{7f}")
         case #selector(deleteForward(_:)):
@@ -472,19 +484,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        markDirty(row: cursorRow)
+        markMarkedTextDirty()
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
-        markDirty(row: cursorRow)
+        markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
+        markMarkedTextDirty()
         updateMetalFrame()
     }
 
     func unmarkText() {
-        markDirty(row: cursorRow)
+        markMarkedTextDirty()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+        markedTextAnchor = nil
+        markDirty(row: cursorRow)
         updateMetalFrame()
+    }
+
+    private func markMarkedTextDirty() {
+        guard let anchor = markedTextAnchor else {
+            markDirty(row: cursorRow)
+            return
+        }
+        // IME composition is an overlay on top of terminal cells. When it changes
+        // or commits, redraw the original row so transient composition pixels do
+        // not become persistent cell backgrounds.
+        markDirty(row: anchor.row)
+        if anchor.row != cursorRow {
+            markDirty(row: cursorRow)
+        }
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
@@ -529,25 +558,32 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markDirty(row: previousCursorRow)
         }
         core.feed(text)
-        for scalar in text.unicodeScalars {
-            if consumeControl(scalar) {
+        for character in text {
+            if parserState == .normal && character.isTerminalPrintableGrapheme {
+                appendPrintable(String(character))
                 continue
             }
 
-            switch scalar.value {
-            case 10:
-                lineFeed()
-            case 13:
-                cursorColumn = 0
-            case 8:
-                cursorColumn = max(0, cursorColumn - 1)
-            case 9:
-                let spaces = max(1, AppConstants.Terminal.tabWidthColumns - (cursorColumn % AppConstants.Terminal.tabWidthColumns))
-                appendPrintable(String(repeating: " ", count: spaces))
-            case 0..<32, 127:
-                continue
-            default:
-                appendPrintable(String(scalar))
+            for scalar in character.unicodeScalars {
+                if consumeControl(scalar) {
+                    continue
+                }
+
+                switch scalar.value {
+                case 10:
+                    lineFeed()
+                case 13:
+                    cursorColumn = 0
+                case 8:
+                    cursorColumn = max(0, cursorColumn - 1)
+                case 9:
+                    let spaces = max(1, AppConstants.Terminal.tabWidthColumns - (cursorColumn % AppConstants.Terminal.tabWidthColumns))
+                    appendPrintable(String(repeating: " ", count: spaces))
+                case 0..<32, 127:
+                    continue
+                default:
+                    appendPrintable(String(Character(scalar)))
+                }
             }
         }
         markDirty(row: cursorRow)
@@ -813,7 +849,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func appendPrintable(_ text: String) {
         for character in text {
             let width = character.terminalColumnWidth
-            guard width > 0 else { continue }
+            guard width > 0 else {
+                screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)
+                markDirty(row: cursorRow)
+                continue
+            }
             if width == 2 && cursorColumn == screen.columns - 1 {
                 carriageReturnLineFeed()
             } else if cursorColumn >= screen.columns {
@@ -879,7 +919,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
-        guard !isUsingAlternateScreen else { return }
         scrollbackRows.append(contentsOf: rows)
         if scrollbackRows.count > maxScrollbackRows {
             scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
@@ -937,7 +976,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // TUIs such as Codex often reserve bottom rows with DECSTBM while still
         // scrolling the transcript from row 0. Lines leaving that top-anchored
         // region should remain reachable via terminal scrollback.
-        !isUsingAlternateScreen && scrollRegionTop == 0
+        scrollRegionTop == 0
     }
 
     private func carriageReturnLineFeed() {
@@ -1033,9 +1072,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case "7":
             updateWorkingDirectory(fromOsc7: payload)
             publishTitle()
+        case "9":
+            notifyItermOsc9(payload)
         default:
             break
         }
+    }
+
+    private func notifyShellDidExit(status: Int32) {
+        notifier.notifyShellDidExit(status: status)
+    }
+
+    private func notifyItermOsc9(_ payload: String) {
+        notifier.notifyItermOsc9(message: payload)
     }
 
     private func respondToOscQuery(_ code: String) {
@@ -1536,7 +1585,7 @@ private struct TerminalSelectionRange {
     let end: TerminalCellPosition
 }
 
-private enum TerminalSelectionStyle {
+enum TerminalSelectionStyle {
     static let backgroundColor = SIMD4<Float>(0.22, 0.48, 0.82, 1)
     static let foregroundColor = SIMD4<Float>(1, 1, 1, 1)
 }
@@ -1612,6 +1661,7 @@ private struct TerminalScreen {
     mutating func set(character: Character, row: Int, column: Int, width: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
+        clearWideCellIfNeeded(row: row, column: column, style: style)
         cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style)
         if width == 2 && column + 1 < columns {
             cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
@@ -1621,6 +1671,35 @@ private struct TerminalScreen {
         }
         if width == 1 && column + 1 < columns && cells[row][column + 1].isContinuation {
             cells[row][column + 1] = TerminalScreenCell()
+        }
+    }
+
+    mutating func appendCombining(character: Character, row: Int, before column: Int) {
+        discardResizeHiddenRows()
+        guard cells.indices.contains(row), column > 0 else { return }
+        var leadColumn = min(column - 1, columns - 1)
+        while leadColumn > 0 && cells[row][leadColumn].isContinuation {
+            leadColumn -= 1
+        }
+        guard cells[row][leadColumn].character != " " else { return }
+        let merged = String(cells[row][leadColumn].character) + String(character)
+        if merged.count == 1, let composed = merged.first {
+            cells[row][leadColumn].character = composed
+        }
+    }
+
+    private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle) {
+        guard cells.indices.contains(row), column >= 0, column < columns else { return }
+        guard cells[row][column].isContinuation else { return }
+        var leadColumn = column
+        while leadColumn > 0 && cells[row][leadColumn].isContinuation {
+            leadColumn -= 1
+        }
+        cells[row][leadColumn] = TerminalScreenCell(style: style)
+        var nextColumn = leadColumn + 1
+        while nextColumn < columns && cells[row][nextColumn].isContinuation {
+            cells[row][nextColumn] = TerminalScreenCell(style: style)
+            nextColumn += 1
         }
     }
 
@@ -1863,12 +1942,13 @@ private struct CsiParameters {
 
 private extension Character {
     var terminalColumnWidth: Int {
-        guard let scalar = unicodeScalars.first else { return 1 }
-        let value = scalar.value
-        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
+        if unicodeScalars.allSatisfy({ CharacterSet.nonBaseCharacters.contains($0) }) {
             return 0
         }
-        if CharacterSet.nonBaseCharacters.contains(scalar) {
+        let widthScalar = firstBaseScalarForTerminalWidth ?? unicodeScalars.first
+        guard let scalar = widthScalar else { return 1 }
+        let value = scalar.value
+        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
             return 0
         }
         if value >= 0x1100 &&
@@ -1886,6 +1966,21 @@ private extension Character {
             return 2
         }
         return 1
+    }
+
+    var isTerminalPrintableGrapheme: Bool {
+        guard let scalar = unicodeScalars.first else { return false }
+        let value = scalar.value
+        return value != 0x1b && value != 10 && value != 13 && value != 8 && value != 9 &&
+            value >= 32 && value != 127
+    }
+
+    private var firstBaseScalarForTerminalWidth: UnicodeScalar? {
+        unicodeScalars.first { scalar in
+            !CharacterSet.nonBaseCharacters.contains(scalar) &&
+                scalar.value != 0x200d &&
+                !(0xfe00...0xfe0f).contains(scalar.value)
+        }
     }
 }
 

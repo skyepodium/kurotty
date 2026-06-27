@@ -4,34 +4,29 @@
   <img src="kurotty.png" alt="Kurotty" width="400" height="400">
 </p>
 
-Kurotty is a macOS-first terminal emulator scaffold focused on low latency, low memory use, and direct control over the rendering stack.
+Kurotty is a macOS-first terminal emulator focused on low latency, bounded memory use, and direct control over the Swift/AppKit, Zig, and Metal layers.
+
+## What Works Today
+
+- Native macOS windowing with tabs, splits, pane chrome, menus, keyboard input, IME, clipboard, preferences, and app icon wiring.
+- Editable JSON settings at `~/Library/Application Support/Kurotty/settings.json`, with validation and live application to existing terminal views.
+- Theme presets for `kuro-dark`, `lightty`, and `custom`.
+- GPU rendering through Metal glyph atlas and instanced foreground, background, cursor, underline, and strikethrough draws.
+- Terminal styling basics: 16-color, bright, dim, inverse, underline, strikethrough, `38;5`, `48;5`, `38;2`, and `48;2`.
+- App-level scrollback with mouse wheel navigation.
+- OSC title, working-directory, color query, and iTerm2-compatible notifications.
+- Zig parser, grid, scrollback, metrics, renderer orchestration, and C ABI scaffolding with unit and stress coverage.
 
 ## Architecture
 
-- Swift/AppKit owns the native shell: windows, tabs, splits, keyboard events, IME, clipboard, menu, app lifecycle, and preferences.
-- Zig owns the tested performance-critical core scaffold: parser, grid, scrollback, renderer orchestration, metrics, and C ABI exports.
-- Metal owns the live GPU path: glyph atlas, instanced cell/background/cursor rendering, and shader behavior.
+- `Sources/KurottyApp/` contains the Swift/AppKit shell: app lifecycle, windows, tabs, splits, input, settings, shell lifecycle, and the bridge to Zig.
+- `src/` contains the Zig terminal core: parser, grid, scrollback, PTY boundary, metrics, renderer orchestration, and C ABI exports.
+- `Sources/KurottyApp/Shaders/` contains the Metal shader source used by the SwiftPM resource bundle.
+- `tests/`, `bench/`, and `stress/` contain regression, benchmark, and high-volume gates.
 
-## Current Status
+The live AppKit surface still owns a Swift terminal-screen scaffold while the Zig grid/parser ABI is being integrated as the eventual source of truth.
 
-- Swift/AppKit shell includes window, tab, split, keyboard/IME, clipboard selectors, menu, lifecycle, preferences, and app icon wiring.
-- Settings are stored as editable JSON at `~/Library/Application Support/Kurotty/settings.json`, validated on save, and applied to existing terminal views after saving from `Kurotty > Settings...`.
-- Terminal themes support `kuro-dark`, `lightty`, and `custom`; set `"theme": "lightty"` for a bright preset inspired by colorful iTerm-style output.
-- Metal rendering uses a GPU glyph atlas with instanced glyph/cell rendering, cursor quads, foreground color, background color instances, and underline/strikethrough decoration instances.
-- The app screen model supports SGR color/style basics: 16-color, bright, dim, inverse, underline, strikethrough, `38;5`, `48;5`, `38;2`, and `48;2`.
-- App-level scrollback is integrated into the visible terminal surface and can be viewed with mouse wheel scrolling.
-- Zig parser/grid/scrollback/metrics/renderer orchestration are covered by unit tests.
-- Parser coverage includes printable runs, CSI, private mode sequences, OSC strings, and string-control swallowing for DCS/PM/APC.
-- Swift rendering tests include an offscreen Metal framebuffer snapshot that compiles the production terminal shader source and renders deterministic terminal-frame glyph/background/decoration/cursor instance data without launching the app.
-- A 1,000,000-line scrollback stress gate exists at `zig build stress-scrollback`.
-- CI runs an allocator-backed leak check through `zig build leak-check`.
-- Zig core builds static and dynamic libraries; Swift loads the dynamic ABI at runtime when `zig-out/lib/libkurotty_core.dylib` exists.
-- Current limitation: the live AppKit surface still owns a Swift terminal-screen scaffold while the Zig grid/parser ABI is being integrated as the eventual source of truth.
-- Known remaining work: full xterm/VT conformance, Codex-class TUI compatibility, Zig-owned live screen state, glyph shaping/fallback fonts, and screenshot comparison automation that drives the full app.
-
-## Installation
-
-Kurotty currently builds from source on macOS.
+## Build And Run
 
 Prerequisites:
 
@@ -48,9 +43,29 @@ swift build
 ./.build/debug/kurotty
 ```
 
-Run `zig build` before launching the Swift app if you want the AppKit shell to call the Zig ABI through `zig-out/lib/libkurotty_core.dylib`.
+Run `zig build` before launching if you want the Swift app to load `zig-out/lib/libkurotty_core.dylib` through the runtime ABI bridge.
 
-## Commands
+## Task Notifications
+
+Kurotty requests macOS notification permission on launch. It sends notifications only when the app is not active.
+
+Kurotty supports iTerm2-compatible notifications through OSC 9:
+
+```sh
+printf '\e]9;Build finished\a'
+```
+
+Use that at the end of long-running commands:
+
+```sh
+swift build; printf '\e]9;Swift build finished\a'
+```
+
+Kurotty also notifies when the shell session exits while the app is inactive.
+
+## Test And Verification Gates
+
+Run the smallest relevant gate first, then broaden based on the files changed.
 
 ```sh
 zig build test
@@ -62,4 +77,11 @@ swift build
 swift test
 ```
 
-The Swift debug executable is built at `.build/debug/kurotty`.
+For Swift/AppKit/Metal changes, start with `swift build` and the relevant `swift test --filter ...` coverage. For Zig parser, grid, scrollback, metrics, renderer, ABI, or allocation changes, use the corresponding Zig gates above.
+
+## Roadmap
+
+- Move the live terminal screen source of truth from the Swift scaffold to Zig.
+- Improve xterm/VT conformance and Codex-class TUI compatibility.
+- Add glyph shaping and fallback font coverage.
+- Expand full-app screenshot comparison automation.

@@ -194,9 +194,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("pixelAlign("))
         XCTAssertTrue(source.contains("physicalPixelRect("))
         XCTAssertTrue(source.contains("pointRect.applying(CGAffineTransform(scaleX: scale, y: scale))"))
-        XCTAssertTrue(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
+        XCTAssertTrue(source.contains("let bitmapMinXPixels = floor(imageBounds.minX) - CGFloat(paddingPixels)"))
         XCTAssertTrue(source.contains("let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY"))
-        XCTAssertTrue(source.contains("let baselineDeltaX = (baselineX - unsnappedBaselineX) / scale"))
+        XCTAssertTrue(source.contains("let baselineDeltaX = (baselineX + bitmapMinXPixels) / scale"))
         XCTAssertTrue(source.contains("let glyphCanvasBaselineY = canonicalMetrics.baselineOffsetPixels"))
         XCTAssertTrue(source.contains("let bearingYPixels = max(0, Int(round(baselineY - CGFloat(bitmapBottomPixels))))"))
         XCTAssertFalse(source.contains("let baselineDeltaY = (baselineY - unsnappedBaselineY) / scale"))
@@ -265,6 +265,144 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("let width = max(1, Int(ceil(bounds.width * scale)))"))
         XCTAssertTrue(source.contains("let height = max(1, Int(ceil(bounds.height * scale)))"))
         XCTAssertTrue(source.contains("MTLTextureDescriptor.texture2DDescriptor(pixelFormat: Self.glyphAtlasPixelFormat"))
+    }
+
+    func testKoreanGlyphPassLeavesTransparentAtlasPixelsOnTerminalBackground() throws {
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let queue = device.makeCommandQueue() else {
+            throw XCTSkip("Metal is not available")
+        }
+
+        let library = try device.makeLibrary(source: productionMetalShaderSource(), options: nil)
+        let glyphPipeline = try makeGlyphPipeline(device: device, library: library)
+        let solidPipeline = try makeSolidPipeline(device: device, library: library)
+
+        let targetDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: 16,
+            height: 16,
+            mipmapped: false
+        )
+        targetDescriptor.usage = [.renderTarget, .shaderRead]
+        targetDescriptor.storageMode = .shared
+        let target = try XCTUnwrap(device.makeTexture(descriptor: targetDescriptor))
+
+        let atlasDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 4, height: 4, mipmapped: false)
+        atlasDescriptor.usage = [.shaderRead]
+        atlasDescriptor.storageMode = .shared
+        let atlas = try XCTUnwrap(device.makeTexture(descriptor: atlasDescriptor))
+        atlas.replace(
+            region: MTLRegionMake2D(0, 0, 4, 4),
+            mipmapLevel: 0,
+            withBytes: koreanGlyphAlphaOnlyAtlasPixels(),
+            bytesPerRow: 4 * 4
+        )
+
+        let vertices = unitQuadVertices()
+        var uniforms = TestUniforms(viewport: SIMD2<Float>(16, 16), useLinearGlyphSampling: 0)
+        var background = TestGlyphInstance(
+            origin: SIMD2<Float>(0, 0),
+            size: SIMD2<Float>(16, 16),
+            uvOrigin: .zero,
+            uvSize: .zero,
+            color: SIMD4<Float>(0.10, 0.22, 0.34, 1)
+        )
+        var glyph = TestGlyphInstance(
+            origin: SIMD2<Float>(0, 0),
+            size: SIMD2<Float>(16, 16),
+            uvOrigin: .zero,
+            uvSize: SIMD2<Float>(1, 1),
+            color: SIMD4<Float>(0.90, 0.86, 0.72, 1)
+        )
+
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .store
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+
+        let commandBuffer = try XCTUnwrap(queue.makeCommandBuffer())
+        let encoder = try XCTUnwrap(commandBuffer.makeRenderCommandEncoder(descriptor: pass))
+
+        encoder.setRenderPipelineState(solidPipeline)
+        setVertexArrayBytes(vertices, on: encoder, index: 0)
+        encoder.setVertexBytes(&background, length: MemoryLayout<TestGlyphInstance>.stride, index: 1)
+        encoder.setVertexBytes(&uniforms, length: MemoryLayout<TestUniforms>.stride, index: 2)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: 1)
+
+        encoder.setRenderPipelineState(glyphPipeline)
+        setVertexArrayBytes(vertices, on: encoder, index: 0)
+        encoder.setVertexBytes(&glyph, length: MemoryLayout<TestGlyphInstance>.stride, index: 1)
+        encoder.setVertexBytes(&uniforms, length: MemoryLayout<TestUniforms>.stride, index: 2)
+        encoder.setFragmentTexture(atlas, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: 1)
+
+        encoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        XCTAssertNil(commandBuffer.error)
+
+        var output = [UInt8](repeating: 0, count: 16 * 16 * 4)
+        target.getBytes(&output, bytesPerRow: 16 * 4, from: MTLRegionMake2D(0, 0, 16, 16), mipmapLevel: 0)
+
+        XCTAssertEqual(pixel(atX: 1, y: 1, width: 16, in: output), TestPixel(b: 87, g: 56, r: 26, a: 255))
+        XCTAssertEqual(pixel(atX: 8, y: 8, width: 16, in: output), TestPixel(b: 184, g: 219, r: 229, a: 255))
+        XCTAssertNotEqual(pixel(atX: 1, y: 1, width: 16, in: output), TestPixel(b: 184, g: 219, r: 229, a: 255))
+    }
+
+    func testKoreanGlyphAtlasIsTransparentAndBackgroundsComeFromCells() throws {
+        let metalSource = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(metalSource.contains("var slotMask = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight)"))
+        XCTAssertTrue(metalSource.contains("space: CGColorSpaceCreateDeviceGray()"))
+        XCTAssertTrue(metalSource.contains("bitmapInfo: CGImageAlphaInfo.none.rawValue"))
+        XCTAssertTrue(metalSource.contains("context.setFillColor(CGColor(gray: 0, alpha: 1))"))
+        XCTAssertTrue(metalSource.contains("context.fill(CGRect(x: 0, y: 0, width: glyphSlotWidth, height: glyphSlotHeight))"))
+        XCTAssertTrue(metalSource.contains("context.setAllowsFontSmoothing(false)"))
+        XCTAssertTrue(metalSource.contains("drawGlyphPaths(from: line, in: context)"))
+        XCTAssertTrue(metalSource.contains("CTFontCreatePathForGlyph"))
+        XCTAssertTrue(metalSource.contains("atlasPixels[pixel + 3] = alpha"))
+        XCTAssertTrue(metalSource.contains("return float4(in.color.rgb, sample.a * in.color.a);"))
+        XCTAssertFalse(metalSource.contains("return sample * in.color;"))
+        XCTAssertTrue(surfaceSource.contains("backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))"))
+        XCTAssertFalse(surfaceSource.contains("guard !cell.isContinuation else { continue }\n                let position = TerminalCellPosition(row: row, column: column)"))
+    }
+
+    func testMarkedTextStartsAtCursorColumnInAtlasAndFallbackRenderers() throws {
+        let source = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("let markedTextColumn: Int"))
+        XCTAssertTrue(source.contains("var column = terminalFrame.markedTextColumn"))
+        XCTAssertTrue(surfaceSource.contains("markedTextColumn: cursorColumn"))
+        XCTAssertTrue(surfaceSource.contains("cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth"))
+        XCTAssertFalse(source.contains("terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText)"))
+    }
+
+    func testMarkedTextCompositionDoesNotPersistSelectionBackgrounds() throws {
+        let source = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("let markedTextSelectedRange: NSRange"))
+        XCTAssertTrue(source.contains("markedTextColor(for: character, utf16Offset: utf16Offset)"))
+        XCTAssertTrue(source.contains("NSIntersectionRange(characterRange, terminalFrame.markedTextSelectedRange).length > 0"))
+        XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: NSRange(location: NSNotFound, length: 0)"))
+        XCTAssertTrue(surfaceSource.contains("private var markedTextAnchor: TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("private func markMarkedTextDirty()"))
+        XCTAssertTrue(surfaceSource.contains("unmarkText()\n        send(text)"))
+        XCTAssertFalse(surfaceSource.contains("appendMarkedTextSelectionBackgrounds(to: &backgrounds)"))
+        XCTAssertFalse(surfaceSource.contains("private func selectedMarkedTextRange()"))
+    }
+
+    func testGlyphAtlasPadsBitmapBoundsBeforeDrawingInk() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("let bitmapMinXPixels = floor(imageBounds.minX) - CGFloat(paddingPixels)"))
+        XCTAssertTrue(source.contains("let bitmapMaxXPixels = ceil(imageBounds.maxX) + CGFloat(paddingPixels)"))
+        XCTAssertTrue(source.contains("let pixelWidth = min(glyphSlotWidth, max(1, Int(bitmapMaxXPixels - bitmapMinXPixels)))"))
+        XCTAssertTrue(source.contains("let baselineX = round(-bitmapMinXPixels)"))
+        XCTAssertFalse(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
     }
 
     func testMetalViewIncludesPixelSnappedDebugOverlays() throws {
@@ -346,7 +484,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("let isFullDamage: Bool"))
         XCTAssertTrue(metalSource.contains("let defaultForeground: SIMD4<Float>"))
         XCTAssertTrue(metalSource.contains("let defaultBackground: SIMD4<Float>"))
-        XCTAssertTrue(metalSource.contains("color: terminalFrame.defaultForeground"))
+        XCTAssertTrue(metalSource.contains("terminalFrame.defaultForeground"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
@@ -461,12 +599,45 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("case \"T\":\n            screen.scrollDown(count: parsed.value(at: 0, default: 1))"))
     }
 
+    func testPtyPrintableTextUsesGraphemeClustersInsteadOfUnicodeScalars() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("for character in text {"))
+        XCTAssertTrue(surfaceSource.contains("if parserState == .normal && character.isTerminalPrintableGrapheme"))
+        XCTAssertTrue(surfaceSource.contains("appendPrintable(String(character))"))
+        XCTAssertFalse(surfaceSource.contains("for scalar in text.unicodeScalars {\n            if consumeControl(scalar)"))
+        XCTAssertTrue(surfaceSource.contains("private var firstBaseScalarForTerminalWidth: UnicodeScalar?"))
+    }
+
+    func testHangulAndCombiningWidthUseClusterPolicyInSurfaceAndMetal() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
+
+        for source in [surfaceSource, metalSource] {
+            XCTAssertTrue(source.contains("let widthScalar = firstBaseScalarForTerminalWidth ?? unicodeScalars.first"))
+            XCTAssertTrue(source.contains("if unicodeScalars.allSatisfy({ CharacterSet.nonBaseCharacters.contains($0) })"))
+            XCTAssertTrue(source.contains("(0xac00...0xd7a3).contains(value)"))
+            XCTAssertTrue(source.contains("return 2"))
+        }
+    }
+
+    func testCombiningMarksAndContinuationOverwriteDoNotLeaveSplitHangulCells() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)"))
+        XCTAssertTrue(surfaceSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
+        XCTAssertTrue(surfaceSource.contains("guard cells[row][column].isContinuation else { return }"))
+        XCTAssertTrue(surfaceSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
+    }
+
     func testTopAnchoredScrollRegionFeedsTerminalScrollback() throws {
         let source = try terminalSurfaceViewSource()
 
         XCTAssertTrue(source.contains("private func shouldAppendScrollbackForActiveScrollRegion() -> Bool"))
-        XCTAssertTrue(source.contains("!isUsingAlternateScreen && scrollRegionTop == 0"))
+        XCTAssertTrue(source.contains("scrollRegionTop == 0"))
+        XCTAssertFalse(source.contains("!isUsingAlternateScreen && scrollRegionTop == 0"))
         XCTAssertTrue(source.contains("if shouldAppendScrollbackForActiveScrollRegion() {\n                appendScrollback(rows: removed)\n            }"))
+        XCTAssertFalse(source.contains("guard !isUsingAlternateScreen else { return }\n        scrollbackRows.append(contentsOf: rows)"))
         XCTAssertFalse(source.contains("scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1"))
     }
 
@@ -699,6 +870,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
     }
 
+    func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("case #selector(cancelOperation(_:)):\n            send(\"\\u{1b}\")"))
+        XCTAssertTrue(inputSource.contains("case #selector(cancelOperation(_:)):\n            core.feed(\"\\u{1b}\")"))
+        XCTAssertTrue(surfaceSource.contains("case 0x5b:\n        return \"\\u{1b}\""))
+        XCTAssertTrue(inputSource.contains("case 0x5b:\n        return \"\\u{1b}\""))
+    }
+
     func testSplitViewTargetsActivePaneAndRebalancesDividers() throws {
         let splitSource = try splitTerminalViewSource()
         XCTAssertTrue(splitSource.contains("pane.ownsFirstResponder"))
@@ -819,6 +1000,35 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(metalSource.contains("inputOverlayColumn"))
         XCTAssertFalse(metalSource.contains("inputOverlayRow"))
     }
+
+    func testTerminalNotificationsCoverShellExitAndItermOsc9() throws {
+        let shellSource = try shellSessionSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+        let notifierSource = try terminalNotifierSource()
+        let readmeSource = try readmeSource()
+
+        XCTAssertTrue(shellSource.contains("var onExit: ((Int32) -> Void)?"))
+        XCTAssertTrue(shellSource.contains("private var waitSource: DispatchSourceProcess?"))
+        XCTAssertTrue(shellSource.contains("DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit"))
+        XCTAssertTrue(shellSource.contains("waitpid(pid, &status, WNOHANG)"))
+
+        XCTAssertTrue(surfaceSource.contains("private let notifier = TerminalNotifier.shared"))
+        XCTAssertTrue(surfaceSource.contains("shell.onExit = { [weak self] status in"))
+        XCTAssertTrue(surfaceSource.contains("self?.notifyShellDidExit(status: status)"))
+        XCTAssertTrue(surfaceSource.contains("case \"9\":"))
+        XCTAssertTrue(surfaceSource.contains("notifyItermOsc9(payload)"))
+
+        XCTAssertTrue(notifierSource.contains("import UserNotifications"))
+        XCTAssertTrue(notifierSource.contains("final class TerminalNotifier"))
+        XCTAssertTrue(notifierSource.contains("Bundle.main.bundleURL.pathExtension == \"app\""))
+        XCTAssertTrue(notifierSource.contains("UNUserNotificationCenter.current()"))
+        XCTAssertTrue(notifierSource.contains("guard !didRequestAuthorization, let center else { return }"))
+        XCTAssertTrue(notifierSource.contains("guard !NSApp.isActive, let center else { return }"))
+        XCTAssertTrue(notifierSource.contains("UNNotificationRequest("))
+
+        XCTAssertTrue(readmeSource.contains("iTerm2-compatible notifications"))
+        XCTAssertTrue(readmeSource.contains("printf '\\e]9;Build finished\\a'"))
+    }
 }
 
 private struct TestGlyphVertex {
@@ -927,6 +1137,20 @@ private func deterministicAtlasPixels() -> [UInt8] {
             pixels[index + 1] = 255
             pixels[index + 2] = 255
             pixels[index + 3] = alpha
+        }
+    }
+    return pixels
+}
+
+private func koreanGlyphAlphaOnlyAtlasPixels() -> [UInt8] {
+    var pixels = [UInt8](repeating: 0, count: 4 * 4 * 4)
+    for y in 0..<4 {
+        for x in 0..<4 {
+            let index = (y * 4 + x) * 4
+            pixels[index] = 255
+            pixels[index + 1] = 255
+            pixels[index + 2] = 255
+            pixels[index + 3] = (1...2).contains(x) && (1...2).contains(y) ? 255 : 0
         }
     }
     return pixels
@@ -1047,6 +1271,18 @@ private func appDelegateSource() throws -> String {
 private func terminalInputViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalNotifierSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalNotifier.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func readmeSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("README.md")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
