@@ -589,7 +589,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func appendOutput(_ text: String) {
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
-        if !text.isEmpty {
+        let scrollbackCountBeforeOutput = scrollbackRows.count
+        let shouldFollowOutput = scrollbackOffset == 0
+        if shouldFollowOutput {
             scrollbackOffset = 0
         }
         if previousScrollbackOffset != scrollbackOffset {
@@ -627,6 +629,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
         }
         markDirty(row: cursorRow)
+        let appendedScrollbackCount = max(0, scrollbackRows.count - scrollbackCountBeforeOutput)
+        if !shouldFollowOutput, appendedScrollbackCount > 0 {
+            scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)
+            markFullDamage()
+        }
+        updateScrollIndicator()
         updateMetalFrame()
     }
 

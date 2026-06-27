@@ -719,6 +719,18 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(tokens.contains("scrollerThumb"))
     }
 
+    func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("let scrollbackCountBeforeOutput = scrollbackRows.count"))
+        XCTAssertTrue(source.contains("let shouldFollowOutput = scrollbackOffset == 0"))
+        XCTAssertTrue(source.contains("if shouldFollowOutput {\n            scrollbackOffset = 0\n        }"))
+        XCTAssertTrue(source.contains("let appendedScrollbackCount = max(0, scrollbackRows.count - scrollbackCountBeforeOutput)"))
+        XCTAssertTrue(source.contains("scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)\n            markFullDamage()"))
+        XCTAssertFalse(source.contains("if !text.isEmpty {\n            scrollbackOffset = 0\n        }"))
+        XCTAssertTrue(source.contains("updateScrollIndicator()"))
+    }
+
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
         let source = try terminalSurfaceViewSource()
 
