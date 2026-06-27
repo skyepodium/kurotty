@@ -53,6 +53,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.split(axis: .horizontal)
     }
 
+    func focusPane(_ direction: TerminalPaneFocusDirection) {
+        currentSplitView()?.focusPane(direction)
+    }
+
     func closeCurrentTab() {
         guard let item = tabView.selectedTabViewItem else {
             return

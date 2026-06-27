@@ -240,6 +240,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleCommandKey(_ event: NSEvent) -> Bool {
+        if TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event) {
+            return true
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
@@ -259,7 +263,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cut(nil)
             return true
         default:
-            return TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)
+            return false
         }
     }
 
