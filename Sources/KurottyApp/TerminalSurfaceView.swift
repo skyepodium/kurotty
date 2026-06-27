@@ -860,10 +860,40 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 carriageReturnLineFeed()
             }
 
-            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)
+            let printableStyle = styleForPrintableWrite(row: cursorRow, column: cursorColumn, width: width)
+            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)
             markDirty(row: cursorRow)
             cursorColumn += width
         }
+    }
+
+    private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle {
+        guard !currentStyle.inverse,
+              currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background),
+              let existingBackground = existingNonDefaultBackground(row: row, column: column, width: width)
+        else {
+            return currentStyle
+        }
+        // TUIs often paint an input row background, then print default-background
+        // text over it. Keep that row color so wide Hangul commits do not punch
+        // white/default rectangles through Codex-style input bars.
+        var style = currentStyle
+        style.background = existingBackground
+        return style
+    }
+
+    private func existingNonDefaultBackground(row: Int, column: Int, width: Int) -> SIMD4<Float>? {
+        guard screen.cells.indices.contains(row), column >= 0, column < screen.columns else {
+            return nil
+        }
+        let upper = min(screen.columns - 1, column + max(1, width) - 1)
+        for targetColumn in column...upper {
+            let background = screen.cells[row][targetColumn].style.effectiveBackground
+            if !background.sameColor(as: terminalDefaultStyle.background) {
+                return background
+            }
+        }
+        return nil
     }
 
     private func lineFeed() {

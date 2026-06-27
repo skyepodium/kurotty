@@ -369,6 +369,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("guard !cell.isContinuation else { continue }\n                let position = TerminalCellPosition(row: row, column: column)"))
     }
 
+    func testPrintableHangulPreservesExistingTuiInputBackground() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("let printableStyle = styleForPrintableWrite(row: cursorRow, column: cursorColumn, width: width)"))
+        XCTAssertTrue(surfaceSource.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)"))
+        XCTAssertTrue(surfaceSource.contains("private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle"))
+        XCTAssertTrue(surfaceSource.contains("currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background)"))
+        XCTAssertTrue(surfaceSource.contains("existingNonDefaultBackground(row: row, column: column, width: width)"))
+        XCTAssertTrue(surfaceSource.contains("style.background = existingBackground"))
+    }
+
     func testMarkedTextStartsAtCursorColumnInAtlasAndFallbackRenderers() throws {
         let source = try terminalMetalViewSource()
         let surfaceSource = try terminalSurfaceViewSource()
@@ -551,7 +562,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("case \"D\":\n            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))"))
         XCTAssertTrue(source.contains("case \"G\", \"`\":\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))"))
         XCTAssertTrue(source.contains("case \"H\", \"f\":\n            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))"))
-        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)"))
         XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            cursorColumn += width"))
         XCTAssertFalse(source.contains("screen.insertCharacters(row: cursorRow, column: cursorColumn, count: width"))
     }
