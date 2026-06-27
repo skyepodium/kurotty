@@ -52,11 +52,27 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 
 ## Assets
 
-- Keep the project icon at `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` as matching PNG files.
-- Kurotty app icon PNGs must be 1024 x 1024 px RGBA, with transparent rounded-corner alpha.
-- Keep the cat artwork visually readable inside the icon; do not shrink the artwork to fix Dock sizing.
-- Dock sizing is controlled in AppKit: the loaded application icon `NSImage` must be assigned a 50 x 50 pt logical size before setting `NSApp.applicationIconImage`.
+- `kurotty-profile.png` is the source image for the Kurotty cat icon. Preserve it as an input asset and do not overwrite, resize, crop, delete, or regenerate it during icon replacement work.
+- `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` are generated icon outputs. They must always contain matching bytes.
+- Never regenerate an icon from a previously generated `kurotty.png`. Repeated crop/resize passes compound the scale error and make the cat progressively smaller. Delete generated outputs if needed, then rebuild them exactly once from `kurotty-profile.png`.
+- Kurotty app icon PNG outputs must use this contract:
+  - PNG canvas: 1024 x 1024 px.
+  - Color/alpha: RGBA.
+  - Visible icon tile: 825 x 825 px, centered in the 1024 px canvas at offset (99, 99).
+  - Transparent padding: everything outside the centered visible tile is transparent.
+  - Visible tile content: scale the full square source image uniformly into the 825 x 825 px tile. Do not crop the cat, do not independently scale the foreground cat, and do not add extra internal padding.
+  - Visible tile corner radius: preserve the current macOS-style radius ratio, `224 / 1024`; for an 825 px visible tile this is about 180 px.
+- The 825 px visible tile is an observed Dock calibration for this project: a full 1024 px visible tile rendered around 65 px in the Dock, while 790 px rendered slightly small; 825 px is the current target for an approximately 50 px perceived Dock icon.
+- Dock sizing is a two-part contract: keep the PNG visible tile at 825 px and keep the loaded application icon `NSImage` assigned a 50 x 50 pt logical size before setting `NSApp.applicationIconImage`.
+- Keep the cat artwork visually readable inside the icon. If the icon appears too large or too small in the Dock, adjust only the centered visible tile size from `kurotty-profile.png`; never shrink or crop just the cat foreground.
 - Keep the README image markup at 400 x 400 unless intentionally changing the README layout.
+- After changing icon assets, verify all of the following before handoff:
+  - `kurotty-profile.png` still exists and is unchanged unless the user explicitly requested changing the source.
+  - `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` are byte-identical.
+  - Both generated PNGs are 1024 x 1024 px and have alpha.
+  - The generated alpha bounding box is exactly 825 x 825 px at `(99, 99, 924, 924)`.
+  - `swift build` succeeds and the SwiftPM resource bundle copy of `kurotty.png` matches `Sources/KurottyApp/Resources/kurotty.png`.
+  - Restart Kurotty after the build so the Dock uses the new bundled icon.
 
 ## Testing And Verification
 

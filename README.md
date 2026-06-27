@@ -1,6 +1,8 @@
 # Kurotty
 
-<img src="kurotty.png" alt="Kurotty" width="400" height="400">
+<p align="center">
+  <img src="kurotty.png" alt="Kurotty" width="400" height="400">
+</p>
 
 Kurotty is a macOS-first terminal emulator scaffold focused on low latency, low memory use, and direct control over the rendering stack.
 
