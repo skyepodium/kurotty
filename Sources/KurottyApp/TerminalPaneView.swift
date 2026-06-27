@@ -2,6 +2,7 @@ import AppKit
 
 final class TerminalPaneView: NSView {
     private let chromeView = PaneChromeView()
+    private let activeIndicatorView = NSView()
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
     private let closeButton = NSButton(title: "×", target: nil, action: nil)
     private let terminalSurfaceView = TerminalSurfaceView()
@@ -50,7 +51,15 @@ final class TerminalPaneView: NSView {
             self?.isChromeHovered = isHovered
             self?.updateChromeAppearance()
         }
+        chromeView.onSelect = { [weak self] in
+            self?.focusTerminal()
+        }
         addSubview(chromeView)
+
+        activeIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        activeIndicatorView.wantsLayer = true
+        activeIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        chromeView.addSubview(activeIndicatorView)
 
         titleField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
         titleField.textColor = .secondaryLabelColor
@@ -77,6 +86,11 @@ final class TerminalPaneView: NSView {
             chromeView.trailingAnchor.constraint(equalTo: trailingAnchor),
             chromeView.topAnchor.constraint(equalTo: topAnchor),
             chromeHeightConstraint,
+
+            activeIndicatorView.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor),
+            activeIndicatorView.trailingAnchor.constraint(equalTo: chromeView.trailingAnchor),
+            activeIndicatorView.topAnchor.constraint(equalTo: chromeView.topAnchor),
+            activeIndicatorView.heightAnchor.constraint(equalToConstant: 3),
 
             titleField.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor, constant: 8),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -6),
@@ -122,15 +136,16 @@ final class TerminalPaneView: NSView {
         let background: NSColor
         if isChromeActive {
             background = isChromeHovered
-                ? NSColor(calibratedWhite: 0.80, alpha: 1)
-                : NSColor(calibratedWhite: 0.84, alpha: 1)
+                ? NSColor(calibratedRed: 0.78, green: 0.86, blue: 1.00, alpha: 1)
+                : NSColor(calibratedRed: 0.84, green: 0.90, blue: 1.00, alpha: 1)
         } else {
             background = isChromeHovered
                 ? NSColor(calibratedWhite: 0.86, alpha: 1)
                 : NSColor(calibratedWhite: 0.90, alpha: 1)
         }
+        activeIndicatorView.isHidden = !isChromeActive
         chromeView.layer?.backgroundColor = background.cgColor
-        chromeView.layer?.borderWidth = isChromeActive ? 1 : 0
+        chromeView.layer?.borderWidth = isChromeActive ? 1.5 : 0
         chromeView.layer?.borderColor = NSColor.controlAccentColor.cgColor
         titleField.font = isChromeActive
             ? NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
@@ -171,6 +186,7 @@ final class TerminalPaneView: NSView {
 
 private final class PaneChromeView: NSView {
     var onHoverChanged: ((Bool) -> Void)?
+    var onSelect: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -197,5 +213,9 @@ private final class PaneChromeView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onHoverChanged?(false)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelect?()
     }
 }
