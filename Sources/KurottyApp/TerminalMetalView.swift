@@ -23,9 +23,6 @@ struct TerminalFrame {
     let isFullDamage: Bool
     let cursorColumn: Int
     let cursorRow: Int
-    let inputOverlayText: String
-    let inputOverlayColumn: Int
-    let inputOverlayRow: Int
     let markedText: String
     let columns: Int
     let visibleRows: Int
@@ -168,7 +165,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     override var isOpaque: Bool {
         true
@@ -498,6 +495,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 diagnosticFullRedrawEnabled ? "yes" : "no"
             )
         }
+        if DebugOptions.dirtyRects || DebugOptions.cursorCell {
+            NSLog(
+                "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ cursorCell=(%d,%d) noScissor=%@",
+                terminalFrame.dirtyRows.map(String.init).joined(separator: ","),
+                terminalFrame.dirtyRects.map(NSStringFromRect).joined(separator: " | "),
+                terminalFrame.cursorRow,
+                terminalFrame.cursorColumn,
+                DebugOptions.noScissor ? "yes" : "no"
+            )
+        }
     }
 
     private func rebuildVertexBuffer() {
@@ -547,13 +554,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         for cell in terminalFrame.cells {
             appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, debugRects: &glyphDebugRects, color: cell.foreground)
         }
-        if !terminalFrame.inputOverlayText.isEmpty && terminalFrame.inputOverlayRow >= 0 {
-            var column = terminalFrame.inputOverlayColumn
-            for character in terminalFrame.inputOverlayText {
-                appendGlyphInstance(character: character, column: column, row: terminalFrame.inputOverlayRow, into: &instances, debugRects: &glyphDebugRects, color: terminalFrame.defaultForeground)
-                column += character.terminalColumnWidth
-            }
-        }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
             for character in terminalFrame.markedText {
@@ -567,6 +567,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         let backgroundRuns = mergedBackgroundRuns()
+        if DebugOptions.backgroundRuns {
+            NSLog(
+                "Kurotty background runs: count=%d runs=%@",
+                backgroundRuns.count,
+                backgroundRuns.map { "row:\($0.row) col:\($0.column) width:\($0.width) color:\($0.color.debugRGB)" }.joined(separator: " | ")
+            )
+        }
         var backgrounds: [GlyphInstance] = []
         backgrounds.reserveCapacity(backgroundRuns.count)
         for background in backgroundRuns {
@@ -1591,6 +1598,10 @@ fragment float4 terminal_solid_fragment(GlyphVertexOut in [[stage_in]]) {
 private extension SIMD4 where Scalar == Float {
     func sameColor(as other: SIMD4<Float>) -> Bool {
         x == other.x && y == other.y && z == other.z && w == other.w
+    }
+
+    var debugRGB: String {
+        String(format: "(%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, w)
     }
 }
 

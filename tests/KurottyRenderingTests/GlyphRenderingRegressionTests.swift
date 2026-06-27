@@ -379,6 +379,97 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
     }
 
+    func testEraseLineUsesActiveStyleForClearedCells() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.clear(row: cursorRow, style: currentStyle)"))
+        XCTAssertFalse(source.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
+        XCTAssertFalse(source.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn)\n"))
+        XCTAssertFalse(source.contains("screen.clear(row: cursorRow)\n"))
+    }
+
+    func testTrailingNonDefaultBackgroundCellsAreRendered() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("guard !cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background) else"))
+        XCTAssertTrue(surfaceSource.contains("cell.style == .default"))
+        XCTAssertTrue(surfaceSource.contains("backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))"))
+        XCTAssertTrue(metalSource.contains(".filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows && !$0.color.sameColor(as: terminalFrame.defaultBackground) }"))
+        XCTAssertTrue(metalSource.contains("last.column + last.width == background.column"))
+        XCTAssertTrue(metalSource.contains("last.width += 1"))
+        XCTAssertFalse(metalSource.contains("backgroundRunsExcludingInputLine"))
+    }
+
+    func testCursorMovementAllowsPrintableOverwriteAtMovedPosition() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("case \"D\":\n            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))"))
+        XCTAssertTrue(source.contains("case \"G\", \"`\":\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))"))
+        XCTAssertTrue(source.contains("case \"H\", \"f\":\n            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))"))
+        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
+        XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            cursorColumn += width"))
+        XCTAssertFalse(source.contains("screen.insertCharacters(row: cursorRow, column: cursorColumn, count: width"))
+    }
+
+    func testFullModelRedrawFlagControlsDirtyRectInvalidation() throws {
+        let metalSource = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+        let debugSource = try debugOptionsSource()
+
+        XCTAssertTrue(debugSource.contains("static let fullModelRedraw = flag(\"--debug-full-model-redraw\", env: \"KUROTTY_DEBUG_FULL_MODEL_REDRAW\")"))
+        XCTAssertTrue(debugSource.contains("static let noDamage = flag(\"--debug-no-damage\", env: \"KUROTTY_DEBUG_NO_DAMAGE\")"))
+        XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
+        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = true"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
+        XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect)\n            }\n        }"))
+        XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
+        XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
+    }
+
+    func testScrollRegionIsTrackedForTuiStatusAndInputRows() throws {
+        let source = try terminalSurfaceViewSource()
+        let debugSource = try debugOptionsSource()
+
+        XCTAssertTrue(source.contains("private var scrollRegionTop = 0"))
+        XCTAssertTrue(source.contains("private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1"))
+        XCTAssertTrue(source.contains("case \"r\":\n            setScrollRegion(parsed)"))
+        XCTAssertTrue(source.contains("private func setScrollRegion(_ parsed: CsiParameters)"))
+        XCTAssertTrue(source.contains("cursorRow = 0\n        cursorColumn = 0\n        markFullDamage()"))
+        XCTAssertTrue(source.contains("resetScrollRegion()"))
+        XCTAssertTrue(source.contains("Kurotty scroll region %@: top=%d bottom=%d rows=%d cursor=(%d,%d)"))
+        XCTAssertTrue(debugSource.contains("static let scrollRegion = flag(\"--debug-scroll-region\", env: \"KUROTTY_DEBUG_SCROLL_REGION\")"))
+    }
+
+    func testScrollOperationsRespectActiveScrollRegion() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("if cursorRow >= scrollRegionTop && cursorRow == scrollRegionBottom"))
+        XCTAssertTrue(source.contains("screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.insertLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)"))
+        XCTAssertTrue(source.contains("screen.deleteLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)"))
+        XCTAssertFalse(source.contains("case \"S\":\n            screen.scrollUp(count: parsed.value(at: 0, default: 1))"))
+        XCTAssertFalse(source.contains("case \"T\":\n            screen.scrollDown(count: parsed.value(at: 0, default: 1))"))
+    }
+
+    func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("mutating func scrollUpRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default)"))
+        XCTAssertTrue(source.contains("mutating func scrollDownRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default)"))
+        XCTAssertTrue(source.contains("mutating func insertLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default)"))
+        XCTAssertTrue(source.contains("mutating func deleteLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default)"))
+        XCTAssertTrue(source.contains("private func normalizedRegion(top: Int, bottom: Int) -> ClosedRange<Int>?"))
+        XCTAssertTrue(source.contains("guard start <= end, start < columns, end >= 0 else { return }"))
+        XCTAssertTrue(source.contains("cells.insert(\n            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),\n            at: region.upperBound - amount + 1\n        )"))
+    }
+
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
         let shellSource = try shellSessionSource()
 
@@ -507,15 +598,18 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("y: padding.top + CGFloat(cursorRow + 1) * metrics.cellSize.height"))
     }
 
-    func testInputOverlayClearsAsSoonAsPtyOutputArrives() throws {
-        let source = try terminalSurfaceViewSource()
+    func testTerminalInputIsRenderedOnlyFromScreenBuffer() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
 
-        XCTAssertTrue(source.contains("private func shouldClearInputOverlay(for text: String) -> Bool"))
-        XCTAssertTrue(source.contains("Once the PTY"))
-        XCTAssertTrue(source.contains("pendingOverlayEcho = \"\""))
-        XCTAssertTrue(source.contains("return true"))
-        XCTAssertFalse(source.contains("pendingOverlayEcho.hasPrefix(normalized)"))
-        XCTAssertFalse(source.contains("normalized.contains(pendingOverlayEcho)"))
+        XCTAssertFalse(surfaceSource.contains("inputOverlayText"))
+        XCTAssertFalse(surfaceSource.contains("inputOverlayColumn"))
+        XCTAssertFalse(surfaceSource.contains("inputOverlayRow"))
+        XCTAssertFalse(surfaceSource.contains("pendingOverlayEcho"))
+        XCTAssertFalse(surfaceSource.contains("shouldClearInputOverlay"))
+        XCTAssertFalse(metalSource.contains("inputOverlayText"))
+        XCTAssertFalse(metalSource.contains("inputOverlayColumn"))
+        XCTAssertFalse(metalSource.contains("inputOverlayRow"))
     }
 }
 
@@ -703,6 +797,12 @@ private func designTokensSource() throws -> String {
 private func terminalSurfaceViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func debugOptionsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/DebugOptions.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

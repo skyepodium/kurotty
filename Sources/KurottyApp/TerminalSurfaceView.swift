@@ -19,6 +19,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var cursorColumn = 0
     private var savedCursorRow = 0
     private var savedCursorColumn = 0
+    private var scrollRegionTop = 0
+    private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
     private var cursorVisible = true
     private var isUsingAlternateScreen = false
     private var bracketedPasteEnabled = false
@@ -26,10 +28,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var oscBuffer = ""
-    private var inputOverlayText = ""
-    private var inputOverlayColumn = 0
-    private var inputOverlayRow = 0
-    private var pendingOverlayEcho = ""
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var markedText = NSMutableAttributedString()
@@ -91,7 +89,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 NSLog("Kurotty PTY raw: bytes=%@ decoded=%@", Self.hexDump(data), Self.escapedText(data))
             }
         }
-        metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects
+        metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
         metalView.diagnosticFullRedrawEnabled = true
         metalView.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
         metalView.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
@@ -190,12 +188,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         guard !text.isEmpty else { return }
-        inputOverlayText = text
-        inputOverlayColumn = cursorColumn
-        inputOverlayRow = cursorRow
-        pendingOverlayEcho = text
-        markDirty(row: inputOverlayRow)
-        updateMetalFrame()
         if bracketedPasteEnabled {
             send("\u{1b}[200~\(text)\u{1b}[201~")
         } else {
@@ -300,6 +292,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if metrics.size != lastSentSize {
             cursorRow = screen.resize(rows: metrics.size.rows, columns: metrics.size.columns, anchorRow: cursorRow)
             cursorColumn = min(cursorColumn, metrics.size.columns - 1)
+            resetScrollRegion()
             lastSentSize = metrics.size
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
             core.resize(cols: UInt32(metrics.size.columns), rows: UInt32(metrics.size.rows))
@@ -367,11 +360,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
             isFullDamage: damage.isFull,
-            cursorColumn: min(cursorColumn + inputOverlayText.terminalColumnWidth + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
+            cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
-            inputOverlayText: inputOverlayText,
-            inputOverlayColumn: inputOverlayColumn,
-            inputOverlayRow: inputOverlayRow,
             markedText: markedText.string,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
@@ -477,12 +467,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func appendOutput(_ text: String) {
         let previousCursorRow = cursorRow
-        let previousOverlayRow = inputOverlayRow
         let previousScrollbackOffset = scrollbackOffset
-        if shouldClearInputOverlay(for: text) {
-            inputOverlayText = ""
-            markDirty(row: previousOverlayRow)
-        }
         if !text.isEmpty {
             scrollbackOffset = 0
         }
@@ -515,16 +500,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         markDirty(row: cursorRow)
         updateMetalFrame()
-    }
-
-    private func shouldClearInputOverlay(for text: String) -> Bool {
-        guard !inputOverlayText.isEmpty, !pendingOverlayEcho.isEmpty, !text.isEmpty else { return false }
-        // TUI apps redraw their input rows with ANSI backgrounds. Once the PTY
-        // produces output, the terminal grid is the only reliable source of
-        // truth; keeping the optimistic paste overlay can leave stale text over
-        // the app's freshly painted input/status backgrounds.
-        pendingOverlayEcho = ""
-        return true
     }
 
     private func visibleText() -> String {
@@ -676,12 +651,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func logScreenDumpIfNeeded(rows: [[TerminalScreenCell]], damage: TerminalFrameDamage, metrics: TerminalMetrics) {
         guard DebugOptions.screenDump || DebugOptions.layout else { return }
         NSLog(
-            "Kurotty screen dump: frame=%llu rows=%d cols=%d cursor=(%d,%d) full=%@ dirtyRows=%@ cell=(%0.2f,%0.2f) scale=%0.2f",
+            "Kurotty screen dump: frame=%llu rows=%d cols=%d cursor=(%d,%d) scrollRegion=%d-%d full=%@ dirtyRows=%@ cell=(%0.2f,%0.2f) scale=%0.2f",
             debugFrameIndex,
             metrics.size.rows,
             metrics.size.columns,
             cursorRow,
             cursorColumn,
+            scrollRegionTop,
+            scrollRegionBottom,
             damage.isFull ? "yes" : "no",
             damage.rows.map(String.init).joined(separator: ","),
             metrics.cellSize.width,
@@ -798,13 +775,54 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func lineFeed() {
         markDirty(row: cursorRow)
-        if cursorRow == screen.rows - 1 {
-            appendScrollback(rows: screen.scrollUp())
+        if cursorRow >= scrollRegionTop && cursorRow == scrollRegionBottom {
+            let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)
+            if scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1 {
+                appendScrollback(rows: removed)
+            }
             markFullDamage()
         } else {
-            cursorRow += 1
+            cursorRow = min(screen.rows - 1, cursorRow + 1)
             markDirty(row: cursorRow)
         }
+    }
+
+    private func resetScrollRegion() {
+        scrollRegionTop = 0
+        scrollRegionBottom = max(0, screen.rows - 1)
+        logScrollRegion(reason: "reset")
+    }
+
+    private func setScrollRegion(_ parsed: CsiParameters) {
+        guard !parsed.isPrivate else { return }
+        if parsed.values.isEmpty {
+            resetScrollRegion()
+        } else {
+            let top = max(0, min(screen.rows - 1, parsed.value(at: 0, default: 1) - 1))
+            let bottom = max(0, min(screen.rows - 1, parsed.value(at: 1, default: screen.rows) - 1))
+            guard top < bottom else { return }
+            scrollRegionTop = top
+            scrollRegionBottom = bottom
+            logScrollRegion(reason: "set")
+        }
+        // DECSTBM moves the cursor home so subsequent TUI draws target the new
+        // scroll contract rather than the old cursor row.
+        cursorRow = 0
+        cursorColumn = 0
+        markFullDamage()
+    }
+
+    private func logScrollRegion(reason: String) {
+        guard DebugOptions.scrollRegion || DebugOptions.vtParser else { return }
+        NSLog(
+            "Kurotty scroll region %@: top=%d bottom=%d rows=%d cursor=(%d,%d)",
+            reason,
+            scrollRegionTop,
+            scrollRegionBottom,
+            screen.rows,
+            cursorRow,
+            cursorColumn
+        )
     }
 
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
@@ -914,6 +932,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func executeCsi(final: Character, params: String) {
         let parsed = CsiParameters(params)
         let previousCursorRow = cursorRow
+        logCsi(final: final, params: params, parsed: parsed, phase: "before")
         switch final {
         case "A":
             cursorRow = max(0, cursorRow - parsed.value(at: 0, default: 1))
@@ -939,11 +958,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case "K":
             eraseInLine(mode: parsed.value(at: 0, default: 0))
         case "L":
-            screen.insertLines(at: cursorRow, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            markDirty(rows: cursorRow..<screen.rows)
+            insertLines(count: parsed.value(at: 0, default: 1))
         case "M":
-            screen.deleteLines(at: cursorRow, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            markDirty(rows: cursorRow..<screen.rows)
+            deleteLines(count: parsed.value(at: 0, default: 1))
         case "P":
             screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
@@ -951,13 +968,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
         case "S":
-            screen.scrollUp(count: parsed.value(at: 0, default: 1))
+            screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markFullDamage()
         case "T":
-            screen.scrollDown(count: parsed.value(at: 0, default: 1))
+            screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markFullDamage()
         case "m":
             applySgr(parsed.values)
+        case "r":
+            setScrollRegion(parsed)
         case "s":
             savedCursorRow = cursorRow
             savedCursorColumn = cursorColumn
@@ -982,6 +1001,37 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markDirty(row: previousCursorRow)
             markDirty(row: cursorRow)
         }
+        logCsi(final: final, params: params, parsed: parsed, phase: "after")
+    }
+
+    private func logCsi(final: Character, params: String, parsed: CsiParameters, phase: String) {
+        guard DebugOptions.vtParser || DebugOptions.cursorLog else { return }
+        NSLog(
+            "Kurotty CSI %@: ESC[%@%@ private=%@ values=%@ cursor=(%d,%d) scrollRegion=%d-%d fg=%@ bg=%@",
+            phase,
+            params,
+            String(final),
+            parsed.isPrivate ? "yes" : "no",
+            parsed.values.map(String.init).joined(separator: ","),
+            cursorRow,
+            cursorColumn,
+            scrollRegionTop,
+            scrollRegionBottom,
+            currentStyle.effectiveForeground.debugRGB,
+            currentStyle.effectiveBackground.debugRGB
+        )
+    }
+
+    private func insertLines(count: Int) {
+        let bottom = cursorRow >= scrollRegionTop && cursorRow <= scrollRegionBottom ? scrollRegionBottom : screen.rows - 1
+        screen.insertLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)
+        markDirty(rows: cursorRow..<(bottom + 1))
+    }
+
+    private func deleteLines(count: Int) {
+        let bottom = cursorRow >= scrollRegionTop && cursorRow <= scrollRegionBottom ? scrollRegionBottom : screen.rows - 1
+        screen.deleteLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)
+        markDirty(rows: cursorRow..<(bottom + 1))
     }
 
     private func cursorPositionReport() -> String {
@@ -1055,11 +1105,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func reverseIndex() {
         markDirty(row: cursorRow)
-        if cursorRow == 0 {
-            screen.scrollDown()
+        if cursorRow >= scrollRegionTop && cursorRow == scrollRegionTop {
+            screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)
             markFullDamage()
         } else {
-            cursorRow -= 1
+            cursorRow = max(0, cursorRow - 1)
             markDirty(row: cursorRow)
         }
     }
@@ -1070,6 +1120,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         screen.clear()
         cursorRow = 0
         cursorColumn = 0
+        resetScrollRegion()
         isUsingAlternateScreen = true
         markFullDamage()
     }
@@ -1084,6 +1135,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         cursorRow = min(cursorRow, screen.rows - 1)
         cursorColumn = min(cursorColumn, screen.columns - 1)
+        resetScrollRegion()
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
         markFullDamage()
@@ -1098,6 +1150,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         currentStyle = terminalDefaultStyle
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+        resetScrollRegion()
         markFullDamage()
     }
 
@@ -1380,6 +1433,7 @@ private struct TerminalScreen {
 
     mutating func clear(row: Int, from start: Int, through end: Int, style: TerminalTextStyle = .default) {
         guard cells.indices.contains(row) else { return }
+        guard start <= end, start < columns, end >= 0 else { return }
         let lower = max(0, min(start, columns - 1))
         let upper = max(0, min(end, columns - 1))
         guard lower <= upper else { return }
@@ -1405,37 +1459,67 @@ private struct TerminalScreen {
 
     @discardableResult
     mutating func scrollUp(count: Int = 1) -> [[TerminalScreenCell]] {
-        discardResizeHiddenRows()
-        let amount = min(max(1, count), rows)
-        let removed = Array(cells.prefix(amount))
-        cells.removeFirst(amount)
-        cells.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount))
-        return removed
+        scrollUpRegion(top: 0, bottom: rows - 1, count: count)
     }
 
     mutating func scrollDown(count: Int = 1) {
+        _ = scrollDownRegion(top: 0, bottom: rows - 1, count: count)
+    }
+
+    @discardableResult
+    mutating func scrollUpRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default) -> [[TerminalScreenCell]] {
         discardResizeHiddenRows()
-        let amount = min(max(1, count), rows)
-        cells.removeLast(amount)
-        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount), at: 0)
+        guard let region = normalizedRegion(top: top, bottom: bottom) else { return [] }
+        let amount = min(max(1, count), region.count)
+        let removed = Array(cells[region.lowerBound..<(region.lowerBound + amount)])
+        cells.removeSubrange(region.lowerBound..<(region.lowerBound + amount))
+        cells.insert(
+            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
+            at: region.upperBound - amount + 1
+        )
+        return removed
+    }
+
+    @discardableResult
+    mutating func scrollDownRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default) -> [[TerminalScreenCell]] {
+        discardResizeHiddenRows()
+        guard let region = normalizedRegion(top: top, bottom: bottom) else { return [] }
+        let amount = min(max(1, count), region.count)
+        let lower = region.upperBound - amount + 1
+        let removed = Array(cells[lower...region.upperBound])
+        cells.removeSubrange(lower...region.upperBound)
+        cells.insert(
+            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
+            at: region.lowerBound
+        )
+        return removed
     }
 
     mutating func insertLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
+        insertLines(at: row, bottom: rows - 1, count: count, style: style)
+    }
+
+    mutating func insertLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
-        guard rows > 0 else { return }
-        let start = min(max(0, row), rows - 1)
-        let amount = min(max(1, count), rows - start)
-        cells.removeSubrange((rows - amount)..<rows)
-        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount), at: start)
+        guard let region = normalizedRegion(top: row, bottom: bottom) else { return }
+        let amount = min(max(1, count), region.count)
+        cells.removeSubrange((region.upperBound - amount + 1)...region.upperBound)
+        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount), at: region.lowerBound)
     }
 
     mutating func deleteLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
+        deleteLines(at: row, bottom: rows - 1, count: count, style: style)
+    }
+
+    mutating func deleteLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
-        guard rows > 0 else { return }
-        let start = min(max(0, row), rows - 1)
-        let amount = min(max(1, count), rows - start)
-        cells.removeSubrange(start..<(start + amount))
-        cells.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount))
+        guard let region = normalizedRegion(top: row, bottom: bottom) else { return }
+        let amount = min(max(1, count), region.count)
+        cells.removeSubrange(region.lowerBound..<(region.lowerBound + amount))
+        cells.insert(
+            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
+            at: region.upperBound - amount + 1
+        )
     }
 
     mutating func insertCharacters(row: Int, column: Int, count: Int, style: TerminalTextStyle = .default) {
@@ -1461,6 +1545,14 @@ private struct TerminalScreen {
     mutating func discardResizeHiddenRows() {
         resizeHiddenRowsAbove.removeAll(keepingCapacity: true)
         resizeHiddenRowsBelow.removeAll(keepingCapacity: true)
+    }
+
+    private func normalizedRegion(top: Int, bottom: Int) -> ClosedRange<Int>? {
+        guard rows > 0 else { return nil }
+        let lower = max(0, min(top, rows - 1))
+        let upper = max(0, min(bottom, rows - 1))
+        guard lower <= upper else { return nil }
+        return lower...upper
     }
 
     static func blankRow(columns: Int, style: TerminalTextStyle = .default) -> [TerminalScreenCell] {
