@@ -50,6 +50,17 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - `docs/`: architecture, ABI, testing, and other developer documentation.
 - Keep cross-language contracts in docs and tests when changing `src/abi.zig`, `CoreBridge`, shader buffer layouts, or settings schema.
 
+## macOS IME Input
+
+- macOS IME composition belongs to AppKit. Do not manually compose Hangul jamo, normalize partial jamo into syllables, or hide pending jamo in Kurotty code.
+- `keyDown` for printable text must offer the event to `NSTextInputContext` first. The required order is `view.inputContext?.handleEvent(event)` and only then a fallback such as `interpretKeyEvents([event])` if AppKit did not handle it.
+- Do not send `event.characters` or `charactersIgnoringModifiers` directly to the PTY for printable text when an IME path may own the event.
+- PTY writes for text input must come from confirmed `insertText` or from explicit terminal control keys only. `setMarkedText` is preedit state and must not write to the PTY.
+- `setMarkedText`/marked text is a visual composition overlay; clear or redraw it without mutating the terminal screen buffer as committed text.
+- Input-source changes may discard stale AppKit marked text, but must not synthesize replacement text.
+- The critical regression case is: type `d` in English, switch to Korean IME, type `안녕`; PTY output must be `d안녕`, not `dㅇㅏㄴ녕` or any compatibility-jamo sequence.
+- IME verification must include real event-flow evidence when possible: `keyDown`, `setMarkedText`, `insertText`, `unmarkText`, and PTY write logs. Source-shape tests alone are not enough to claim an IME fix.
+
 ## Assets
 
 - `kurotty-profile.png` is the source image for the Kurotty cat icon. Preserve it as an input asset and do not overwrite, resize, crop, delete, or regenerate it during icon replacement work.

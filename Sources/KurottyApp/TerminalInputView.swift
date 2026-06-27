@@ -9,6 +9,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     init(core: CoreBridge) {
         self.core = core
         super.init(frame: .zero)
+        observeInputSourceChanges()
     }
 
     required init?(coder: NSCoder) {
@@ -109,6 +110,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         case #selector(insertTab(_:)):
             core.feed("\t")
         case #selector(cancelOperation(_:)):
+            resetMarkedTextForInputSourceChange()
             core.feed("\u{1b}")
         case #selector(deleteBackward(_:)):
             core.feed("\u{7f}")
@@ -138,6 +140,29 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     func characterIndex(for point: NSPoint) -> Int { 0 }
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         window?.convertToScreen(convert(bounds, to: nil)) ?? .zero
+    }
+
+    private func observeInputSourceChanges() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(inputSourceDidChange(_:)),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func inputSourceDidChange(_ notification: Notification) {
+        handleInputSourceChanged()
+    }
+
+    private func handleInputSourceChanged() {
+        inputContext?.discardMarkedText()
+        resetMarkedTextForInputSourceChange()
+    }
+
+    private func resetMarkedTextForInputSourceChange() {
+        markedText = NSMutableAttributedString()
+        inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     }
 }
 
