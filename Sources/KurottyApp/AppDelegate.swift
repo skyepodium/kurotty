@@ -32,6 +32,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.newTab()
     }
 
+    @objc func closeCurrentTab() {
+        activeTerminalWindowController?.closeCurrentTab()
+    }
+
+    @objc func closeCurrentPane() {
+        activeTerminalWindowController?.closeCurrentPane()
+    }
+
+    @objc func selectNextTab() {
+        activeTerminalWindowController?.selectNextTab()
+    }
+
+    @objc func selectPreviousTab() {
+        activeTerminalWindowController?.selectPreviousTab()
+    }
+
     @objc func splitVertically() {
         activeTerminalWindowController?.splitVertically()
     }

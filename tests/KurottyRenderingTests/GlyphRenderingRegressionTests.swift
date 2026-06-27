@@ -581,6 +581,49 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
     }
 
+    func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
+        let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"New Tab\", action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Close Tab\", action: #selector(AppDelegate.closeCurrentTab), keyEquivalent: \"w\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Vertically\", action: #selector(AppDelegate.splitVertically), keyEquivalent: \"d\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Horizontally\", action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Previous Tab\", action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Next Tab\", action: #selector(AppDelegate.selectNextTab), keyEquivalent: \"]\")"))
+
+        let delegateSource = try appDelegateSource()
+        XCTAssertTrue(delegateSource.contains("@objc func closeCurrentTab()"))
+        XCTAssertTrue(delegateSource.contains("@objc func closeCurrentPane()"))
+        XCTAssertTrue(delegateSource.contains("@objc func selectNextTab()"))
+        XCTAssertTrue(delegateSource.contains("@objc func selectPreviousTab()"))
+    }
+
+    func testFocusedTerminalDispatchesWindowShortcutsBeforePtyInput() throws {
+        let dispatcherSource = try terminalCommandDispatcherSource()
+        XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.splitHorizontally()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.closeCurrentTab()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.closeCurrentPane()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.selectPreviousTab()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.selectNextTab()"))
+
+        let surfaceSource = try terminalSurfaceViewSource()
+        XCTAssertTrue(surfaceSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
+
+        let inputSource = try terminalInputViewSource()
+        XCTAssertTrue(inputSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
+    }
+
+    func testSplitViewTargetsActivePaneAndRebalancesDividers() throws {
+        let splitSource = try splitTerminalViewSource()
+        XCTAssertTrue(splitSource.contains("pane.ownsFirstResponder"))
+        XCTAssertTrue(splitSource.contains("func closeActivePane() -> Bool"))
+        XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
+        XCTAssertTrue(splitSource.contains("func focusFirstPane()"))
+        XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
+        XCTAssertTrue(splitSource.contains("let position = totalLength * CGFloat(dividerIndex + 1) / CGFloat(count)"))
+    }
+
     func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
         let metalSource = try terminalMetalViewSource()
 
@@ -862,5 +905,29 @@ private func appSettingsSource() throws -> String {
 private func terminalWindowControllerSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalWindowController.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func appDelegateSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/AppDelegate.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalInputViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalCommandDispatcherSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalCommandDispatcher.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func splitTerminalViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/SplitTerminalView.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }

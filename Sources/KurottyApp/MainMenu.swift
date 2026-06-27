@@ -18,10 +18,22 @@ enum MainMenu {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(AppDelegate.openNewWindow), keyEquivalent: "n"))
         fileMenu.addItem(NSMenuItem(title: "New Tab", action: #selector(AppDelegate.newTab), keyEquivalent: "t"))
+        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(AppDelegate.closeCurrentTab), keyEquivalent: "w"))
+        let closePane = NSMenuItem(title: "Close Pane", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: "w")
+        closePane.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(closePane)
+        fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Split Vertically", action: #selector(AppDelegate.splitVertically), keyEquivalent: "d"))
         let horizontal = NSMenuItem(title: "Split Horizontally", action: #selector(AppDelegate.splitHorizontally), keyEquivalent: "D")
         horizontal.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(horizontal)
+        fileMenu.addItem(.separator())
+        let previousTab = NSMenuItem(title: "Previous Tab", action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: "[")
+        previousTab.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(previousTab)
+        let nextTab = NSMenuItem(title: "Next Tab", action: #selector(AppDelegate.selectNextTab), keyEquivalent: "]")
+        nextTab.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(nextTab)
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 

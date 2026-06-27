@@ -49,24 +49,25 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     private func handleCommandKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command,
+        guard flags.contains(.command),
+              flags.subtracting([.command, .shift]).isEmpty,
               let characters = event.charactersIgnoringModifiers?.lowercased()
         else {
             return false
         }
 
         switch characters {
-        case "c":
+        case "c" where flags == .command:
             copy(nil)
             return true
-        case "v":
+        case "v" where flags == .command:
             paste(nil)
             return true
-        case "x":
+        case "x" where flags == .command:
             cut(nil)
             return true
         default:
-            return false
+            return TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)
         }
     }
 

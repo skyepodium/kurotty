@@ -33,6 +33,7 @@ final class TerminalWindowController: NSWindowController {
         item.view = SplitTerminalView(axis: .vertical)
         tabView.addTabViewItem(item)
         tabView.selectTabViewItem(item)
+        currentSplitView()?.focusFirstPane()
     }
 
     func splitVertically() {
@@ -41,6 +42,42 @@ final class TerminalWindowController: NSWindowController {
 
     func splitHorizontally() {
         currentSplitView()?.split(axis: .horizontal)
+    }
+
+    func closeCurrentTab() {
+        guard let item = tabView.selectedTabViewItem else {
+            return
+        }
+        if tabView.numberOfTabViewItems <= 1 {
+            window?.performClose(nil)
+            return
+        }
+        tabView.removeTabViewItem(item)
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func closeCurrentPane() {
+        guard currentSplitView()?.closeActivePane() == true else {
+            closeCurrentTab()
+            return
+        }
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func selectNextTab() {
+        guard tabView.numberOfTabViewItems > 1 else {
+            return
+        }
+        tabView.selectNextTabViewItem(nil)
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func selectPreviousTab() {
+        guard tabView.numberOfTabViewItems > 1 else {
+            return
+        }
+        tabView.selectPreviousTabViewItem(nil)
+        currentSplitView()?.focusFirstPane()
     }
 
     private func configureTabs() {
