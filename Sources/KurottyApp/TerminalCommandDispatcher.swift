@@ -30,7 +30,7 @@ enum TerminalCommandDispatcher {
             if isShiftPressed {
                 controller.closeCurrentPane()
             } else {
-                controller.closeCurrentTab()
+                controller.closeCurrentPane()
             }
             return true
         case "[" where isShiftPressed:

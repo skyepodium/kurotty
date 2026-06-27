@@ -584,7 +584,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"New Tab\", action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Close Tab\", action: #selector(AppDelegate.closeCurrentTab), keyEquivalent: \"w\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Close Pane or Tab\", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: \"w\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Vertically\", action: #selector(AppDelegate.splitVertically), keyEquivalent: \"d\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Horizontally\", action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Previous Tab\", action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
@@ -597,12 +597,67 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(delegateSource.contains("@objc func selectPreviousTab()"))
     }
 
+    func testTerminalWindowShowsVisibleTabBarWhenMultipleTabsExist() throws {
+        let windowSource = try terminalWindowControllerSource()
+        let designSource = try designTokensSource()
+
+        XCTAssertTrue(windowSource.contains("final class TerminalWindowController: NSWindowController, NSTabViewDelegate"))
+        XCTAssertTrue(windowSource.contains("private let tabBarView = NSView()"))
+        XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
+        XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = tabView.numberOfTabViewItems > 1"))
+        XCTAssertTrue(windowSource.contains("tabBarView.isHidden = tabView.numberOfTabViewItems <= 1"))
+        XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
+        XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
+        XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
+        XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
+        XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
+        XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
+        XCTAssertTrue(windowSource.contains("onSelect: { [weak self] in self?.selectTab(at: index) }"))
+        XCTAssertTrue(windowSource.contains("onClose: { [weak self] in self?.closeTab(at: index) }"))
+        XCTAssertTrue(windowSource.contains("private func selectTab(at index: Int)"))
+        XCTAssertTrue(windowSource.contains("private func closeTab(at index: Int)"))
+        XCTAssertTrue(windowSource.contains("@objc private func newTabButtonPressed(_ sender: NSButton)"))
+        XCTAssertTrue(windowSource.contains("tabView.selectTabViewItem(at: index)"))
+        XCTAssertTrue(windowSource.contains("private func observeTerminalTitles()"))
+        XCTAssertTrue(windowSource.contains("@objc private func terminalTitleDidChange(_ notification: Notification)"))
+        XCTAssertTrue(windowSource.contains("private func tabItem(containing surface: TerminalSurfaceView) -> NSTabViewItem?"))
+        XCTAssertTrue(windowSource.contains("TerminalSurfaceView.titleDidChangeNotification"))
+        XCTAssertTrue(windowSource.contains("TerminalSurfaceView.titleNotificationKey"))
+        XCTAssertTrue(windowSource.contains("window?.title = tabViewItem?.label ?? AppConstants.Bundle.displayName"))
+
+        XCTAssertTrue(designSource.contains("terminalTabBarHeightPX"))
+        XCTAssertTrue(designSource.contains("terminalTabMinWidthPX"))
+        XCTAssertTrue(designSource.contains("terminalTabMaxWidthPX"))
+        XCTAssertTrue(designSource.contains("terminalTabPlusWidthPX"))
+        XCTAssertTrue(designSource.contains("terminalTabCloseWidthPX"))
+    }
+
+    func testTerminalSurfacePublishesOscTitleAndDirectoryForTabs() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let paneSource = try terminalPaneViewSource()
+        let splitSource = try splitTerminalViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("static let titleDidChangeNotification"))
+        XCTAssertTrue(surfaceSource.contains("static let focusDidChangeNotification"))
+        XCTAssertTrue(surfaceSource.contains("static let titleNotificationKey"))
+        XCTAssertTrue(surfaceSource.contains("override func becomeFirstResponder() -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("case \"0\", \"1\", \"2\":"))
+        XCTAssertTrue(surfaceSource.contains("case \"7\":"))
+        XCTAssertTrue(surfaceSource.contains("updateWorkingDirectory(fromOsc7: payload)"))
+        XCTAssertTrue(surfaceSource.contains("publishTitle()"))
+        XCTAssertTrue(surfaceSource.contains("displayTitle()"))
+        XCTAssertTrue(surfaceSource.contains("URL(string: payload)"))
+
+        XCTAssertTrue(paneSource.contains("var terminalSurface: TerminalSurfaceView"))
+        XCTAssertTrue(splitSource.contains("var primaryTerminalSurface: TerminalSurfaceView?"))
+        XCTAssertTrue(splitSource.contains("func containsTerminalSurface(_ surface: TerminalSurfaceView) -> Bool"))
+    }
+
     func testFocusedTerminalDispatchesWindowShortcutsBeforePtyInput() throws {
         let dispatcherSource = try terminalCommandDispatcherSource()
         XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitHorizontally()"))
-        XCTAssertTrue(dispatcherSource.contains("controller.closeCurrentTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.closeCurrentPane()"))
         XCTAssertTrue(dispatcherSource.contains("controller.selectPreviousTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.selectNextTab()"))
@@ -618,10 +673,36 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let splitSource = try splitTerminalViewSource()
         XCTAssertTrue(splitSource.contains("pane.ownsFirstResponder"))
         XCTAssertTrue(splitSource.contains("func closeActivePane() -> Bool"))
+        XCTAssertTrue(splitSource.contains("private func configurePane(_ pane: TerminalPaneView)"))
+        XCTAssertTrue(splitSource.contains("pane.closeRequested = { [weak self] pane in"))
+        XCTAssertTrue(splitSource.contains("pane.focusChanged = { [weak self] _ in"))
+        XCTAssertTrue(splitSource.contains("private func refreshPaneChrome()"))
+        XCTAssertTrue(splitSource.contains("pane.setChromeVisible(isVisible)"))
+        XCTAssertTrue(splitSource.contains("pane.setChromeActive(pane.ownsFirstResponder)"))
         XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
         XCTAssertTrue(splitSource.contains("func focusFirstPane()"))
         XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
         XCTAssertTrue(splitSource.contains("let position = totalLength * CGFloat(dividerIndex + 1) / CGFloat(count)"))
+
+        let paneSource = try terminalPaneViewSource()
+        XCTAssertTrue(paneSource.contains("private let chromeView = PaneChromeView()"))
+        XCTAssertTrue(paneSource.contains("private let titleField = NSTextField(labelWithString: \"~ (-zsh)\")"))
+        XCTAssertTrue(paneSource.contains("private let closeButton = NSButton(title: \"×\""))
+        XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
+        XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))
+        XCTAssertTrue(paneSource.contains("private final class PaneChromeView: NSView"))
+        XCTAssertTrue(paneSource.contains("var onHoverChanged: ((Bool) -> Void)?"))
+        XCTAssertTrue(paneSource.contains("private func updateChromeAppearance()"))
+        XCTAssertTrue(paneSource.contains("chromeView.layer?.borderColor = NSColor.controlAccentColor.cgColor"))
+        XCTAssertTrue(paneSource.contains("private func observeTerminalTitle()"))
+        XCTAssertTrue(paneSource.contains("private func observeTerminalFocus()"))
+        XCTAssertTrue(paneSource.contains("@objc private func terminalFocusDidChange(_ notification: Notification)"))
+        XCTAssertTrue(paneSource.contains("name: TerminalSurfaceView.titleDidChangeNotification"))
+        XCTAssertTrue(paneSource.contains("object: terminalSurfaceView"))
+        XCTAssertTrue(paneSource.contains("titleField.stringValue = title"))
+        XCTAssertTrue(paneSource.contains("func setChromeVisible(_ isVisible: Bool)"))
+        XCTAssertTrue(paneSource.contains("func setChromeActive(_ isActive: Bool)"))
+        XCTAssertTrue(paneSource.contains("@objc private func closeButtonPressed(_ sender: NSButton)"))
     }
 
     func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
@@ -917,6 +998,12 @@ private func appDelegateSource() throws -> String {
 private func terminalInputViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalPaneViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalPaneView.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

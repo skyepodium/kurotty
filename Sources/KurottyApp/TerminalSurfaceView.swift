@@ -8,6 +8,10 @@ private final class ScrollIndicatorThumbView: NSView {
 
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
+    static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
+    static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
+    static let titleNotificationKey = "title"
+
     private let core = CoreBridge(
         cols: UInt32(AppConstants.Terminal.defaultColumns),
         rows: UInt32(AppConstants.Terminal.defaultRows)
@@ -36,6 +40,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var oscBuffer = ""
+    private var terminalTitle = "-zsh"
+    private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var markedText = NSMutableAttributedString()
@@ -129,6 +135,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
     override var isOpaque: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecomeFirstResponder = super.becomeFirstResponder()
+        if didBecomeFirstResponder {
+            NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
+        }
+        return didBecomeFirstResponder
+    }
 
     override func viewDidMoveToWindow() {
         window?.makeFirstResponder(self)
@@ -999,8 +1013,29 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func executeOsc(_ command: String) {
         let parts = command.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, parts[1] == "?" else { return }
-        switch parts[0] {
+        guard parts.count == 2 else { return }
+        let code = String(parts[0])
+        let payload = String(parts[1])
+
+        if payload == "?" {
+            respondToOscQuery(code)
+            return
+        }
+
+        switch code {
+        case "0", "1", "2":
+            terminalTitle = payload
+            publishTitle()
+        case "7":
+            updateWorkingDirectory(fromOsc7: payload)
+            publishTitle()
+        default:
+            break
+        }
+    }
+
+    private func respondToOscQuery(_ code: String) {
+        switch code {
         case "10":
             send("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\")
         case "11":
@@ -1008,6 +1043,42 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             break
         }
+    }
+
+    private func updateWorkingDirectory(fromOsc7 payload: String) {
+        guard let url = URL(string: payload),
+              url.isFileURL
+        else {
+            return
+        }
+        currentWorkingDirectory = url.path
+    }
+
+    private func publishTitle() {
+        NotificationCenter.default.post(
+            name: Self.titleDidChangeNotification,
+            object: self,
+            userInfo: [Self.titleNotificationKey: displayTitle()]
+        )
+    }
+
+    private func displayTitle() -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let displayPath: String
+        if currentWorkingDirectory == home {
+            displayPath = "~"
+        } else if currentWorkingDirectory.hasPrefix(home + "/") {
+            displayPath = "~/" + currentWorkingDirectory.dropFirst(home.count + 1)
+        } else {
+            displayPath = currentWorkingDirectory
+        }
+
+        let trimmedTitle = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = trimmedTitle.isEmpty || trimmedTitle == displayPath ? "-zsh" : trimmedTitle
+        if title.contains(displayPath), displayPath != "~" {
+            return title
+        }
+        return "\(displayPath) (\(title))"
     }
 
     private func terminalOscColor(_ color: SIMD4<Float>) -> String {

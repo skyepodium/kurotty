@@ -5,7 +5,9 @@ final class SplitTerminalView: NSSplitView {
         super.init(frame: .zero)
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
+        configurePane(pane)
         addArrangedSubview(pane)
+        refreshPaneChrome()
     }
 
     required init?(coder: NSCoder) {
@@ -17,10 +19,29 @@ final class SplitTerminalView: NSSplitView {
             splitFallback(axis: axis)
         }
         rebalanceDividers()
+        refreshPaneChrome()
     }
 
     func focusFirstPane() {
         firstPane()?.focusTerminal()
+    }
+
+    var primaryTerminalSurface: TerminalSurfaceView? {
+        firstPane()?.terminalSurface
+    }
+
+    func containsTerminalSurface(_ surface: TerminalSurfaceView) -> Bool {
+        for subview in arrangedSubviews {
+            if let pane = subview as? TerminalPaneView,
+               pane.terminalSurface === surface {
+                return true
+            }
+            if let splitView = subview as? SplitTerminalView,
+               splitView.containsTerminalSurface(surface) {
+                return true
+            }
+        }
+        return false
     }
 
     func closeActivePane() -> Bool {
@@ -31,6 +52,7 @@ final class SplitTerminalView: NSSplitView {
             return false
         }
         remove(pane)
+        refreshPaneChrome()
         return true
     }
 
@@ -51,6 +73,7 @@ final class SplitTerminalView: NSSplitView {
 
     private func split(_ pane: TerminalPaneView, axis: NSLayoutConstraint.Orientation) {
         let newPane = TerminalPaneView()
+        configurePane(newPane)
         if isVertical == (axis == .vertical),
            let paneIndex = arrangedSubviews.firstIndex(of: pane) {
             insertArrangedSubview(newPane, at: paneIndex + 1)
@@ -73,12 +96,15 @@ final class SplitTerminalView: NSSplitView {
         pane.removeFromSuperview()
 
         let nestedSplit = SplitTerminalView(axis: axis, pane: pane)
+        configurePane(newPane)
         nestedSplit.addArrangedSubview(newPane)
         insertArrangedSubview(nestedSplit, at: paneIndex)
+        nestedSplit.refreshPaneChrome()
     }
 
     private func splitFallback(axis: NSLayoutConstraint.Orientation) {
         let newPane = TerminalPaneView()
+        configurePane(newPane)
         if arrangedSubviews.isEmpty || isVertical == (axis == .vertical) {
             addArrangedSubview(newPane)
         } else if let pane = arrangedSubviews.first as? TerminalPaneView {
@@ -88,6 +114,39 @@ final class SplitTerminalView: NSSplitView {
         }
         newPane.focusTerminal()
         rebalanceDividers()
+    }
+
+    private func configurePane(_ pane: TerminalPaneView) {
+        pane.closeRequested = { [weak self] pane in
+            guard let self else {
+                return
+            }
+            guard self.paneCount > 1 else {
+                return
+            }
+            self.remove(pane)
+            self.refreshPaneChrome()
+            self.focusFirstPane()
+        }
+        pane.focusChanged = { [weak self] _ in
+            self?.refreshPaneChrome()
+        }
+    }
+
+    private func refreshPaneChrome() {
+        let showChrome = paneCount > 1
+        applyPaneChrome(isVisible: showChrome)
+    }
+
+    private func applyPaneChrome(isVisible: Bool) {
+        for subview in arrangedSubviews {
+            if let pane = subview as? TerminalPaneView {
+                pane.setChromeVisible(isVisible)
+                pane.setChromeActive(pane.ownsFirstResponder)
+            } else if let splitView = subview as? SplitTerminalView {
+                splitView.applyPaneChrome(isVisible: isVisible)
+            }
+        }
     }
 
     private func activePane() -> TerminalPaneView? {

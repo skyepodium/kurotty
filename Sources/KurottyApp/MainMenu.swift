@@ -18,7 +18,7 @@ enum MainMenu {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(NSMenuItem(title: "New Window", action: #selector(AppDelegate.openNewWindow), keyEquivalent: "n"))
         fileMenu.addItem(NSMenuItem(title: "New Tab", action: #selector(AppDelegate.newTab), keyEquivalent: "t"))
-        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(AppDelegate.closeCurrentTab), keyEquivalent: "w"))
+        fileMenu.addItem(NSMenuItem(title: "Close Pane or Tab", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: "w"))
         let closePane = NSMenuItem(title: "Close Pane", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: "w")
         closePane.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(closePane)
