@@ -94,13 +94,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             metalView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         verticalScroller.scrollerStyle = .legacy
-        verticalScroller.controlSize = .regular
+        verticalScroller.controlSize = .small
         verticalScroller.target = self
         verticalScroller.action = #selector(scrollerDidChange(_:))
         verticalScroller.isHidden = true
         addSubview(verticalScroller)
         scrollThumbView.wantsLayer = true
-        scrollThumbView.layer?.backgroundColor = NSColor(calibratedWhite: 0.42, alpha: 0.92).cgColor
+        scrollThumbView.layer?.backgroundColor = DesignTokens.Color.scrollerThumb.cgColor
         scrollThumbView.layer?.cornerRadius = DesignTokens.Component.terminalScrollerThumbWidthPX / 2
         scrollThumbView.isHidden = true
         addSubview(scrollThumbView)
@@ -240,6 +240,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleCommandKey(_ event: NSEvent) -> Bool {
+        if TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event) {
+            return true
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
@@ -259,7 +263,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cut(nil)
             return true
         default:
-            return TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)
+            return false
         }
     }
 

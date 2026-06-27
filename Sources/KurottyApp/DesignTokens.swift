@@ -3,6 +3,26 @@ import simd
 
 enum DesignTokens {
     enum Color {
+        static let windowBackground = NSColor(calibratedRed: 250.0 / 255.0, green: 250.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
+        static let topChromeBackground = NSColor(calibratedRed: 241.0 / 255.0, green: 241.0 / 255.0, blue: 241.0 / 255.0, alpha: 1)
+        static let activeTabBackground = NSColor.white
+        static let inactiveTabBackground = NSColor(calibratedRed: 233.0 / 255.0, green: 233.0 / 255.0, blue: 233.0 / 255.0, alpha: 1)
+        static let inactiveTabHoverBackground = NSColor(calibratedRed: 245.0 / 255.0, green: 245.0 / 255.0, blue: 245.0 / 255.0, alpha: 1)
+        static let paneHeaderBackground = NSColor(calibratedRed: 246.0 / 255.0, green: 246.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
+        static let paneHeaderHoverBackground = NSColor(calibratedRed: 251.0 / 255.0, green: 251.0 / 255.0, blue: 251.0 / 255.0, alpha: 1)
+        static let inputStatusBackground = NSColor(calibratedRed: 244.0 / 255.0, green: 244.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+        static let borderHairline = NSColor(calibratedRed: 221.0 / 255.0, green: 221.0 / 255.0, blue: 221.0 / 255.0, alpha: 1)
+        static let divider = NSColor(calibratedRed: 224.0 / 255.0, green: 224.0 / 255.0, blue: 224.0 / 255.0, alpha: 1)
+        static let textPrimary = NSColor(calibratedRed: 36.0 / 255.0, green: 36.0 / 255.0, blue: 36.0 / 255.0, alpha: 1)
+        static let textSecondary = NSColor(calibratedRed: 119.0 / 255.0, green: 119.0 / 255.0, blue: 119.0 / 255.0, alpha: 1)
+        static let textMuted = NSColor(calibratedRed: 153.0 / 255.0, green: 153.0 / 255.0, blue: 153.0 / 255.0, alpha: 1)
+        static let accentBlue = NSColor(calibratedRed: 91.0 / 255.0, green: 124.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
+        static let accentPurple = NSColor(calibratedRed: 139.0 / 255.0, green: 92.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
+        static let successGreen = NSColor(calibratedRed: 47.0 / 255.0, green: 191.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
+        static let warningOrange = NSColor(calibratedRed: 233.0 / 255.0, green: 148.0 / 255.0, blue: 26.0 / 255.0, alpha: 1)
+        static let cyanTerminalAccent = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
+        static let scrollerThumb = NSColor(calibratedRed: 207.0 / 255.0, green: 207.0 / 255.0, blue: 207.0 / 255.0, alpha: 0.72)
+
         static let terminalBackground = NSColor(
             calibratedRed: 0.04,
             green: 0.06,
@@ -39,6 +59,8 @@ enum DesignTokens {
     enum Typography {
         static let terminalFontSizePT: CGFloat = 15
         static let labelFontSizePT: CGFloat = 13
+        static let paneHeaderFontSizePT: CGFloat = 12
+        static let statusFontSizePT: CGFloat = 12
     }
 
     enum Space {
@@ -67,13 +89,21 @@ enum DesignTokens {
         static let terminalScrollerWidthPX: CGFloat = 12
         static let terminalScrollerThumbWidthPX: CGFloat = 6
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
-        static let terminalTabBarHeightPX: CGFloat = 30
+        static let terminalTabBarHeightPX: CGFloat = 44
+        static let terminalTabHeightPX: CGFloat = 34
+        static let terminalTabCornerRadiusPX: CGFloat = 8
         static let terminalTabMinWidthPX: CGFloat = 118
         static let terminalTabMaxWidthPX: CGFloat = 260
         static let terminalTabPlusWidthPX: CGFloat = 28
         static let terminalTabCloseWidthPX: CGFloat = 18
-        static let terminalPaneChromeHeightPX: CGFloat = 24
-        static let terminalPaneChromeCloseWidthPX: CGFloat = 22
+        static let terminalPaneChromeHeightPX: CGFloat = 32
+        static let terminalPaneChromeCloseWidthPX: CGFloat = 28
+        static let terminalPaneChromeDotSizePX: CGFloat = 8
+        static let terminalSplitDividerHitAreaPX: CGFloat = 8
+        static let terminalSplitDividerLinePX: CGFloat = 1
+        static let radiusSmallPX: CGFloat = 6
+        static let radiusMediumPX: CGFloat = 8
+        static let hairlinePX: CGFloat = 1
     }
 }
 

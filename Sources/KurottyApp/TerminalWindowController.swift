@@ -17,6 +17,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             defer: false
         )
         window.title = AppConstants.Bundle.displayName
+        window.backgroundColor = DesignTokens.Color.windowBackground
         window.center()
         super.init(window: window)
         configureTabs()
@@ -50,6 +51,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     func splitHorizontally() {
         currentSplitView()?.split(axis: .horizontal)
+    }
+
+    func focusPane(_ direction: TerminalPaneFocusDirection) {
+        currentSplitView()?.focusPane(direction)
     }
 
     func closeCurrentTab() {
@@ -92,16 +97,20 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     private func configureTabs() {
         rootView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.wantsLayer = true
+        rootView.layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
         window?.contentView = rootView
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
         tabBarView.wantsLayer = true
-        tabBarView.layer?.backgroundColor = NSColor(calibratedWhite: 0.88, alpha: 1).cgColor
+        tabBarView.layer?.backgroundColor = DesignTokens.Color.topChromeBackground.cgColor
+        tabBarView.layer?.borderWidth = DesignTokens.Component.hairlinePX
+        tabBarView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
 
         tabStackView.orientation = .horizontal
         tabStackView.alignment = .centerY
-        tabStackView.spacing = 3
-        tabStackView.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 3, right: 6)
+        tabStackView.spacing = 5
+        tabStackView.edgeInsets = NSEdgeInsets(top: 5, left: 12, bottom: 5, right: 12)
         tabStackView.translatesAutoresizingMaskIntoConstraints = false
 
         tabView.tabViewType = .noTabsNoBorder
@@ -204,13 +213,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabStackView.addArrangedSubview(tabItemView)
         }
 
-        let addButton = NSButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
-        addButton.bezelStyle = .regularSquare
-        addButton.isBordered = false
-        addButton.setButtonType(.momentaryPushIn)
+        let addButton = ChromeIconButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
         addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
+        addButton.normalTintColor = DesignTokens.Color.textSecondary
+        addButton.hoverTintColor = DesignTokens.Color.textPrimary
+        addButton.hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
-        addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabBarHeightPX - 9).isActive = true
+        addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
     }
 
@@ -268,7 +277,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 @MainActor
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
-    private let closeButton = NSButton(title: "×", target: nil, action: nil)
+    private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let selected: Bool
     private var isHovered = false
     private let onSelect: () -> Void
@@ -317,17 +326,21 @@ private final class TerminalTabItemView: NSView {
     private func configure(title: String) {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX
         layer?.borderWidth = selected ? 1 : 0
-        layer?.borderColor = NSColor(calibratedWhite: 0.78, alpha: 1).cgColor
+        layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOffset = NSSize(width: 0, height: -1)
+        layer?.shadowRadius = selected ? 3 : 0
+        layer?.shadowOpacity = selected ? 0.06 : 0
 
         let selectedBar = NSView()
         selectedBar.translatesAutoresizingMaskIntoConstraints = false
         selectedBar.wantsLayer = true
         selectedBar.layer?.backgroundColor = selected
-            ? NSColor.controlAccentColor.cgColor
+            ? DesignTokens.Color.accentBlue.cgColor
             : NSColor.clear.cgColor
-        selectedBar.layer?.cornerRadius = 1
+        selectedBar.layer?.cornerRadius = DesignTokens.Component.hairlinePX
         addSubview(selectedBar)
 
         titleField.stringValue = title
@@ -341,46 +354,46 @@ private final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
-        closeButton.bezelStyle = .regularSquare
-        closeButton.isBordered = false
         closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.normalTintColor = selected ? DesignTokens.Color.textSecondary : DesignTokens.Color.textMuted
+        closeButton.hoverTintColor = DesignTokens.Color.textPrimary
+        closeButton.hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabBarHeightPX - 8),
+            heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX),
             widthAnchor.constraint(greaterThanOrEqualToConstant: DesignTokens.Component.terminalTabMinWidthPX),
             widthAnchor.constraint(lessThanOrEqualToConstant: DesignTokens.Component.terminalTabMaxWidthPX),
 
             selectedBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             selectedBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            selectedBar.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            selectedBar.topAnchor.constraint(equalTo: topAnchor),
             selectedBar.heightAnchor.constraint(equalToConstant: 2),
 
-            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabCloseWidthPX),
-            closeButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabBarHeightPX - 10),
+            closeButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabCloseWidthPX),
         ])
         updateAppearance()
     }
 
     private func updateAppearance() {
         layer?.backgroundColor = tabBackgroundColor.cgColor
-        titleField.textColor = selected || isHovered ? .labelColor : .secondaryLabelColor
-        closeButton.contentTintColor = selected || isHovered ? .labelColor : .tertiaryLabelColor
+        titleField.textColor = selected || isHovered ? DesignTokens.Color.textPrimary : DesignTokens.Color.textSecondary
+        closeButton.normalTintColor = selected || isHovered ? DesignTokens.Color.textSecondary : DesignTokens.Color.textMuted
     }
 
     private var tabBackgroundColor: NSColor {
         if selected {
-            return isHovered ? NSColor(calibratedWhite: 0.98, alpha: 1) : .white
+            return isHovered ? DesignTokens.Color.activeTabBackground.blended(withFraction: 0.10, of: DesignTokens.Color.accentBlue) ?? DesignTokens.Color.activeTabBackground : DesignTokens.Color.activeTabBackground
         }
         return isHovered
-            ? NSColor(calibratedWhite: 0.96, alpha: 1)
-            : NSColor(calibratedWhite: 0.92, alpha: 1)
+            ? DesignTokens.Color.inactiveTabHoverBackground
+            : DesignTokens.Color.inactiveTabBackground
     }
 }
