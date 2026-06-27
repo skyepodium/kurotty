@@ -22,6 +22,9 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
+        if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {
+            return
+        }
         if handleTerminalControlKey(event) {
             return
         }
@@ -91,9 +94,12 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
-        let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
-        core.feed(text)
+        let text = TerminalTextInputRouter.committedText(from: string)
+        TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
         unmarkText()
+        guard !text.isEmpty else { return }
+        TerminalTextInputRouter.logPTYWrite(text, source: "insertText")
+        core.feed(text)
     }
 
     override func doCommand(by selector: Selector) {
@@ -113,11 +119,13 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
+        TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
         markedText = NSMutableAttributedString(attributedString: attr)
         self.inputSelectedRange = selectedRange
     }
 
     func unmarkText() {
+        TerminalTextInputRouter.logUnmarkText()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     }
