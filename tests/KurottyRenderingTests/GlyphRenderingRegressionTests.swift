@@ -242,6 +242,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels))"))
         XCTAssertTrue(source.contains("let baselineOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.baselineOffsetPixels))"))
+        XCTAssertTrue(source.contains("let underlinePositionPixels = max(0, descenderPixels - underlineThicknessPixels)"))
+        XCTAssertTrue(source.contains("yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))"))
+        XCTAssertFalse(source.contains("underlinePositionPixels: max(0, heightPixels - 2)"))
         XCTAssertTrue(source.contains("height: terminalFrame.cellSize.height\n            ).fill()"))
         XCTAssertFalse(source.contains("height: max(1, terminalFrame.cellSize.height - 4)"))
         XCTAssertFalse(source.contains("+ 2,\n                width: 2,"))
@@ -465,6 +468,29 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("!isUsingAlternateScreen && scrollRegionTop == 0"))
         XCTAssertTrue(source.contains("if shouldAppendScrollbackForActiveScrollRegion() {\n                appendScrollback(rows: removed)\n            }"))
         XCTAssertFalse(source.contains("scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1"))
+    }
+
+    func testNativeScrollerReflectsTerminalScrollbackOffset() throws {
+        let source = try terminalSurfaceViewSource()
+        let tokens = try String(
+            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("private let verticalScroller = NSScroller(frame: .zero)"))
+        XCTAssertTrue(source.contains("verticalScroller.target = self"))
+        XCTAssertTrue(source.contains("verticalScroller.action = #selector(scrollerDidChange(_:))"))
+        XCTAssertTrue(source.contains("@objc private func scrollerDidChange(_ sender: NSScroller)"))
+        XCTAssertTrue(source.contains("verticalScroller.knobProportion"))
+        XCTAssertTrue(source.contains("verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
+        XCTAssertTrue(source.contains("private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)"))
+        XCTAssertTrue(source.contains("let normalizedOffset = max(0, min(1, CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
+        XCTAssertTrue(source.contains("scrollThumbView.frame = NSRect("))
+        XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
+        XCTAssertTrue(tokens.contains("terminalScrollerWidthPX"))
+        XCTAssertTrue(tokens.contains("terminalScrollerThumbWidthPX"))
+        XCTAssertTrue(tokens.contains("terminalScrollerMinThumbHeightPX"))
     }
 
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {

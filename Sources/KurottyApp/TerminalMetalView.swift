@@ -1493,6 +1493,8 @@ private struct FontCellMetrics {
         let widthPixels = max(1, Int(round(cellSize.width * safeScale)))
         let heightPixels = max(1, Int(round(cellSize.height * safeScale)))
         let descenderPixels = max(0, Int(round(abs(font.descender) * safeScale)))
+        let underlineThicknessPixels = 1
+        let underlinePositionPixels = max(0, descenderPixels - underlineThicknessPixels)
         self.init(
             fixedCellWidth: cellSize.width,
             fixedCellHeight: cellSize.height,
@@ -1500,8 +1502,8 @@ private struct FontCellMetrics {
             descenderPixels: descenderPixels,
             leadingPixels: Int(round(font.leading * safeScale)),
             baselineOffsetPixels: descenderPixels,
-            underlinePositionPixels: max(0, heightPixels - 2),
-            underlineThicknessPixels: 1,
+            underlinePositionPixels: underlinePositionPixels,
+            underlineThicknessPixels: underlineThicknessPixels,
             cursorHeightPixels: heightPixels,
             cellWidthPixels: widthPixels,
             cellHeightPixels: heightPixels

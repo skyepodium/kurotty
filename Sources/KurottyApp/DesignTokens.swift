@@ -64,6 +64,9 @@ enum DesignTokens {
         static let glyphSlotHeightPX = 192
         static let glyphAtlasOversampleScale: CGFloat = 1
         static let glyphSlotPaddingPX: CGFloat = 6
+        static let terminalScrollerWidthPX: CGFloat = 12
+        static let terminalScrollerThumbWidthPX: CGFloat = 6
+        static let terminalScrollerMinThumbHeightPX: CGFloat = 32
     }
 }
 
