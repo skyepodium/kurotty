@@ -394,6 +394,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testMarkedTextCompositionDoesNotPersistSelectionBackgrounds() throws {
         let source = try terminalMetalViewSource()
         let surfaceSource = try terminalSurfaceViewSource()
+        let routerSource = try terminalTextInputRouterSource()
 
         XCTAssertTrue(source.contains("let markedTextSelectedRange: NSRange"))
         XCTAssertTrue(source.contains("markedTextColor(for: character, utf16Offset: utf16Offset)"))
@@ -401,9 +402,39 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: NSRange(location: NSNotFound, length: 0)"))
         XCTAssertTrue(surfaceSource.contains("private var markedTextAnchor: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("private func markMarkedTextDirty()"))
-        XCTAssertTrue(surfaceSource.contains("unmarkText()\n        send(text)"))
+        XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
+        XCTAssertTrue(surfaceSource.contains("unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
         XCTAssertFalse(surfaceSource.contains("appendMarkedTextSelectionBackgrounds(to: &backgrounds)"))
         XCTAssertFalse(surfaceSource.contains("private func selectedMarkedTextRange()"))
+    }
+
+    func testCommittedTextUsesOnlyConfirmedIMETextBeforePtySend() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
+        let routerSource = try terminalTextInputRouterSource()
+
+        XCTAssertTrue(routerSource.contains("static func committedText(from string: Any) -> String"))
+        XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
+        XCTAssertFalse(routerSource.contains("composingCompatibilityHangulJamo"))
+        XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
+        XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.committedText(from: string)"))
+    }
+
+    func testTextKeyDownIsConsumedByAppKitTextInterpreterWithoutRawFallback() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
+        let routerSource = try terminalTextInputRouterSource()
+
+        for source in [surfaceSource, inputSource] {
+            XCTAssertTrue(source.contains("if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {\n            return\n        }\n        if handleTerminalControlKey(event)"))
+            XCTAssertTrue(source.contains("TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)"))
+            XCTAssertTrue(source.contains("TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")"))
+        }
+        XCTAssertTrue(routerSource.contains("view.interpretKeyEvents([event])"))
+        XCTAssertFalse(routerSource.contains("inputContext?.handleEvent"))
+        XCTAssertTrue(routerSource.contains("if hasMarkedText {\n            return true\n        }"))
+        XCTAssertTrue(routerSource.contains("flags.contains(.command) || flags.contains(.control)"))
+        XCTAssertTrue(routerSource.contains("Kurotty input-client:"))
     }
 
     func testGlyphAtlasPadsBitmapBoundsBeforeDrawingInk() throws {
@@ -549,6 +580,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool"))
         XCTAssertTrue(surfaceSource.contains("guard !cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background) else"))
         XCTAssertTrue(surfaceSource.contains("cell.style == .default"))
+        XCTAssertFalse(surfaceSource.contains("cell.character == \" \", !cell.isContinuation, cell.style == .default"))
         XCTAssertTrue(surfaceSource.contains("backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))"))
         XCTAssertTrue(metalSource.contains(".filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows && !$0.color.sameColor(as: terminalFrame.defaultBackground) }"))
         XCTAssertTrue(metalSource.contains("last.column + last.width == background.column"))
@@ -638,6 +670,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)"))
         XCTAssertTrue(surfaceSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
         XCTAssertTrue(surfaceSource.contains("guard cells[row][column].isContinuation else { return }"))
+        XCTAssertTrue(surfaceSource.contains("cells[row][column - 1] = TerminalScreenCell(style: style)"))
+        XCTAssertTrue(surfaceSource.contains("cells[row][column + 1] = TerminalScreenCell(style: style)"))
         XCTAssertTrue(surfaceSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
     }
 
@@ -1282,6 +1316,12 @@ private func appDelegateSource() throws -> String {
 private func terminalInputViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalTextInputRouterSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalTextInputRouter.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

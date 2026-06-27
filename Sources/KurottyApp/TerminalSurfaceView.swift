@@ -212,6 +212,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
+        if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {
+            return
+        }
         if handleTerminalControlKey(event) {
             return
         }
@@ -438,15 +441,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard !cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background) else {
             return false
         }
-        if cell.character == " ", !cell.isContinuation, cell.style == .default {
+        if cell.character == " ", cell.style == .default {
             return false
         }
         return true
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
-        let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        let text = TerminalTextInputRouter.committedText(from: string)
+        TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
         unmarkText()
+        guard !text.isEmpty else { return }
+        TerminalTextInputRouter.logPTYWrite(text, source: "insertText")
         send(text)
     }
 
@@ -486,6 +492,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         markMarkedTextDirty()
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
+        TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
         markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
@@ -494,6 +501,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func unmarkText() {
+        TerminalTextInputRouter.logUnmarkText()
         markMarkedTextDirty()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
@@ -1697,10 +1705,10 @@ private struct TerminalScreen {
             cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
         }
         if column > 0 && cells[row][column - 1].isContinuation {
-            cells[row][column - 1] = TerminalScreenCell()
+            cells[row][column - 1] = TerminalScreenCell(style: style)
         }
         if width == 1 && column + 1 < columns && cells[row][column + 1].isContinuation {
-            cells[row][column + 1] = TerminalScreenCell()
+            cells[row][column + 1] = TerminalScreenCell(style: style)
         }
     }
 
