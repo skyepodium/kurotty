@@ -28,4 +28,14 @@ enum AppConstants {
         static let defaultWorkingDirectory = FileManager.default.currentDirectoryPath
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
     }
+
+    enum Notifications {
+        static let categoryIdentifier = "dev.kurotty.terminal"
+        static let shellExitIdentifierPrefix = "dev.kurotty.terminal.shell-exit"
+        static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
+        static let defaultTitle = "Kurotty"
+        static let shellExitTitle = "Terminal finished"
+        static let shellExitSuccessBody = "Shell exited successfully."
+        static let shellExitFailureBodyPrefix = "Shell exited with status"
+    }
 }

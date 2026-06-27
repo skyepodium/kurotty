@@ -102,6 +102,8 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             core.feed("\n")
         case #selector(insertTab(_:)):
             core.feed("\t")
+        case #selector(cancelOperation(_:)):
+            core.feed("\u{1b}")
         case #selector(deleteBackward(_:)):
             core.feed("\u{7f}")
         default:

@@ -12,13 +12,16 @@ private func systemForkpty(
 final class ShellSession: @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
+    var onExit: ((Int32) -> Void)?
 
     private var master: Int32 = -1
     private var childPid: pid_t = -1
     private var readSource: DispatchSourceRead?
+    private var waitSource: DispatchSourceProcess?
     private let readQueue = DispatchQueue(label: "dev.kurotty.shell-session.read", qos: .userInteractive)
     private var inputDrainGeneration: UInt64 = 0
     private var isStarted = false
+    private var isStopping = false
     private var pendingOutput = Data()
 
     func start() {
@@ -50,6 +53,7 @@ final class ShellSession: @unchecked Sendable {
         childPid = pid
         setNonBlocking(fd)
         observeMaster(fd)
+        observeChildExit(pid)
     }
 
     func write(_ text: String) {
@@ -91,10 +95,15 @@ final class ShellSession: @unchecked Sendable {
     }
 
     func stop() {
+        isStopping = true
         readSource?.cancel()
         readSource = nil
+        waitSource?.cancel()
+        waitSource = nil
         if childPid > 0 {
             kill(childPid, SIGTERM)
+            var status: Int32 = 0
+            _ = waitpid(childPid, &status, WNOHANG)
             childPid = -1
         }
         if master >= 0 {
@@ -113,6 +122,30 @@ final class ShellSession: @unchecked Sendable {
         }
         readSource = source
         source.resume()
+    }
+
+    private func observeChildExit(_ pid: pid_t) {
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: readQueue)
+        source.setEventHandler { [weak self] in
+            self?.handleChildExit(pid)
+        }
+        waitSource = source
+        source.resume()
+    }
+
+    private func handleChildExit(_ pid: pid_t) {
+        var status: Int32 = 0
+        let waitedPid = waitpid(pid, &status, WNOHANG)
+        guard waitedPid == pid else { return }
+
+        childPid = -1
+        waitSource?.cancel()
+        waitSource = nil
+        let exitStatus = Self.normalizedExitStatus(status)
+        guard !isStopping else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onExit?(exitStatus)
+        }
     }
 
     private func scheduleOutputDrain() {
@@ -180,6 +213,14 @@ final class ShellSession: @unchecked Sendable {
         let text = String(decoding: pendingOutput.prefix(count - 4), as: UTF8.self)
         pendingOutput.removeFirst(count - 4)
         return text
+    }
+
+    private static func normalizedExitStatus(_ status: Int32) -> Int32 {
+        let signal = status & 0x7f
+        if signal != 0 {
+            return 128 + signal
+        }
+        return (status >> 8) & 0xff
     }
 }
 

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
+        TerminalNotifier.shared.requestAuthorization()
         MainMenu.install(target: self)
         openNewWindow()
         NSApp.activate(ignoringOtherApps: true)

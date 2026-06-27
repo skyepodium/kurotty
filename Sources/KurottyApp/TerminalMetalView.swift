@@ -23,7 +23,9 @@ struct TerminalFrame {
     let isFullDamage: Bool
     let cursorColumn: Int
     let cursorRow: Int
+    let markedTextColumn: Int
     let markedText: String
+    let markedTextSelectedRange: NSRange
     let columns: Int
     let visibleRows: Int
     let cellSize: CGSize
@@ -165,7 +167,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, markedTextColumn: 0, markedText: "", markedTextSelectedRange: NSRange(location: NSNotFound, length: 0), columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     override var isOpaque: Bool {
         true
@@ -555,10 +557,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, debugRects: &glyphDebugRects, color: cell.foreground)
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
+            var column = terminalFrame.markedTextColumn
+            var utf16Offset = 0
             for character in terminalFrame.markedText {
-                appendGlyphInstance(character: character, column: column, row: terminalFrame.cursorRow, into: &instances, debugRects: &glyphDebugRects, color: terminalFrame.defaultForeground)
+                appendGlyphInstance(
+                    character: character,
+                    column: column,
+                    row: terminalFrame.cursorRow,
+                    into: &instances,
+                    debugRects: &glyphDebugRects,
+                    color: markedTextColor(for: character, utf16Offset: utf16Offset)
+                )
                 column += character.terminalColumnWidth
+                utf16Offset += String(character).utf16.count
             }
         }
         atlasInstanceBuffer = instances.withUnsafeBytes { bytes in
@@ -853,7 +864,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func rasterizeGlyph(_ character: Character, x: Int, y: Int) -> RasterizedGlyph {
-        var slot = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight * 4)
+        var slotMask = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight)
         let columnWidth = max(1, character.terminalColumnWidth)
         let logicalAdvanceWidth = terminalFrame.cellSize.width * CGFloat(columnWidth)
         let logicalHeight = terminalFrame.cellSize.height
@@ -881,17 +892,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         let canonicalMetrics = fontCellMetrics
-        let pixelWidth = min(glyphSlotWidth, max(1, Int(ceil(imageBounds.width)) + paddingPixels * 2))
+        let bitmapMinXPixels = floor(imageBounds.minX) - CGFloat(paddingPixels)
+        let bitmapMaxXPixels = ceil(imageBounds.maxX) + CGFloat(paddingPixels)
+        let pixelWidth = min(glyphSlotWidth, max(1, Int(bitmapMaxXPixels - bitmapMinXPixels)))
         let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(imageBounds.height)) + paddingPixels * 2))
         let imageLogicalWidth = imageBounds.width / scale
         let desiredInkLeft = columnWidth > 1 ? max(0, (logicalAdvanceWidth - imageLogicalWidth) * 0.5) : 0
         // CoreText metrics are fractional pixels after scaling. Snap the atlas draw origin so
         // bitmap rasterization and the later Metal quad share one canonical row baseline.
-        let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX
         let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY
-        let baselineX = round(unsnappedBaselineX)
+        let baselineX = round(-bitmapMinXPixels)
         let baselineY = round(unsnappedBaselineY)
-        let baselineDeltaX = (baselineX - unsnappedBaselineX) / scale
+        let baselineDeltaX = (baselineX + bitmapMinXPixels) / scale
         let glyphCanvasBaselineY = canonicalMetrics.baselineOffsetPixels
         let bitmapBottomPixels = glyphSlotHeight - pixelHeight
         let bearingXPixels = Int(round(desiredInkLeft * scale - baselineX))
@@ -911,40 +923,86 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             baselineOffsetPixels: canonicalMetrics.baselineOffsetPixels
         )
         guard let context = CGContext(
-            data: &slot,
+            data: &slotMask,
             width: glyphSlotWidth,
             height: glyphSlotHeight,
             bitsPerComponent: 8,
-            bytesPerRow: glyphSlotWidth * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bytesPerRow: glyphSlotWidth,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
         ) else {
             return result
         }
-        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0))
+        // Keep the atlas as an alpha mask. Using an RGBA CoreGraphics target can
+        // leak fallback-font color/background pixels around Hangul glyphs.
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: glyphSlotWidth, height: glyphSlotHeight))
         context.setAllowsAntialiasing(true)
         context.setShouldAntialias(true)
-        context.setAllowsFontSmoothing(true)
-        context.setShouldSmoothFonts(true)
+        context.setAllowsFontSmoothing(false)
+        context.setShouldSmoothFonts(false)
         context.interpolationQuality = .high
         context.textMatrix = .identity
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
 
         let availableWidth = max(1, logicalAdvanceWidth * scale)
         let horizontalScale = min(1, availableWidth / typographicWidth)
         context.saveGState()
         context.translateBy(x: baselineX, y: baselineY)
         context.scaleBy(x: horizontalScale, y: 1)
-        context.textPosition = .zero
-        CTLineDraw(line, context)
+        // Fill glyph outlines into the alpha mask. CTLineDraw can introduce
+        // fallback-font backing pixels for Hangul IME text; glyph paths keep the
+        // atlas transparent outside actual ink.
+        if !drawGlyphPaths(from: line, in: context) {
+            context.textPosition = .zero
+            CTLineDraw(line, context)
+        }
         context.restoreGState()
 
         for row in 0..<glyphSlotHeight {
-            let src = row * glyphSlotWidth * 4
+            let src = row * glyphSlotWidth
             let dst = ((y + row) * atlasSize + x) * 4
-            atlasPixels.replaceSubrange(dst..<(dst + glyphSlotWidth * 4), with: slot[src..<(src + glyphSlotWidth * 4)])
+            for column in 0..<glyphSlotWidth {
+                let alpha = slotMask[src + column]
+                let pixel = dst + column * 4
+                atlasPixels[pixel] = 255
+                atlasPixels[pixel + 1] = 255
+                atlasPixels[pixel + 2] = 255
+                atlasPixels[pixel + 3] = alpha
+            }
         }
         return result
+    }
+
+    private func drawGlyphPaths(from line: CTLine, in context: CGContext) -> Bool {
+        let runs = CTLineGetGlyphRuns(line) as NSArray
+        var drewAnyPath = false
+        for runValue in runs {
+            let run = runValue as! CTRun
+            let glyphCount = CTRunGetGlyphCount(run)
+            guard glyphCount > 0 else { continue }
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let fontValue = attributes[kCTFontAttributeName as String] else {
+                return false
+            }
+            let runFont = fontValue as! CTFont
+            var glyphs = [CGGlyph](repeating: 0, count: glyphCount)
+            var positions = [CGPoint](repeating: .zero, count: glyphCount)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
+            CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
+            for index in 0..<glyphCount {
+                guard let path = CTFontCreatePathForGlyph(runFont, glyphs[index], nil) else {
+                    return false
+                }
+                context.saveGState()
+                context.translateBy(x: positions[index].x, y: positions[index].y)
+                context.addPath(path)
+                context.fillPath()
+                context.restoreGState()
+                drewAnyPath = true
+            }
+        }
+        return drewAnyPath
     }
 
     private func scaledFont(for character: Character, scale: CGFloat) -> CTFont {
@@ -1253,10 +1311,22 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
 
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = max(0, terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText))
+            var column = terminalFrame.markedTextColumn
+            var utf16Offset = 0
             for character in terminalFrame.markedText {
-                (String(character) as NSString).draw(in: cellRect(column: column, row: terminalFrame.cursorRow, width: character.terminalColumnWidth), withAttributes: attrs)
+                let color = markedTextColor(for: character, utf16Offset: utf16Offset)
+                let markedAttrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor(
+                        calibratedRed: CGFloat(color.x),
+                        green: CGFloat(color.y),
+                        blue: CGFloat(color.z),
+                        alpha: CGFloat(color.w)
+                    ),
+                ]
+                (String(character) as NSString).draw(in: cellRect(column: column, row: terminalFrame.cursorRow, width: character.terminalColumnWidth), withAttributes: markedAttrs)
                 column += character.terminalColumnWidth
+                utf16Offset += String(character).utf16.count
             }
         }
 
@@ -1284,6 +1354,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         text.reduce(0) { width, character in
             width + character.terminalColumnWidth
         }
+    }
+
+    private func markedTextColor(for character: Character, utf16Offset: Int) -> SIMD4<Float> {
+        guard terminalFrame.markedTextSelectedRange.location != NSNotFound,
+              terminalFrame.markedTextSelectedRange.length > 0
+        else {
+            return terminalFrame.defaultForeground
+        }
+        let characterRange = NSRange(location: utf16Offset, length: String(character).utf16.count)
+        return NSIntersectionRange(characterRange, terminalFrame.markedTextSelectedRange).length > 0
+            ? TerminalSelectionStyle.foregroundColor
+            : terminalFrame.defaultForeground
     }
 
     private static func makePipeline(device: MTLDevice?) -> MTLRenderPipelineState? {
@@ -1609,12 +1691,13 @@ private extension SIMD4 where Scalar == Float {
 
 private extension Character {
     var terminalColumnWidth: Int {
-        guard let scalar = unicodeScalars.first else { return 1 }
-        let value = scalar.value
-        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
+        if unicodeScalars.allSatisfy({ CharacterSet.nonBaseCharacters.contains($0) }) {
             return 0
         }
-        if CharacterSet.nonBaseCharacters.contains(scalar) {
+        let widthScalar = firstBaseScalarForTerminalWidth ?? unicodeScalars.first
+        guard let scalar = widthScalar else { return 1 }
+        let value = scalar.value
+        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
             return 0
         }
         if value >= 0x1100 &&
@@ -1632,5 +1715,13 @@ private extension Character {
             return 2
         }
         return 1
+    }
+
+    private var firstBaseScalarForTerminalWidth: UnicodeScalar? {
+        unicodeScalars.first { scalar in
+            !CharacterSet.nonBaseCharacters.contains(scalar) &&
+                scalar.value != 0x200d &&
+                !(0xfe00...0xfe0f).contains(scalar.value)
+        }
     }
 }
