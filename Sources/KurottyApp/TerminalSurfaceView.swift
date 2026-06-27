@@ -94,13 +94,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             metalView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         verticalScroller.scrollerStyle = .legacy
-        verticalScroller.controlSize = .regular
+        verticalScroller.controlSize = .small
         verticalScroller.target = self
         verticalScroller.action = #selector(scrollerDidChange(_:))
         verticalScroller.isHidden = true
         addSubview(verticalScroller)
         scrollThumbView.wantsLayer = true
-        scrollThumbView.layer?.backgroundColor = NSColor(calibratedWhite: 0.42, alpha: 0.92).cgColor
+        scrollThumbView.layer?.backgroundColor = DesignTokens.Color.scrollerThumb.cgColor
         scrollThumbView.layer?.cornerRadius = DesignTokens.Component.terminalScrollerThumbWidthPX / 2
         scrollThumbView.isHidden = true
         addSubview(scrollThumbView)

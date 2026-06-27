@@ -1,10 +1,16 @@
 import AppKit
 
 final class SplitTerminalView: NSSplitView {
+    override var dividerThickness: CGFloat {
+        DesignTokens.Component.terminalSplitDividerHitAreaPX
+    }
+
     init(axis: NSLayoutConstraint.Orientation, pane: TerminalPaneView = TerminalPaneView()) {
         super.init(frame: .zero)
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
+        wantsLayer = true
+        layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
         configurePane(pane)
         addArrangedSubview(pane)
         refreshPaneChrome()
@@ -12,6 +18,31 @@ final class SplitTerminalView: NSSplitView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func drawDivider(in rect: NSRect) {
+        DesignTokens.Color.windowBackground.setFill()
+        rect.fill()
+
+        let lineThickness = DesignTokens.Component.terminalSplitDividerLinePX
+        let lineRect: NSRect
+        if isVertical {
+            lineRect = NSRect(
+                x: rect.midX - lineThickness / 2,
+                y: rect.minY,
+                width: lineThickness,
+                height: rect.height
+            )
+        } else {
+            lineRect = NSRect(
+                x: rect.minX,
+                y: rect.midY - lineThickness / 2,
+                width: rect.width,
+                height: lineThickness
+            )
+        }
+        DesignTokens.Color.divider.setFill()
+        lineRect.fill()
     }
 
     func split(axis: NSLayoutConstraint.Orientation) {

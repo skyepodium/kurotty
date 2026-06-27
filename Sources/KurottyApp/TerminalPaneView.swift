@@ -3,8 +3,9 @@ import AppKit
 final class TerminalPaneView: NSView {
     private let chromeView = PaneChromeView()
     private let activeIndicatorView = NSView()
+    private let statusDotView = NSView()
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
-    private let closeButton = NSButton(title: "×", target: nil, action: nil)
+    private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let terminalSurfaceView = TerminalSurfaceView()
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var isChromeActive = false
@@ -31,7 +32,7 @@ final class TerminalPaneView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
         configureLayout()
         observeTerminalTitle()
         observeTerminalFocus()
@@ -58,22 +59,26 @@ final class TerminalPaneView: NSView {
 
         activeIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         activeIndicatorView.wantsLayer = true
-        activeIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        activeIndicatorView.layer?.backgroundColor = DesignTokens.Color.accentPurple.cgColor
         chromeView.addSubview(activeIndicatorView)
 
-        titleField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        titleField.textColor = .secondaryLabelColor
+        statusDotView.translatesAutoresizingMaskIntoConstraints = false
+        statusDotView.wantsLayer = true
+        statusDotView.layer?.cornerRadius = DesignTokens.Component.terminalPaneChromeDotSizePX / 2
+        chromeView.addSubview(statusDotView)
+
+        titleField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .medium)
+        titleField.textColor = DesignTokens.Color.textSecondary
         titleField.lineBreakMode = .byTruncatingMiddle
         titleField.translatesAutoresizingMaskIntoConstraints = false
         chromeView.addSubview(titleField)
 
         closeButton.target = self
         closeButton.action = #selector(closeButtonPressed(_:))
-        closeButton.bezelStyle = .regularSquare
-        closeButton.isBordered = false
         closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        closeButton.contentTintColor = .secondaryLabelColor
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.normalTintColor = DesignTokens.Color.textMuted
+        closeButton.hoverTintColor = DesignTokens.Color.textPrimary
+        closeButton.hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground
         chromeView.addSubview(closeButton)
 
         terminalSurfaceView.translatesAutoresizingMaskIntoConstraints = false
@@ -89,17 +94,22 @@ final class TerminalPaneView: NSView {
 
             activeIndicatorView.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor),
             activeIndicatorView.trailingAnchor.constraint(equalTo: chromeView.trailingAnchor),
-            activeIndicatorView.topAnchor.constraint(equalTo: chromeView.topAnchor),
-            activeIndicatorView.heightAnchor.constraint(equalToConstant: 3),
+            activeIndicatorView.bottomAnchor.constraint(equalTo: chromeView.bottomAnchor),
+            activeIndicatorView.heightAnchor.constraint(equalToConstant: 2),
 
-            titleField.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor, constant: 8),
+            statusDotView.leadingAnchor.constraint(equalTo: chromeView.leadingAnchor, constant: 12),
+            statusDotView.centerYAnchor.constraint(equalTo: chromeView.centerYAnchor),
+            statusDotView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeDotSizePX),
+            statusDotView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeDotSizePX),
+
+            titleField.leadingAnchor.constraint(equalTo: statusDotView.trailingAnchor, constant: 8),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -6),
             titleField.centerYAnchor.constraint(equalTo: chromeView.centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: chromeView.trailingAnchor, constant: -4),
+            closeButton.trailingAnchor.constraint(equalTo: chromeView.trailingAnchor, constant: -8),
             closeButton.centerYAnchor.constraint(equalTo: chromeView.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeCloseWidthPX),
-            closeButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeHeightPX - 4),
+            closeButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeCloseWidthPX),
 
             terminalSurfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalSurfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -136,22 +146,25 @@ final class TerminalPaneView: NSView {
         let background: NSColor
         if isChromeActive {
             background = isChromeHovered
-                ? NSColor(calibratedRed: 0.78, green: 0.86, blue: 1.00, alpha: 1)
-                : NSColor(calibratedRed: 0.84, green: 0.90, blue: 1.00, alpha: 1)
+                ? DesignTokens.Color.paneHeaderHoverBackground
+                : DesignTokens.Color.paneHeaderBackground
         } else {
             background = isChromeHovered
-                ? NSColor(calibratedWhite: 0.86, alpha: 1)
-                : NSColor(calibratedWhite: 0.90, alpha: 1)
+                ? DesignTokens.Color.paneHeaderHoverBackground
+                : DesignTokens.Color.paneHeaderBackground
         }
         activeIndicatorView.isHidden = !isChromeActive
+        statusDotView.layer?.backgroundColor = (isChromeActive
+            ? DesignTokens.Color.successGreen
+            : DesignTokens.Color.accentPurple.withAlphaComponent(0.75)).cgColor
         chromeView.layer?.backgroundColor = background.cgColor
-        chromeView.layer?.borderWidth = isChromeActive ? 1.5 : 0
-        chromeView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        chromeView.layer?.borderWidth = DesignTokens.Component.hairlinePX
+        chromeView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
         titleField.font = isChromeActive
-            ? NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
-            : NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        titleField.textColor = isChromeActive || isChromeHovered ? .labelColor : .secondaryLabelColor
-        closeButton.contentTintColor = isChromeActive || isChromeHovered ? .labelColor : .secondaryLabelColor
+            ? NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .semibold)
+            : NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .medium)
+        titleField.textColor = isChromeActive || isChromeHovered ? DesignTokens.Color.textPrimary : DesignTokens.Color.textSecondary
+        closeButton.normalTintColor = isChromeActive || isChromeHovered ? DesignTokens.Color.textSecondary : DesignTokens.Color.textMuted
     }
 
     private func observeTerminalTitle() {
