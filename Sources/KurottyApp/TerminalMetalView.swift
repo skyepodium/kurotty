@@ -128,6 +128,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             setNeedsDisplay(bounds)
         }
     }
+    var diagnosticFullRedrawEnabled = true {
+        didSet {
+            setNeedsDisplay(bounds)
+        }
+    }
     var diagnosticRenderingLogEnabled = false
 
     private let commandQueue: MTLCommandQueue?
@@ -158,11 +163,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
+    private var renderFrameIndex: UInt64 = 0
     private let atlasSize = DesignTokens.Component.glyphAtlasSizePX
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, inputOverlayText: "", inputOverlayColumn: 0, inputOverlayRow: 0, markedText: "", columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+
+    override var isOpaque: Bool {
+        true
+    }
 
     init(
         font: NSFont,
@@ -182,6 +192,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         colorPixelFormat = TerminalMetalView.renderTargetPixelFormat
         colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         framebufferOnly = true
+        layer?.isOpaque = true
         clearColor = MTLClearColor(
             red: Double(backgroundColor.x),
             green: Double(backgroundColor.y),
@@ -203,6 +214,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        layer?.isOpaque = true
         observeWindowScreenChanges()
         synchronizeBackingScaleAndDrawableSize()
     }
@@ -231,7 +243,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
-        if frame.isFullDamage || frame.dirtyRects.isEmpty {
+        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
             setNeedsDisplay(bounds)
         } else {
             for rect in frame.dirtyRects {
@@ -276,9 +288,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         guard
             let drawable = currentDrawable,
             let descriptor = currentRenderPassDescriptor,
-            let commandBuffer = commandQueue?.makeCommandBuffer(),
-            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor)
+            let commandBuffer = commandQueue?.makeCommandBuffer()
         else {
+            return
+        }
+        configureRenderPassDescriptor(descriptor)
+        logFrameStartIfNeeded(descriptor: descriptor)
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
             return
         }
 
@@ -355,10 +371,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             }
         }
         commandBuffer.commit()
+        renderFrameIndex &+= 1
     }
 
     var isAtlasPathReadyForRendering: Bool {
-        atlasResourcesAreAvailableForDiagnostics && atlasInstanceCount > 0
+        // Background and cursor quads must still draw on frames where the grid has
+        // no visible glyphs; glyph count is only a text draw concern.
+        atlasResourcesAreAvailableForDiagnostics
     }
 
     var atlasResourcesAreAvailableForDiagnostics: Bool {
@@ -436,6 +455,51 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         return debugOverlayInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
     }
 
+    private func configureRenderPassDescriptor(_ descriptor: MTLRenderPassDescriptor) {
+        let colorAttachment = descriptor.colorAttachments[0]
+        colorAttachment?.loadAction = .clear
+        colorAttachment?.storeAction = .store
+        colorAttachment?.clearColor = clearColor
+    }
+
+    private func logFrameStartIfNeeded(descriptor: MTLRenderPassDescriptor) {
+        guard diagnosticRenderingLogEnabled else { return }
+        let colorAttachment = descriptor.colorAttachments[0]
+        NSLog(
+            "Kurotty render frame: index=%llu fullRedraw=%@ dirtyRects=%d drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            renderFrameIndex,
+            diagnosticFullRedrawEnabled ? "yes" : "no",
+            terminalFrame.dirtyRects.count,
+            NSStringFromSize(drawableSize),
+            NSStringFromSize(drawableSize),
+            "\(colorAttachment?.loadAction ?? .dontCare)",
+            "\(colorAttachment?.storeAction ?? .dontCare)",
+            clearColor.red,
+            clearColor.green,
+            clearColor.blue,
+            clearColor.alpha,
+            backgroundColor.x,
+            backgroundColor.y,
+            backgroundColor.z,
+            backgroundColor.w,
+            "\(Self.renderTargetPixelFormat)",
+            colorspace?.name as String? ?? "nil"
+        )
+        if DebugOptions.renderRects {
+            let cursorRect = inputCursorRect(row: max(0, terminalFrame.cursorRow))
+            NSLog(
+                "Kurotty render rects: cursorRectPx=%@ cursorRectPt=%@ backgrounds=%d glyphs=%d cursor=(col:%d,row:%d) fullRedraw=%@",
+                NSStringFromRect(physicalPixelRect(cursorRect)),
+                NSStringFromRect(cursorRect),
+                backgroundInstanceCount,
+                atlasInstanceCount,
+                terminalFrame.cursorColumn,
+                terminalFrame.cursorRow,
+                diagnosticFullRedrawEnabled ? "yes" : "no"
+            )
+        }
+    }
+
     private func rebuildVertexBuffer() {
         let vertices = [
             TexturedVertex(position: SIMD2<Float>(-1,  1), uv: SIMD2<Float>(0, 0)),
@@ -502,8 +566,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
         }
 
+        let backgroundRuns = mergedBackgroundRuns()
         var backgrounds: [GlyphInstance] = []
-        let backgroundRuns = expandedInputBackgroundRuns(from: mergedBackgroundRuns())
         backgrounds.reserveCapacity(backgroundRuns.count)
         for background in backgroundRuns {
             backgrounds.append(solidInstance(
@@ -713,27 +777,24 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         return backgroundRuns
     }
 
-    private func expandedInputBackgroundRuns(from runs: [BackgroundRun]) -> [BackgroundRun] {
-        runs.map { run in
-            guard run.row == terminalFrame.cursorRow,
-                  terminalFrame.cursorColumn >= run.column,
-                  terminalFrame.cursorColumn <= run.column + run.width
-            else {
-                return run
-            }
-            let expansionColumn = inputBackgroundExpansionColumn(for: run)
-            guard expansionColumn < run.column else { return run }
-            return BackgroundRun(
-                column: expansionColumn,
-                row: run.row,
-                width: run.width + run.column - expansionColumn,
-                color: run.color
-            )
-        }
+    private func inputCursorRect(row: Int) -> CGRect {
+        CGRect(
+            x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,
+            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1),
+            width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
+            height: terminalFrame.cellSize.height
+        )
     }
 
-    private func inputBackgroundExpansionColumn(for run: BackgroundRun) -> Int {
-        max(0, min(run.column, terminalFrame.cursorColumn - 1))
+    private func solidInstance(rect pointRect: CGRect, color: SIMD4<Float>) -> GlyphInstance {
+        let rect = physicalPixelRect(pointRect)
+        return GlyphInstance(
+            origin: SIMD2<Float>(Float(rect.origin.x), Float(rect.origin.y)),
+            size: SIMD2<Float>(Float(rect.width), Float(rect.height)),
+            uvOrigin: .zero,
+            uvSize: .zero,
+            color: color
+        )
     }
 
     private func glyphEntry(for character: Character) -> GlyphAtlasEntry {
@@ -1265,6 +1326,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             solidDescriptor.vertexFunction = vertex
             solidDescriptor.fragmentFunction = solidFragment
             solidDescriptor.colorAttachments[0].pixelFormat = Self.renderTargetPixelFormat
+            solidDescriptor.colorAttachments[0].isBlendingEnabled = false
 
             return (
                 try device.makeRenderPipelineState(descriptor: glyphDescriptor),

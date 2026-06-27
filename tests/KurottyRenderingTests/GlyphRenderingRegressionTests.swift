@@ -176,6 +176,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("atlasVertexBuffer != nil &&"))
         XCTAssertTrue(source.contains("uniformsBuffer != nil &&"))
         XCTAssertTrue(source.contains("atlasTexture != nil"))
+        XCTAssertTrue(source.contains("atlasResourcesAreAvailableForDiagnostics"))
+        XCTAssertFalse(source.contains("atlasResourcesAreAvailableForDiagnostics && atlasInstanceCount > 0"))
         XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled,\n           !isAtlasPathReadyForRendering"))
         XCTAssertTrue(source.contains("if diagnosticCPUFallbackEnabled {\n            rebuildTextTexture()"))
     }
@@ -345,12 +347,18 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("if frame.isFullDamage || frame.dirtyRects.isEmpty"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true"))
+        XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
         XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
-        XCTAssertTrue(metalSource.contains("expandedInputBackgroundRuns"))
-        XCTAssertTrue(metalSource.contains("inputBackgroundExpansionColumn"))
-        XCTAssertTrue(metalSource.contains("terminalFrame.cursorColumn"))
+        XCTAssertFalse(metalSource.contains("private struct InputLineLayout"))
+        XCTAssertFalse(metalSource.contains("inputLineBackgroundInstanceBuffer"))
+        XCTAssertFalse(metalSource.contains("backgroundRunsExcludingInputLine"))
+        XCTAssertFalse(metalSource.contains("inputLineLayout(from:"))
+        XCTAssertFalse(metalSource.contains("isInputLineBackgroundColor"))
+        XCTAssertFalse(metalSource.contains("cursorTouchesInputRun"))
+        XCTAssertTrue(metalSource.contains("let backgroundRuns = mergedBackgroundRuns()"))
+        XCTAssertTrue(metalSource.contains("Kurotty render rects: cursorRectPx=%@"))
 
         let surfaceSource = try terminalSurfaceViewSource()
         XCTAssertTrue(surfaceSource.contains("private var pendingDirtyRows = Set<Int>()"))
@@ -365,6 +373,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("dirtyRects: damage.rects"))
         XCTAssertTrue(surfaceSource.contains("isFullDamage: damage.isFull"))
         XCTAssertTrue(surfaceSource.contains("defaultForeground: terminalDefaultStyle.foreground"))
+        XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1, style: currentStyle)"))
+        XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)"))
+        XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, style: currentStyle)"))
+        XCTAssertFalse(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
     }
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
@@ -395,14 +407,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("TerminalThemePreset.lighttyName"))
         XCTAssertTrue(settingsSource.contains("static let lightty = TerminalColorSettings"))
         XCTAssertTrue(settingsSource.contains("foreground: \"#202124\""))
-        XCTAssertTrue(settingsSource.contains("background: \"#F7F7F4\""))
+        XCTAssertTrue(settingsSource.contains("background: \"#FFFFFF\""))
         XCTAssertTrue(settingsSource.contains("cursor: \"#111111\""))
         XCTAssertTrue(settingsSource.contains("\"#AFA7F5\""))
         XCTAssertTrue(settingsSource.contains("\"#AB4634\""))
         XCTAssertTrue(settingsSource.contains("\"#55C236\""))
         XCTAssertTrue(settingsSource.contains("\"#E59C26\""))
+        XCTAssertTrue(settingsSource.contains("\"#4FC3C7\""))
         XCTAssertTrue(settingsSource.contains("\"#D99518\""))
         XCTAssertTrue(settingsSource.contains("\"#CF75D3\""))
+        XCTAssertTrue(settingsSource.contains("\"#35B9BD\""))
         XCTAssertTrue(settingsSource.contains("normalizeTheme(&next)"))
 
         let surfaceSource = try terminalSurfaceViewSource()
@@ -439,6 +453,40 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("AppSettingsStore.didChangeNotification"))
         XCTAssertTrue(windowSource.contains("@objc private func settingsDidChange(_ notification: Notification)"))
         XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
+    }
+
+    func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
+        let metalSource = try terminalMetalViewSource()
+
+        XCTAssertTrue(metalSource.contains("private func configureRenderPassDescriptor(_ descriptor: MTLRenderPassDescriptor)"))
+        XCTAssertTrue(metalSource.contains("colorAttachment?.loadAction = .clear"))
+        XCTAssertTrue(metalSource.contains("colorAttachment?.storeAction = .store"))
+        XCTAssertTrue(metalSource.contains("colorAttachment?.clearColor = clearColor"))
+        XCTAssertTrue(metalSource.contains("configureRenderPassDescriptor(descriptor)"))
+        XCTAssertTrue(metalSource.contains("logFrameStartIfNeeded(descriptor: descriptor)"))
+        XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
+        XCTAssertTrue(metalSource.contains("clearColor=(%0.4f,%0.4f,%0.4f,%0.4f)"))
+        XCTAssertTrue(metalSource.contains("Kurotty render rects: cursorRectPx=%@"))
+        XCTAssertTrue(metalSource.contains("solidDescriptor.colorAttachments[0].isBlendingEnabled = false"))
+        XCTAssertTrue(metalSource.contains("glyphBlend=straight-alpha"))
+    }
+
+    func testDebugFlagsAndScreenDumpInstrumentationAreAvailable() throws {
+        let debugPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/KurottyApp/DebugOptions.swift")
+        let debugSource = try String(contentsOf: debugPath, encoding: .utf8)
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
+
+        XCTAssertTrue(debugSource.contains("--debug-pty-log"))
+        XCTAssertTrue(debugSource.contains("--debug-screen-dump"))
+        XCTAssertTrue(debugSource.contains("--debug-layout"))
+        XCTAssertTrue(debugSource.contains("--debug-full-model-redraw"))
+        XCTAssertTrue(debugSource.contains("--debug-render-rects"))
+        XCTAssertTrue(surfaceSource.contains("Kurotty PTY raw: bytes=%@ decoded=%@"))
+        XCTAssertTrue(surfaceSource.contains("Kurotty screen dump: frame=%llu"))
+        XCTAssertTrue(surfaceSource.contains("bgRuns=%@ fgRuns=%@"))
+        XCTAssertTrue(metalSource.contains("DebugOptions.renderRects"))
     }
 }
 

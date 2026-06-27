@@ -59,6 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else {
             return
         }
+        image.size = NSSize(
+            width: AppConstants.Bundle.applicationIconSizePT,
+            height: AppConstants.Bundle.applicationIconSizePT
+        )
         NSApp.applicationIconImage = image
     }
 }

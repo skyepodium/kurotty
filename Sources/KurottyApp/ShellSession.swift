@@ -11,6 +11,7 @@ private func systemForkpty(
 
 final class ShellSession: @unchecked Sendable {
     var onOutput: ((String) -> Void)?
+    var onRawOutput: ((Data) -> Void)?
 
     private var master: Int32 = -1
     private var childPid: pid_t = -1
@@ -136,7 +137,9 @@ final class ShellSession: @unchecked Sendable {
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count > 0 {
-                pendingOutput.append(Data(buffer[0..<count]))
+                let chunk = Data(buffer[0..<count])
+                onRawOutput?(chunk)
+                pendingOutput.append(chunk)
                 didRead = true
                 continue
             }

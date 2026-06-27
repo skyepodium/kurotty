@@ -166,7 +166,7 @@ enum TerminalThemePreset {
 extension TerminalColorSettings {
     static let lightty = TerminalColorSettings(
         foreground: "#202124",
-        background: "#F7F7F4",
+        background: "#FFFFFF",
         cursor: "#111111",
         ansi: [
             "#AFA7F5",
@@ -175,7 +175,7 @@ extension TerminalColorSettings {
             "#E59C26",
             "#3347C3",
             "#B445B8",
-            "#58BEC0",
+            "#4FC3C7",
             "#C9C9C9",
             "#666666",
             "#D47D78",
@@ -183,7 +183,7 @@ extension TerminalColorSettings {
             "#D99518",
             "#5B5AA2",
             "#CF75D3",
-            "#46B1B3",
+            "#35B9BD",
             "#FFFFFF",
         ]
     )

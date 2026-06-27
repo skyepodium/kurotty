@@ -38,6 +38,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var font: NSFont
     private var pendingDirtyRows = Set<Int>()
     private var pendingFullDamage = true
+    private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
@@ -85,6 +86,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 self?.appendOutput(text)
             }
         }
+        if DebugOptions.ptyLog {
+            shell.onRawOutput = { data in
+                NSLog("Kurotty PTY raw: bytes=%@ decoded=%@", Self.hexDump(data), Self.escapedText(data))
+            }
+        }
+        metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects
+        metalView.diagnosticFullRedrawEnabled = true
+        metalView.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
+        metalView.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
+        metalView.diagnosticGlyphQuadOverlayEnabled = DebugOptions.renderRects
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(settingsDidChange(_:)),
@@ -367,6 +378,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: CGPoint(x: padding.left, y: padding.top)
         ))
+        logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
+        debugFrameIndex &+= 1
     }
 
     private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool {
@@ -646,6 +659,64 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             : DesignTokens.Color.ansiNormal + DesignTokens.Color.ansiBright
     }
 
+    private static func hexDump(_ data: Data) -> String {
+        data.prefix(512).map { String(format: "%02X", $0) }.joined(separator: " ")
+    }
+
+    private static func escapedText(_ data: Data) -> String {
+        String(decoding: data.prefix(512), as: UTF8.self)
+            .replacingOccurrences(of: "\u{1b}", with: "ESC")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
+    }
+
+    private func logScreenDumpIfNeeded(rows: [[TerminalScreenCell]], damage: TerminalFrameDamage, metrics: TerminalMetrics) {
+        guard DebugOptions.screenDump || DebugOptions.layout else { return }
+        NSLog(
+            "Kurotty screen dump: frame=%llu rows=%d cols=%d cursor=(%d,%d) full=%@ dirtyRows=%@ cell=(%0.2f,%0.2f) scale=%0.2f",
+            debugFrameIndex,
+            metrics.size.rows,
+            metrics.size.columns,
+            cursorRow,
+            cursorColumn,
+            damage.isFull ? "yes" : "no",
+            damage.rows.map(String.init).joined(separator: ","),
+            metrics.cellSize.width,
+            metrics.cellSize.height,
+            currentBackingScale
+        )
+        for rowIndex in 0..<min(rows.count, metrics.size.rows) {
+            let row = Array(rows[rowIndex].prefix(metrics.size.columns))
+            let text = String(row.map(\.character))
+            let cursorMarker = rowIndex == cursorRow ? " cursorCol=\(cursorColumn)" : ""
+            NSLog(
+                "Kurotty row[%03d]%@: text='%@' bgRuns=%@ fgRuns=%@",
+                rowIndex,
+                cursorMarker,
+                text,
+                styleRuns(for: row.map(\.style), background: true),
+                styleRuns(for: row.map(\.style), background: false)
+            )
+        }
+    }
+
+    private func styleRuns(for styles: [TerminalTextStyle], background: Bool) -> String {
+        guard !styles.isEmpty else { return "[]" }
+        var runs: [String] = []
+        var start = 0
+        var color = background ? styles[0].effectiveBackground : styles[0].effectiveForeground
+        for index in 1..<styles.count {
+            let next = background ? styles[index].effectiveBackground : styles[index].effectiveForeground
+            if !next.sameColor(as: color) {
+                runs.append("\(start)-\(index - 1):\(color.debugRGB)")
+                start = index
+                color = next
+            }
+        }
+        runs.append("\(start)-\(styles.count - 1):\(color.debugRGB)")
+        return "[" + runs.joined(separator: ", ") + "]"
+    }
+
     private func appendPrintable(_ text: String) {
         for character in text {
             let width = character.terminalColumnWidth
@@ -805,16 +876,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case "K":
             eraseInLine(mode: parsed.value(at: 0, default: 0))
         case "L":
-            screen.insertLines(at: cursorRow, count: parsed.value(at: 0, default: 1))
+            screen.insertLines(at: cursorRow, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(rows: cursorRow..<screen.rows)
         case "M":
-            screen.deleteLines(at: cursorRow, count: parsed.value(at: 0, default: 1))
+            screen.deleteLines(at: cursorRow, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(rows: cursorRow..<screen.rows)
         case "P":
-            screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
+            screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
         case "@":
-            screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
+            screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
         case "S":
             screen.scrollUp(count: parsed.value(at: 0, default: 1))
@@ -878,13 +949,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func eraseInLine(mode: Int) {
         switch mode {
         case 0:
-            screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)
+            screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1, style: currentStyle)
             markDirty(row: cursorRow)
         case 1:
-            screen.clear(row: cursorRow, from: 0, through: cursorColumn)
+            screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)
             markDirty(row: cursorRow)
         case 2:
-            screen.clear(row: cursorRow)
+            screen.clear(row: cursorRow, style: currentStyle)
             markDirty(row: cursorRow)
         default:
             break
@@ -897,20 +968,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             eraseInLine(mode: 0)
             if cursorRow + 1 < screen.rows {
                 for row in (cursorRow + 1)..<screen.rows {
-                    screen.clear(row: row)
+                    screen.clear(row: row, style: currentStyle)
                 }
                 markDirty(rows: (cursorRow + 1)..<screen.rows)
             }
         case 1:
             if cursorRow > 0 {
                 for row in 0..<cursorRow {
-                    screen.clear(row: row)
+                    screen.clear(row: row, style: currentStyle)
                 }
                 markDirty(rows: 0..<cursorRow)
             }
             eraseInLine(mode: 1)
         case 2, 3:
-            screen.clear()
+            screen.clear(style: currentStyle)
             cursorRow = 0
             cursorColumn = 0
             markFullDamage()
@@ -1234,23 +1305,23 @@ private struct TerminalScreen {
         return min(targetRows - 1, max(0, anchorAbsoluteRow - start))
     }
 
-    mutating func clear() {
+    mutating func clear(style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
-        cells = Array(repeating: TerminalScreen.blankRow(columns: columns), count: rows)
+        cells = Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: rows)
     }
 
-    mutating func clear(row: Int) {
+    mutating func clear(row: Int, style: TerminalTextStyle = .default) {
         guard cells.indices.contains(row) else { return }
-        cells[row] = TerminalScreen.blankRow(columns: columns)
+        cells[row] = TerminalScreen.blankRow(columns: columns, style: style)
     }
 
-    mutating func clear(row: Int, from start: Int, through end: Int) {
+    mutating func clear(row: Int, from start: Int, through end: Int, style: TerminalTextStyle = .default) {
         guard cells.indices.contains(row) else { return }
         let lower = max(0, min(start, columns - 1))
         let upper = max(0, min(end, columns - 1))
         guard lower <= upper else { return }
         for column in lower...upper {
-            cells[row][column] = TerminalScreenCell()
+            cells[row][column] = TerminalScreenCell(style: style)
         }
     }
 
@@ -1286,41 +1357,41 @@ private struct TerminalScreen {
         cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount), at: 0)
     }
 
-    mutating func insertLines(at row: Int, count: Int) {
+    mutating func insertLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard rows > 0 else { return }
         let start = min(max(0, row), rows - 1)
         let amount = min(max(1, count), rows - start)
         cells.removeSubrange((rows - amount)..<rows)
-        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount), at: start)
+        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount), at: start)
     }
 
-    mutating func deleteLines(at row: Int, count: Int) {
+    mutating func deleteLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard rows > 0 else { return }
         let start = min(max(0, row), rows - 1)
         let amount = min(max(1, count), rows - start)
         cells.removeSubrange(start..<(start + amount))
-        cells.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns), count: amount))
+        cells.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount))
     }
 
-    mutating func insertCharacters(row: Int, column: Int, count: Int) {
+    mutating func insertCharacters(row: Int, column: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
         line.removeSubrange((columns - amount)..<columns)
-        line.insert(contentsOf: Array(repeating: TerminalScreenCell(), count: amount), at: column)
+        line.insert(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount), at: column)
         cells[row] = line
     }
 
-    mutating func deleteCharacters(row: Int, column: Int, count: Int) {
+    mutating func deleteCharacters(row: Int, column: Int, count: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
         line.removeSubrange(column..<(column + amount))
-        line.append(contentsOf: Array(repeating: TerminalScreenCell(), count: amount))
+        line.append(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount))
         cells[row] = line
     }
 
@@ -1329,8 +1400,8 @@ private struct TerminalScreen {
         resizeHiddenRowsBelow.removeAll(keepingCapacity: true)
     }
 
-    static func blankRow(columns: Int) -> [TerminalScreenCell] {
-        Array(repeating: TerminalScreenCell(), count: columns)
+    static func blankRow(columns: Int, style: TerminalTextStyle = .default) -> [TerminalScreenCell] {
+        Array(repeating: TerminalScreenCell(style: style), count: columns)
     }
 
     private static func resize(row: [TerminalScreenCell], columns: Int) -> [TerminalScreenCell] {
@@ -1505,5 +1576,9 @@ private extension String {
 private extension SIMD4 where Scalar == Float {
     func sameColor(as other: SIMD4<Float>) -> Bool {
         x == other.x && y == other.y && z == other.z && w == other.w
+    }
+
+    var debugRGB: String {
+        String(format: "(%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, w)
     }
 }

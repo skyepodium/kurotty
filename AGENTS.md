@@ -50,6 +50,14 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - `docs/`: architecture, ABI, testing, and other developer documentation.
 - Keep cross-language contracts in docs and tests when changing `src/abi.zig`, `CoreBridge`, shader buffer layouts, or settings schema.
 
+## Assets
+
+- Keep the project icon at `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` as matching PNG files.
+- Kurotty app icon PNGs must be 1024 x 1024 px RGBA, with transparent rounded-corner alpha.
+- Keep the cat artwork visually readable inside the icon; do not shrink the artwork to fix Dock sizing.
+- Dock sizing is controlled in AppKit: the loaded application icon `NSImage` must be assigned a 50 x 50 pt logical size before setting `NSApp.applicationIconImage`.
+- Keep the README image markup at 400 x 400 unless intentionally changing the README layout.
+
 ## Testing And Verification
 
 - Run the smallest relevant gate first, then broaden before claiming completion.
