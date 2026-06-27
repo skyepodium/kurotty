@@ -777,7 +777,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markDirty(row: cursorRow)
         if cursorRow >= scrollRegionTop && cursorRow == scrollRegionBottom {
             let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)
-            if scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1 {
+            if shouldAppendScrollbackForActiveScrollRegion() {
                 appendScrollback(rows: removed)
             }
             markFullDamage()
@@ -831,6 +831,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if scrollbackRows.count > maxScrollbackRows {
             scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
         }
+    }
+
+    private func shouldAppendScrollbackForActiveScrollRegion() -> Bool {
+        // TUIs such as Codex often reserve bottom rows with DECSTBM while still
+        // scrolling the transcript from row 0. Lines leaving that top-anchored
+        // region should remain reachable via terminal scrollback.
+        !isUsingAlternateScreen && scrollRegionTop == 0
     }
 
     private func carriageReturnLineFeed() {
@@ -968,7 +975,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
         case "S":
-            screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
+            let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
+            if shouldAppendScrollbackForActiveScrollRegion() {
+                appendScrollback(rows: removed)
+            }
             markFullDamage()
         case "T":
             screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)

@@ -458,6 +458,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("case \"T\":\n            screen.scrollDown(count: parsed.value(at: 0, default: 1))"))
     }
 
+    func testTopAnchoredScrollRegionFeedsTerminalScrollback() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private func shouldAppendScrollbackForActiveScrollRegion() -> Bool"))
+        XCTAssertTrue(source.contains("!isUsingAlternateScreen && scrollRegionTop == 0"))
+        XCTAssertTrue(source.contains("if shouldAppendScrollbackForActiveScrollRegion() {\n                appendScrollback(rows: removed)\n            }"))
+        XCTAssertFalse(source.contains("scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1"))
+    }
+
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
         let source = try terminalSurfaceViewSource()
 
