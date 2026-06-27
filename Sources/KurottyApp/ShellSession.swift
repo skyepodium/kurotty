@@ -239,7 +239,8 @@ private func runChildShell() {
     chdir(homeDirectory)
 
     shell.withCString { shellPath in
-        let arg0 = strdup(shellPath)
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        let arg0 = strdup("-\(shellName)")
         let interactive = strdup("-i")
         var argv: [UnsafeMutablePointer<CChar>?] = [arg0, interactive, nil]
         execv(shellPath, &argv)
