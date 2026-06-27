@@ -447,19 +447,27 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
     func markedRange() -> NSRange { hasMarkedText() ? NSRange(location: 0, length: markedText.length) : NSRange(location: NSNotFound, length: 0) }
-    func selectedRange() -> NSRange { inputSelectedRange }
+    func selectedRange() -> NSRange {
+        inputSelectedRange.location == NSNotFound ? NSRange(location: 0, length: 0) : inputSelectedRange
+    }
     func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
-    func characterIndex(for point: NSPoint) -> Int { 0 }
-    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+    func characterIndex(for point: NSPoint) -> Int {
         let metrics = terminalMetrics()
-        let localRect = NSRect(
-            x: padding.left + CGFloat(cursorColumn) * metrics.cellSize.width,
-            y: padding.top + CGFloat(cursorRow + 1) * metrics.cellSize.height,
-            width: metrics.cellSize.width,
-            height: metrics.cellSize.height
-        )
-        return window?.convertToScreen(convert(localRect, to: nil)) ?? .zero
+        guard metrics.cellSize.width > 0, metrics.cellSize.height > 0 else { return 0 }
+        let column = Int((point.x - padding.left) / metrics.cellSize.width)
+        let row = Int((bounds.height - padding.top - point.y) / metrics.cellSize.height)
+        let clampedColumn = min(max(0, column), max(0, metrics.size.columns - 1))
+        let clampedRow = min(max(0, row), max(0, metrics.size.rows - 1))
+        return clampedRow * metrics.size.columns + clampedColumn
+    }
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        actualRange?.pointee = selectedRange()
+        let localRect = currentCursorCellRectInViewCoordinates()
+        let windowRect = convert(localRect, to: nil)
+        let screenRect = window?.convertToScreen(windowRect) ?? .zero
+        logIMEFirstRect(range: range, actualRange: actualRange?.pointee, localRect: localRect, windowRect: windowRect, screenRect: screenRect)
+        return screenRect
     }
 
     private func send(_ text: String) {
@@ -511,17 +519,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func shouldClearInputOverlay(for text: String) -> Bool {
         guard !inputOverlayText.isEmpty, !pendingOverlayEcho.isEmpty, !text.isEmpty else { return false }
-        let normalized = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        if normalized.contains(pendingOverlayEcho) {
-            pendingOverlayEcho = ""
-            return true
-        }
-        if pendingOverlayEcho.hasPrefix(normalized) {
-            pendingOverlayEcho.removeFirst(normalized.count)
-        }
-        return pendingOverlayEcho.isEmpty
+        // TUI apps redraw their input rows with ANSI backgrounds. Once the PTY
+        // produces output, the terminal grid is the only reliable source of
+        // truth; keeping the optimistic paste overlay can leave stale text over
+        // the app's freshly painted input/status backgrounds.
+        pendingOverlayEcho = ""
+        return true
     }
 
     private func visibleText() -> String {
@@ -715,6 +718,66 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         runs.append("\(start)-\(styles.count - 1):\(color.debugRGB)")
         return "[" + runs.joined(separator: ", ") + "]"
+    }
+
+    private func currentCursorCellRectInViewCoordinates() -> NSRect {
+        let metrics = terminalMetrics()
+        return Self.cursorCellRectInViewCoordinates(
+            boundsHeight: bounds.height,
+            padding: padding,
+            cursorRow: cursorRow,
+            cursorColumn: cursorColumn,
+            cellSize: metrics.cellSize,
+            columns: metrics.size.columns,
+            rows: metrics.size.rows
+        )
+    }
+
+    static func cursorCellRectInViewCoordinates(
+        boundsHeight: CGFloat,
+        padding: NSEdgeInsets,
+        cursorRow: Int,
+        cursorColumn: Int,
+        cellSize: CGSize,
+        columns: Int,
+        rows: Int
+    ) -> NSRect {
+        let clampedRow = min(max(0, cursorRow), max(0, rows - 1))
+        let clampedColumn = min(max(0, cursorColumn), max(0, columns - 1))
+        return NSRect(
+            x: padding.left + CGFloat(clampedColumn) * cellSize.width,
+            // Terminal row 0 is visually at the top. NSView local coordinates are
+            // bottom-origin here, so IME/AppKit must use the same y math as Metal
+            // cursor placement instead of the top-origin terminal row formula.
+            y: boundsHeight - padding.top - CGFloat(clampedRow + 1) * cellSize.height,
+            width: max(1, cellSize.width),
+            height: max(1, cellSize.height)
+        )
+    }
+
+    private func logIMEFirstRect(
+        range: NSRange,
+        actualRange: NSRange?,
+        localRect: NSRect,
+        windowRect: NSRect,
+        screenRect: NSRect
+    ) {
+        guard DebugOptions.imeRect || DebugOptions.inputClient || DebugOptions.cursorCoordinates else { return }
+        NSLog(
+            "Kurotty IME firstRect: cursor=(row:%d,col:%d) requested=%@ actual=%@ local=%@ window=%@ screen=%@ bounds=%@ scale=%0.2f flipped=%@ marked=%@ selected=%@",
+            cursorRow,
+            cursorColumn,
+            NSStringFromRange(range),
+            actualRange.map(NSStringFromRange) ?? "nil",
+            NSStringFromRect(localRect),
+            NSStringFromRect(windowRect),
+            NSStringFromRect(screenRect),
+            NSStringFromRect(bounds),
+            effectiveBackingScale,
+            isFlipped ? "yes" : "no",
+            NSStringFromRange(markedRange()),
+            NSStringFromRange(selectedRange())
+        )
     }
 
     private func appendPrintable(_ text: String) {

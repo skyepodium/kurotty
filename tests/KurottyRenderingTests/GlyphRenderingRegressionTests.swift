@@ -483,10 +483,39 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("--debug-layout"))
         XCTAssertTrue(debugSource.contains("--debug-full-model-redraw"))
         XCTAssertTrue(debugSource.contains("--debug-render-rects"))
+        XCTAssertTrue(debugSource.contains("--debug-ime-rect"))
+        XCTAssertTrue(debugSource.contains("--debug-input-client"))
+        XCTAssertTrue(debugSource.contains("--debug-cursor-coordinates"))
         XCTAssertTrue(surfaceSource.contains("Kurotty PTY raw: bytes=%@ decoded=%@"))
         XCTAssertTrue(surfaceSource.contains("Kurotty screen dump: frame=%llu"))
+        XCTAssertTrue(surfaceSource.contains("Kurotty IME firstRect:"))
         XCTAssertTrue(surfaceSource.contains("bgRuns=%@ fgRuns=%@"))
         XCTAssertTrue(metalSource.contains("DebugOptions.renderRects"))
+    }
+
+    func testTerminalSurfaceFirstRectUsesRendererCursorCoordinatesForIME() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect"))
+        XCTAssertTrue(source.contains("actualRange?.pointee = selectedRange()"))
+        XCTAssertTrue(source.contains("let localRect = currentCursorCellRectInViewCoordinates()"))
+        XCTAssertTrue(source.contains("let windowRect = convert(localRect, to: nil)"))
+        XCTAssertTrue(source.contains("window?.convertToScreen(windowRect) ?? .zero"))
+        XCTAssertTrue(source.contains("static func cursorCellRectInViewCoordinates("))
+        XCTAssertTrue(source.contains("boundsHeight - padding.top - CGFloat(clampedRow + 1) * cellSize.height"))
+        XCTAssertTrue(source.contains("x: padding.left + CGFloat(clampedColumn) * cellSize.width"))
+        XCTAssertFalse(source.contains("y: padding.top + CGFloat(cursorRow + 1) * metrics.cellSize.height"))
+    }
+
+    func testInputOverlayClearsAsSoonAsPtyOutputArrives() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private func shouldClearInputOverlay(for text: String) -> Bool"))
+        XCTAssertTrue(source.contains("Once the PTY"))
+        XCTAssertTrue(source.contains("pendingOverlayEcho = \"\""))
+        XCTAssertTrue(source.contains("return true"))
+        XCTAssertFalse(source.contains("pendingOverlayEcho.hasPrefix(normalized)"))
+        XCTAssertFalse(source.contains("normalized.contains(pendingOverlayEcho)"))
     }
 }
 
