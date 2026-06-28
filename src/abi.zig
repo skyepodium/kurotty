@@ -7,6 +7,7 @@ const Terminal = struct {
     grid: core.Grid,
     metrics: core.Metrics,
     renderer: core.RendererOrchestrator,
+    last_error: AbiError = .none,
 
     fn create(allocator: std.mem.Allocator, width: usize, height: usize) !*Terminal {
         const terminal = try allocator.create(Terminal);
@@ -32,6 +33,13 @@ const Terminal = struct {
 
 var gpa = std.heap.DebugAllocator(.{}){};
 
+const AbiError = enum(u32) {
+    none = 0,
+    parser = 1,
+    grid = 2,
+    renderer = 3,
+};
+
 export fn kurotty_terminal_create(width: u32, height: u32) ?*Terminal {
     return Terminal.create(gpa.allocator(), width, height) catch null;
 }
@@ -42,21 +50,34 @@ export fn kurotty_terminal_destroy(terminal: ?*Terminal) void {
 
 export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: usize) usize {
     const ptr = terminal orelse return 0;
+    ptr.last_error = .none;
     const input = bytes[0..len];
-    const events = ptr.parser.feed(input) catch return 0;
+    const events = ptr.parser.feed(input) catch {
+        ptr.last_error = .parser;
+        return 0;
+    };
     defer ptr.parser.freeEvents(events);
 
     var printable_bytes: usize = 0;
     for (events) |event| {
         switch (event) {
             .printable => |printable| {
-                printable_bytes += ptr.grid.writeBounded(printable.bytes) catch 0;
+                printable_bytes += ptr.grid.writeBounded(printable.bytes) catch {
+                    ptr.last_error = .grid;
+                    return printable_bytes;
+                };
             },
             .control => |control| switch (control) {
-                '\n' => ptr.grid.write("\n") catch {},
+                '\n' => ptr.grid.write("\n") catch {
+                    ptr.last_error = .grid;
+                    return printable_bytes;
+                },
                 '\r' => ptr.grid.setCursor(ptr.grid.cursorRow(), 0),
                 0x08 => ptr.grid.moveCursor(.{ .col_delta = -1 }),
-                '\t' => ptr.grid.write("    ") catch {},
+                '\t' => ptr.grid.write("    ") catch {
+                    ptr.last_error = .grid;
+                    return printable_bytes;
+                },
                 else => {},
             },
             .csi => |csi| {
@@ -66,6 +87,11 @@ export fn kurotty_terminal_feed(terminal: ?*Terminal, bytes: [*]const u8, len: u
         }
     }
     return printable_bytes;
+}
+
+export fn kurotty_terminal_last_error(terminal: ?*Terminal) u32 {
+    const ptr = terminal orelse return @intFromEnum(AbiError.none);
+    return @intFromEnum(ptr.last_error);
 }
 
 export fn kurotty_terminal_record_key(terminal: ?*Terminal, timestamp_micros: u64) void {
@@ -95,7 +121,10 @@ export fn kurotty_terminal_cursor_col(terminal: ?*Terminal) u32 {
 
 export fn kurotty_terminal_mark_damage(terminal: ?*Terminal, row: u32, col: u32, rows: u32, cols: u32) void {
     const ptr = terminal orelse return;
-    ptr.renderer.markDamage(.{ .row = row, .col = col, .rows = rows, .cols = cols }) catch {};
+    ptr.last_error = .none;
+    ptr.renderer.markDamage(.{ .row = row, .col = col, .rows = rows, .cols = cols }) catch {
+        ptr.last_error = .renderer;
+    };
 }
 
 export fn kurotty_terminal_begin_frame(terminal: ?*Terminal, visible_cells: u32) u32 {
@@ -111,8 +140,14 @@ export fn kurotty_terminal_end_frame(terminal: ?*Terminal) void {
 
 export fn kurotty_terminal_resize(terminal: ?*Terminal, width: u32, height: u32) void {
     const ptr = terminal orelse return;
-    ptr.grid.resize(width, height) catch {};
-    ptr.renderer.markDamage(.{ .row = 0, .col = 0, .rows = height, .cols = width }) catch {};
+    ptr.last_error = .none;
+    ptr.grid.resize(width, height) catch {
+        ptr.last_error = .grid;
+        return;
+    };
+    ptr.renderer.markDamage(.{ .row = 0, .col = 0, .rows = height, .cols = width }) catch {
+        ptr.last_error = .renderer;
+    };
 }
 
 export fn kurotty_terminal_cell_at(terminal: ?*Terminal, row: u32, col: u32) u8 {
@@ -148,7 +183,10 @@ fn applyCsi(ptr: *Terminal, csi: core.CsiEvent) void {
         'L' => ptr.grid.insertLines(first),
         'M' => ptr.grid.deleteLines(first),
         'h' => if (csi.private) {
-            for (csi.params) |value| if (value == 47 or value == 1047 or value == 1049) ptr.grid.enterAlternateScreen() catch {};
+            for (csi.params) |value| if (value == 47 or value == 1047 or value == 1049) ptr.grid.enterAlternateScreen() catch {
+                ptr.last_error = .grid;
+                return;
+            };
         },
         'l' => if (csi.private) {
             for (csi.params) |value| if (value == 47 or value == 1047 or value == 1049) ptr.grid.leaveAlternateScreen();

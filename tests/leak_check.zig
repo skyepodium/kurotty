@@ -4,6 +4,7 @@ const core = @import("kurotty_core");
 extern fn kurotty_terminal_create(width: u32, height: u32) ?*anyopaque;
 extern fn kurotty_terminal_destroy(terminal: ?*anyopaque) void;
 extern fn kurotty_terminal_feed(terminal: ?*anyopaque, bytes: [*]const u8, len: usize) usize;
+extern fn kurotty_terminal_last_error(terminal: ?*anyopaque) u32;
 extern fn kurotty_terminal_record_key(terminal: ?*anyopaque, timestamp_micros: u64) void;
 extern fn kurotty_terminal_record_present(terminal: ?*anyopaque, timestamp_micros: u64) void;
 extern fn kurotty_terminal_last_latency(terminal: ?*anyopaque) u64;
@@ -35,7 +36,11 @@ fn exerciseAbiLifecycle() !void {
     defer kurotty_terminal_destroy(terminal);
 
     try expectEqual(@as(usize, 5), kurotty_terminal_feed(terminal, "hello".ptr, "hello".len));
+    try expectEqual(@as(u32, 0), kurotty_terminal_last_error(terminal));
+    try expectEqual(@as(usize, 0), kurotty_terminal_feed(terminal, "\x1b[999999999999m".ptr, "\x1b[999999999999m".len));
+    try expectEqual(@as(u32, 1), kurotty_terminal_last_error(terminal));
     try expectEqual(@as(usize, 0), kurotty_terminal_feed(terminal, "\x1b[2".ptr, "\x1b[2".len));
+    try expectEqual(@as(u32, 0), kurotty_terminal_last_error(terminal));
     try expectEqual(@as(usize, 5), kurotty_terminal_feed(terminal, "Jworld".ptr, "Jworld".len));
     try expectEqual(@as(u8, 'w'), kurotty_terminal_cell_at(terminal, 0, 5));
 

@@ -71,7 +71,11 @@ pub const Parser = struct {
                 },
                 .csi => {
                     if (isCsiFinal(byte)) {
-                        try self.appendCsi(&events, byte);
+                        self.appendCsi(&events, byte) catch |err| {
+                            self.control.clearRetainingCapacity();
+                            self.state = .normal;
+                            return err;
+                        };
                         self.control.clearRetainingCapacity();
                         self.state = .normal;
                     } else {
@@ -158,7 +162,7 @@ pub const Parser = struct {
                 if (digits.len == 0) {
                     try params.append(self.allocator, 0);
                 } else {
-                    try params.append(self.allocator, std.fmt.parseInt(u16, digits, 10) catch 0);
+                    try params.append(self.allocator, try std.fmt.parseInt(u16, digits, 10));
                 }
             }
         }

@@ -23,11 +23,12 @@ pub const Grid = struct {
     height: usize,
     cells: []u8,
     scratch: []u8,
-    alternate_cells: ?[]u8 = null,
+    alternate_screen: ?AlternateScreenSnapshot = null,
     cursor_row: usize = 0,
     cursor_col: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, width: usize, height: usize) !Grid {
+        if (width == 0 or height == 0) return error.InvalidDimensions;
         const cells = try allocator.alloc(u8, width * height);
         errdefer allocator.free(cells);
         const scratch = try allocator.alloc(u8, width);
@@ -43,7 +44,7 @@ pub const Grid = struct {
     }
 
     pub fn deinit(self: *Grid) void {
-        if (self.alternate_cells) |cells| self.allocator.free(cells);
+        if (self.alternate_screen) |snapshot| self.allocator.free(snapshot.cells);
         self.allocator.free(self.cells);
         self.allocator.free(self.scratch);
     }
@@ -173,19 +174,31 @@ pub const Grid = struct {
     }
 
     pub fn enterAlternateScreen(self: *Grid) !void {
-        if (self.alternate_cells != null) return;
+        if (self.alternate_screen != null) return;
         const saved = try self.allocator.dupe(u8, self.cells);
-        self.alternate_cells = saved;
+        self.alternate_screen = .{
+            .width = self.width,
+            .height = self.height,
+            .cells = saved,
+        };
         @memset(self.cells, ' ');
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
 
     pub fn leaveAlternateScreen(self: *Grid) void {
-        const saved = self.alternate_cells orelse return;
-        @memcpy(self.cells, saved[0..self.cells.len]);
-        self.allocator.free(saved);
-        self.alternate_cells = null;
+        const saved = self.alternate_screen orelse return;
+        @memset(self.cells, ' ');
+        const copy_height = @min(saved.height, self.height);
+        const copy_width = @min(saved.width, self.width);
+        var row: usize = 0;
+        while (row < copy_height) : (row += 1) {
+            const saved_start = row * saved.width;
+            const target_start = row * self.width;
+            @memcpy(self.cells[target_start .. target_start + copy_width], saved.cells[saved_start .. saved_start + copy_width]);
+        }
+        self.allocator.free(saved.cells);
+        self.alternate_screen = null;
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
@@ -229,6 +242,12 @@ pub const Grid = struct {
     fn index(self: *const Grid, row: usize, col: usize) usize {
         return row * self.width + col;
     }
+};
+
+const AlternateScreenSnapshot = struct {
+    width: usize,
+    height: usize,
+    cells: []u8,
 };
 
 fn clampAdd(value: usize, delta: isize, min: usize, max: usize) usize {

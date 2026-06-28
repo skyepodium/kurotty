@@ -25,7 +25,6 @@ enum AppConstants {
     enum Shell {
         static let term = "xterm-256color"
         static let colorTerm = "truecolor"
-        static let defaultWorkingDirectory = FileManager.default.currentDirectoryPath
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
     }
 
