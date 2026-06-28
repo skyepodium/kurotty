@@ -10,14 +10,16 @@ final class SplitTerminalView: NSSplitView {
         DesignTokens.Component.terminalSplitDividerHitAreaPX
     }
 
-    init(axis: NSLayoutConstraint.Orientation, pane: TerminalPaneView = TerminalPaneView()) {
+    init(axis: NSLayoutConstraint.Orientation, pane: TerminalPaneView? = TerminalPaneView()) {
         super.init(frame: .zero)
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
         wantsLayer = true
         layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
-        configurePane(pane)
-        addArrangedSubview(pane)
+        if let pane {
+            configurePane(pane)
+            addArrangedSubview(pane)
+        }
         refreshPaneChrome()
     }
 
@@ -51,7 +53,7 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func split(axis: NSLayoutConstraint.Orientation) {
-        if !splitActivePane(axis: axis) {
+        if !splitGroupAsUnit(axis: axis), !splitActivePane(axis: axis) {
             splitFallback(axis: axis)
         }
         rebalanceDividers()
@@ -117,6 +119,40 @@ final class SplitTerminalView: NSSplitView {
             }
         }
         return false
+    }
+
+    private func splitGroupAsUnit(axis: NSLayoutConstraint.Orientation) -> Bool {
+        guard arrangedSubviews.count > 1, isVertical != (axis == .vertical) else {
+            return false
+        }
+        guard containsActivePane() else {
+            return false
+        }
+
+        let currentAxis: NSLayoutConstraint.Orientation = isVertical ? .vertical : .horizontal
+        let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil)
+        moveCurrentArrangedSubviews(to: existingGroup)
+
+        isVertical = axis == .vertical
+        let newPane = TerminalPaneView()
+        configurePane(newPane)
+        addArrangedSubview(existingGroup)
+        addArrangedSubview(newPane)
+
+        // Orthogonal splits should preserve the current pane group as one unit:
+        // left/right + horizontal split becomes top row with two panes, bottom row with one.
+        existingGroup.rebalanceDividers()
+        newPane.focusTerminal()
+        return true
+    }
+
+    private func moveCurrentArrangedSubviews(to existingGroup: SplitTerminalView) {
+        let currentSubviews = arrangedSubviews
+        for subview in currentSubviews {
+            removeArrangedSubview(subview)
+            subview.removeFromSuperview()
+            existingGroup.addArrangedSubview(subview)
+        }
     }
 
     private func split(_ pane: TerminalPaneView, axis: NSLayoutConstraint.Orientation) {
@@ -210,6 +246,10 @@ final class SplitTerminalView: NSSplitView {
         return nil
     }
 
+    private func containsActivePane() -> Bool {
+        activePane() != nil
+    }
+
     private func firstPane() -> TerminalPaneView? {
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView {
@@ -254,13 +294,15 @@ final class SplitTerminalView: NSSplitView {
                     perpendicularDistance = abs(activeCenter.y - candidateCenter.y)
                     overlapsPerpendicularAxis = candidate.rect.maxY > activeRect.minY && candidate.rect.minY < activeRect.maxY
                 case .up:
-                    guard candidateCenter.y > activeCenter.y else { return nil }
-                    primaryDistance = candidateCenter.y - activeCenter.y
+                    // Pane navigation follows the visual terminal layout. In this
+                    // view tree, converted pane rects use a top-down y ordering.
+                    guard candidateCenter.y < activeCenter.y else { return nil }
+                    primaryDistance = activeCenter.y - candidateCenter.y
                     perpendicularDistance = abs(activeCenter.x - candidateCenter.x)
                     overlapsPerpendicularAxis = candidate.rect.maxX > activeRect.minX && candidate.rect.minX < activeRect.maxX
                 case .down:
-                    guard candidateCenter.y < activeCenter.y else { return nil }
-                    primaryDistance = activeCenter.y - candidateCenter.y
+                    guard candidateCenter.y > activeCenter.y else { return nil }
+                    primaryDistance = candidateCenter.y - activeCenter.y
                     perpendicularDistance = abs(activeCenter.x - candidateCenter.x)
                     overlapsPerpendicularAxis = candidate.rect.maxX > activeRect.minX && candidate.rect.minX < activeRect.maxX
                 }

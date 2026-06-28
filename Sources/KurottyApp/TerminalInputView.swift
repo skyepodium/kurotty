@@ -160,7 +160,9 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleInputSourceChanged() {
-        inputContext?.discardMarkedText()
+        // This notification is emitted while AppKit/IMK is already switching
+        // input sources. Calling discardMarkedText() here can synchronously
+        // re-enter the IME service once per split pane and stall the app.
         resetMarkedTextForInputSourceChange()
     }
 

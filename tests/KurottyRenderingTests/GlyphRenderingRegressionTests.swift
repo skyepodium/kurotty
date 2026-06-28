@@ -441,8 +441,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.committedText(from: string)"))
         XCTAssertTrue(surfaceSource.contains("NSTextInputContext.keyboardSelectionDidChangeNotification"))
         XCTAssertTrue(inputSource.contains("NSTextInputContext.keyboardSelectionDidChangeNotification"))
-        XCTAssertTrue(surfaceSource.contains("inputContext?.discardMarkedText()"))
-        XCTAssertTrue(inputSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertFalse(surfaceSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertFalse(inputSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertTrue(surfaceSource.contains("re-enters\n        // AppKit/IMK synchronously"))
+        XCTAssertTrue(inputSource.contains("re-enter the IME service once per split pane"))
     }
 
     func testTextKeyDownIsConsumedByAppKitTextInterpreterWithoutRawFallback() throws {
@@ -1019,6 +1021,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("appendPaneFocusCandidates(from: self, into: &candidates)"))
         XCTAssertTrue(splitSource.contains("pane.convert(pane.bounds, to: self)"))
         XCTAssertTrue(splitSource.contains("let overlapPenalty: CGFloat = overlapsPerpendicularAxis ? 0 : 10_000"))
+        XCTAssertTrue(splitSource.contains("guard candidateCenter.y < activeCenter.y else { return nil }"))
+        XCTAssertTrue(splitSource.contains("guard candidateCenter.y > activeCenter.y else { return nil }"))
         XCTAssertTrue(splitSource.contains("private func configurePane(_ pane: TerminalPaneView)"))
         XCTAssertTrue(splitSource.contains("pane.closeRequested = { [weak self] pane in"))
         XCTAssertTrue(splitSource.contains("pane.focusChanged = { [weak self] _ in"))
@@ -1033,6 +1037,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("DesignTokens.Color.divider.setFill()"))
         XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
         XCTAssertTrue(splitSource.contains("let position = totalLength * CGFloat(dividerIndex + 1) / CGFloat(count)"))
+        XCTAssertTrue(splitSource.contains("private func splitGroupAsUnit(axis: NSLayoutConstraint.Orientation) -> Bool"))
+        XCTAssertTrue(splitSource.contains("guard arrangedSubviews.count > 1, isVertical != (axis == .vertical) else"))
+        XCTAssertTrue(splitSource.contains("let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil)"))
+        XCTAssertTrue(splitSource.contains("moveCurrentArrangedSubviews(to: existingGroup)"))
+        XCTAssertTrue(splitSource.contains("addArrangedSubview(existingGroup)"))
+        XCTAssertTrue(splitSource.contains("addArrangedSubview(newPane)"))
 
         let paneSource = try terminalPaneViewSource()
         XCTAssertTrue(paneSource.contains("private let chromeView = PaneChromeView()"))
