@@ -1205,8 +1205,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(installSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
         XCTAssertTrue(installSource.contains("LaunchServices.framework/Support/lsregister"))
         XCTAssertTrue(installSource.contains("\"$LSREGISTER\" -f \"$INSTALLED_APP\""))
+        XCTAssertTrue(installSource.contains("\"$ROOT_DIR/scripts/verify-icon-bundle.sh\" \"$INSTALLED_APP\""))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("icon verification passed"))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("CFBundleIconFile must be kurotty.icns"))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("icon_512x512@2x.png"))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("installed .icns must not be resized"))
         XCTAssertTrue(appDelegateSource.contains("Bundle.main.url("))
         XCTAssertTrue(appDelegateSource.contains("withExtension: AppConstants.Bundle.installedIconExtension"))
+        XCTAssertTrue(appDelegateSource.contains("if installedIconURL == nil"))
+        XCTAssertTrue(appDelegateSource.contains("Installed"))
+        XCTAssertTrue(appDelegateSource.contains("do not inherit a"))
         XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
     }
 }
@@ -1470,8 +1478,12 @@ private func appConstantsSource() throws -> String {
 }
 
 private func installAppScriptSource() throws -> String {
+    try scriptSource(named: "install-app")
+}
+
+private func scriptSource(named name: String) throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("scripts/install-app.sh")
+        .appendingPathComponent("scripts/\(name).sh")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

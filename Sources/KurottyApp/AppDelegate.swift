@@ -86,10 +86,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else {
             return
         }
-        image.size = NSSize(
-            width: AppConstants.Bundle.applicationIconSizePT,
-            height: AppConstants.Bundle.applicationIconSizePT
-        )
+        if installedIconURL == nil {
+            // The SwiftPM PNG fallback needs a logical display size. Installed
+            // apps must keep the .icns representations intact so Settings,
+            // Force Quit, Cmd+Tab, and notification surfaces do not inherit a
+            // small runtime-only NSImage size.
+            image.size = NSSize(
+                width: AppConstants.Bundle.applicationIconSizePT,
+                height: AppConstants.Bundle.applicationIconSizePT
+            )
+        }
         NSApp.applicationIconImage = image
     }
 }

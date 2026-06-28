@@ -67,6 +67,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 ## Assets
 
 - `kurotty-profile.png` is the source image for the Kurotty cat icon. Preserve it as an input asset and do not overwrite, resize, crop, delete, or regenerate it during icon replacement work.
+- Treat `kurotty-profile.png` as the only human-edited source of truth for the app icon. Every shipped icon artifact must be derived from that source through the project scripts, not copied from Finder, Dock, Cmd+Tab/App Switcher, notification screenshots, installed bundles, or previous generated outputs.
 - `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` are generated icon outputs. They must always contain matching bytes.
 - Never regenerate an icon from a previously generated `kurotty.png`. Repeated crop/resize passes compound the scale error and make the cat progressively smaller. Delete generated outputs if needed, then rebuild them exactly once from `kurotty-profile.png`.
 - Kurotty app icon PNG outputs must use this contract:
@@ -77,16 +78,19 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
   - Visible tile content: scale the full square source image uniformly into the 825 x 825 px tile. Do not crop the cat, do not independently scale the foreground cat, and do not add extra internal padding.
   - Visible tile corner radius: preserve the current macOS-style radius ratio, `224 / 1024`; for an 825 px visible tile this is about 180 px.
 - The 825 px visible tile is an observed Dock calibration for this project: a full 1024 px visible tile rendered around 65 px in the Dock, while 790 px rendered slightly small; 825 px is the current target for an approximately 50 px perceived Dock icon.
-- Dock sizing is a two-part contract: keep the PNG visible tile at 825 px and keep the loaded application icon `NSImage` assigned a 50 x 50 pt logical size before setting `NSApp.applicationIconImage`.
+- Dock sizing is a two-part contract: keep the PNG visible tile at 825 px and keep the SwiftPM PNG fallback `NSImage` assigned a 50 x 50 pt logical size before setting `NSApp.applicationIconImage`.
+- Do not apply the 50 x 50 pt logical size to the installed `.icns` image. Installed apps must load `kurotty.icns` with its original multi-resolution representations intact; otherwise Settings, Force Quit, Cmd+Tab/App Switcher, and notification surfaces can inherit a tiny app icon even when the `.icns` ladder is correct.
 - Keep the cat artwork visually readable inside the icon. If the icon appears too large or too small in the Dock, adjust only the centered visible tile size from `kurotty-profile.png`; never shrink or crop just the cat foreground.
 - Keep the README image markup at 400 x 400 unless intentionally changing the README layout.
 - Do not ship the installed macOS app with only `kurotty.png` as `CFBundleIconFile`. A single PNG can look acceptable in the Dock but be upscaled or cached poorly in Cmd+Tab/App Switcher and other LaunchServices surfaces.
 - Installed `.app` bundles must generate and include `Contents/Resources/kurotty.icns` from the current 1024 x 1024 generated `kurotty.png` during install/package creation.
 - The `.icns` must contain the full iconset ladder: `16x16`, `16x16@2x`, `32x32`, `32x32@2x`, `128x128`, `128x128@2x`, `256x256`, `256x256@2x`, `512x512`, and `512x512@2x`.
 - `CFBundleIconFile` in the installed app's `Info.plist` must point to `kurotty.icns`, not the raw PNG. Keep the raw PNG only as a resource fallback/readme asset, not as the system app icon file.
-- At runtime, `NSApp.applicationIconImage` should prefer the installed main-bundle `kurotty.icns`; fall back to the SwiftPM resource PNG only for development/package-resource contexts where the `.icns` is unavailable.
+- At runtime, `NSApp.applicationIconImage` should prefer the installed main-bundle `kurotty.icns` without resizing it; fall back to the SwiftPM resource PNG only for development/package-resource contexts where the `.icns` is unavailable, and apply the 50 x 50 pt logical size only to that PNG fallback.
 - After replacing the source artwork with another image, regenerate the canonical PNG outputs first, then regenerate the `.icns` from that fresh PNG exactly once. Do not create `.icns` files from stale installed bundles, screenshots, Dock/App Switcher captures, or previously downscaled outputs.
+- Keep icon replacement one-way and reproducible: source image -> canonical 1024 px PNG outputs -> full `.icns` ladder -> installed app bundle -> runtime load. Do not manually resize the runtime `NSImage` for installed apps, do not hand-edit the iconset, and do not let generated assets become the next source asset.
 - Installation scripts should refresh LaunchServices for the installed app after copying the bundle so macOS does not keep showing a stale or low-resolution icon cache.
+- `scripts/install-app.sh` must run `scripts/verify-icon-bundle.sh` before reporting success. If that verifier fails, the app is not considered installed correctly even if the bundle exists in `/Applications`.
 - After changing icon assets, verify all of the following before handoff:
   - `kurotty-profile.png` still exists and is unchanged unless the user explicitly requested changing the source.
   - `kurotty.png` and `Sources/KurottyApp/Resources/kurotty.png` are byte-identical.
@@ -94,6 +98,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
   - The generated alpha bounding box is exactly 825 x 825 px at `(99, 99, 924, 924)`.
   - The installed app contains `Contents/Resources/kurotty.icns` and `Info.plist` has `CFBundleIconFile` set to `kurotty.icns`.
   - `iconutil -c iconset` on the installed `kurotty.icns` yields every required iconset representation from 16 px through 1024 px.
+  - `scripts/verify-icon-bundle.sh /Applications/kurotty.app` passes.
   - `swift build` succeeds and the SwiftPM resource bundle copy of `kurotty.png` matches `Sources/KurottyApp/Resources/kurotty.png`.
   - Reinstall and restart Kurotty after the build so Dock, Cmd+Tab/App Switcher, and LaunchServices use the new bundled `.icns`.
 
