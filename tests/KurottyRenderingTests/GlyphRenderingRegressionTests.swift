@@ -999,6 +999,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
     }
 
+    func testOnlyFocusedTerminalHandlesPasteKeyEquivalent() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        XCTAssertTrue(surfaceSource.contains("guard window?.firstResponder === self else {\n            return super.performKeyEquivalent(with: event)\n        }\n        return handleCommandKey(event) || super.performKeyEquivalent(with: event)"))
+
+        let inputSource = try terminalInputViewSource()
+        XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else {\n            return super.performKeyEquivalent(with: event)\n        }\n        return handleCommandKey(event) || super.performKeyEquivalent(with: event)"))
+    }
+
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()

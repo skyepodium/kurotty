@@ -310,7 +310,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        handleCommandKey(event) || super.performKeyEquivalent(with: event)
+        guard window?.firstResponder === self else {
+            return super.performKeyEquivalent(with: event)
+        }
+        return handleCommandKey(event) || super.performKeyEquivalent(with: event)
     }
 
     func metalFramePresented() {
