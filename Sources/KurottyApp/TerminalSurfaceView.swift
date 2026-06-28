@@ -136,6 +136,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingFullDamage = true
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
+    private var codexTaskIsRunning = false
+    private var lastCodexPromptSummary: String?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
@@ -564,6 +566,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: CGPoint(x: padding.left, y: padding.top)
         ))
+        detectCodexTaskStateInScreen(rows: rowsToRender)
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
     }
@@ -761,6 +764,88 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         updateScrollIndicator()
         updateMetalFrame()
+    }
+
+    private func detectCodexTaskStateInScreen(rows: [[TerminalScreenCell]]) {
+        let lines = rows.map { row in
+            String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
+        }
+        let screenText = lines.joined(separator: "\n")
+        let isCodexScreen = terminalTitle.localizedCaseInsensitiveContains("codex")
+            || screenText.contains("OpenAI Codex")
+            || screenText.contains("gpt-")
+        guard isCodexScreen else {
+            codexTaskIsRunning = false
+            lastCodexPromptSummary = nil
+            return
+        }
+
+        if screenText.contains("Working (") {
+            codexTaskIsRunning = true
+            lastCodexPromptSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
+            return
+        }
+
+        guard codexTaskIsRunning,
+              screenText.contains("Ready") || screenText.contains("No changes")
+        else {
+            return
+        }
+        codexTaskIsRunning = false
+        // Codex does not emit OSC 9 on task completion, so Kurotty detects the
+        // stable TUI status transition from the parsed screen model instead of
+        // relying on fragile raw PTY chunk boundaries.
+        let completionSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
+        notifier.notifyCodexTaskCompleted(
+            sessionTitle: displayTitle(),
+            promptSummary: completionSummary
+        )
+        lastCodexPromptSummary = nil
+    }
+
+    private func extractCodexCompletionSummary(from rows: [[TerminalScreenCell]]) -> String? {
+        for row in rows.reversed() {
+            let text = String(row.map(\.character)).trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = normalizedCodexCompletionLine(text)
+            guard !summary.isEmpty else { continue }
+            return String(summary.prefix(100))
+        }
+        return nil
+    }
+
+    private func normalizedCodexCompletionLine(_ line: String) -> String {
+        var text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.first == "•" || text.first == ">" || text.first == "›" {
+            text = text.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !text.isEmpty, !isCodexNonAnswerLine(text) else { return "" }
+        return text
+    }
+
+    private func isCodexNonAnswerLine(_ line: String) -> Bool {
+        if line.allSatisfy({ $0 == "─" || $0 == "-" || $0.isWhitespace }) {
+            return true
+        }
+        if line == "Explored" || line == "Read SKILL.md" {
+            return true
+        }
+        if line.hasPrefix("Using ") || line.hasPrefix("Read ") || line.hasPrefix("Ran ") || line.hasPrefix("Edited ") {
+            return true
+        }
+        if line.hasPrefix("Working (") || line.contains(" esc to interrupt)") {
+            return true
+        }
+        if line.contains("Ready") || line.contains("No changes") || line.hasPrefix("gpt-") {
+            return true
+        }
+        return [
+            "Find and fix a bug in @filename",
+            "Implement {feature}",
+            "Explain this codebase",
+            "Summarize recent commits",
+            "Run /review on my current changes",
+            "Use /skills to list available skills",
+        ].contains(line)
     }
 
     private func visibleText() -> String {

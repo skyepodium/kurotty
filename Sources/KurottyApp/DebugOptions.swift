@@ -17,6 +17,7 @@ enum DebugOptions {
     static let imeRect = flag("--debug-ime-rect", env: "KUROTTY_DEBUG_IME_RECT")
     static let inputClient = flag("--debug-input-client", env: "KUROTTY_DEBUG_INPUT_CLIENT")
     static let cursorCoordinates = flag("--debug-cursor-coordinates", env: "KUROTTY_DEBUG_CURSOR_COORDINATES")
+    static let testNotification = flag("--debug-test-notification", env: "KUROTTY_DEBUG_TEST_NOTIFICATION")
 
     private static func flag(_ argument: String, env: String) -> Bool {
         if CommandLine.arguments.contains(argument) {
