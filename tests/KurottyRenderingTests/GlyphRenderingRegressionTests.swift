@@ -369,6 +369,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("guard !cell.isContinuation else { continue }\n                let position = TerminalCellPosition(row: row, column: column)"))
     }
 
+    func testGlyphAtlasHasEnoughSlotsForMixedTuiAndKoreanText() throws {
+        let tokens = try designTokensSource()
+        let atlasSize = try integerConstant(named: "glyphAtlasSizePX", in: tokens)
+        let slotWidth = try integerConstant(named: "glyphSlotWidthPX", in: tokens)
+        let slotHeight = try integerConstant(named: "glyphSlotHeightPX", in: tokens)
+
+        let capacity = (atlasSize / slotWidth) * (atlasSize / slotHeight)
+
+        XCTAssertGreaterThanOrEqual(
+            capacity,
+            1_000,
+            "Codex-style TUI output mixes ASCII, box drawing, powerline, and many Korean syllables; the atlas must not return empty glyphs after a few hundred unique characters."
+        )
+    }
+
     func testPrintableHangulPreservesExistingTuiInputBackground() throws {
         let surfaceSource = try terminalSurfaceViewSource()
 
@@ -1329,6 +1344,15 @@ private func terminalSurfaceViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
     return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func integerConstant(named name: String, in source: String) throws -> Int {
+    let pattern = #"static let \#(name)\s*=\s*([0-9_]+)"#
+    let regex = try NSRegularExpression(pattern: pattern)
+    let range = NSRange(source.startIndex..<source.endIndex, in: source)
+    let match = try XCTUnwrap(regex.firstMatch(in: source, range: range))
+    let valueRange = try XCTUnwrap(Range(match.range(at: 1), in: source))
+    return try XCTUnwrap(Int(source[valueRange].replacingOccurrences(of: "_", with: "")))
 }
 
 private func debugOptionsSource() throws -> String {

@@ -83,9 +83,9 @@ enum DesignTokens {
         static let preferencesButtonHeightPX: CGFloat = 30
         static let preferencesTextFieldWidthPX: CGFloat = 160
         static let settingsEditorFontSizePT: CGFloat = 12
-        static let glyphAtlasSizePX = 3072
-        static let glyphSlotWidthPX = 192
-        static let glyphSlotHeightPX = 192
+        static let glyphAtlasSizePX = 4096
+        static let glyphSlotWidthPX = 128
+        static let glyphSlotHeightPX = 128
         static let glyphAtlasOversampleScale: CGFloat = 1
         static let glyphSlotPaddingPX: CGFloat = 6
         static let terminalScrollerWidthPX: CGFloat = 12
