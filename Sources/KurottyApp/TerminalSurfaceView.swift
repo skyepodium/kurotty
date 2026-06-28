@@ -853,7 +853,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func extractCodexCompletionSummary(from rows: [[TerminalScreenCell]]) -> String? {
-        for row in rows.reversed() {
+        for (rowIndex, row) in rows.enumerated().reversed() {
+            // The active Codex input row often contains placeholder text such as
+            // "Write tests for @filename". It is not task output and should not
+            // become the macOS completion notification body.
+            guard rowIndex != cursorRow else { continue }
             let text = String(row.map(\.character)).trimmingCharacters(in: .whitespacesAndNewlines)
             let summary = normalizedCodexCompletionLine(text)
             guard !summary.isEmpty else { continue }
@@ -889,6 +893,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         return [
             "Find and fix a bug in @filename",
+            "Write tests for @filename",
             "Implement {feature}",
             "Explain this codebase",
             "Summarize recent commits",
