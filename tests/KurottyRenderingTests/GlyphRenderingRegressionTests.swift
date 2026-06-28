@@ -709,14 +709,22 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("verticalScroller.knobProportion"))
         XCTAssertTrue(source.contains("verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
         XCTAssertTrue(source.contains("private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)"))
-        XCTAssertTrue(source.contains("scrollThumbView.layer?.backgroundColor = DesignTokens.Color.scrollerThumb.cgColor"))
+        XCTAssertTrue(source.contains("private func updateAppearance()"))
+        XCTAssertTrue(source.contains("color = DesignTokens.Color.scrollerThumb"))
         XCTAssertTrue(source.contains("let normalizedOffset = max(0, min(1, CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
         XCTAssertTrue(source.contains("scrollThumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
+        XCTAssertTrue(source.contains("scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
+        XCTAssertTrue(source.contains("private func setScrollbackOffsetFromNormalizedThumbDrag(_ normalizedOffset: CGFloat)"))
+        XCTAssertTrue(source.contains("override func mouseDragged(with event: NSEvent)"))
+        XCTAssertTrue(source.contains("DesignTokens.Color.scrollerThumbHover"))
+        XCTAssertTrue(source.contains("DesignTokens.Color.scrollerThumbActive"))
         XCTAssertTrue(tokens.contains("terminalScrollerWidthPX"))
         XCTAssertTrue(tokens.contains("terminalScrollerThumbWidthPX"))
         XCTAssertTrue(tokens.contains("terminalScrollerMinThumbHeightPX"))
         XCTAssertTrue(tokens.contains("scrollerThumb"))
+        XCTAssertTrue(tokens.contains("scrollerThumbHover"))
+        XCTAssertTrue(tokens.contains("scrollerThumbActive"))
     }
 
     func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
