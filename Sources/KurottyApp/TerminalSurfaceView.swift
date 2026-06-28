@@ -134,6 +134,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var font: NSFont
     private var pendingDirtyRows = Set<Int>()
     private var pendingFullDamage = true
+    private var pendingOutputText = ""
+    private var isOutputFlushScheduled = false
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
@@ -191,7 +193,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         addSubview(scrollThumbView)
         shell.onOutput = { [weak self] text in
             Task { @MainActor in
-                self?.appendOutput(text)
+                self?.enqueueOutput(text)
             }
         }
         shell.onExit = { [weak self] status in
@@ -682,6 +684,31 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func send(_ text: String) {
         clearSelection()
         shell.write(text)
+    }
+
+    private func enqueueOutput(_ text: String) {
+        pendingOutputText.append(text)
+        guard !isOutputFlushScheduled else { return }
+        isOutputFlushScheduled = true
+        // TUIs often clear and repaint the same status/input row across adjacent
+        // PTY chunks. Coalescing one display tick avoids presenting the cleared
+        // intermediate model as visible flicker or a cursor jump.
+        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Component.ptyOutputCoalescingDelaySeconds) { [weak self] in
+            Task { @MainActor in
+                self?.flushPendingOutput()
+            }
+        }
+    }
+
+    private func flushPendingOutput() {
+        isOutputFlushScheduled = false
+        let text = pendingOutputText
+        pendingOutputText = ""
+        guard !text.isEmpty else { return }
+        appendOutput(text)
+        if !pendingOutputText.isEmpty {
+            enqueueOutput("")
+        }
     }
 
     private func appendOutput(_ text: String) {
