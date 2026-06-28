@@ -1225,6 +1225,24 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(appDelegateSource.contains("do not inherit a"))
         XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
     }
+
+    func testReleasePackagingProducesZipAndChecksumFromVerifiedAppBundle() throws {
+        let packageSource = try scriptSource(named: "package-release")
+        let readmeSource = try readmeSource()
+
+        XCTAssertTrue(packageSource.contains("scripts/install-app.sh"))
+        XCTAssertTrue(packageSource.contains("INSTALL_DIR=\"$STAGING_DIR\""))
+        XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
+        XCTAssertTrue(packageSource.contains("ditto -c -k --sequesterRsrc --keepParent"))
+        XCTAssertTrue(packageSource.contains("shasum -a 256"))
+        XCTAssertTrue(packageSource.contains("SHA256SUMS"))
+        XCTAssertTrue(packageSource.contains("ZIP_NAME=\"kurotty-$VERSION-macos.zip\""))
+
+        XCTAssertTrue(readmeSource.contains("GitHub Releases"))
+        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.1-macos.zip"))
+        XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
+        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.1"))
+    }
 }
 
 private struct TestGlyphVertex {

@@ -6,4 +6,5 @@ DerivedData/
 *.xcworkspace/
 *.xcodeproj/
 .DS_Store
+dist/
 code-rule/

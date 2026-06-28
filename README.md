@@ -10,25 +10,31 @@
 
 Kurotty is a macOS-first terminal emulator built with Swift/AppKit, Zig, and Metal.
 
-Kurotty is currently an early developer build. Public packaged releases are not available yet.
+Kurotty is currently an early developer build. Install the latest alpha release if you only want to try the app; build from source if you want to contribute.
 
-[Download](#download) · [Features](#features) · [Build From Source](#build-from-source) · [License](#license)
+[Install](#install) · [Features](#features) · [Build From Source](#build-from-source) · [License](#license)
 
-## Download
+## Install
 
-Kurotty is intended to ship as a prebuilt macOS app so normal users do not need to clone the repository or install build tools.
+Download the latest alpha `.zip` from [GitHub Releases](https://github.com/skyepodium/kurotty/releases), verify the checksum, and move `kurotty.app` to `/Applications`.
 
-When the first public release is available, download the latest `.dmg` or `.zip` from [GitHub Releases](https://github.com/skyepodium/kurotty/releases), verify the checksum, and move `kurotty.app` to `/Applications`.
+Current alpha asset name:
+
+- `kurotty-0.1.0-alpha.1-macos.zip`
+- `SHA256SUMS`
 
 ```sh
 shasum -a 256 -c SHA256SUMS
+unzip kurotty-0.1.0-alpha.1-macos.zip
+mv kurotty.app /Applications/
+open /Applications/kurotty.app
 ```
 
-Planned release assets:
+Notes:
 
-- signed universal macOS app for Apple Silicon and Intel Macs
-- `.dmg` or `.zip` download
-- `SHA256SUMS` checksum file
+- This is an alpha build.
+- The app is ad-hoc signed for local execution, not notarized yet.
+- macOS may ask you to confirm opening a downloaded app.
 
 ## Features
 
@@ -48,7 +54,7 @@ Kurotty shows OSC 9 messages as macOS `Alert` notifications with the app icon an
 
 ## Build From Source
 
-This path is for contributors and local testing until packaged releases are available.
+This path is for contributors and local testing.
 
 Requirements:
 
@@ -69,6 +75,12 @@ To install a local app bundle:
 ```sh
 ./scripts/install-app.sh
 open /Applications/kurotty.app
+```
+
+To create the same release zip locally:
+
+```sh
+./scripts/package-release.sh 0.1.0-alpha.1
 ```
 
 Developer notes live in `docs/`.
