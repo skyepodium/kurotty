@@ -1043,7 +1043,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle {
         guard !currentStyle.inverse,
               currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background),
-              let existingBackground = existingNonDefaultBackground(row: row, column: column, width: width)
+              let existingBackground = existingPersistentBackground(row: row, column: column, width: width)
         else {
             return currentStyle
         }
@@ -1055,18 +1055,38 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return style
     }
 
-    private func existingNonDefaultBackground(row: Int, column: Int, width: Int) -> SIMD4<Float>? {
+    private func existingPersistentBackground(row: Int, column: Int, width: Int) -> SIMD4<Float>? {
         guard screen.cells.indices.contains(row), column >= 0, column < screen.columns else {
             return nil
         }
         let upper = min(screen.columns - 1, column + max(1, width) - 1)
+        var preservedBackground: SIMD4<Float>?
         for targetColumn in column...upper {
-            let background = screen.cells[row][targetColumn].style.effectiveBackground
-            if !background.sameColor(as: terminalDefaultStyle.background) {
-                return background
+            let existingStyle = screen.cells[row][targetColumn].style
+            let background = existingStyle.effectiveBackground
+            guard !background.sameColor(as: terminalDefaultStyle.background) else {
+                continue
             }
+            guard shouldPreserveExistingBackground(existingStyle) else {
+                return nil
+            }
+            preservedBackground = background
         }
-        return nil
+        return preservedBackground
+    }
+
+    private func shouldPreserveExistingBackground(_ style: TerminalTextStyle) -> Bool {
+        guard !style.inverse else {
+            return false
+        }
+        let existingLuminance = style.effectiveBackground.perceivedLuminance
+        let defaultLuminance = terminalDefaultStyle.background.perceivedLuminance
+        // Preserve durable TUI row backgrounds, such as Codex's light input bar,
+        // without carrying transient reverse-video paste highlights forward.
+        if defaultLuminance > 0.5 {
+            return existingLuminance > 0.5
+        }
+        return existingLuminance < 0.5
     }
 
     private func lineFeed() {
@@ -2161,6 +2181,10 @@ private extension String {
 private extension SIMD4 where Scalar == Float {
     func sameColor(as other: SIMD4<Float>) -> Bool {
         x == other.x && y == other.y && z == other.z && w == other.w
+    }
+
+    var perceivedLuminance: Float {
+        x * 0.2126 + y * 0.7152 + z * 0.0722
     }
 
     var debugRGB: String {
