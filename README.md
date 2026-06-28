@@ -4,6 +4,10 @@
   <img src="kurotty.png" alt="Kurotty" width="400" height="400">
 </p>
 
+<p align="center">
+  <img src="kurotty-preview.gif" alt="Kurotty preview" width="700">
+</p>
+
 Kurotty is a macOS-first terminal emulator built with Swift/AppKit, Zig, and Metal.
 
 Kurotty is currently an early developer build. Public packaged releases are not available yet.
