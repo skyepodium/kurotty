@@ -1044,13 +1044,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("override func drawDivider(in rect: NSRect)"))
         XCTAssertTrue(splitSource.contains("DesignTokens.Color.divider.setFill()"))
         XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
-        XCTAssertTrue(splitSource.contains("let position = totalLength * CGFloat(dividerIndex + 1) / CGFloat(count)"))
+        XCTAssertTrue(splitSource.contains("let dividerLength = dividerThickness * CGFloat(count - 1)"))
+        XCTAssertTrue(splitSource.contains("let paneLength = (totalLength - dividerLength) / CGFloat(count)"))
+        XCTAssertTrue(splitSource.contains("let position = paneLength * CGFloat(dividerIndex + 1) + dividerThickness * CGFloat(dividerIndex)"))
         XCTAssertTrue(splitSource.contains("private func splitGroupAsUnit(axis: NSLayoutConstraint.Orientation) -> Bool"))
         XCTAssertTrue(splitSource.contains("guard arrangedSubviews.count > 1, isVertical != (axis == .vertical) else"))
         XCTAssertTrue(splitSource.contains("let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil)"))
         XCTAssertTrue(splitSource.contains("moveCurrentArrangedSubviews(to: existingGroup)"))
         XCTAssertTrue(splitSource.contains("addArrangedSubview(existingGroup)"))
         XCTAssertTrue(splitSource.contains("addArrangedSubview(newPane)"))
+        XCTAssertTrue(splitSource.contains("arrangedSubviews.allSatisfy({ $0 is TerminalPaneView })"))
 
         let paneSource = try terminalPaneViewSource()
         XCTAssertTrue(paneSource.contains("private let chromeView = PaneChromeView()"))
@@ -1080,6 +1083,30 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("func setChromeVisible(_ isVisible: Bool)"))
         XCTAssertTrue(paneSource.contains("func setChromeActive(_ isActive: Bool)"))
         XCTAssertTrue(paneSource.contains("@objc private func closeButtonPressed(_ sender: NSButton)"))
+    }
+
+    func testNestedSplitRebalancesAfterItReceivesBounds() throws {
+        let splitSource = try splitTerminalViewSource()
+
+        XCTAssertTrue(splitSource.contains("private var needsInitialRebalance = false"))
+        XCTAssertTrue(splitSource.contains("override func layout()"))
+        XCTAssertTrue(splitSource.contains("if needsInitialRebalance"))
+        XCTAssertTrue(splitSource.contains("needsInitialRebalance = false"))
+        XCTAssertTrue(splitSource.contains("nestedSplit.needsInitialRebalance = true"))
+        XCTAssertTrue(splitSource.contains("nestedSplit.rebalanceDividers()"))
+    }
+
+    func testNestedPaneCloseCollapsesRedundantSplitWrappers() throws {
+        let splitSource = try splitTerminalViewSource()
+
+        XCTAssertTrue(splitSource.contains("private func rootSplitView() -> SplitTerminalView"))
+        XCTAssertTrue(splitSource.contains("rootSplitView().closePaneFromChrome(pane)"))
+        XCTAssertTrue(splitSource.contains("private func closePaneFromChrome(_ pane: TerminalPaneView)"))
+        XCTAssertTrue(splitSource.contains("private func remove(_ pane: TerminalPaneView) -> Bool"))
+        XCTAssertTrue(splitSource.contains("collapseChildSplitIfNeeded(splitView, at: index)"))
+        XCTAssertTrue(splitSource.contains("private func collapseChildSplitIfNeeded(_ splitView: SplitTerminalView, at index: Int)"))
+        XCTAssertTrue(splitSource.contains("guard splitView.arrangedSubviews.count == 1 else"))
+        XCTAssertTrue(splitSource.contains("insertArrangedSubview(remainingSubview, at: min(index, arrangedSubviews.count))"))
     }
 
     func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
