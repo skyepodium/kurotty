@@ -585,6 +585,18 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
     }
 
+    func testPtyOutputIsCoalescedBeforeRenderingToAvoidTransientClearedRows() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private var pendingOutputText = \"\""))
+        XCTAssertTrue(source.contains("private var isOutputFlushScheduled = false"))
+        XCTAssertTrue(source.contains("self?.enqueueOutput(text)"))
+        XCTAssertTrue(source.contains("private func enqueueOutput(_ text: String)"))
+        XCTAssertTrue(source.contains("DispatchQueue.main.asyncAfter"))
+        XCTAssertTrue(source.contains("appendOutput(text)"))
+        XCTAssertFalse(source.contains("self?.appendOutput(text)"))
+    }
+
     func testEraseLineUsesActiveStyleForClearedCells() throws {
         let source = try terminalSurfaceViewSource()
 

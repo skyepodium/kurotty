@@ -106,6 +106,7 @@ enum DesignTokens {
         static let radiusSmallPX: CGFloat = 6
         static let radiusMediumPX: CGFloat = 8
         static let hairlinePX: CGFloat = 1
+        static let ptyOutputCoalescingDelaySeconds: TimeInterval = 0.006
     }
 }
 
