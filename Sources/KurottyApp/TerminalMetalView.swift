@@ -978,14 +978,20 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         let runs = CTLineGetGlyphRuns(line) as NSArray
         var drewAnyPath = false
         for runValue in runs {
-            let run = runValue as! CTRun
+            guard CFGetTypeID(runValue as CFTypeRef) == CTRunGetTypeID() else {
+                return false
+            }
+            let run = unsafeDowncast(runValue as AnyObject, to: CTRun.self)
             let glyphCount = CTRunGetGlyphCount(run)
             guard glyphCount > 0 else { continue }
             let attributes = CTRunGetAttributes(run) as NSDictionary
             guard let fontValue = attributes[kCTFontAttributeName as String] else {
                 return false
             }
-            let runFont = fontValue as! CTFont
+            guard CFGetTypeID(fontValue as CFTypeRef) == CTFontGetTypeID() else {
+                return false
+            }
+            let runFont = unsafeDowncast(fontValue as AnyObject, to: CTFont.self)
             var glyphs = [CGGlyph](repeating: 0, count: glyphCount)
             var positions = [CGPoint](repeating: .zero, count: glyphCount)
             CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)

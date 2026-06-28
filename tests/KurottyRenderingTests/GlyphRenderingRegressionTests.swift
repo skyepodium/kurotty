@@ -747,11 +747,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let shellSource = try shellSessionSource()
 
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
+        XCTAssertTrue(shellSource.contains("func start(workingDirectory requestedWorkingDirectory: String)"))
+        XCTAssertTrue(shellSource.contains("let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)"))
+        XCTAssertTrue(shellSource.contains("runChildShell(workingDirectory: workingDirectory)"))
         XCTAssertFalse(shellSource.contains("AppConstants.Shell.defaultWorkingDirectory"))
         XCTAssertFalse(shellSource.contains("strdup(\"-f\")"))
         XCTAssertFalse(shellSource.contains("setenv(\"ZDOTDIR\","))
         XCTAssertFalse(shellSource.contains("zshrcContents"))
         XCTAssertTrue(shellSource.contains("setenv(\"HISTFILE\""))
+        XCTAssertTrue(shellSource.contains("if chdir(workingDirectory) == 0"))
+        XCTAssertTrue(shellSource.contains("actualWorkingDirectory = homeDirectory"))
+        XCTAssertTrue(shellSource.contains("setenv(\"PWD\", actualWorkingDirectory, 1)"))
         XCTAssertTrue(shellSource.contains("let shellName = URL(fileURLWithPath: shell).lastPathComponent"))
         XCTAssertTrue(shellSource.contains("strdup(\"-\\(shellName)\")"))
         XCTAssertTrue(shellSource.contains("let interactive = strdup(\"-i\")"))
@@ -768,7 +774,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
 
         let settingsSource = try appSettingsSource()
-        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 4"))
+        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 5"))
+        XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
+        XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
+        XCTAssertTrue(settingsSource.contains("struct ShellSettings: Codable, Equatable"))
+        XCTAssertTrue(settingsSource.contains("var workingDirectory: String"))
+        XCTAssertTrue(settingsSource.contains("decodeIfPresent(ShellSettings.self, forKey: .shell) ?? .default"))
+        XCTAssertFalse(settingsSource.contains("next.shell.workingDirectory = ShellSettings.normalizedWorkingDirectory(next.shell.workingDirectory)"))
         XCTAssertTrue(settingsSource.contains("var theme: String"))
         XCTAssertTrue(settingsSource.contains("TerminalThemePreset.lighttyName"))
         XCTAssertTrue(settingsSource.contains("static let lightty = TerminalColorSettings"))
@@ -786,6 +798,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("normalizeTheme(&next)"))
 
         let surfaceSource = try terminalSurfaceViewSource()
+        XCTAssertTrue(surfaceSource.contains("shell.start(workingDirectory: settings.shell.workingDirectory)"))
         XCTAssertTrue(surfaceSource.contains("dimmed(weighted, against: background)"))
         XCTAssertTrue(surfaceSource.contains("luminance(background) > 0.5"))
         XCTAssertTrue(surfaceSource.contains("dimBlendAmount(for: color)"))
@@ -819,6 +832,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("AppSettingsStore.didChangeNotification"))
         XCTAssertTrue(windowSource.contains("@objc private func settingsDidChange(_ notification: Notification)"))
         XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
+    }
+
+    func testSettingsEditorAvoidsUnboundedTextLayout() throws {
+        let preferencesSource = try preferencesWindowControllerSource()
+
+        XCTAssertTrue(preferencesSource.contains("textView.isHorizontallyResizable = false"))
+        XCTAssertTrue(preferencesSource.contains("textView.textContainer?.widthTracksTextView = true"))
+        XCTAssertTrue(preferencesSource.contains("textView.textContainer?.heightTracksTextView = false"))
+        XCTAssertFalse(preferencesSource.contains("textContainer?.containerSize = NSSize(\n            width: CGFloat.greatestFiniteMagnitude"))
     }
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
@@ -940,11 +962,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()
+        let routerSource = try terminalTextInputRouterSource()
 
         XCTAssertTrue(surfaceSource.contains("case #selector(cancelOperation(_:)):\n            resetMarkedTextForInputSourceChange()\n            send(\"\\u{1b}\")"))
         XCTAssertTrue(inputSource.contains("case #selector(cancelOperation(_:)):\n            resetMarkedTextForInputSourceChange()\n            core.feed(\"\\u{1b}\")"))
-        XCTAssertTrue(surfaceSource.contains("case 0x5b:\n        return \"\\u{1b}\""))
-        XCTAssertTrue(inputSource.contains("case 0x5b:\n        return \"\\u{1b}\""))
+        XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
+        XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
+        XCTAssertTrue(routerSource.contains("case 0x5b:\n            return \"\\u{1b}\""))
     }
 
     func testSplitViewTargetsActivePaneAndRebalancesDividers() throws {
@@ -1320,6 +1344,12 @@ private func mainMenuSource() throws -> String {
 private func appSettingsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func preferencesWindowControllerSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/PreferencesWindowController.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

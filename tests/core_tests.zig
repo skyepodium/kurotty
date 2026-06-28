@@ -92,6 +92,16 @@ test "parser handles SGR reset variants and colon color parameters" {
     try std.testing.expectEqualSlices(u16, &.{ 38, 2, 0, 1, 2, 3 }, events[2].csi.params);
 }
 
+test "parser rejects overflowing CSI parameters instead of silently defaulting" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    try std.testing.expectError(error.Overflow, parser.feed("\x1b[999999999999m"));
+}
+
 test "parser preserves private cursor and report CSI sequences across fragments" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -200,6 +210,29 @@ test "grid applies absolute cursor, line erase, insert, delete, and alternate sc
     try std.testing.expectEqualStrings("ab   ", grid.rowText(0));
 }
 
+test "grid rejects zero dimensions before allocation and cursor math" {
+    try std.testing.expectError(error.InvalidDimensions, core.Grid.init(std.testing.allocator, 0, 3));
+    try std.testing.expectError(error.InvalidDimensions, core.Grid.init(std.testing.allocator, 3, 0));
+}
+
+test "grid restores alternate screen deterministically after resize" {
+    var grid = try core.Grid.init(std.testing.allocator, 3, 2);
+    defer grid.deinit();
+
+    try grid.write("abcdef");
+    try grid.enterAlternateScreen();
+    try grid.write("xyz");
+    try grid.resize(5, 3);
+
+    grid.leaveAlternateScreen();
+
+    try std.testing.expectEqual(@as(usize, 5), grid.width);
+    try std.testing.expectEqual(@as(usize, 3), grid.height);
+    try std.testing.expectEqualStrings("abc  ", grid.rowText(0));
+    try std.testing.expectEqualStrings("def  ", grid.rowText(1));
+    try std.testing.expectEqualStrings("     ", grid.rowText(2));
+}
+
 test "scrollback keeps line addresses with bounded lookup" {
     const line_count = 10_000;
     var scrollback = try core.Scrollback.init(std.testing.allocator, line_count);
@@ -231,6 +264,10 @@ test "scrollback churns past capacity and releases evicted lines" {
     try std.testing.expectEqualStrings("line-3968-payload", scrollback.lineAt(0));
     try std.testing.expectEqualStrings("line-4095-payload", scrollback.lineAt(capacity - 1));
     try std.testing.expect(scrollback.bytesUsed() < 32 * 1024);
+}
+
+test "scrollback rejects zero capacity instead of growing unbounded" {
+    try std.testing.expectError(error.InvalidCapacity, core.Scrollback.init(std.testing.allocator, 0));
 }
 
 test "metrics records input to present latency samples" {

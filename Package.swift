@@ -18,7 +18,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "KurottyRenderingTests"
+            name: "KurottyRenderingTests",
+            dependencies: ["KurottyApp"]
         ),
     ]
 )

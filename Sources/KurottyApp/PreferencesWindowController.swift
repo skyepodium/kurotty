@@ -64,11 +64,11 @@ final class PreferencesView: NSView {
         let scrollView = NSScrollView()
         scrollView.borderType = .bezelBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = textView
 
-        textView.autoresizingMask = [.width]
+        textView.autoresizingMask = [.width, .height]
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -76,11 +76,14 @@ final class PreferencesView: NSView {
         textView.font = .monospacedSystemFont(ofSize: Layout.editorFontSize, weight: .regular)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
         textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
+            width: scrollView.contentSize.width,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
 
         saveButton.target = self
         saveButton.action = #selector(saveToDisk)

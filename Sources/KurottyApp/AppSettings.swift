@@ -5,6 +5,7 @@ struct AppSettings: Codable, Equatable {
     var schemaVersion: Int?
     var terminal: TerminalSettings
     var window: WindowSettings
+    var shell: ShellSettings
 
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
@@ -18,28 +19,34 @@ struct AppSettings: Codable, Equatable {
         window: WindowSettings(
             width: Defaults.windowWidth,
             height: Defaults.windowHeight
+        ),
+        shell: ShellSettings(
+            workingDirectory: Defaults.shellWorkingDirectory
         )
     )
 
     private enum Defaults {
-        static let schemaVersion = 4
+        static let schemaVersion = 5
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
         static let windowWidth = 1100.0
         static let windowHeight = 720.0
+        static let shellWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case terminal
         case window
+        case shell
     }
 
-    init(schemaVersion: Int?, terminal: TerminalSettings, window: WindowSettings) {
+    init(schemaVersion: Int?, terminal: TerminalSettings, window: WindowSettings, shell: ShellSettings) {
         self.schemaVersion = schemaVersion
         self.terminal = terminal
         self.window = window
+        self.shell = shell
     }
 
     init(from decoder: Decoder) throws {
@@ -47,9 +54,11 @@ struct AppSettings: Codable, Equatable {
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
         terminal = try container.decode(TerminalSettings.self, forKey: .terminal)
         window = try container.decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default
+        shell = try container.decodeIfPresent(ShellSettings.self, forKey: .shell) ?? .default
     }
 }
 
+/// Live-applied to existing terminal surfaces when settings change.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -83,11 +92,37 @@ struct TerminalSettings: Codable, Equatable {
     }
 }
 
+/// Launch/default-window size; existing windows may apply it when settings are reloaded.
 struct WindowSettings: Codable, Equatable {
     var width: Double
     var height: Double
 
     static let `default` = WindowSettings(width: 1100, height: 720)
+}
+
+/// Launch-only default for new shell sessions; filesystem validation happens at shell launch.
+struct ShellSettings: Codable, Equatable {
+    var workingDirectory: String
+
+    static let `default` = ShellSettings(
+        workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+    )
+
+    static func normalizedWorkingDirectory(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return Self.default.workingDirectory
+        }
+
+        let expanded = NSString(string: trimmed).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            return Self.default.workingDirectory
+        }
+        return expanded
+    }
 }
 
 struct TerminalColorSettings: Codable, Equatable {
@@ -221,13 +256,13 @@ final class AppSettingsStore {
         static let applicationSupportDirectoryName = "Application Support"
     }
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, settingsURL: URL? = nil) {
         self.fileManager = fileManager
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         decoder = JSONDecoder()
 
-        settingsURL = Self.defaultSettingsURL(fileManager: fileManager)
+        self.settingsURL = settingsURL ?? Self.defaultSettingsURL(fileManager: fileManager)
     }
 
     func loadRawJSON() throws -> String {

@@ -7,6 +7,7 @@ pub const Scrollback = struct {
     byte_count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !Scrollback {
+        if (capacity == 0) return error.InvalidCapacity;
         var lines: std.ArrayList([]u8) = .empty;
         try lines.ensureTotalCapacity(allocator, @min(capacity, 4096));
         return .{

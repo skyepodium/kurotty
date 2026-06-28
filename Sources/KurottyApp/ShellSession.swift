@@ -24,9 +24,9 @@ final class ShellSession: @unchecked Sendable {
     private var isStopping = false
     private var pendingOutput = Data()
 
-    func start() {
+    func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
-        isStarted = true
+        let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)
 
         var fd: Int32 = -1
         var size = winsize(
@@ -44,8 +44,9 @@ final class ShellSession: @unchecked Sendable {
             return
         }
 
+        isStarted = true
         if pid == 0 {
-            runChildShell()
+            runChildShell(workingDirectory: workingDirectory)
             _exit(127)
         }
 
@@ -96,8 +97,12 @@ final class ShellSession: @unchecked Sendable {
 
     func stop() {
         isStopping = true
-        readSource?.cancel()
-        readSource = nil
+        if let readSource {
+            readSource.cancel()
+            self.readSource = nil
+        } else if master >= 0 {
+            close(master)
+        }
         waitSource?.cancel()
         waitSource = nil
         if childPid > 0 {
@@ -106,10 +111,7 @@ final class ShellSession: @unchecked Sendable {
             _ = waitpid(childPid, &status, WNOHANG)
             childPid = -1
         }
-        if master >= 0 {
-            close(master)
-            master = -1
-        }
+        master = -1
     }
 
     private func observeMaster(_ fd: Int32) {
@@ -224,19 +226,26 @@ final class ShellSession: @unchecked Sendable {
     }
 }
 
-private func runChildShell() {
+private func runChildShell(workingDirectory: String) {
     let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    let actualWorkingDirectory: String
+    if chdir(workingDirectory) == 0 {
+        actualWorkingDirectory = workingDirectory
+    } else {
+        _ = chdir(homeDirectory)
+        actualWorkingDirectory = homeDirectory
+    }
+
     setenv("TERM", AppConstants.Shell.term, 1)
     setenv("COLORTERM", AppConstants.Shell.colorTerm, 1)
     unsetenv("NO_COLOR")
     unsetenv("ZDOTDIR")
-    setenv("PWD", homeDirectory, 1)
+    setenv("PWD", actualWorkingDirectory, 1)
     setenv("HOME", homeDirectory, 1)
     setenv("HISTFILE", "\(homeDirectory)/.zsh_history", 1)
     setenv("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD", "true", 1)
     setenv("ZSH_DISABLE_COMPFIX", "true", 1)
-    chdir(homeDirectory)
 
     shell.withCString { shellPath in
         let shellName = URL(fileURLWithPath: shell).lastPathComponent

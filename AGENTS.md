@@ -36,6 +36,9 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - User-editable settings must be modeled as versioned JSON, not scattered `UserDefaults` keys.
 - The canonical user settings file is `Application Support/Kurotty/settings.json`.
 - Settings need typed defaults, schema versioning, validation, and migration rules before they affect rendering, shell, or PTY behavior.
+- Every settings key must declare its lifecycle contract: live-applied, next-session, or launch-only.
+- Do not store per-session shell launch state in the global settings JSON unless it is explicitly an app-wide default. Session state belongs with the pane or shell lifecycle.
+- Do not perform filesystem existence checks during settings load/save on the main actor. Validation that touches the filesystem must be isolated from UI-thread config serialization or deferred to the launch boundary.
 - Keep settings keys stable and documented. Rename keys only with a migration path.
 - Do not persist secrets, raw terminal output, pasted text, command history, or environment dumps in settings.
 
@@ -88,6 +91,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 ## Testing And Verification
 
 - Run the smallest relevant gate first, then broaden before claiming completion.
+- Source-shape tests may guard wiring and regressions, but do not prove behavior by themselves. Pair them with executable behavior tests, integration tests, or documented manual evidence before claiming a user-visible fix.
 - Zig parser/grid/scrollback/metrics/renderer changes require `zig build test`.
 - Zig ABI, build, or package changes require `zig build`.
 - Performance-sensitive Zig changes require `zig build bench`; scrollback changes also require `zig build stress-scrollback`.

@@ -7,6 +7,7 @@ private typealias DestroyFn = @convention(c) (TerminalHandle?) -> Void
 private typealias FeedFn = @convention(c) (TerminalHandle?, UnsafePointer<UInt8>, Int) -> Int
 private typealias TimestampFn = @convention(c) (TerminalHandle?, UInt64) -> Void
 private typealias LastLatencyFn = @convention(c) (TerminalHandle?) -> UInt64
+private typealias LastErrorFn = @convention(c) (TerminalHandle?) -> UInt32
 private typealias MarkDamageFn = @convention(c) (TerminalHandle?, UInt32, UInt32, UInt32, UInt32) -> Void
 private typealias BeginFrameFn = @convention(c) (TerminalHandle?, UInt32) -> UInt32
 private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
@@ -81,6 +82,7 @@ private struct CoreSymbols {
     let recordKey: TimestampFn
     let recordPresent: TimestampFn
     let lastLatency: LastLatencyFn
+    let lastError: LastErrorFn
     let markDamage: MarkDamageFn
     let beginFrame: BeginFrameFn
     let endFrame: EndFrameFn
@@ -105,6 +107,7 @@ private struct CoreSymbols {
             let recordKey: TimestampFn = symbol(dylib, "kurotty_terminal_record_key"),
             let recordPresent: TimestampFn = symbol(dylib, "kurotty_terminal_record_present"),
             let lastLatency: LastLatencyFn = symbol(dylib, "kurotty_terminal_last_latency"),
+            let lastError: LastErrorFn = symbol(dylib, "kurotty_terminal_last_error"),
             let markDamage: MarkDamageFn = symbol(dylib, "kurotty_terminal_mark_damage"),
             let beginFrame: BeginFrameFn = symbol(dylib, "kurotty_terminal_begin_frame"),
             let endFrame: EndFrameFn = symbol(dylib, "kurotty_terminal_end_frame"),
@@ -123,6 +126,7 @@ private struct CoreSymbols {
             recordKey: recordKey,
             recordPresent: recordPresent,
             lastLatency: lastLatency,
+            lastError: lastError,
             markDamage: markDamage,
             beginFrame: beginFrame,
             endFrame: endFrame,
