@@ -6,6 +6,8 @@ final class SplitTerminalView: NSSplitView {
         let rect: NSRect
     }
 
+    private var needsInitialRebalance = false
+
     override var dividerThickness: CGFloat {
         DesignTokens.Component.terminalSplitDividerHitAreaPX
     }
@@ -25,6 +27,14 @@ final class SplitTerminalView: NSSplitView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func layout() {
+        super.layout()
+        if needsInitialRebalance {
+            needsInitialRebalance = false
+            rebalanceDividers()
+        }
     }
 
     override func drawDivider(in rect: NSRect) {
@@ -95,15 +105,10 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func closeActivePane() -> Bool {
-        guard paneCount > 1 else {
-            return false
-        }
         guard let pane = activePane() else {
             return false
         }
-        remove(pane)
-        refreshPaneChrome()
-        return true
+        return closePaneFromChrome(pane)
     }
 
     private func splitActivePane(axis: NSLayoutConstraint.Orientation) -> Bool {
@@ -125,6 +130,9 @@ final class SplitTerminalView: NSSplitView {
         guard arrangedSubviews.count > 1, isVertical != (axis == .vertical) else {
             return false
         }
+        guard arrangedSubviews.allSatisfy({ $0 is TerminalPaneView }) else {
+            return false
+        }
         guard containsActivePane() else {
             return false
         }
@@ -141,6 +149,7 @@ final class SplitTerminalView: NSSplitView {
 
         // Orthogonal splits should preserve the current pane group as one unit:
         // left/right + horizontal split becomes top row with two panes, bottom row with one.
+        existingGroup.needsInitialRebalance = true
         existingGroup.rebalanceDividers()
         newPane.focusTerminal()
         return true
@@ -183,6 +192,12 @@ final class SplitTerminalView: NSSplitView {
         configurePane(newPane)
         nestedSplit.addArrangedSubview(newPane)
         insertArrangedSubview(nestedSplit, at: paneIndex)
+        // A nested split starts with zero or stale bounds until AppKit lays it
+        // out inside the parent. Mark it for one post-layout rebalance so a
+        // bottom pane split uses the bottom row's width instead of inheriting
+        // a tiny default divider position.
+        nestedSplit.needsInitialRebalance = true
+        nestedSplit.rebalanceDividers()
         nestedSplit.refreshPaneChrome()
     }
 
@@ -205,16 +220,32 @@ final class SplitTerminalView: NSSplitView {
             guard let self else {
                 return
             }
-            guard self.paneCount > 1 else {
-                return
-            }
-            self.remove(pane)
-            self.refreshPaneChrome()
-            self.focusFirstPane()
+            self.rootSplitView().closePaneFromChrome(pane)
         }
         pane.focusChanged = { [weak self] _ in
             self?.refreshPaneChrome()
         }
+    }
+
+    private func rootSplitView() -> SplitTerminalView {
+        var current = self
+        while let parent = current.superview as? SplitTerminalView {
+            current = parent
+        }
+        return current
+    }
+
+    @discardableResult
+    private func closePaneFromChrome(_ pane: TerminalPaneView) -> Bool {
+        guard paneCount > 1 else {
+            return false
+        }
+        guard remove(pane) else {
+            return false
+        }
+        refreshPaneChrome()
+        focusFirstPane()
+        return true
     }
 
     private func refreshPaneChrome() {
@@ -345,19 +376,44 @@ final class SplitTerminalView: NSSplitView {
         }
     }
 
-    private func remove(_ pane: TerminalPaneView) {
-        for subview in arrangedSubviews {
+    @discardableResult
+    private func remove(_ pane: TerminalPaneView) -> Bool {
+        for (index, subview) in arrangedSubviews.enumerated() {
             if subview === pane {
                 removeArrangedSubview(pane)
                 pane.removeFromSuperview()
-                return
+                rebalanceDividers()
+                return true
             }
             if let splitView = subview as? SplitTerminalView {
-                splitView.remove(pane)
-                splitView.rebalanceDividers()
+                guard splitView.remove(pane) else {
+                    continue
+                }
+                collapseChildSplitIfNeeded(splitView, at: index)
+                rebalanceDividers()
+                return true
             }
         }
-        rebalanceDividers()
+        return false
+    }
+
+    private func collapseChildSplitIfNeeded(_ splitView: SplitTerminalView, at index: Int) {
+        if splitView.arrangedSubviews.isEmpty {
+            removeArrangedSubview(splitView)
+            splitView.removeFromSuperview()
+            return
+        }
+
+        guard splitView.arrangedSubviews.count == 1 else {
+            return
+        }
+
+        let remainingSubview = splitView.arrangedSubviews[0]
+        splitView.removeArrangedSubview(remainingSubview)
+        remainingSubview.removeFromSuperview()
+        removeArrangedSubview(splitView)
+        splitView.removeFromSuperview()
+        insertArrangedSubview(remainingSubview, at: min(index, arrangedSubviews.count))
     }
 
     private func rebalanceDividers() {
@@ -371,8 +427,12 @@ final class SplitTerminalView: NSSplitView {
         guard totalLength > 0 else {
             return
         }
+        // NSSplitView dividers consume layout space. Compute pane lengths from
+        // the usable content span so divider hit areas do not skew visual halves.
+        let dividerLength = dividerThickness * CGFloat(count - 1)
+        let paneLength = (totalLength - dividerLength) / CGFloat(count)
         for dividerIndex in 0..<(count - 1) {
-            let position = totalLength * CGFloat(dividerIndex + 1) / CGFloat(count)
+            let position = paneLength * CGFloat(dividerIndex + 1) + dividerThickness * CGFloat(dividerIndex)
             setPosition(position, ofDividerAt: dividerIndex)
         }
     }
