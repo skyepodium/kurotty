@@ -84,5 +84,7 @@ if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -f "$INSTALLED_APP" >/dev/null 2>&1 || true
 fi
 
+"$ROOT_DIR/scripts/verify-icon-bundle.sh" "$INSTALLED_APP"
+
 echo "Installed $INSTALLED_APP"
 echo "Open it with: open '$INSTALLED_APP'"
