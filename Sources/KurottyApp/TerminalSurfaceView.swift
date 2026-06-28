@@ -615,7 +615,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: CGPoint(x: padding.left, y: padding.top)
         ))
-        detectCodexTaskStateInScreen(rows: rowsToRender)
+        detectCodexTaskStateInScreen(rows: liveRowsForTaskDetection())
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
     }
@@ -829,27 +829,54 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
-        if screenText.contains("Working (") {
+        if isCodexBusyScreen(screenText) {
             codexTaskIsRunning = true
             lastCodexPromptSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
             return
         }
 
         guard codexTaskIsRunning,
-              screenText.contains("Ready") || screenText.contains("No changes")
+              isCodexIdleScreen(screenText, lines: lines)
         else {
             return
         }
-        codexTaskIsRunning = false
         // Codex does not emit OSC 9 on task completion, so Kurotty detects the
         // stable TUI status transition from the parsed screen model instead of
         // relying on fragile raw PTY chunk boundaries.
+        let hasExplicitCompletionStatus = hasCodexExplicitCompletionStatus(screenText)
         let completionSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
+        guard hasExplicitCompletionStatus || completionSummary != nil else {
+            // A stale busy flag can survive a clipped split-pane status transition.
+            // Do not notify for a fresh Codex start screen unless it has an explicit
+            // completion status or a real answer line.
+            codexTaskIsRunning = false
+            lastCodexPromptSummary = nil
+            return
+        }
+        codexTaskIsRunning = false
         notifier.notifyCodexTaskCompleted(
             sessionTitle: displayTitle(),
             promptSummary: completionSummary
         )
         lastCodexPromptSummary = nil
+    }
+
+    private func isCodexBusyScreen(_ screenText: String) -> Bool {
+        screenText.contains("Working (") || screenText.contains(" esc to interrupt)")
+    }
+
+    private func isCodexIdleScreen(_ screenText: String, lines: [String]) -> Bool {
+        if hasCodexExplicitCompletionStatus(screenText) {
+            return true
+        }
+        // Narrow split panes can clip Codex's trailing status token. After a
+        // known busy frame, the stable input placeholder is the reliable idle
+        // marker that remains visible near the left edge.
+        return lines.contains(where: isCodexIdlePromptLine)
+    }
+
+    private func hasCodexExplicitCompletionStatus(_ screenText: String) -> Bool {
+        screenText.contains("Ready") || screenText.contains("No changes")
     }
 
     private func extractCodexCompletionSummary(from rows: [[TerminalScreenCell]]) -> String? {
@@ -885,13 +912,26 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if line.hasPrefix("Using ") || line.hasPrefix("Read ") || line.hasPrefix("Ran ") || line.hasPrefix("Edited ") {
             return true
         }
-        if line.hasPrefix("Working (") || line.contains(" esc to interrupt)") {
+        if isCodexBusyScreen(line) {
+            return true
+        }
+        if isCodexUsageGuidanceLine(line) {
             return true
         }
         if line.contains("Ready") || line.contains("No changes") || line.hasPrefix("gpt-") {
             return true
         }
-        return [
+        return isCodexIdlePromptLine(line)
+    }
+
+    private func isCodexUsageGuidanceLine(_ line: String) -> Bool {
+        line.contains("usage limit resets")
+            || line.contains("Run /usage to use one")
+            || line == "use one."
+    }
+
+    private func isCodexIdlePromptLine(_ line: String) -> Bool {
+        [
             "Find and fix a bug in @filename",
             "Write tests for @filename",
             "Implement {feature}",
@@ -1032,6 +1072,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             rows.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: screen.columns), count: visibleCount - rows.count))
         }
         return rows
+    }
+
+    private func liveRowsForTaskDetection() -> [[TerminalScreenCell]] {
+        // Codex completion detection must read the live terminal model, not the
+        // scrollback-adjusted render rows. If the user scrolls up while Codex is
+        // working, rendered rows can hide the live "Working" -> "Ready" status
+        // transition and suppress the macOS completion notification.
+        screen.cells
     }
 
     private func terminalMetrics() -> TerminalMetrics {
