@@ -68,10 +68,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installApplicationIcon() {
-        guard let url = Bundle.module.url(
+        let installedIconURL = Bundle.main.url(
+            forResource: AppConstants.Bundle.iconResourceName,
+            withExtension: AppConstants.Bundle.installedIconExtension
+        )
+        let bundledIconURL = Bundle.module.url(
             forResource: AppConstants.Bundle.iconResourceName,
             withExtension: AppConstants.Bundle.iconResourceExtension
-        ),
+        )
+        guard let url = installedIconURL ?? bundledIconURL,
               let image = NSImage(contentsOf: url)
         else {
             return

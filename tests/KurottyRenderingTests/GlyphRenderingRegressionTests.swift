@@ -1155,6 +1155,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(readmeSource.contains("iTerm2-compatible notifications"))
         XCTAssertTrue(readmeSource.contains("printf '\\e]9;Build finished\\a'"))
     }
+
+    func testInstalledAppUsesMultiResolutionIcnsForSystemIconSurfaces() throws {
+        let installSource = try installAppScriptSource()
+        let appDelegateSource = try appDelegateSource()
+        let constantsSource = try appConstantsSource()
+
+        XCTAssertTrue(installSource.contains("ICONSET_DIR=\"$APP_BUNDLE/Contents/Resources/kurotty.iconset\""))
+        XCTAssertTrue(installSource.contains("icon_16x16.png"))
+        XCTAssertTrue(installSource.contains("icon_512x512@2x.png"))
+        XCTAssertTrue(installSource.contains("iconutil -c icns \"$ICONSET_DIR\" -o \"$APP_BUNDLE/Contents/Resources/kurotty.icns\""))
+        XCTAssertTrue(installSource.contains("<string>kurotty.icns</string>"))
+        XCTAssertTrue(installSource.contains("LaunchServices.framework/Support/lsregister"))
+        XCTAssertTrue(installSource.contains("\"$LSREGISTER\" -f \"$INSTALLED_APP\""))
+        XCTAssertTrue(appDelegateSource.contains("Bundle.main.url("))
+        XCTAssertTrue(appDelegateSource.contains("withExtension: AppConstants.Bundle.installedIconExtension"))
+        XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
+    }
 }
 
 private struct TestGlyphVertex {
@@ -1406,6 +1423,18 @@ private func terminalWindowControllerSource() throws -> String {
 private func appDelegateSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppDelegate.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func appConstantsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/AppConstants.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func installAppScriptSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("scripts/install-app.sh")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

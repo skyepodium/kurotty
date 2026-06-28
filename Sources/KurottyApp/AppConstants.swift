@@ -5,6 +5,7 @@ enum AppConstants {
         static let displayName = "kurotty"
         static let iconResourceName = "kurotty"
         static let iconResourceExtension = "png"
+        static let installedIconExtension = "icns"
         static let applicationIconSizePT: CGFloat = 50
     }
 
