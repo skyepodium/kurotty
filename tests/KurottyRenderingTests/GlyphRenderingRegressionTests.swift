@@ -1129,6 +1129,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("insertArrangedSubview(remainingSubview, at: min(index, arrangedSubviews.count))"))
     }
 
+    func testTerminalLinksActivateOnlyOnCommandHoverAndOpenWithConfirmation() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("private struct TerminalLinkRange: Equatable"))
+        XCTAssertTrue(surfaceSource.contains("override func mouseMoved(with event: NSEvent)"))
+        XCTAssertTrue(surfaceSource.contains("override func flagsChanged(with event: NSEvent)"))
+        XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
+        XCTAssertTrue(surfaceSource.contains("event.modifierFlags.contains(.command)"))
+        XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
+        XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
+        XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for link: TerminalLinkRange)"))
+        XCTAssertTrue(surfaceSource.contains("NSWorkspace.shared.open(url)"))
+        XCTAssertTrue(surfaceSource.contains("messageText = \"Open Link?\""))
+    }
+
     func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
         let metalSource = try terminalMetalViewSource()
 

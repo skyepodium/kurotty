@@ -127,6 +127,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
+    private var terminalTrackingArea: NSTrackingArea?
+    private var hoveredLinkRange: TerminalLinkRange?
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
@@ -231,6 +233,21 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override var canBecomeKeyView: Bool { true }
     override var isOpaque: Bool { true }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let terminalTrackingArea {
+            removeTrackingArea(terminalTrackingArea)
+        }
+        let nextTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(nextTrackingArea)
+        terminalTrackingArea = nextTrackingArea
+    }
+
     override func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
         if didBecomeFirstResponder {
@@ -258,10 +275,30 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        selectionAnchor = cellPosition(for: event)
+        let position = cellPosition(for: event)
+        if event.modifierFlags.contains(.command), let link = linkRange(at: position) {
+            clearSelection()
+            setHoveredLinkRange(link)
+            presentOpenLinkDialog(for: link)
+            return
+        }
+        selectionAnchor = position
         selectionFocus = nil
         markFullDamage()
         updateMetalFrame()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHoveredLinkRange(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredLinkRange(nil)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        updateHoveredLinkRange(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -537,6 +574,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .strikethrough,
                         color: cell.style.effectiveForeground
+                    ))
+                }
+                if hoveredLinkRange?.contains(row: row, column: column) == true {
+                    decorations.append(TerminalDecoration(
+                        column: column,
+                        row: row,
+                        width: max(1, cell.character.terminalColumnWidth),
+                        kind: .underline,
+                        color: TerminalLinkRange.hoverColor
                     ))
                 }
                 if cell.character != " " {
@@ -907,6 +953,59 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
         let row = max(0, min(metrics.size.rows - 1, rawRow))
         return TerminalCellPosition(row: row, column: column)
+    }
+
+    private func updateHoveredLinkRange(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command) else {
+            setHoveredLinkRange(nil)
+            return
+        }
+        setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
+    }
+
+    private func setHoveredLinkRange(_ nextRange: TerminalLinkRange?) {
+        guard hoveredLinkRange != nextRange else { return }
+        if let oldRange = hoveredLinkRange {
+            markDirty(row: oldRange.row)
+        }
+        hoveredLinkRange = nextRange
+        if let nextRange {
+            markDirty(row: nextRange.row)
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.iBeam.set()
+        }
+        updateMetalFrame()
+    }
+
+    private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange? {
+        let rowsToRender = visibleRowsForRendering(limit: terminalMetrics().size.rows)
+        guard rowsToRender.indices.contains(position.row) else { return nil }
+        return TerminalLinkRange.find(
+            in: rowsToRender[position.row],
+            row: position.row,
+            column: position.column
+        )
+    }
+
+    private func presentOpenLinkDialog(for link: TerminalLinkRange) {
+        guard let url = URL(string: link.urlString) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Open Link?"
+        alert.informativeText = link.urlString
+        alert.alertStyle = .informational
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Open in Browser")
+        alert.addButton(withTitle: "Cancel")
+
+        if let window {
+            alert.beginSheetModal(for: window) { response in
+                guard response == .alertFirstButtonReturn else { return }
+                NSWorkspace.shared.open(url)
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func clearSelection() {
@@ -1835,6 +1934,63 @@ private enum StreamState {
     case csi
     case osc
     case oscEscape
+}
+
+private struct TerminalLinkRange: Equatable {
+    static let hoverColor = SIMD4<Float>(0.22, 0.48, 0.90, 1)
+
+    private static let linkRegex = try! NSRegularExpression(pattern: #"https?://[^\s<>"'`]+"#)
+    private static let trailingPunctuation = CharacterSet(charactersIn: ".,;:!?)]}")
+
+    let row: Int
+    let startColumn: Int
+    let endColumn: Int
+    let urlString: String
+
+    func contains(row: Int, column: Int) -> Bool {
+        self.row == row && column >= startColumn && column < endColumn
+    }
+
+    static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
+        var text = ""
+        var columnsByCharacterOffset: [Int] = []
+        for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
+            text.append(cell.character)
+            columnsByCharacterOffset.append(cellColumn)
+        }
+        guard !text.isEmpty else { return nil }
+
+        let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        for match in linkRegex.matches(in: text, range: searchRange) {
+            guard let textRange = Range(match.range, in: text) else { continue }
+            var urlString = String(text[textRange])
+            while let scalar = urlString.unicodeScalars.last, trailingPunctuation.contains(scalar) {
+                urlString.removeLast()
+            }
+            guard !urlString.isEmpty else { continue }
+
+            let startOffset = text.distance(from: text.startIndex, to: textRange.lowerBound)
+            let endOffset = startOffset + urlString.count
+            guard startOffset >= 0,
+                  endOffset > startOffset,
+                  startOffset < columnsByCharacterOffset.count,
+                  endOffset - 1 < columnsByCharacterOffset.count else {
+                continue
+            }
+
+            let startColumn = columnsByCharacterOffset[startOffset]
+            let endColumn = columnsByCharacterOffset[endOffset - 1] + 1
+            if column >= startColumn && column < endColumn {
+                return TerminalLinkRange(
+                    row: row,
+                    startColumn: startColumn,
+                    endColumn: endColumn,
+                    urlString: urlString
+                )
+            }
+        }
+        return nil
+    }
 }
 
 private struct TerminalSize: Equatable {
