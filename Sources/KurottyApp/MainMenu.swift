@@ -8,6 +8,8 @@ enum MainMenu {
         let appMenuItem = NSMenuItem()
         appMenuItem.title = AppConstants.Bundle.displayName
         let appMenu = NSMenu(title: AppConstants.Bundle.displayName)
+        appMenu.addItem(NSMenuItem(title: "About \(AppConstants.Bundle.displayName)", action: #selector(AppDelegate.showAboutPanel), keyEquivalent: ""))
+        appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit \(AppConstants.Bundle.displayName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))

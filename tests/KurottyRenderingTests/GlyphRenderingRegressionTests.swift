@@ -874,6 +874,26 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
     }
 
+    func testAppMenuIncludesNativeAboutPanelWithVersionAndIcon() throws {
+        let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"About \\(AppConstants.Bundle.displayName)\", action: #selector(AppDelegate.showAboutPanel), keyEquivalent: \"\")"))
+        XCTAssertTrue(menuSource.contains("appMenu.addItem(.separator())"))
+
+        let appDelegateSource = try appDelegateSource()
+        XCTAssertTrue(appDelegateSource.contains("@objc func showAboutPanel()"))
+        XCTAssertTrue(appDelegateSource.contains("NSApp.orderFrontStandardAboutPanel(options:"))
+        XCTAssertTrue(appDelegateSource.contains(".applicationName: AppConstants.Bundle.displayName"))
+        XCTAssertTrue(appDelegateSource.contains("options[.applicationIcon] = image"))
+        XCTAssertTrue(appDelegateSource.contains(".version: AppConstants.Bundle.displayVersion(bundle: Bundle.main)"))
+
+        let constantsSource = try appConstantsSource()
+        XCTAssertTrue(constantsSource.contains("static let developmentVersion = \"0.1.0-alpha.2\""))
+        XCTAssertTrue(constantsSource.contains("static let developmentBuild = \"dev\""))
+        XCTAssertTrue(constantsSource.contains("static func displayVersion(bundle: Foundation.Bundle = .main) -> String"))
+        XCTAssertTrue(constantsSource.contains("CFBundleShortVersionString"))
+        XCTAssertTrue(constantsSource.contains("CFBundleVersion"))
+    }
+
     func testSettingsEditorAvoidsUnboundedTextLayout() throws {
         let preferencesSource = try preferencesWindowControllerSource()
 
@@ -1247,7 +1267,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("installed .icns must not be resized"))
         XCTAssertTrue(appDelegateSource.contains("Bundle.main.url("))
         XCTAssertTrue(appDelegateSource.contains("withExtension: AppConstants.Bundle.installedIconExtension"))
-        XCTAssertTrue(appDelegateSource.contains("if installedIconURL == nil"))
+        XCTAssertTrue(appDelegateSource.contains("if !loadedIcon.isInstalledIcon"))
         XCTAssertTrue(appDelegateSource.contains("Installed"))
         XCTAssertTrue(appDelegateSource.contains("do not inherit a"))
         XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
@@ -1266,9 +1286,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("ZIP_NAME=\"kurotty-$VERSION-macos.zip\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
-        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.1-macos.zip"))
+        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.2-macos.zip"))
         XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
-        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.1"))
+        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.2"))
     }
 }
 
@@ -1506,6 +1526,12 @@ private func appSettingsSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func appConstantsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/AppConstants.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func preferencesWindowControllerSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/PreferencesWindowController.swift")
@@ -1521,12 +1547,6 @@ private func terminalWindowControllerSource() throws -> String {
 private func appDelegateSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppDelegate.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func appConstantsSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/AppConstants.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

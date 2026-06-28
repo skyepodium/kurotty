@@ -7,6 +7,23 @@ enum AppConstants {
         static let iconResourceExtension = "png"
         static let installedIconExtension = "icns"
         static let applicationIconSizePT: CGFloat = 50
+        static let developmentVersion = "0.1.0-alpha.2"
+        static let developmentBuild = "dev"
+
+        static func displayVersion(bundle: Foundation.Bundle = .main) -> String {
+            let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            let displayVersion = nonEmpty(version) ?? developmentVersion
+            guard let displayBuild = nonEmpty(build) ?? (version == nil ? developmentBuild : nil) else {
+                return displayVersion
+            }
+            return "\(displayVersion) (\(displayBuild))"
+        }
+
+        private static func nonEmpty(_ value: String?) -> String? {
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
     }
 
     enum Terminal {
