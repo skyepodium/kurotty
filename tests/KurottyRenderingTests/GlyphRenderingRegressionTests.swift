@@ -441,8 +441,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.committedText(from: string)"))
         XCTAssertTrue(surfaceSource.contains("NSTextInputContext.keyboardSelectionDidChangeNotification"))
         XCTAssertTrue(inputSource.contains("NSTextInputContext.keyboardSelectionDidChangeNotification"))
-        XCTAssertTrue(surfaceSource.contains("inputContext?.discardMarkedText()"))
-        XCTAssertTrue(inputSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertFalse(surfaceSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertFalse(inputSource.contains("inputContext?.discardMarkedText()"))
+        XCTAssertTrue(surfaceSource.contains("re-enters\n        // AppKit/IMK synchronously"))
+        XCTAssertTrue(inputSource.contains("re-enter the IME service once per split pane"))
     }
 
     func testTextKeyDownIsConsumedByAppKitTextInterpreterWithoutRawFallback() throws {

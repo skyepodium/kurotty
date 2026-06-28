@@ -454,10 +454,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleInputSourceChanged() {
-        // Korean IME can leave stale marked-text state across an input source
-        // switch. Let AppKit discard the old composition instead of sending
-        // intermediate jamo to the PTY or hiding them in our router.
-        inputContext?.discardMarkedText()
+        // Reset only kurotty's overlay state here. Calling discardMarkedText()
+        // from the global keyboardSelectionDidChange notification re-enters
+        // AppKit/IMK synchronously; with split panes every surface observes the
+        // notification, which can pin the main thread during the next key event.
         resetMarkedTextForInputSourceChange()
     }
 
