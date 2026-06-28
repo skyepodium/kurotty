@@ -47,6 +47,20 @@ final class AppSettingsBehaviorTests: XCTestCase {
         )
     }
 
+    func testBundleDisplayVersionUsesInfoDictionaryAndDevelopmentFallback() throws {
+        let releaseBundle = try makeBundle(
+            named: "ReleaseFixture.bundle",
+            infoDictionary: [
+                "CFBundleShortVersionString": "1.2.3",
+                "CFBundleVersion": "45",
+            ]
+        )
+        XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: releaseBundle), "1.2.3 (45)")
+
+        let developmentBundle = try makeBundle(named: "DevelopmentFixture.bundle", infoDictionary: [:])
+        XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "0.1.0-alpha.2 (dev)")
+    }
+
     @MainActor
     func testSaveLoadPersistsValidShellWorkingDirectory() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
@@ -74,6 +88,14 @@ final class AppSettingsBehaviorTests: XCTestCase {
 
     private func settingsURL() -> URL {
         temporaryDirectory.appendingPathComponent("settings.json")
+    }
+
+    private func makeBundle(named name: String, infoDictionary: [String: String]) throws -> Bundle {
+        let bundleURL = temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let infoURL = bundleURL.appendingPathComponent("Info.plist")
+        try (infoDictionary as NSDictionary).write(to: infoURL)
+        return try XCTUnwrap(Bundle(url: bundleURL))
     }
 
     private func legacySettingsJSON(shell: String?) -> String {

@@ -34,6 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
     }
 
+    @objc func showAboutPanel() {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: AppConstants.Bundle.displayName,
+            .version: AppConstants.Bundle.displayVersion(bundle: Bundle.main),
+        ]
+        if let image = NSApp.applicationIconImage ?? loadApplicationIcon()?.image {
+            options[.applicationIcon] = image
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     @objc func newTab() {
         activeTerminalWindowController?.newTab()
     }
@@ -73,6 +84,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installApplicationIcon() {
+        guard let loadedIcon = loadApplicationIcon() else {
+            return
+        }
+        if !loadedIcon.isInstalledIcon {
+            // The SwiftPM PNG fallback needs a logical display size. Installed
+            // apps must keep the .icns representations intact so Settings,
+            // Force Quit, Cmd+Tab, and notification surfaces do not inherit a
+            // small runtime-only NSImage size.
+            loadedIcon.image.size = NSSize(
+                width: AppConstants.Bundle.applicationIconSizePT,
+                height: AppConstants.Bundle.applicationIconSizePT
+            )
+        }
+        NSApp.applicationIconImage = loadedIcon.image
+    }
+
+    private func loadApplicationIcon() -> (image: NSImage, isInstalledIcon: Bool)? {
         let installedIconURL = Bundle.main.url(
             forResource: AppConstants.Bundle.iconResourceName,
             withExtension: AppConstants.Bundle.installedIconExtension
@@ -84,18 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let url = installedIconURL ?? bundledIconURL,
               let image = NSImage(contentsOf: url)
         else {
-            return
+            return nil
         }
-        if installedIconURL == nil {
-            // The SwiftPM PNG fallback needs a logical display size. Installed
-            // apps must keep the .icns representations intact so Settings,
-            // Force Quit, Cmd+Tab, and notification surfaces do not inherit a
-            // small runtime-only NSImage size.
-            image.size = NSSize(
-                width: AppConstants.Bundle.applicationIconSizePT,
-                height: AppConstants.Bundle.applicationIconSizePT
-            )
-        }
-        NSApp.applicationIconImage = image
+        return (image, installedIconURL != nil)
     }
 }
