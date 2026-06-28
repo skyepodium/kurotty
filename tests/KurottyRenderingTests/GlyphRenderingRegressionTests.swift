@@ -391,8 +391,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)"))
         XCTAssertTrue(surfaceSource.contains("private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle"))
         XCTAssertTrue(surfaceSource.contains("currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background)"))
-        XCTAssertTrue(surfaceSource.contains("existingNonDefaultBackground(row: row, column: column, width: width)"))
+        XCTAssertTrue(surfaceSource.contains("existingPersistentBackground(row: row, column: column, width: width)"))
         XCTAssertTrue(surfaceSource.contains("style.background = existingBackground"))
+        XCTAssertTrue(surfaceSource.contains("private func shouldPreserveExistingBackground(_ style: TerminalTextStyle) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("guard !style.inverse else"))
+        XCTAssertTrue(surfaceSource.contains("without carrying transient reverse-video paste highlights forward"))
     }
 
     func testMarkedTextStartsAtCursorColumnInAtlasAndFallbackRenderers() throws {
@@ -1153,7 +1156,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(notifierSource.contains("UNNotificationRequest("))
 
         XCTAssertTrue(readmeSource.contains("iTerm2-compatible notifications"))
-        XCTAssertTrue(readmeSource.contains("printf '\\e]9;Build finished\\a'"))
+        XCTAssertTrue(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
     }
 
     func testInstalledAppUsesMultiResolutionIcnsForSystemIconSurfaces() throws {
