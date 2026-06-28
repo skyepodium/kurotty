@@ -66,6 +66,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Sign the completed bundle, not just the Swift-built executable. UserNotifications
+# relies on macOS resolving the app identity from the final .app bundle.
+codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
+
 if [[ ! -d "$INSTALL_DIR" ]]; then
   echo "Install directory does not exist: $INSTALL_DIR" >&2
   exit 1

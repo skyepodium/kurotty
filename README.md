@@ -40,6 +40,8 @@ Notification example:
 printf '\e]9;Task finished\a'
 ```
 
+Kurotty shows OSC 9 messages as macOS `Alert` notifications with the app icon and the message body.
+
 ## Build From Source
 
 This path is for contributors and local testing until packaged releases are available.

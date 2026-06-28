@@ -1,24 +1,50 @@
 import AppKit
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
-final class TerminalNotifier {
+final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = TerminalNotifier()
 
     private let supportsUserNotifications = Bundle.main.bundleURL.pathExtension == "app"
     private lazy var center: UNUserNotificationCenter? = {
         guard supportsUserNotifications else { return nil }
-        return UNUserNotificationCenter.current()
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        return center
     }()
     private var didRequestAuthorization = false
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     func requestAuthorization() {
         guard !didRequestAuthorization, let center else { return }
         didRequestAuthorization = true
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.getNotificationSettings { settings in
+            NSLog(
+                "Kurotty notification settings before request: authorization=%ld alert=%ld sound=%ld",
+                settings.authorizationStatus.rawValue,
+                settings.alertSetting.rawValue,
+                settings.soundSetting.rawValue
+            )
+        }
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                NSLog("Kurotty notification authorization failed: %@", error.localizedDescription)
+                return
+            }
+            NSLog("Kurotty notification authorization granted: %@", granted ? "yes" : "no")
+            center.getNotificationSettings { settings in
+                NSLog(
+                    "Kurotty notification settings after request: authorization=%ld alert=%ld sound=%ld",
+                    settings.authorizationStatus.rawValue,
+                    settings.alertSetting.rawValue,
+                    settings.soundSetting.rawValue
+                )
+            }
+        }
     }
 
     func notifyShellDidExit(status: Int32) {
@@ -45,9 +71,34 @@ final class TerminalNotifier {
         )
     }
 
+    func notifyCodexTaskCompleted(sessionTitle: String, promptSummary: String?) {
+        let trimmedPrompt = promptSummary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body: String
+        if let trimmedPrompt, !trimmedPrompt.isEmpty {
+            body = "Session \(sessionTitle): \(trimmedPrompt)"
+        } else {
+            body = "Session \(sessionTitle): \(AppConstants.Notifications.codexTaskCompletedBody)"
+        }
+        deliver(
+            title: AppConstants.Notifications.defaultTitle,
+            body: body,
+            identifierPrefix: AppConstants.Notifications.codexIdentifierPrefix
+        )
+    }
+
+    func notifyTestNotification() {
+        deliver(
+            title: AppConstants.Notifications.defaultTitle,
+            body: AppConstants.Notifications.testBody,
+            identifierPrefix: "\(AppConstants.Notifications.categoryIdentifier).test"
+        )
+    }
+
     private func deliver(title: String, body: String, identifierPrefix: String) {
-        guard !NSApp.isActive, let center else { return }
-        requestAuthorization()
+        guard let center else {
+            NSLog("Kurotty notification skipped outside app bundle: title=%@ body=%@", title, body)
+            return
+        }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -60,10 +111,22 @@ final class TerminalNotifier {
             content: content,
             trigger: nil
         )
+        NSLog("Kurotty notification enqueue: identifier=%@ title=%@ body=%@", request.identifier, title, body)
         center.add(request) { error in
             if let error {
                 NSLog("Kurotty notification failed: %@", error.localizedDescription)
+            } else {
+                NSLog("Kurotty notification delivered request: %@", request.identifier)
             }
         }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Kurotty task notifications should surface even while the terminal window is focused.
+        completionHandler([.banner, .list, .sound])
     }
 }

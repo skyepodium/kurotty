@@ -8,6 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
         TerminalNotifier.shared.requestAuthorization()
+        if DebugOptions.testNotification {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                TerminalNotifier.shared.notifyTestNotification()
+            }
+        }
         MainMenu.install(target: self)
         openNewWindow()
         NSApp.activate(ignoringOtherApps: true)

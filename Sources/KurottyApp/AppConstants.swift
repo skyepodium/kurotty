@@ -33,9 +33,12 @@ enum AppConstants {
         static let categoryIdentifier = "dev.kurotty.terminal"
         static let shellExitIdentifierPrefix = "dev.kurotty.terminal.shell-exit"
         static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
-        static let defaultTitle = "Kurotty"
-        static let shellExitTitle = "Terminal finished"
+        static let codexIdentifierPrefix = "dev.kurotty.terminal.codex"
+        static let defaultTitle = "Alert"
+        static let shellExitTitle = "Alert"
         static let shellExitSuccessBody = "Shell exited successfully."
         static let shellExitFailureBodyPrefix = "Shell exited with status"
+        static let testBody = "Kurotty test notification."
+        static let codexTaskCompletedBody = "Codex 작업이 완료되었습니다."
     }
 }
