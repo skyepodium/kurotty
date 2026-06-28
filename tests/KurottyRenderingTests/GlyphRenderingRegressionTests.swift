@@ -1231,6 +1231,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("extractCodexCompletionSummary(from: rows)"))
         XCTAssertTrue(surfaceSource.contains("normalizedCodexCompletionLine"))
         XCTAssertTrue(surfaceSource.contains("Find and fix a bug in @filename"))
+        XCTAssertTrue(surfaceSource.contains("guard rowIndex != cursorRow else { continue }"))
+        XCTAssertTrue(surfaceSource.contains("Write tests for @filename"))
         XCTAssertTrue(surfaceSource.contains("let completionSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary"))
         XCTAssertTrue(surfaceSource.contains("line.allSatisfy"))
         XCTAssertTrue(surfaceSource.contains("line.hasPrefix(\"Using \")"))
