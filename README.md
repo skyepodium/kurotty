@@ -34,6 +34,12 @@ Planned release assets:
 - Terminal styling support for 16-color, 256-color, truecolor, dim, inverse, underline, and strikethrough.
 - OSC title, working-directory, color query, and iTerm2-compatible notifications.
 
+Notification example:
+
+```sh
+printf '\e]9;Task finished\a'
+```
+
 ## Build From Source
 
 This path is for contributors and local testing until packaged releases are available.
