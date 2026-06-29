@@ -146,20 +146,24 @@ final class TerminalPaneView: NSView {
         let background: NSColor
         if isChromeActive {
             background = isChromeHovered
-                ? DesignTokens.Color.paneHeaderHoverBackground
-                : DesignTokens.Color.paneHeaderBackground
+                ? DesignTokens.Color.activeTabBackground
+                : DesignTokens.Color.activeTabBackground
         } else {
             background = isChromeHovered
                 ? DesignTokens.Color.paneHeaderHoverBackground
                 : DesignTokens.Color.paneHeaderBackground
         }
         activeIndicatorView.isHidden = !isChromeActive
+        activeIndicatorView.layer?.backgroundColor = DesignTokens.Color.accentBlue.cgColor
         statusDotView.layer?.backgroundColor = (isChromeActive
             ? DesignTokens.Color.successGreen
-            : DesignTokens.Color.accentPurple.withAlphaComponent(0.75)).cgColor
+            : DesignTokens.Color.accentPurple.withAlphaComponent(0.45)).cgColor
         chromeView.layer?.backgroundColor = background.cgColor
         chromeView.layer?.borderWidth = DesignTokens.Component.hairlinePX
-        chromeView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
+        // Inactive chrome still resolves to: chromeView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
+        chromeView.layer?.borderColor = (isChromeActive
+            ? DesignTokens.Color.accentPurple.withAlphaComponent(0.45)
+            : DesignTokens.Color.borderHairline).cgColor
         titleField.font = isChromeActive
             ? NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .semibold)
             : NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .medium)

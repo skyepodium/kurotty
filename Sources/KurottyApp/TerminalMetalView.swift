@@ -23,6 +23,7 @@ struct TerminalFrame {
     let isFullDamage: Bool
     let cursorColumn: Int
     let cursorRow: Int
+    let cursorBlinkOn: Bool
     let markedTextColumn: Int
     let markedText: String
     let markedTextSelectedRange: NSRange
@@ -167,7 +168,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, markedTextColumn: 0, markedText: "", markedTextSelectedRange: NSRange(location: NSNotFound, length: 0), columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: NSRange(location: NSNotFound, length: 0), columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     override var isOpaque: Bool {
         true
@@ -341,7 +342,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: decorationInstanceCount)
             }
 
-            if terminalFrame.cursorRow >= 0,
+            if terminalFrame.cursorBlinkOn,
+               terminalFrame.cursorRow >= 0,
                let solidPipeline,
                let cursorInstanceBuffer {
                 encoder.setRenderPipelineState(solidPipeline)
@@ -1336,7 +1338,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             }
         }
 
-        if terminalFrame.cursorRow >= 0 {
+        if terminalFrame.cursorBlinkOn, terminalFrame.cursorRow >= 0 {
             NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
             NSRect(
                 x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,

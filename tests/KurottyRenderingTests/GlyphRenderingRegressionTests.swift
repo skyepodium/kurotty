@@ -214,6 +214,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("glyphAtlasMinimumScale"))
     }
 
+    func testInactivePaneCursorRemainsVisibleWhileFocusedPaneBlinks() throws {
+        let metalSource = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+        let constantsSource = try appConstantsSource()
+
+        XCTAssertTrue(metalSource.contains("let cursorBlinkOn: Bool"))
+        XCTAssertTrue(metalSource.contains("if terminalFrame.cursorBlinkOn,\n               terminalFrame.cursorRow >= 0"))
+        XCTAssertTrue(metalSource.contains("if terminalFrame.cursorBlinkOn, terminalFrame.cursorRow >= 0"))
+        XCTAssertFalse(metalSource.contains("cursorIsActive"))
+
+        XCTAssertTrue(surfaceSource.contains("private var cursorBlinkOn = true"))
+        XCTAssertTrue(surfaceSource.contains("private var cursorBlinkTimer: Timer?"))
+        XCTAssertTrue(surfaceSource.contains("cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn"))
+        XCTAssertTrue(surfaceSource.contains("stopCursorBlinking(showCursor: true)"))
+        XCTAssertTrue(constantsSource.contains("cursorBlinkIntervalSeconds"))
+    }
+
     func testMetalGlyphLayoutSeparatesCanonicalCellMetricsFromBitmapBounds() throws {
         let source = try terminalMetalViewSource()
 
@@ -1316,9 +1333,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("ZIP_NAME=\"kurotty-$VERSION-macos.zip\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
-        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.2-macos.zip"))
+        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.4-macos.zip"))
         XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
-        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.2"))
+        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.4"))
     }
 }
 

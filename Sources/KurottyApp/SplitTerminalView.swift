@@ -62,6 +62,35 @@ final class SplitTerminalView: NSSplitView {
         lineRect.fill()
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard arrangedSubviews.count > 1 else { return }
+        let cursor: NSCursor = isVertical ? .resizeLeftRight : .resizeUpDown
+        for dividerIndex in 0..<(arrangedSubviews.count - 1) {
+            addCursorRect(dividerCursorRect(at: dividerIndex), cursor: cursor)
+        }
+    }
+
+    private func dividerCursorRect(at dividerIndex: Int) -> NSRect {
+        guard arrangedSubviews.indices.contains(dividerIndex) else { return .zero }
+        let leadingFrame = arrangedSubviews[dividerIndex].frame
+        let thickness = dividerThickness
+        if isVertical {
+            return NSRect(
+                x: leadingFrame.maxX,
+                y: bounds.minY,
+                width: thickness,
+                height: bounds.height
+            )
+        }
+        return NSRect(
+            x: bounds.minX,
+            y: leadingFrame.maxY,
+            width: bounds.width,
+            height: thickness
+        )
+    }
+
     func split(axis: NSLayoutConstraint.Orientation) {
         if !splitGroupAsUnit(axis: axis), !splitActivePane(axis: axis) {
             splitFallback(axis: axis)
