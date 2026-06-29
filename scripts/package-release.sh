@@ -33,13 +33,18 @@ NOTARY_PROFILE="${KUROTTY_NOTARY_PROFILE:-}"
 NOTARY_APPLE_ID="${KUROTTY_NOTARY_APPLE_ID:-}"
 NOTARY_TEAM_ID="${KUROTTY_NOTARY_TEAM_ID:-}"
 NOTARY_PASSWORD="${KUROTTY_NOTARY_PASSWORD:-}"
+SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
+: "${KUROTTY_SPARKLE_PUBLIC_KEY:?KUROTTY_SPARKLE_PUBLIC_KEY is required for Sparkle updates}"
+SPARKLE_PUBLIC_KEY="$KUROTTY_SPARKLE_PUBLIC_KEY"
+SPARKLE_TOOLS_DERIVED_DATA="$WORK_DIR/sparkle-tools"
+SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-$SPARKLE_TOOLS_DERIVED_DATA/Build/Products/Release/generate_appcast}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
 
 cd "$ROOT_DIR"
 
 rm -rf "$WORK_DIR"
-mkdir -p "$DIST_DIR" "$WORK_DIR" "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$DIST_DIR" "$WORK_DIR" "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$APP_BUNDLE/Contents/Frameworks"
 
 swift_binary_paths=()
 zig_dylib_paths=()
@@ -73,11 +78,13 @@ for arch in "${BUILD_ARCHES[@]}"; do
 
   if [[ "$arch" == "arm64" ]]; then
     cp -R "$swift_bin_path/$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/$RESOURCE_BUNDLE"
+    cp -R "$swift_bin_path/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
   fi
 done
 
 lipo -create "${swift_binary_paths[@]}" -output "$APP_BUNDLE/Contents/MacOS/kurotty"
 "$STRIP_TOOL" -x "$APP_BUNDLE/Contents/MacOS/kurotty"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/kurotty"
 lipo -info "$APP_BUNDLE/Contents/MacOS/kurotty"
 
 lipo -create "${zig_dylib_paths[@]}" -output "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
@@ -116,6 +123,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>SUFeedURL</key>
+  <string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key>
+  <string>$SPARKLE_PUBLIC_KEY</string>
 </dict>
 </plist>
 PLIST
@@ -172,6 +183,17 @@ cp "$DMG_PATH" "$DMG_LATEST_PATH"
   cd "$DIST_DIR"
   shasum -a 256 "$DMG_NAME" "$DMG_LATEST_NAME" > SHA256SUMS
 )
+
+if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
+  "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+else
+  xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
+    -scheme generate_appcast \
+    -configuration Release \
+    -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
+    build
+  "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+fi
 
 if [[ "$KEEP_WORKDIR" != "1" ]]; then
   rm -rf "$WORK_DIR"/swift-* "$WORK_DIR"/zig-* "$ICONSET_DIR" "$DMG_ROOT" "$DMG_RW"

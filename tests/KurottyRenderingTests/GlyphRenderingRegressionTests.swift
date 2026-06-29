@@ -1014,6 +1014,57 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(constantsSource.contains("CFBundleVersion"))
     }
 
+    func testAppMenuAndBundleMetadataWireSparkleUpdates() throws {
+        let packageSource = try packageManifestSource()
+        XCTAssertTrue(packageSource.contains(".package(url: \"https://github.com/sparkle-project/Sparkle\", from: \"2.9.3\")"))
+        XCTAssertTrue(packageSource.contains(".product(name: \"Sparkle\", package: \"Sparkle\")"))
+
+        let updateControllerSource = try updateControllerSource()
+        XCTAssertTrue(updateControllerSource.contains("import Sparkle"))
+        XCTAssertTrue(updateControllerSource.contains("private var updaterController: SPUStandardUpdaterController?"))
+        XCTAssertTrue(updateControllerSource.contains("static func isConfigured(bundle: Bundle = .main) -> Bool"))
+        XCTAssertTrue(updateControllerSource.contains("AppConstants.Bundle.sparklePublicKeyInfoKey"))
+        XCTAssertTrue(updateControllerSource.contains("guard Self.isConfigured(bundle: bundle) else {"))
+        XCTAssertTrue(updateControllerSource.contains("startingUpdater: true"))
+        XCTAssertTrue(updateControllerSource.contains("func checkForUpdates(_ sender: Any?)"))
+
+        let appDelegateSource = try appDelegateSource()
+        XCTAssertTrue(appDelegateSource.contains("private let updateController = UpdateController()"))
+        XCTAssertTrue(appDelegateSource.contains("var canCheckForUpdates: Bool"))
+        XCTAssertTrue(appDelegateSource.contains("@objc func checkForUpdates(_ sender: Any?)"))
+        XCTAssertTrue(appDelegateSource.contains("updateController.checkForUpdates(sender)"))
+
+        let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Check for Updates...\", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: \"\")"))
+
+        let constantsSource = try appConstantsSource()
+        XCTAssertTrue(constantsSource.contains("static let sparkleFeedURL = \"https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml\""))
+        XCTAssertTrue(constantsSource.contains("static let sparklePublicKeyInfoKey = \"SUPublicEDKey\""))
+        XCTAssertTrue(constantsSource.contains("static let sparklePublicKeyEnvironmentName = \"KUROTTY_SPARKLE_PUBLIC_KEY\""))
+        XCTAssertTrue(constantsSource.contains("static let sparkleFeedURLEnvironmentName = \"KUROTTY_SPARKLE_FEED_URL\""))
+
+        let installSource = try installAppScriptSource()
+        XCTAssertTrue(installSource.contains("mkdir -p \"$APP_BUNDLE/Contents/MacOS\" \"$APP_BUNDLE/Contents/Resources\" \"$APP_BUNDLE/Contents/Frameworks\""))
+        XCTAssertTrue(installSource.contains("cp -R \"$BUILD_DIR/Sparkle.framework\" \"$APP_BUNDLE/Contents/Frameworks/Sparkle.framework\""))
+        XCTAssertTrue(installSource.contains("install_name_tool -add_rpath \"@executable_path/../Frameworks\" \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
+        XCTAssertTrue(installSource.contains("SPARKLE_FEED_URL=\"${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}\""))
+        XCTAssertTrue(installSource.contains("<key>SUFeedURL</key>"))
+        XCTAssertTrue(installSource.contains("<string>$SPARKLE_FEED_URL</string>"))
+        XCTAssertTrue(installSource.contains("<key>SUPublicEDKey</key>"))
+        XCTAssertTrue(installSource.contains("<string>$SPARKLE_PUBLIC_KEY</string>"))
+
+        let packageReleaseSource = try scriptSource(named: "package-release")
+        XCTAssertTrue(packageReleaseSource.contains("mkdir -p \"$DIST_DIR\" \"$WORK_DIR\" \"$APP_BUNDLE/Contents/MacOS\" \"$APP_BUNDLE/Contents/Resources\" \"$APP_BUNDLE/Contents/Frameworks\""))
+        XCTAssertTrue(packageReleaseSource.contains("cp -R \"$swift_bin_path/Sparkle.framework\" \"$APP_BUNDLE/Contents/Frameworks/Sparkle.framework\""))
+        XCTAssertTrue(packageReleaseSource.contains("install_name_tool -add_rpath \"@executable_path/../Frameworks\" \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
+        XCTAssertTrue(packageReleaseSource.contains(": \"${KUROTTY_SPARKLE_PUBLIC_KEY:?KUROTTY_SPARKLE_PUBLIC_KEY is required for Sparkle updates}\""))
+        XCTAssertTrue(packageReleaseSource.contains("xcodebuild -project \"$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj\""))
+        XCTAssertTrue(packageReleaseSource.contains("-scheme generate_appcast"))
+        XCTAssertTrue(packageReleaseSource.contains("<key>SUFeedURL</key>"))
+        XCTAssertTrue(packageReleaseSource.contains("<key>SUPublicEDKey</key>"))
+        XCTAssertTrue(packageReleaseSource.contains("generate_appcast"))
+    }
+
     func testSettingsEditorAvoidsUnboundedTextLayout() throws {
         let preferencesSource = try preferencesWindowControllerSource()
 
@@ -2032,6 +2083,18 @@ private func terminalPaneDragCoordinatorSource() throws -> String {
 private func appDelegateSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppDelegate.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func updateControllerSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/UpdateController.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func packageManifestSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Package.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

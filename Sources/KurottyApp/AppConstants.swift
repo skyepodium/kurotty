@@ -13,6 +13,13 @@ enum AppConstants {
         static let applicationIconSizePT: CGFloat = 50
         static let developmentVersion = "development"
         static let developmentBuild = "dev"
+        static let sparkleFeedURL = "https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml"
+        static let sparklePublicKeyInfoKey = "SUPublicEDKey"
+        static let sparklePublicKeyEnvironmentName = "KUROTTY_SPARKLE_PUBLIC_KEY"
+        static let sparkleFeedURLEnvironmentName = "KUROTTY_SPARKLE_FEED_URL"
+        static let sparkleDebugUpdatesEnvironmentName = "KUROTTY_DEBUG_UPDATES"
+        static let sparkleDebugUpdatesArgument = "--debug-updates"
+        static let sparkleReleasesPageURL = "https://github.com/skyepodium/kurotty/releases"
 
         static func displayVersion(bundle: Foundation.Bundle = .main) -> String {
             let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String

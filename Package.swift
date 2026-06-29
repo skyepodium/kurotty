@@ -9,9 +9,15 @@ let package = Package(
     products: [
         .executable(name: "kurotty", targets: ["KurottyApp"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.3"),
+    ],
     targets: [
         .executableTarget(
             name: "KurottyApp",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             resources: [
                 .copy("Resources/kurotty.png"),
             ]

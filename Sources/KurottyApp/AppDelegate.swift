@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let paneDragCoordinator = TerminalPaneDragCoordinator()
+    private let updateController = UpdateController()
     private var windowController: TerminalWindowController?
     private var preferencesController: PreferencesWindowController?
 
@@ -33,6 +34,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = preferencesController ?? PreferencesWindowController()
         preferencesController = controller
         controller.showWindow(nil)
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        NSApp.activate(ignoringOtherApps: true)
+        if !updateController.isFullyConfigured {
+            showUpdateUnavailableNotice()
+            return
+        }
+
+        updateController.checkForUpdates(sender)
+    }
+
+    var canCheckForUpdates: Bool {
+        updateController.canCheckForUpdates
     }
 
     @objc func showAboutPanel() {
@@ -122,6 +137,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func sendTmuxSequence(_ sequence: String) {
         activeTerminalWindowController?.sendTextToActivePane(sequence)
+    }
+
+    private func showUpdateUnavailableNotice() {
+        let alert = NSAlert()
+        alert.messageText = "업데이트가 필요할까요?"
+        alert.informativeText = "이 빌드에서는 자동 업데이트가 동작하지 않습니다. 릴리스 페이지에서 최신 버전을 확인하시겠습니까?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "릴리스 페이지 열기")
+        alert.addButton(withTitle: "닫기")
+        if alert.runModal() == .alertFirstButtonReturn {
+            showReleaseURL()
+        }
+    }
+
+    private func showReleaseURL() {
+        guard let url = URL(string: AppConstants.Bundle.sparkleReleasesPageURL) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func installApplicationIcon() {
