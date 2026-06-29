@@ -95,9 +95,12 @@ swift run kurotty
 To install a local app bundle:
 
 ```sh
+export KUROTTY_LOCAL_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ./scripts/install-app.sh
 open /Applications/kurotty.app
 ```
+
+If you do not set `KUROTTY_LOCAL_SIGN_IDENTITY`, local install uses ad-hoc signing.
 
 To create the same Universal DMG locally:
 

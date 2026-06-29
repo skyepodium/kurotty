@@ -12,6 +12,7 @@ RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 ICONSET_DIR="$APP_BUNDLE/Contents/Resources/kurotty.iconset"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
+SIGN_IDENTITY="${KUROTTY_LOCAL_SIGN_IDENTITY:-${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
 
@@ -71,7 +72,13 @@ PLIST
 
 # Sign the completed bundle, not just the Swift-built executable. UserNotifications
 # relies on macOS resolving the app identity from the final .app bundle.
-codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  echo "No signing identity configured; installing with ad-hoc signature."
+  codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
+else
+  echo "Signing app bundle with '$SIGN_IDENTITY'."
+  codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE" >/dev/null
+fi
 
 if [[ ! -d "$INSTALL_DIR" ]]; then
   echo "Install directory does not exist: $INSTALL_DIR" >&2
