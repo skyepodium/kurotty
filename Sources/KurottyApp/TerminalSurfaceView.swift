@@ -19,7 +19,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var terminalAnsiColors: [SIMD4<Float>]
     private var maxScrollbackRows: Int
     private var screen = TerminalScreen(rows: AppConstants.Terminal.defaultRows, columns: AppConstants.Terminal.defaultColumns)
-    private var scrollbackRows: [[TerminalScreenCell]] = []
+    private var scrollbackRows = BoundedScrollbackRows()
     private var scrollbackOffset = 0
     private var normalScreenSnapshot: TerminalScreen?
     private var cursorRow = 0
@@ -127,9 +127,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
         }
         metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
-        // Keep this scaffold explicit until dirty-rect rendering has visual coverage
-        // for resize, IME, scrollback, and tmux status-line redraws.
-        metalView.diagnosticFullRedrawEnabled = AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified
+        // Keep the scaffold available as an explicit diagnostic escape hatch for
+        // resize, IME, scrollback, or tmux status-line dirty-rect regressions.
+        metalView.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified
         metalView.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
         metalView.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
         metalView.diagnosticGlyphQuadOverlayEnabled = DebugOptions.renderRects
@@ -1111,7 +1111,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func allRowsForSelection() -> [[TerminalScreenCell]] {
-        scrollbackRows + screen.cells
+        scrollbackRows.rows + screen.cells
     }
 
     private func terminalMetrics() -> TerminalMetrics {
@@ -1335,18 +1335,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
-        scrollbackRows.append(contentsOf: rows)
-        _ = trimScrollbackRowsToLimit()
+        scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)
+        scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
         updateScrollIndicator()
     }
 
     @discardableResult
     private func trimScrollbackRowsToLimit() -> Bool {
-        let rowsToDrop = scrollbackRows.count - maxScrollbackRows
-        guard rowsToDrop > 0 else { return false }
-        scrollbackRows = Array(scrollbackRows.dropFirst(rowsToDrop))
+        let didTrim = scrollbackRows.trim(to: maxScrollbackRows)
         scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
-        return true
+        return didTrim
     }
 
     private func layoutScrollIndicator() {
@@ -1377,15 +1375,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
         // NSScroller can be nearly invisible depending on system overlay style.
         // Draw a deterministic thumb so scrollback position is always visible.
-        let trackHeight = max(1, verticalScroller.bounds.height)
+        let trackHeight = max(CGFloat(1), verticalScroller.bounds.height)
         let thumbWidth = DesignTokens.Component.terminalScrollerThumbWidthPX
         let thumbHeight = max(
             DesignTokens.Component.terminalScrollerMinThumbHeightPX,
             trackHeight * CGFloat(visibleRows) / CGFloat(visibleRows + maxOffset)
         )
         let clampedThumbHeight = min(trackHeight, thumbHeight)
-        let maxTravel = max(0, trackHeight - clampedThumbHeight)
-        let normalizedOffset = max(0, min(1, CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
+        let maxTravel = max(CGFloat.zero, trackHeight - clampedThumbHeight)
+        let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
         scrollThumbView.frame = NSRect(
             x: verticalScroller.frame.minX + (verticalScroller.bounds.width - thumbWidth) / 2,
             y: verticalScroller.frame.minY + maxTravel * normalizedOffset,
@@ -1956,5 +1954,53 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // on the lightty background.
         let component = 205 + (clamped - 250) * 6
         return TerminalTextStyle.rgb(red: component, green: component, blue: component)
+    }
+}
+
+private struct BoundedScrollbackRows {
+    private var storage: [[TerminalScreenCell]] = []
+    private var startIndex = 0
+
+    var count: Int {
+        storage.count - startIndex
+    }
+
+    var isEmpty: Bool {
+        count == 0
+    }
+
+    var rows: [[TerminalScreenCell]] {
+        guard !isEmpty else { return [] }
+        return Array(storage[startIndex...])
+    }
+
+    @discardableResult
+    mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int {
+        guard !newRows.isEmpty else { return 0 }
+        storage.append(contentsOf: newRows)
+        let previousCount = count - newRows.count
+        _ = trim(to: limit)
+        return max(0, count - max(0, previousCount))
+    }
+
+    @discardableResult
+    mutating func trim(to limit: Int) -> Bool {
+        let boundedLimit = max(0, limit)
+        let rowsToDrop = count - boundedLimit
+        guard rowsToDrop > 0 else {
+            compactStorageIfNeeded()
+            return false
+        }
+
+        startIndex += rowsToDrop
+        compactStorageIfNeeded()
+        return true
+    }
+
+    private mutating func compactStorageIfNeeded() {
+        guard startIndex > 0 else { return }
+        guard startIndex >= storage.count / 2 || startIndex == storage.count else { return }
+        storage.removeSubrange(0..<startIndex)
+        startIndex = 0
     }
 }

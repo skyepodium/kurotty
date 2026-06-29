@@ -30,6 +30,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             defer: false
         )
         window.title = AppConstants.Bundle.displayName
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.titlebarAppearsTransparent = true
         window.backgroundColor = DesignTokens.Color.windowBackground
         window.center()
         super.init(window: window)

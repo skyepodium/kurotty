@@ -68,7 +68,7 @@ enum AppConstants {
 
     enum Rendering {
         static let visibleCellReserveDivisor = 2
-        static let forceFullModelRedrawUntilDamageIsVerified = true
+        static let forceFullModelRedrawUntilDamageIsVerified = false
     }
 
     enum Tmux {

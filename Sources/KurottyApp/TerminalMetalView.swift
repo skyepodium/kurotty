@@ -128,7 +128,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             setNeedsDisplay(bounds)
         }
     }
-    var diagnosticFullRedrawEnabled = true {
+    var diagnosticFullRedrawEnabled = false {
         didSet {
             setNeedsDisplay(bounds)
         }
@@ -539,6 +539,48 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         }
     }
 
+    private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T]) {
+        guard let device else {
+            buffer = nil
+            return
+        }
+        let byteCount = values.count * MemoryLayout<T>.stride
+        guard byteCount > 0 else {
+            buffer = nil
+            return
+        }
+        if buffer?.length != byteCount {
+            buffer = device.makeBuffer(length: byteCount, options: .storageModeShared)
+        }
+        guard let target = buffer?.contents() else {
+            buffer = nil
+            return
+        }
+        values.withUnsafeBytes { bytes in
+            guard let source = bytes.baseAddress else { return }
+            target.copyMemory(from: source, byteCount: byteCount)
+        }
+    }
+
+    private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T) {
+        guard let device else {
+            buffer = nil
+            return
+        }
+        let byteCount = MemoryLayout<T>.stride
+        if buffer?.length != byteCount {
+            buffer = device.makeBuffer(length: byteCount, options: .storageModeShared)
+        }
+        guard let target = buffer?.contents() else {
+            buffer = nil
+            return
+        }
+        withUnsafeBytes(of: &value) { bytes in
+            guard let source = bytes.baseAddress else { return }
+            target.copyMemory(from: source, byteCount: byteCount)
+        }
+    }
+
     private func initializeAtlas() {
         guard let device else { return }
         atlasPixels = [UInt8](repeating: 0, count: atlasSize * atlasSize * 4)
@@ -549,7 +591,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func rebuildAtlasBuffers() {
-        guard let device, bounds.width > 0, bounds.height > 0 else { return }
+        guard device != nil, bounds.width > 0, bounds.height > 0 else { return }
         resetAtlasIfBackingScaleChanged()
         resetAtlasIfCellMetricsChanged()
         var instances: [GlyphInstance] = []
@@ -574,10 +616,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 utf16Offset += String(character).utf16.count
             }
         }
-        atlasInstanceBuffer = instances.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
-            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
-        }
+        updateSharedBuffer(&atlasInstanceBuffer, with: instances)
 
         let backgroundRuns = mergedBackgroundRuns()
         if DebugOptions.backgroundRuns {
@@ -599,10 +638,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 color: background.color
             ))
         }
-        backgroundInstanceBuffer = backgrounds.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
-            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
-        }
+        updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)
 
         var decorations: [GlyphInstance] = []
         decorations.reserveCapacity(terminalFrame.decorations.count)
@@ -623,10 +659,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 color: decoration.color
             ))
         }
-        decorationInstanceBuffer = decorations.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
-            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
-        }
+        updateSharedBuffer(&decorationInstanceBuffer, with: decorations)
 
         var cursor = solidInstance(
             column: max(0, terminalFrame.cursorColumn),
@@ -637,14 +670,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             color: cursorColor,
             overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))
         )
-        cursorInstanceBuffer = device.makeBuffer(bytes: &cursor, length: MemoryLayout<GlyphInstance>.stride, options: .storageModeShared)
+        updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)
         rebuildDebugOverlayBuffer(glyphDebugRects: glyphDebugRects)
 
         var uniforms = TerminalUniforms(
             viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
             useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
         )
-        uniformsBuffer = device.makeBuffer(bytes: &uniforms, length: MemoryLayout<TerminalUniforms>.stride, options: .storageModeShared)
+        updateSharedBuffer(&uniformsBuffer, with: &uniforms)
     }
 
     private func appendGlyphInstance(
@@ -701,7 +734,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect]) {
-        guard let device else { return }
+        guard self.device != nil else { return }
         var overlays: [GlyphInstance] = []
         let onePixel = physicalPixelsToPoints(1)
         if diagnosticCellBoundaryOverlayEnabled {
@@ -753,10 +786,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 overlays.append(debugSolidInstance(rect: CGRect(x: rect.maxX - onePixel, y: rect.minY, width: onePixel, height: rect.height), color: color))
             }
         }
-        debugOverlayInstanceBuffer = overlays.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
-            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
-        }
+        updateSharedBuffer(&debugOverlayInstanceBuffer, with: overlays)
     }
 
     private func debugSolidInstance(rect pointRect: CGRect, color: SIMD4<Float>) -> GlyphInstance {

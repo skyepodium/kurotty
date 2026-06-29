@@ -587,7 +587,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
         XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
@@ -696,11 +696,25 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let fullModelRedraw = flag(\"--debug-full-model-redraw\", env: \"KUROTTY_DEBUG_FULL_MODEL_REDRAW\")"))
         XCTAssertTrue(debugSource.contains("static let noDamage = flag(\"--debug-no-damage\", env: \"KUROTTY_DEBUG_NO_DAMAGE\")"))
         XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
-        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
-        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
+        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect)\n            }\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
         XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
+    }
+
+    func testPerFrameMetalInstanceBuffersReuseStorageWhenByteLengthIsStable() throws {
+        let metalSource = try terminalMetalViewSource()
+        let atlasBufferSource = try functionBody(named: "rebuildAtlasBuffers", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T])"))
+        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&atlasInstanceBuffer, with: instances)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&decorationInstanceBuffer, with: decorations)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&uniformsBuffer, with: &uniforms)"))
+        XCTAssertFalse(atlasBufferSource.contains("makeBuffer(bytes:"))
     }
 
     func testScrollRegionIsTrackedForTuiStatusAndInputRows() throws {
@@ -796,7 +810,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)"))
         XCTAssertTrue(thumbSource.contains("private func updateAppearance()"))
         XCTAssertTrue(thumbSource.contains("color = DesignTokens.Color.scrollerThumb"))
-        XCTAssertTrue(source.contains("let normalizedOffset = max(0, min(1, CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
+        XCTAssertTrue(source.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
         XCTAssertTrue(source.contains("scrollThumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
         XCTAssertTrue(source.contains("scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
@@ -822,6 +836,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)\n            markFullDamage()"))
         XCTAssertFalse(source.contains("if !text.isEmpty {\n            scrollbackOffset = 0\n        }"))
         XCTAssertTrue(source.contains("updateScrollIndicator()"))
+    }
+
+    func testScrollbackTrimmingUsesBoundedRowStore() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private struct BoundedScrollbackRows"))
+        XCTAssertTrue(source.contains("mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int"))
+        XCTAssertTrue(source.contains("private mutating func compactStorageIfNeeded()"))
+        XCTAssertTrue(source.contains("scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)"))
+        XCTAssertFalse(source.contains("Array(scrollbackRows.dropFirst"))
+        XCTAssertFalse(source.contains("scrollbackRows.removeFirst"))
     }
 
     func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
@@ -877,7 +902,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
 
         let settingsSource = try appSettingsSource()
-        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 7"))
+        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 8"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
         XCTAssertTrue(settingsSource.contains("struct ShellSettings: Codable, Equatable"))
@@ -991,6 +1016,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let designSource = try designTokensSource()
 
         XCTAssertTrue(windowSource.contains("final class TerminalWindowController: NSWindowController, NSTabViewDelegate"))
+        XCTAssertTrue(windowSource.contains("window.appearance = NSAppearance(named: .darkAqua)"))
+        XCTAssertTrue(windowSource.contains("window.titlebarAppearsTransparent = true"))
         XCTAssertTrue(windowSource.contains("private let tabBarView = NSView()"))
         XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
         XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = DesignTokens.Color.topChromeBackground.cgColor"))
@@ -1034,6 +1061,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("terminalTabBorderWidthPX"))
         XCTAssertTrue(designSource.contains("terminalTabSelectedBarHeightPX"))
         XCTAssertTrue(designSource.contains("topChromeBackground"))
+        XCTAssertTrue(designSource.contains("31.0 / 255.0"))
+        XCTAssertTrue(designSource.contains("34.0 / 255.0"))
+        XCTAssertTrue(designSource.contains("43.0 / 255.0"))
         XCTAssertTrue(designSource.contains("activeTabBackground"))
         XCTAssertTrue(designSource.contains("inactiveTabBackground"))
         XCTAssertTrue(designSource.contains("accentBlue"))
@@ -1833,6 +1863,35 @@ private func terminalMetalViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
     return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func functionBody(named name: String, in source: String) throws -> String {
+    guard let signatureRange = source.range(of: "func \(name)") else {
+        XCTFail("missing function \(name)")
+        return ""
+    }
+    guard let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+        XCTFail("missing opening brace for function \(name)")
+        return ""
+    }
+
+    var depth = 0
+    var index = openingBrace
+    while index < source.endIndex {
+        let character = source[index]
+        if character == "{" {
+            depth += 1
+        } else if character == "}" {
+            depth -= 1
+            if depth == 0 {
+                return String(source[openingBrace...index])
+            }
+        }
+        index = source.index(after: index)
+    }
+
+    XCTFail("missing closing brace for function \(name)")
+    return ""
 }
 
 private func designTokensSource() throws -> String {

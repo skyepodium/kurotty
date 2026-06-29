@@ -3,6 +3,11 @@ import XCTest
 
 final class AppSettingsBehaviorTests: XCTestCase {
     private var temporaryDirectory: URL!
+    private static let appSettingsSourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
 
     override func setUpWithError() throws {
         temporaryDirectory = FileManager.default.temporaryDirectory
@@ -61,6 +66,20 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "development (dev)")
     }
 
+    func testMainActorSettingsStoreDoesNotPerformDiskIO() throws {
+        let source = try String(contentsOf: Self.appSettingsSourceURL, encoding: .utf8)
+        let storeBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsStore", in: source))
+        let persistenceBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsPersistence", in: source))
+
+        XCTAssertTrue(source.contains("@MainActor\nfinal class AppSettingsStore"))
+        XCTAssertFalse(storeBody.contains("fileExists(atPath:"))
+        XCTAssertFalse(storeBody.contains("createDirectory("))
+        XCTAssertFalse(storeBody.contains("Data(contentsOf:"))
+        XCTAssertFalse(storeBody.contains(".write(to:"))
+        XCTAssertTrue(source.contains("struct AppSettingsPersistence"))
+        XCTAssertTrue(persistenceBody.contains("DispatchQueue"))
+    }
+
     @MainActor
     func testFirstInstallCreatesKurottyThemeSettings() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
@@ -69,9 +88,26 @@ final class AppSettingsBehaviorTests: XCTestCase {
 
         XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
         XCTAssertEqual(settings.terminal.colors, .default)
-        XCTAssertEqual(settings.terminal.colors.background, "#24272E")
+        XCTAssertEqual(settings.terminal.colors.background, "#22252B")
         XCTAssertEqual(settings.terminal.colors.foreground, "#E5E7EB")
         XCTAssertEqual(settings.terminal.colors.cursor, "#D7C6F4")
+    }
+
+    @MainActor
+    func testPreviousKurottyDefaultMigratesToRetunedKurottyTheme() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 7,
+            theme: TerminalThemePreset.kurottyName,
+            colors: previousKurottyColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+        XCTAssertEqual(settings.terminal.colors.background, "#22252B")
     }
 
     @MainActor
@@ -289,6 +325,33 @@ final class AppSettingsBehaviorTests: XCTestCase {
         temporaryDirectory.appendingPathComponent("settings.json")
     }
 
+    private static func typeBody(named typeName: String, in source: String) -> String? {
+        let classRange = source.range(of: "final class \(typeName)")
+        let structRange = source.range(of: "struct \(typeName)")
+        guard let typeRange = classRange ?? structRange else {
+            return nil
+        }
+        guard let openingBrace = source[typeRange.upperBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var index = openingBrace
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingBrace...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
+
     private func makeBundle(named name: String, infoDictionary: [String: String]) throws -> Bundle {
         let bundleURL = temporaryDirectory.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -337,6 +400,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
     }
 
     private func defaultColorsJSON() -> String {
+        """
+        {
+          "foreground": "#E5E7EB",
+          "background": "#22252B",
+          "cursor": "#D7C6F4",
+          "ansi": [
+            "#2F333A", "#FF5F67", "#5FD38D", "#E5C07B",
+            "#61AFEF", "#C792EA", "#56B6C2", "#D7DAE0",
+            "#60646C", "#FF7B86", "#8EE8A3", "#F0D28A",
+            "#7AB7FF", "#D7A8FF", "#7FDCE3", "#F5F7FA"
+          ]
+        }
+        """
+    }
+
+    private func previousKurottyColorsJSON() -> String {
         """
         {
           "foreground": "#E5E7EB",

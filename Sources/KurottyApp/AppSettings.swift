@@ -28,7 +28,7 @@ struct AppSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let schemaVersion = 7
+        static let schemaVersion = 8
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
@@ -163,7 +163,7 @@ struct TerminalColorSettings: Codable, Equatable {
 
     private enum Defaults {
         static let foreground = "#E5E7EB"
-        static let background = "#24272E"
+        static let background = "#22252B"
         static let cursor = "#D7C6F4"
         static let ansi = [
             "#2F333A",
@@ -267,9 +267,9 @@ final class AppSettingsStore {
     static let shared = AppSettingsStore()
     static let didChangeNotification = Notification.Name("dev.kurotty.settings.didChange")
 
-    private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let persistence: AppSettingsPersistence
 
     let settingsURL: URL
 
@@ -281,12 +281,12 @@ final class AppSettingsStore {
     }
 
     init(fileManager: FileManager = .default, settingsURL: URL? = nil) {
-        self.fileManager = fileManager
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         decoder = JSONDecoder()
 
         self.settingsURL = settingsURL ?? Self.defaultSettingsURL(fileManager: fileManager)
+        persistence = AppSettingsPersistence(fileManager: fileManager, settingsURL: self.settingsURL)
     }
 
     func loadRawJSON() throws -> String {
@@ -295,8 +295,8 @@ final class AppSettingsStore {
     }
 
     func load() throws -> AppSettings {
-        try ensureSettingsFileExists()
-        let data = try Data(contentsOf: settingsURL)
+        let defaultData = try encoder.encode(AppSettings.default)
+        let data = try persistence.loadOrCreateDefaultData(defaultData)
         return normalized(try decoder.decode(AppSettings.self, from: data))
     }
 
@@ -304,8 +304,7 @@ final class AppSettingsStore {
         let data = Data(rawJSON.utf8)
         let settings = normalized(try decoder.decode(AppSettings.self, from: data))
         let normalizedData = try encoder.encode(settings)
-        try ensureSettingsDirectoryExists()
-        try normalizedData.write(to: settingsURL, options: .atomic)
+        try persistence.save(normalizedData)
         NotificationCenter.default.post(
             name: Self.didChangeNotification,
             object: self,
@@ -314,28 +313,6 @@ final class AppSettingsStore {
     }
 
     static let notificationSettingsKey = "settings"
-
-    private func ensureSettingsFileExists() throws {
-        guard !fileManager.fileExists(atPath: settingsURL.path) else {
-            return
-        }
-
-        try ensureSettingsDirectoryExists()
-        let data = try encoder.encode(AppSettings.default)
-        try data.write(to: settingsURL, options: .atomic)
-    }
-
-    private func ensureSettingsDirectoryExists() throws {
-        let directoryURL = settingsURL.deletingLastPathComponent()
-        guard !fileManager.fileExists(atPath: directoryURL.path) else {
-            return
-        }
-
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-    }
 
     private func normalized(_ settings: AppSettings) -> AppSettings {
         var next = settings
@@ -381,7 +358,8 @@ final class AppSettingsStore {
                 ? TerminalThemePreset.kurottyName
                 : theme
             let currentSchemaVersion = AppSettings.default.schemaVersion ?? 1
-            guard sourceSchemaVersion >= currentSchemaVersion || settings.terminal.colors == presetColors else {
+            let explicitPresetThemeCanResetColors = sourceSchemaVersion >= 7
+            guard explicitPresetThemeCanResetColors || sourceSchemaVersion >= currentSchemaVersion || settings.terminal.colors == presetColors else {
                 settings.terminal.theme = TerminalThemePreset.customName
                 return
             }
@@ -452,9 +430,15 @@ final class AppSettingsStore {
                 "#ECEFF4",
             ]
         )
+        static let previousKurottyColors = TerminalColorSettings(
+            foreground: "#E5E7EB",
+            background: "#24272E",
+            cursor: "#D7C6F4",
+            ansi: TerminalColorSettings.default.ansi
+        )
 
         static func shouldMigrate(colors: TerminalColorSettings) -> Bool {
-            colors == Self.colors || colors == Self.oldDefaultColors
+            colors == Self.colors || colors == Self.oldDefaultColors || colors == Self.previousKurottyColors
         }
     }
 
@@ -473,5 +457,51 @@ final class AppSettingsStore {
         return supportURL
             .appendingPathComponent(Path.appDirectoryName)
             .appendingPathComponent(Path.settingsFileName)
+    }
+}
+
+struct AppSettingsPersistence {
+    private let fileManager: FileManager
+    private let settingsURL: URL
+    private let queue = DispatchQueue(label: Queue.label)
+
+    private enum Queue {
+        static let label = "dev.kurotty.settings.persistence"
+    }
+
+    init(fileManager: FileManager, settingsURL: URL) {
+        self.fileManager = fileManager
+        self.settingsURL = settingsURL
+    }
+
+    func loadOrCreateDefaultData(_ defaultData: Data) throws -> Data {
+        try queue.sync {
+            guard fileManager.fileExists(atPath: settingsURL.path) else {
+                try ensureSettingsDirectoryExists()
+                try defaultData.write(to: settingsURL, options: .atomic)
+                return defaultData
+            }
+
+            return try Data(contentsOf: settingsURL)
+        }
+    }
+
+    func save(_ data: Data) throws {
+        try queue.sync {
+            try ensureSettingsDirectoryExists()
+            try data.write(to: settingsURL, options: .atomic)
+        }
+    }
+
+    private func ensureSettingsDirectoryExists() throws {
+        let directoryURL = settingsURL.deletingLastPathComponent()
+        guard !fileManager.fileExists(atPath: directoryURL.path) else {
+            return
+        }
+
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
     }
 }
