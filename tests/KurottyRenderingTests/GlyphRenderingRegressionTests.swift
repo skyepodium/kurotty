@@ -1024,7 +1024,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(updateControllerSource.contains("private var updaterController: SPUStandardUpdaterController?"))
         XCTAssertTrue(updateControllerSource.contains("static func isConfigured(bundle: Bundle = .main) -> Bool"))
         XCTAssertTrue(updateControllerSource.contains("AppConstants.Bundle.sparklePublicKeyInfoKey"))
-        XCTAssertTrue(updateControllerSource.contains("guard Self.isConfigured(bundle: bundle) else {"))
+        XCTAssertTrue(updateControllerSource.contains("if isConfigured(bundle: bundle) {"))
         XCTAssertTrue(updateControllerSource.contains("startingUpdater: true"))
         XCTAssertTrue(updateControllerSource.contains("func checkForUpdates(_ sender: Any?)"))
 
@@ -1057,11 +1057,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageReleaseSource.contains("mkdir -p \"$DIST_DIR\" \"$WORK_DIR\" \"$APP_BUNDLE/Contents/MacOS\" \"$APP_BUNDLE/Contents/Resources\" \"$APP_BUNDLE/Contents/Frameworks\""))
         XCTAssertTrue(packageReleaseSource.contains("cp -R \"$swift_bin_path/Sparkle.framework\" \"$APP_BUNDLE/Contents/Frameworks/Sparkle.framework\""))
         XCTAssertTrue(packageReleaseSource.contains("install_name_tool -add_rpath \"@executable_path/../Frameworks\" \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
-        XCTAssertTrue(packageReleaseSource.contains(": \"${KUROTTY_SPARKLE_PUBLIC_KEY:?KUROTTY_SPARKLE_PUBLIC_KEY is required for Sparkle updates}\""))
+        XCTAssertTrue(packageReleaseSource.contains("SPARKLE_PUBLIC_KEY=\"${KUROTTY_SPARKLE_PUBLIC_KEY:-}\""))
+        XCTAssertTrue(packageReleaseSource.contains("SPARKLE_CONFIGURED_UPDATES=\"1\""))
+        XCTAssertTrue(packageReleaseSource.contains("if [[ -z \"$SPARKLE_PUBLIC_KEY\" ]]; then"))
+        XCTAssertTrue(packageReleaseSource.contains("Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set."))
         XCTAssertTrue(packageReleaseSource.contains("xcodebuild -project \"$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj\""))
         XCTAssertTrue(packageReleaseSource.contains("-scheme generate_appcast"))
         XCTAssertTrue(packageReleaseSource.contains("<key>SUFeedURL</key>"))
-        XCTAssertTrue(packageReleaseSource.contains("<key>SUPublicEDKey</key>"))
+        XCTAssertTrue(packageReleaseSource.contains("SUPublicEDKey"))
         XCTAssertTrue(packageReleaseSource.contains("generate_appcast"))
     }
 

@@ -34,8 +34,12 @@ NOTARY_APPLE_ID="${KUROTTY_NOTARY_APPLE_ID:-}"
 NOTARY_TEAM_ID="${KUROTTY_NOTARY_TEAM_ID:-}"
 NOTARY_PASSWORD="${KUROTTY_NOTARY_PASSWORD:-}"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
-: "${KUROTTY_SPARKLE_PUBLIC_KEY:?KUROTTY_SPARKLE_PUBLIC_KEY is required for Sparkle updates}"
-SPARKLE_PUBLIC_KEY="$KUROTTY_SPARKLE_PUBLIC_KEY"
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
+SPARKLE_CONFIGURED_UPDATES="1"
+if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
+  SPARKLE_CONFIGURED_UPDATES="0"
+  echo "Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set."
+fi
 SPARKLE_TOOLS_DERIVED_DATA="$WORK_DIR/sparkle-tools"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-$SPARKLE_TOOLS_DERIVED_DATA/Build/Products/Release/generate_appcast}"
 
@@ -125,8 +129,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>SUFeedURL</key>
   <string>$SPARKLE_FEED_URL</string>
+$(if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
+  cat <<SUPUBLIC
   <key>SUPublicEDKey</key>
   <string>$SPARKLE_PUBLIC_KEY</string>
+SUPUBLIC
+fi)
 </dict>
 </plist>
 PLIST
@@ -184,15 +192,19 @@ cp "$DMG_PATH" "$DMG_LATEST_PATH"
   shasum -a 256 "$DMG_NAME" "$DMG_LATEST_NAME" > SHA256SUMS
 )
 
-if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
-  "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
+  if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
+    "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+  else
+    xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
+      -scheme generate_appcast \
+      -configuration Release \
+      -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
+      build
+    "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+  fi
 else
-  xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
-    -scheme generate_appcast \
-    -configuration Release \
-    -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
-    build
-  "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
+  echo "Skipping Sparkle appcast generation because update key is not configured."
 fi
 
 if [[ "$KEEP_WORKDIR" != "1" ]]; then

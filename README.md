@@ -54,6 +54,7 @@ Notes:
   For public releases, this warning should not appear when the release workflow runs with:
   - `KUROTTY_RELEASE_SIGN_IDENTITY`
   - `KUROTTY_NOTARY_PROFILE` (or Apple ID notarization credentials)
+  - `KUROTTY_SPARKLE_PUBLIC_KEY` (for built-in update checks)
 
 - On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
 

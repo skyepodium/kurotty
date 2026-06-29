@@ -49,6 +49,7 @@ jobs:
           KUROTTY_NOTARY_APPLE_ID: ${{ secrets.KUROTTY_NOTARY_APPLE_ID }}
           KUROTTY_NOTARY_TEAM_ID: ${{ secrets.KUROTTY_NOTARY_TEAM_ID }}
           KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
+          KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
           ./scripts/package-release.sh "${VERSION#v}"
