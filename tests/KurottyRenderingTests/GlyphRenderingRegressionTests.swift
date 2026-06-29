@@ -1351,9 +1351,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("ZIP_NAME=\"kurotty-$VERSION-macos.zip\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
-        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.2-macos.zip"))
+        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.3-macos.zip"))
         XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
-        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.2"))
+        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.3"))
     }
 }
 
