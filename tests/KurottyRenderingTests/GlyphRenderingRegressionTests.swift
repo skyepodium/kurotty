@@ -771,6 +771,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("updateScrollIndicator()"))
     }
 
+    func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private func visibleRowStartIndex(limit: Int) -> Int"))
+        XCTAssertTrue(source.contains("let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)"))
+        XCTAssertTrue(source.contains("let position = TerminalCellPosition(row: visibleStartRow + row, column: column)"))
+        XCTAssertTrue(source.contains("visibleRowStartIndex(limit: metrics.size.rows) + visibleRow"))
+        XCTAssertFalse(source.contains("let position = TerminalCellPosition(row: row, column: column)"))
+    }
+
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
         let source = try terminalSurfaceViewSource()
 
