@@ -20,12 +20,12 @@ Download the latest alpha `.zip` from [GitHub Releases](https://github.com/skyep
 
 Current alpha asset name:
 
-- `kurotty-0.1.0-alpha.3-macos.zip`
+- `kurotty-0.1.0-alpha.4-macos.zip`
 - `SHA256SUMS`
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-unzip kurotty-0.1.0-alpha.3-macos.zip
+unzip kurotty-0.1.0-alpha.4-macos.zip
 mv kurotty.app /Applications/
 open /Applications/kurotty.app
 ```
@@ -80,7 +80,7 @@ open /Applications/kurotty.app
 To create the same release zip locally:
 
 ```sh
-./scripts/package-release.sh 0.1.0-alpha.3
+./scripts/package-release.sh 0.1.0-alpha.4
 ```
 
 Developer notes live in `docs/`.

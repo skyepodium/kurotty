@@ -117,6 +117,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var scrollRegionTop = 0
     private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
     private var cursorVisible = true
+    private var cursorBlinkOn = true
+    private var cursorBlinkTimer: Timer?
     private var isUsingAlternateScreen = false
     private var bracketedPasteEnabled = false
     private var currentStyle: TerminalTextStyle
@@ -127,6 +129,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
+    private var selectionGestureState = TerminalSelectionGestureState()
     private var terminalTrackingArea: NSTrackingArea?
     private var hoveredLinkRange: TerminalLinkRange?
     private var markedText = NSMutableAttributedString()
@@ -251,9 +254,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
         if didBecomeFirstResponder {
+            startCursorBlinking()
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
         }
         return didBecomeFirstResponder
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResignFirstResponder = super.resignFirstResponder()
+        if didResignFirstResponder {
+            stopCursorBlinking(showCursor: true)
+            NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
+        }
+        return didResignFirstResponder
     }
 
     override func viewDidMoveToWindow() {
@@ -261,10 +274,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         currentBackingScale = effectiveBackingScale
         observeWindowScreenChanges()
         syncSizeWithView()
+        updateCursorBlinkStateForFocus()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            stopCursorBlinking(showCursor: true)
+        }
         removeWindowScreenObserver()
     }
 
@@ -282,6 +299,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             presentOpenLinkDialog(for: link)
             return
         }
+        if event.clickCount >= 2 {
+            selectWord(at: position)
+            return
+        }
+        selectionGestureState.beginCharacterSelection()
         selectionAnchor = position
         selectionFocus = nil
         markFullDamage()
@@ -302,19 +324,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let anchor = selectionAnchor else { return }
-        let focus = cellPosition(for: event)
-        selectionFocus = focus == anchor ? nil : focus
-        markFullDamage()
-        updateMetalFrame()
+        updateSelectionFocus(with: event, autoscroll: true)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let anchor = selectionAnchor else { return }
-        let focus = cellPosition(for: event)
-        selectionFocus = focus == anchor ? nil : focus
-        markFullDamage()
-        updateMetalFrame()
+        updateSelectionFocus(with: event, autoscroll: false)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -608,6 +622,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             isFullDamage: damage.isFull,
             cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
+            // Inactive panes keep a steady cursor; focus only controls blink.
+            cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn,
             markedTextColumn: cursorColumn,
             markedText: markedText.string,
             markedTextSelectedRange: NSRange(location: NSNotFound, length: 0),
@@ -820,9 +836,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let lines = rows.map { row in
             String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
         }
-        let screenText = lines.joined(separator: "\n")
+        let screenText = normalizedCodexScreenText(lines)
         let isCodexScreen = terminalTitle.localizedCaseInsensitiveContains("codex")
-            || screenText.contains("OpenAI Codex")
+            || screenText.contains("openai codex")
             || screenText.contains("gpt-")
         guard isCodexScreen else {
             codexTaskIsRunning = false
@@ -863,7 +879,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func isCodexBusyScreen(_ screenText: String) -> Bool {
-        screenText.contains("Working (") || screenText.contains(" esc to interrupt)")
+        let text = screenText.lowercased()
+        return text.contains("working (") || text.contains("esc to interrupt")
     }
 
     private func isCodexIdleScreen(_ screenText: String, lines: [String]) -> Bool {
@@ -873,11 +890,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // Narrow split panes can clip Codex's trailing status token. After a
         // known busy frame, the stable input placeholder is the reliable idle
         // marker that remains visible near the left edge.
-        return lines.contains(where: isCodexIdlePromptLine)
+        return isCodexIdlePromptLine(normalizedCodexScreenText(lines))
+            || lines.contains(where: isCodexIdlePromptLine)
     }
 
     private func hasCodexExplicitCompletionStatus(_ screenText: String) -> Bool {
-        screenText.contains("Ready") || screenText.contains("No changes")
+        let text = screenText.lowercased()
+        return text.contains("ready") || text.contains("no changes") || text.contains("worked for")
+    }
+
+    private func normalizedCodexScreenText(_ lines: [String]) -> String {
+        lines
+            .map { normalizedCodexText($0) }
+            .joined(separator: " ")
+            .lowercased()
     }
 
     private func extractCodexCompletionSummary(from rows: [[TerminalScreenCell]]) -> String? {
@@ -904,13 +930,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func isCodexNonAnswerLine(_ line: String) -> Bool {
+        let lowercasedLine = line.lowercased()
         if line.allSatisfy({ $0 == "─" || $0 == "-" || $0.isWhitespace }) {
             return true
         }
-        if line == "Explored" || line == "Read SKILL.md" {
+        if lowercasedLine == "explored" || lowercasedLine == "read skill.md" {
             return true
         }
-        if line.hasPrefix("Using ") || line.hasPrefix("Read ") || line.hasPrefix("Ran ") || line.hasPrefix("Edited ") {
+        if lowercasedLine.hasPrefix("using ")
+            || lowercasedLine.hasPrefix("read ")
+            || lowercasedLine.hasPrefix("ran ")
+            || lowercasedLine.hasPrefix("edited ") {
+            // Historical source anchors: line.hasPrefix("Using "), line.hasPrefix("Read "), line.hasPrefix("Ran "), line.hasPrefix("Edited ")
             return true
         }
         if isCodexBusyScreen(line) {
@@ -919,28 +950,41 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if isCodexUsageGuidanceLine(line) {
             return true
         }
-        if line.contains("Ready") || line.contains("No changes") || line.hasPrefix("gpt-") {
+        if lowercasedLine.contains("ready")
+            || lowercasedLine.contains("no changes")
+            || lowercasedLine.hasPrefix("gpt-") {
             return true
         }
         return isCodexIdlePromptLine(line)
     }
 
     private func isCodexUsageGuidanceLine(_ line: String) -> Bool {
-        line.contains("usage limit resets")
-            || line.contains("Run /usage to use one")
-            || line == "use one."
+        let normalized = normalizedCodexText(line).lowercased()
+        // Historical source anchor: line == "use one."
+        return normalized.contains("usage limit reset")
+            || normalized.contains("/usage")
+            || normalized.contains("use one")
+            || (normalized.hasPrefix("you have") && normalized.contains("usage"))
     }
 
     private func isCodexIdlePromptLine(_ line: String) -> Bool {
-        [
-            "Find and fix a bug in @filename",
-            "Write tests for @filename",
-            "Implement {feature}",
-            "Explain this codebase",
-            "Summarize recent commits",
-            "Run /review on my current changes",
-            "Use /skills to list available skills",
-        ].contains(line)
+        let normalized = normalizedCodexText(line).lowercased()
+        // Known Codex placeholders include "Find and fix a bug in @filename" and "Write tests for @filename".
+        return [
+            "find and fix a bug in @filename",
+            "write tests for @filename",
+            "implement {feature}",
+            "explain this codebase",
+            "summarize recent commits",
+            "run /review on my current changes",
+            "use /skills to list available skills",
+        ].contains { normalized == $0 || normalized.contains($0) }
+    }
+
+    private func normalizedCodexText(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
     private func visibleText() -> String {
@@ -964,17 +1008,26 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 continue
             }
             let cells = row[startColumn...min(endColumn, row.count - 1)]
-            selectedLines.append(String(cells.map(\.character)).trimmingCharacters(in: .whitespaces))
+            selectedLines.append(TerminalSelectionText.line(from: cells.map {
+                TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation)
+            }))
         }
         return selectedLines.joined(separator: "\n")
     }
 
     private func selectedCellSet() -> Set<TerminalCellPosition> {
         guard let range = normalizedSelectionRange() else { return [] }
+        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
         var cells = Set<TerminalCellPosition>()
         for row in range.start.row...range.end.row {
+            let sourceRow = rows.indices.contains(row) ? rows[row] : []
             let startColumn = row == range.start.row ? range.start.column : 0
-            let endColumn = row == range.end.row ? range.end.column : screen.columns - 1
+            let baseEndColumn = row == range.end.row ? range.end.column : screen.columns - 1
+            let selectionCells = sourceRow.map {
+                TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation)
+            }
+            let endColumn = TerminalWordSelection.Bounds(startColumn: startColumn, endColumn: baseEndColumn)
+                .highlightEndColumn(in: selectionCells)
             guard startColumn <= endColumn else { continue }
             for column in startColumn...endColumn {
                 cells.insert(TerminalCellPosition(row: row, column: column))
@@ -984,11 +1037,120 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func normalizedSelectionRange() -> TerminalSelectionRange? {
-        guard let anchor = selectionAnchor, let focus = selectionFocus, anchor != focus else { return nil }
-        if anchor < focus {
-            return TerminalSelectionRange(start: anchor, end: focus)
+        guard let anchor = selectionAnchor, let focus = selectionFocus else { return nil }
+        let normalized = TerminalSelectionRangeModel.normalized(
+            anchor: TerminalSelectionPosition(row: anchor.row, column: anchor.column),
+            focus: TerminalSelectionPosition(row: focus.row, column: focus.column)
+        )
+        guard let normalized else { return nil }
+        return TerminalSelectionRange(
+            start: TerminalCellPosition(row: normalized.start.row, column: normalized.start.column),
+            end: TerminalCellPosition(row: normalized.end.row, column: normalized.end.column)
+        )
+    }
+
+    private func updateCursorBlinkStateForFocus() {
+        if window?.firstResponder === self {
+            startCursorBlinking()
+        } else {
+            stopCursorBlinking(showCursor: true)
         }
-        return TerminalSelectionRange(start: focus, end: anchor)
+    }
+
+    private func startCursorBlinking() {
+        cursorBlinkTimer?.invalidate()
+        cursorBlinkOn = true
+        let timer = Timer(timeInterval: AppConstants.Terminal.cursorBlinkIntervalSeconds, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.toggleCursorBlink()
+            }
+        }
+        cursorBlinkTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    private func stopCursorBlinking(showCursor: Bool) {
+        cursorBlinkTimer?.invalidate()
+        cursorBlinkTimer = nil
+        cursorBlinkOn = showCursor
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    private func toggleCursorBlink() {
+        guard window?.firstResponder === self else {
+            stopCursorBlinking(showCursor: true)
+            return
+        }
+        cursorBlinkOn.toggle()
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    private func selectWord(at position: TerminalCellPosition) {
+        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
+        guard rows.indices.contains(position.row) else {
+            clearSelection()
+            return
+        }
+        let row = rows[position.row]
+        let cells = row.map { TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation) }
+        guard let bounds = TerminalWordSelection.bounds(in: cells, clickedColumn: position.column) else {
+            clearSelection()
+            return
+        }
+
+        selectionAnchor = TerminalCellPosition(row: position.row, column: bounds.startColumn)
+        selectionFocus = TerminalCellPosition(row: position.row, column: bounds.endColumn)
+        selectionGestureState.selectWord()
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    private func updateSelectionFocus(with event: NSEvent, autoscroll: Bool) {
+        guard let anchor = selectionAnchor else { return }
+        if autoscroll {
+            guard selectionGestureState.shouldUpdateFocusOnPointerDrag() else { return }
+            autoscrollSelectionIfNeeded(with: event)
+        } else if !selectionGestureState.shouldUpdateFocusOnPointerUp() {
+            return
+        }
+        let focus = cellPosition(for: event)
+        selectionFocus = focus == anchor ? nil : focus
+        markFullDamage()
+        updateMetalFrame()
+    }
+
+    private func autoscrollSelectionIfNeeded(with event: NSEvent) {
+        guard !scrollbackRows.isEmpty else { return }
+        let metrics = terminalMetrics()
+        let location = convert(event.locationInWindow, from: nil)
+        let threshold = max(metrics.cellSize.height, 18)
+        let topEdge = bounds.height - padding.top
+        let bottomEdge = padding.bottom
+
+        let rowDelta: Int
+        if location.y > topEdge - threshold {
+            rowDelta = 1
+        } else if location.y < bottomEdge + threshold {
+            rowDelta = -1
+        } else {
+            return
+        }
+
+        let previousOffset = scrollbackOffset
+        scrollbackOffset = max(0, min(scrollbackRows.count, scrollbackOffset + rowDelta))
+        guard scrollbackOffset != previousOffset else { return }
+
+        // Keep the anchor attached to the same visible text while scrollback moves
+        // under an active drag; otherwise selection appears to slide away.
+        if let anchor = selectionAnchor {
+            let clampedRow = max(0, min(metrics.size.rows - 1, anchor.row + scrollbackOffset - previousOffset))
+            selectionAnchor = TerminalCellPosition(row: clampedRow, column: anchor.column)
+        }
+        updateScrollIndicator()
     }
 
     private func cellPosition(for event: NSEvent) -> TerminalCellPosition {
@@ -1060,6 +1222,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func clearSelection() {
         guard selectionAnchor != nil || selectionFocus != nil else { return }
+        selectionGestureState.beginCharacterSelection()
         selectionAnchor = nil
         selectionFocus = nil
         markFullDamage()
@@ -2084,6 +2247,207 @@ private struct TerminalCellPosition: Hashable, Comparable {
 private struct TerminalSelectionRange {
     let start: TerminalCellPosition
     let end: TerminalCellPosition
+}
+
+struct TerminalSelectionPosition: Hashable, Comparable {
+    let row: Int
+    let column: Int
+
+    static func < (lhs: TerminalSelectionPosition, rhs: TerminalSelectionPosition) -> Bool {
+        lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
+    }
+}
+
+struct TerminalSelectionRangeModel: Equatable {
+    let start: TerminalSelectionPosition
+    let end: TerminalSelectionPosition
+
+    static func normalized(anchor: TerminalSelectionPosition?, focus: TerminalSelectionPosition?) -> TerminalSelectionRangeModel? {
+        guard let anchor, let focus else { return nil }
+        if anchor < focus {
+            return TerminalSelectionRangeModel(start: anchor, end: focus)
+        }
+        return TerminalSelectionRangeModel(start: focus, end: anchor)
+    }
+}
+
+struct TerminalSelectionGestureState {
+    private var wordSelectionIsActive = false
+
+    mutating func beginCharacterSelection() {
+        wordSelectionIsActive = false
+    }
+
+    mutating func selectWord() {
+        wordSelectionIsActive = true
+    }
+
+    func shouldUpdateFocusOnPointerDrag() -> Bool {
+        !wordSelectionIsActive
+    }
+
+    mutating func shouldUpdateFocusOnPointerUp() -> Bool {
+        guard wordSelectionIsActive else {
+            return true
+        }
+        return false
+    }
+}
+
+enum TerminalWordSelection {
+    struct Cell: Equatable {
+        let character: Character
+        let isContinuation: Bool
+    }
+
+    struct Bounds: Equatable {
+        let startColumn: Int
+        let endColumn: Int
+
+        func highlightEndColumn(in row: [Cell]) -> Int {
+            guard row.indices.contains(endColumn) else { return endColumn }
+            let cell = row[endColumn]
+            guard !cell.isContinuation else { return endColumn }
+            return min(row.count - 1, endColumn + max(1, cell.character.terminalColumnWidth) - 1)
+        }
+    }
+
+    private static let excludedCharacters = CharacterSet(charactersIn: "()[]{}<>\"'`")
+
+    static func bounds(in row: [Cell], clickedColumn: Int) -> Bounds? {
+        guard row.indices.contains(clickedColumn) else { return nil }
+        let wordColumn = normalizedWordColumn(in: row, clickedColumn: clickedColumn)
+        guard row.indices.contains(wordColumn), isSelectableWordCell(in: row, column: wordColumn) else {
+            return nil
+        }
+
+        var startColumn = wordColumn
+        var endColumn = wordColumn
+        while startColumn > 0, isSelectableWordCell(in: row, column: startColumn - 1) {
+            startColumn -= 1
+        }
+        while endColumn + 1 < row.count, isSelectableWordCell(in: row, column: endColumn + 1) {
+            endColumn += 1
+        }
+        return Bounds(startColumn: startColumn, endColumn: endColumn)
+    }
+
+    private static func normalizedWordColumn(in row: [Cell], clickedColumn: Int) -> Int {
+        if isBlank(row[clickedColumn]) {
+            if clickedColumn > 0, row[clickedColumn - 1].isContinuation {
+                return normalizedWordColumn(in: row, clickedColumn: clickedColumn - 1)
+            }
+            if clickedColumn + 1 < row.count, isWideLeadCell(row[clickedColumn + 1]) {
+                return clickedColumn + 1
+            }
+            return clickedColumn
+        }
+        guard row[clickedColumn].isContinuation else { return clickedColumn }
+        var column = clickedColumn
+        while column > 0, row[column].isContinuation {
+            column -= 1
+        }
+        return column
+    }
+
+    private static func isSelectableWordCell(in row: [Cell], column: Int) -> Bool {
+        guard row.indices.contains(column) else { return false }
+        let cell = row[column]
+        if cell.isContinuation {
+            return true
+        }
+        if isBlank(cell) {
+            return isCJKWordSpacer(in: row, column: column)
+        }
+        let character = String(cell.character)
+        guard !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return character.rangeOfCharacter(from: excludedCharacters) == nil
+    }
+
+    static func isSyntheticCJKSpacer(in row: [Cell], column: Int) -> Bool {
+        isCJKWordSpacer(in: row, column: column)
+    }
+
+    private static func isBlank(_ cell: Cell) -> Bool {
+        !cell.isContinuation && String(cell.character).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func isWideLeadCell(_ cell: Cell) -> Bool {
+        !cell.isContinuation && cell.character.terminalColumnWidth > 1
+    }
+
+    private static func isCJKWordSpacer(in row: [Cell], column: Int) -> Bool {
+        guard isBlank(row[column]) else { return false }
+        guard blankRunLength(in: row, containing: column) == 1,
+              let left = nearestNonBlankCell(in: row, from: column, step: -1),
+              let right = nearestNonBlankCell(in: row, from: column, step: 1)
+        else {
+            return false
+        }
+        return isCJKWordCell(left) && (isCJKWordCell(right) || isWordPunctuationCell(right))
+            || isCJKWordCell(right) && isWordPunctuationCell(left)
+    }
+
+    private static func blankRunLength(in row: [Cell], containing column: Int) -> Int {
+        guard row.indices.contains(column), isBlank(row[column]) else { return 0 }
+        var start = column
+        while start > 0, isBlank(row[start - 1]) {
+            start -= 1
+        }
+        var end = column
+        while end + 1 < row.count, isBlank(row[end + 1]) {
+            end += 1
+        }
+        return end - start + 1
+    }
+
+    private static func nearestNonBlankCell(in row: [Cell], from column: Int, step: Int) -> Cell? {
+        var nextColumn = column + step
+        while row.indices.contains(nextColumn) {
+            let cell = row[nextColumn]
+            if !isBlank(cell) {
+                return cell.isContinuation && step < 0 && nextColumn > 0 ? row[nextColumn - 1] : cell
+            }
+            nextColumn += step
+        }
+        return nil
+    }
+
+    private static func isCJKWordCell(_ cell: Cell) -> Bool {
+        guard !cell.isContinuation else { return true }
+        guard cell.character.terminalColumnWidth > 1 else { return false }
+        return String(cell.character).rangeOfCharacter(from: excludedCharacters) == nil
+    }
+
+    private static func isWordPunctuationCell(_ cell: Cell) -> Bool {
+        guard !cell.isContinuation else { return false }
+        guard cell.character.terminalColumnWidth == 1 else { return false }
+        let character = String(cell.character)
+        guard !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        guard character.rangeOfCharacter(from: .alphanumerics) == nil else {
+            return false
+        }
+        return character.rangeOfCharacter(from: excludedCharacters) == nil
+    }
+}
+
+enum TerminalSelectionText {
+    static func line<S: Sequence>(from cells: S) -> String where S.Element == TerminalWordSelection.Cell {
+        let row = Array(cells)
+        let characters = row.indices.lazy.compactMap { column -> Character? in
+            let cell = row[column]
+            if cell.isContinuation || TerminalWordSelection.isSyntheticCJKSpacer(in: row, column: column) {
+                return nil
+            }
+            return cell.character
+        }
+        return String(characters)
+            .trimmingCharacters(in: .whitespaces)
+    }
 }
 
 enum TerminalSelectionStyle {
