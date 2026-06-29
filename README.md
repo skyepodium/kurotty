@@ -16,25 +16,25 @@ Kurotty is currently an early developer build. Install the latest alpha release 
 
 ## Install
 
-Download the latest alpha `.zip` from [GitHub Releases](https://github.com/skyepodium/kurotty/releases), verify the checksum, and move `kurotty.app` to `/Applications`.
+Download the latest alpha Universal DMG from [GitHub Releases](https://github.com/skyepodium/kurotty/releases). It supports Intel and Apple Silicon Macs.
 
-Current alpha asset name:
+Release asset names:
 
-- `kurotty-0.1.0-alpha.4-macos.zip`
+- `kurotty-<version>-macos-universal.dmg`
 - `SHA256SUMS`
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-unzip kurotty-0.1.0-alpha.4-macos.zip
-mv kurotty.app /Applications/
+open kurotty-<version>-macos-universal.dmg
 open /Applications/kurotty.app
 ```
 
 Notes:
 
 - This is an alpha build.
-- The app is ad-hoc signed for local execution, not notarized yet.
-- macOS may ask you to confirm opening a downloaded app.
+- Release builds are packaged as a Universal DMG for Intel and Apple Silicon Macs.
+- If the release was built without Developer ID credentials, macOS may ask you to confirm opening the downloaded app.
+- On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
 
 ## Features
 
@@ -77,11 +77,27 @@ To install a local app bundle:
 open /Applications/kurotty.app
 ```
 
-To create the same release zip locally:
+To create the same Universal DMG locally:
 
 ```sh
-./scripts/package-release.sh 0.1.0-alpha.4
+./scripts/package-release.sh
 ```
+
+The script writes:
+
+- `dist/kurotty-$(cat VERSION)-macos-universal.dmg`
+- `dist/SHA256SUMS`
+
+To publish an alpha release from `main`:
+
+```sh
+git switch main
+git pull --ff-only
+git tag "v$(cat VERSION)"
+git push origin "v$(cat VERSION)"
+```
+
+The release workflow builds a Universal DMG and uploads it to GitHub Releases. Bump `VERSION` first, then tag from `main`. Set Developer ID and notarization secrets in GitHub Actions when you want a fully signed and notarized DMG.
 
 Developer notes live in `docs/`.
 

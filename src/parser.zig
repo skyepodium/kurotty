@@ -3,6 +3,7 @@ const std = @import("std");
 pub const CsiEvent = struct {
     final: u8,
     private: bool = false,
+    prefix: ?u8 = null,
     params: []const u16,
 };
 
@@ -64,10 +65,22 @@ pub const Parser = struct {
                         self.string.clearRetainingCapacity();
                         self.state = .string_control;
                     },
+                    '(', ')', '*', '+', '-', '.', '/', '%' => {
+                        self.state = .escape_designator;
+                    },
+                    '#' => {
+                        self.state = .escape_dec_private;
+                    },
                     else => {
                         try events.append(self.allocator, .{ .control = byte });
                         self.state = .normal;
                     },
+                },
+                .escape_designator => {
+                    self.state = .normal;
+                },
+                .escape_dec_private => {
+                    self.state = .normal;
                 },
                 .csi => {
                     if (isCsiFinal(byte)) {
@@ -170,6 +183,7 @@ pub const Parser = struct {
         try events.append(self.allocator, .{ .csi = .{
             .final = final,
             .private = private,
+            .prefix = if (private) raw[0] else null,
             .params = try params.toOwnedSlice(self.allocator),
         } });
     }
@@ -183,6 +197,8 @@ pub const Parser = struct {
 const State = enum {
     normal,
     escape,
+    escape_designator,
+    escape_dec_private,
     csi,
     osc,
     osc_escape,

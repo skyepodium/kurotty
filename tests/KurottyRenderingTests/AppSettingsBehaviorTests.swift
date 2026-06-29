@@ -58,7 +58,84 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: releaseBundle), "1.2.3 (45)")
 
         let developmentBundle = try makeBundle(named: "DevelopmentFixture.bundle", infoDictionary: [:])
-        XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "0.1.0-alpha.2 (dev)")
+        XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "development (dev)")
+    }
+
+    func testTmuxConstantsUseDefaultPrefixAndSessionCommands() throws {
+        XCTAssertEqual(AppConstants.Tmux.prefix, "\u{2}")
+        XCTAssertEqual(AppConstants.Tmux.newWindowSequence, "\u{2}c")
+        XCTAssertEqual(AppConstants.Tmux.splitHorizontallySequence, "\u{2}\"")
+        XCTAssertEqual(AppConstants.Tmux.splitVerticallySequence, "\u{2}%")
+        XCTAssertEqual(AppConstants.Tmux.previousWindowSequence, "\u{2}p")
+        XCTAssertEqual(AppConstants.Tmux.nextWindowSequence, "\u{2}n")
+        XCTAssertEqual(AppConstants.Tmux.detachClientSequence, "\u{2}d")
+        XCTAssertEqual(AppConstants.Tmux.attachOrCreateSessionCommand, "tmux new-session -A -s kurotty\r")
+        XCTAssertEqual(AppConstants.Tmux.listSessionsCommand, "tmux list-sessions\r")
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-style bg=colour99,fg=colour255"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option window-status-current-style bg=colour135,fg=colour255,bold"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-justify left"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option window-status-format ''"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-left '[#S] #{window_index}:#{window_name}#{window_flags} '"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-right ' %H:%M '"))
+        XCTAssertFalse(AppConstants.Tmux.applyKurottyThemeCommand.contains("set-option -g"))
+        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.hasSuffix("\r"))
+    }
+
+    func testRepeatPrecedingGraphicCharacterCopiesCellAndStyleForTmuxStatusRedraws() throws {
+        var screen = TerminalScreen(rows: 1, columns: 6)
+        let style = TerminalTextStyle(
+            foreground: SIMD4<Float>(1, 1, 1, 1),
+            background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
+        )
+
+        screen.set(character: "0", row: 0, column: 0, width: 1, style: style)
+        let written = screen.repeatPrecedingGraphicCharacter(row: 0, column: 1, count: 3)
+
+        XCTAssertEqual(written, 3)
+        XCTAssertEqual(String(screen.cells[0][0].character), "0")
+        XCTAssertEqual(String(screen.cells[0][1].character), "0")
+        XCTAssertEqual(String(screen.cells[0][2].character), "0")
+        XCTAssertEqual(String(screen.cells[0][3].character), "0")
+        XCTAssertEqual(screen.cells[0][1].style, style)
+        XCTAssertEqual(screen.cells[0][3].style, style)
+    }
+
+    func testPrintableSpaceOverwritesPreviousGlyphForColumnAlignedOutput() throws {
+        var screen = TerminalScreen(rows: 1, columns: 12)
+        let promptStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(1, 1, 1, 1),
+            background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
+        )
+        for (column, character) in Array("Package.swift").enumerated() {
+            screen.set(character: character, row: 0, column: column, width: 1, style: promptStyle)
+        }
+
+        for (column, character) in Array("AGENTS.md   ").enumerated() {
+            screen.set(character: character, row: 0, column: column, width: 1, style: .default)
+        }
+
+        XCTAssertEqual(String(screen.cells[0].map(\.character)), "AGENTS.md   ")
+        XCTAssertEqual(screen.cells[0][9].style, .default)
+        XCTAssertEqual(screen.cells[0][10].style, .default)
+        XCTAssertEqual(screen.cells[0][11].style, .default)
+    }
+
+    func testEraseCharacterClearsOnlyRequestedCellsWithCurrentStyle() throws {
+        var screen = TerminalScreen(rows: 1, columns: 10)
+        let statusStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(1, 1, 1, 1),
+            background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
+        )
+        for (column, character) in Array("02:18xxxxx").enumerated() {
+            screen.set(character: character, row: 0, column: column, width: 1, style: .default)
+        }
+
+        screen.clear(row: 0, from: 5, through: 9, style: statusStyle)
+
+        XCTAssertEqual(String(screen.cells[0].map(\.character)), "02:18     ")
+        XCTAssertEqual(screen.cells[0][4].style, .default)
+        XCTAssertEqual(screen.cells[0][5].style, statusStyle)
+        XCTAssertEqual(screen.cells[0][9].style, statusStyle)
     }
 
     @MainActor

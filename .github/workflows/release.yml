@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require tag to point at main history
+        run: |
+          git fetch origin main --tags
+          git branch --contains HEAD -r | grep -E '(^|[ /])main$'
+
+      - name: Install Zig
+        run: brew install zig
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERTIFICATE_P12" ]; then
+            echo "Skipping certificate import; release will use ad-hoc signing."
+            exit 0
+          fi
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Build Universal DMG
+        env:
+          KUROTTY_RELEASE_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          KUROTTY_NOTARY_PROFILE: ${{ secrets.KUROTTY_NOTARY_PROFILE }}
+          KUROTTY_NOTARY_APPLE_ID: ${{ secrets.KUROTTY_NOTARY_APPLE_ID }}
+          KUROTTY_NOTARY_TEAM_ID: ${{ secrets.KUROTTY_NOTARY_TEAM_ID }}
+          KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          ./scripts/package-release.sh "${VERSION#v}"
+
+      - name: Upload GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/kurotty-*-macos-universal.dmg
+            dist/SHA256SUMS
