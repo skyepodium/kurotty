@@ -44,13 +44,23 @@ jobs:
 
       - name: Build Universal DMG
         env:
-          KUROTTY_RELEASE_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           KUROTTY_NOTARY_PROFILE: ${{ secrets.KUROTTY_NOTARY_PROFILE }}
           KUROTTY_NOTARY_APPLE_ID: ${{ secrets.KUROTTY_NOTARY_APPLE_ID }}
           KUROTTY_NOTARY_TEAM_ID: ${{ secrets.KUROTTY_NOTARY_TEAM_ID }}
           KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
           KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY }}
         run: |
+          if [[ -z "${MACOS_CERTIFICATE_P12}" || -z "${MACOS_SIGN_IDENTITY}" ]]; then
+            export KUROTTY_RELEASE_SIGN_IDENTITY="-"
+            export KUROTTY_NOTARY_PROFILE=""
+            export KUROTTY_NOTARY_APPLE_ID=""
+            export KUROTTY_NOTARY_TEAM_ID=""
+            export KUROTTY_NOTARY_PASSWORD=""
+          else
+            export KUROTTY_RELEASE_SIGN_IDENTITY="${MACOS_SIGN_IDENTITY}"
+          fi
           VERSION="${GITHUB_REF_NAME}"
           ./scripts/package-release.sh "${VERSION#v}"
 
