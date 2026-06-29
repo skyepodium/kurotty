@@ -74,6 +74,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.splitHorizontally()
     }
 
+    @objc func tmuxAttachOrCreateSession() {
+        activeTerminalWindowController?.sendTextToActivePane(AppConstants.Tmux.attachOrCreateSessionCommand)
+    }
+
+    @objc func tmuxListSessions() {
+        activeTerminalWindowController?.sendTextToActivePane(AppConstants.Tmux.listSessionsCommand)
+    }
+
+    @objc func tmuxApplyKurottyTheme() {
+        activeTerminalWindowController?.sendTextToActivePane(AppConstants.Tmux.applyKurottyThemeCommand)
+    }
+
+    @objc func tmuxNewWindow() {
+        sendTmuxSequence(AppConstants.Tmux.newWindowSequence)
+    }
+
+    @objc func tmuxSplitHorizontally() {
+        sendTmuxSequence(AppConstants.Tmux.splitHorizontallySequence)
+    }
+
+    @objc func tmuxSplitVertically() {
+        sendTmuxSequence(AppConstants.Tmux.splitVerticallySequence)
+    }
+
+    @objc func tmuxPreviousWindow() {
+        sendTmuxSequence(AppConstants.Tmux.previousWindowSequence)
+    }
+
+    @objc func tmuxNextWindow() {
+        sendTmuxSequence(AppConstants.Tmux.nextWindowSequence)
+    }
+
+    @objc func tmuxDetachClient() {
+        sendTmuxSequence(AppConstants.Tmux.detachClientSequence)
+    }
+
     private var activeTerminalWindowController: TerminalWindowController? {
         if let controller = NSApp.keyWindow?.windowController as? TerminalWindowController {
             return controller
@@ -82,6 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return controller
         }
         return windowController
+    }
+
+    private func sendTmuxSequence(_ sequence: String) {
+        activeTerminalWindowController?.sendTextToActivePane(sequence)
     }
 
     private func installApplicationIcon() {

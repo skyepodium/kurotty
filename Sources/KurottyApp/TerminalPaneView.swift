@@ -139,6 +139,10 @@ final class TerminalPaneView: NSView {
         window?.makeFirstResponder(terminalSurfaceView)
     }
 
+    func sendText(_ text: String) {
+        terminalSurfaceView.sendText(text)
+    }
+
     func beginDraggingPane(_ pane: TerminalPaneView, with event: NSEvent) {
         detachDragRequested?(pane, event)
     }

@@ -131,6 +131,96 @@ test "parser preserves private cursor and report CSI sequences across fragments"
     try std.testing.expectEqualSlices(u16, &.{6}, third[2].csi.params);
 }
 
+test "parser suppresses charset designators used by tmux terminfo" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const events = try parser.feed("A\x1b(BB\x1b)0C\x1b%GD");
+
+    try std.testing.expectEqual(@as(usize, 4), events.len);
+    try std.testing.expectEqualStrings("A", events[0].printable.bytes);
+    try std.testing.expectEqualStrings("B", events[1].printable.bytes);
+    try std.testing.expectEqualStrings("C", events[2].printable.bytes);
+    try std.testing.expectEqualStrings("D", events[3].printable.bytes);
+}
+
+test "parser preserves exact CSI prefix for device attribute queries" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const events = try parser.feed("\x1b[c\x1b[>0c\x1b[?1;2c");
+
+    try std.testing.expectEqual(@as(usize, 3), events.len);
+    try std.testing.expectEqual(@as(u8, 'c'), events[0].csi.final);
+    try std.testing.expectEqual(@as(?u8, null), events[0].csi.prefix);
+    try std.testing.expectEqual(@as(?u8, '>'), events[1].csi.prefix);
+    try std.testing.expectEqual(@as(?u8, '?'), events[2].csi.prefix);
+}
+
+test "parser suppresses fragmented charset designators without printable leakage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("A\x1b(");
+    try std.testing.expectEqual(@as(usize, 1), first.len);
+    try std.testing.expectEqualStrings("A", first[0].printable.bytes);
+
+    const second = try parser.feed("BC\x1b)");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("C", second[0].printable.bytes);
+
+    const third = try parser.feed("0D");
+    try std.testing.expectEqual(@as(usize, 1), third.len);
+    try std.testing.expectEqualStrings("D", third[0].printable.bytes);
+}
+
+test "parser suppresses fragmented DEC private two byte escapes without printable leakage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const first = try parser.feed("A\x1b#");
+    try std.testing.expectEqual(@as(usize, 1), first.len);
+    try std.testing.expectEqualStrings("A", first[0].printable.bytes);
+
+    const second = try parser.feed("8B");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("B", second[0].printable.bytes);
+}
+
+test "parser preserves fragmented device attribute prefixes without printable leakage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), (try parser.feed("\x1b[")).len);
+    try std.testing.expectEqual(@as(usize, 0), (try parser.feed(">0")).len);
+
+    const first = try parser.feed("cX\x1b[?1;2");
+    try std.testing.expectEqual(@as(usize, 2), first.len);
+    try std.testing.expectEqual(@as(u8, 'c'), first[0].csi.final);
+    try std.testing.expectEqual(@as(?u8, '>'), first[0].csi.prefix);
+    try std.testing.expectEqualStrings("X", first[1].printable.bytes);
+
+    const second = try parser.feed("c");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqual(@as(u8, 'c'), second[0].csi.final);
+    try std.testing.expectEqual(@as(?u8, '?'), second[0].csi.prefix);
+}
+
 test "parser suppresses fragmented DCS PM and APC payloads until terminators" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

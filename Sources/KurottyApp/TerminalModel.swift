@@ -3,9 +3,26 @@ import Foundation
 enum StreamState {
     case normal
     case escape
+    case escapeDesignator
+    case escapeDecPrivate
     case csi
     case osc
     case oscEscape
+}
+
+enum TerminalEscapeSequence {
+    static func beginsTwoByteDesignator(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar {
+        case "(", ")", "*", "+", "-", ".", "/", "%":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func beginsTwoByteDecPrivate(_ scalar: UnicodeScalar) -> Bool {
+        scalar == "#"
+    }
 }
 
 struct TerminalLinkRange: Equatable {
@@ -187,6 +204,39 @@ struct TerminalScreen {
         }
     }
 
+    @discardableResult
+    mutating func repeatPrecedingGraphicCharacter(row: Int, column: Int, count: Int) -> Int {
+        discardResizeHiddenRows()
+        guard cells.indices.contains(row),
+              column > 0,
+              column < columns,
+              count > 0
+        else {
+            return 0
+        }
+
+        let source = cells[row][column - 1]
+        guard !source.isContinuation,
+              source.character.terminalColumnWidth == 1
+        else {
+            return 0
+        }
+
+        let writableCount = min(count, columns - column)
+        guard writableCount > 0 else { return 0 }
+
+        for offset in 0..<writableCount {
+            set(
+                character: source.character,
+                row: row,
+                column: column + offset,
+                width: 1,
+                style: source.style
+            )
+        }
+        return writableCount
+    }
+
     private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle) {
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         guard cells[row][column].isContinuation else { return }
@@ -323,12 +373,21 @@ struct TerminalScreenCell {
 
 struct CsiParameters {
     let isPrivate: Bool
+    let prefix: Character?
     let values: [Int]
 
     init(_ raw: String) {
         let privatePrefixes = CharacterSet(charactersIn: "<=>?")
         let trimmed = raw.trimmingCharacters(in: privatePrefixes)
-        isPrivate = raw.first.map { privatePrefixes.contains($0.unicodeScalars.first!) } ?? false
+        prefix = raw.first.flatMap { character in
+            guard let scalar = character.unicodeScalars.first,
+                  privatePrefixes.contains(scalar)
+            else {
+                return nil
+            }
+            return character
+        }
+        isPrivate = prefix != nil
         values = trimmed
             .split(whereSeparator: { $0 == ";" || $0 == ":" })
             .map { part in
@@ -339,5 +398,24 @@ struct CsiParameters {
     func value(at index: Int, default defaultValue: Int) -> Int {
         guard values.indices.contains(index), values[index] > 0 else { return defaultValue }
         return values[index]
+    }
+}
+
+enum TerminalDeviceAttributes {
+    static func response(for params: CsiParameters) -> String? {
+        switch params.prefix {
+        case nil:
+            guard params.values.isEmpty || params.value(at: 0, default: 0) == 0 else {
+                return nil
+            }
+            return "\u{1b}[?1;2c"
+        case ">":
+            guard params.values.isEmpty || params.value(at: 0, default: 0) == 0 else {
+                return nil
+            }
+            return "\u{1b}[>0;0;0c"
+        default:
+            return nil
+        }
     }
 }

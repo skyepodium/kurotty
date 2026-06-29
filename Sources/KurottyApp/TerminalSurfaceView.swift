@@ -304,6 +304,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         copy(sender)
     }
 
+    func sendText(_ text: String) {
+        send(text)
+    }
+
     private func handleCommandKey(_ event: NSEvent) -> Bool {
         if TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event) {
             return true
@@ -668,6 +672,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             recordUserInput(text)
         }
         shell.write(text)
+    }
+
+    private func sendTerminalResponse(_ text: String) {
+        guard shell.canReceiveTerminalResponseWithoutEcho() else {
+            return
+        }
+        send(text, recordsUserActivity: false)
     }
 
     private func recordUserInput(_ text: String) {
@@ -1264,60 +1275,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 carriageReturnLineFeed()
             }
 
-            let printableStyle = styleForPrintableWrite(row: cursorRow, column: cursorColumn, width: width)
-            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)
+            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)
             markDirty(row: cursorRow)
             cursorColumn += width
         }
-    }
-
-    private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle {
-        guard !currentStyle.inverse,
-              currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background),
-              let existingBackground = existingPersistentBackground(row: row, column: column, width: width)
-        else {
-            return currentStyle
-        }
-        // TUIs often paint an input row background, then print default-background
-        // text over it. Keep that row color so wide Hangul commits do not punch
-        // white/default rectangles through Codex-style input bars.
-        var style = currentStyle
-        style.background = existingBackground
-        return style
-    }
-
-    private func existingPersistentBackground(row: Int, column: Int, width: Int) -> SIMD4<Float>? {
-        guard screen.cells.indices.contains(row), column >= 0, column < screen.columns else {
-            return nil
-        }
-        let upper = min(screen.columns - 1, column + max(1, width) - 1)
-        var preservedBackground: SIMD4<Float>?
-        for targetColumn in column...upper {
-            let existingStyle = screen.cells[row][targetColumn].style
-            let background = existingStyle.effectiveBackground
-            guard !background.sameColor(as: terminalDefaultStyle.background) else {
-                continue
-            }
-            guard shouldPreserveExistingBackground(existingStyle) else {
-                return nil
-            }
-            preservedBackground = background
-        }
-        return preservedBackground
-    }
-
-    private func shouldPreserveExistingBackground(_ style: TerminalTextStyle) -> Bool {
-        guard !style.inverse else {
-            return false
-        }
-        let existingLuminance = style.effectiveBackground.perceivedLuminance
-        let defaultLuminance = terminalDefaultStyle.background.perceivedLuminance
-        // Preserve durable TUI row backgrounds, such as Codex's light input bar,
-        // without carrying transient reverse-video paste highlights forward.
-        if defaultLuminance > 0.5 {
-            return existingLuminance > 0.5
-        }
-        return existingLuminance < 0.5
     }
 
     private func lineFeed() {
@@ -1454,6 +1415,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             case "]":
                 oscBuffer = ""
                 parserState = .osc
+            case let scalar where TerminalEscapeSequence.beginsTwoByteDesignator(scalar):
+                parserState = .escapeDesignator
+            case let scalar where TerminalEscapeSequence.beginsTwoByteDecPrivate(scalar):
+                parserState = .escapeDecPrivate
             case "7":
                 savedCursorRow = cursorRow
                 savedCursorColumn = cursorColumn
@@ -1477,6 +1442,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             default:
                 parserState = .normal
             }
+            return true
+        case .escapeDesignator:
+            parserState = .normal
+            return true
+        case .escapeDecPrivate:
+            parserState = .normal
             return true
         case .csi:
             if scalar.value >= 0x40 && scalar.value <= 0x7e {
@@ -1540,9 +1511,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func respondToOscQuery(_ code: String) {
         switch code {
         case "10":
-            send("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\", recordsUserActivity: false)
+            sendTerminalResponse("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\")
         case "11":
-            send("\u{1b}]11;\(terminalOscColor(terminalDefaultStyle.background))\u{1b}\\", recordsUserActivity: false)
+            sendTerminalResponse("\u{1b}]11;\(terminalOscColor(terminalDefaultStyle.background))\u{1b}\\")
         default:
             break
         }
@@ -1627,9 +1598,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case "P":
             screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
+        case "X":
+            let count = max(1, parsed.value(at: 0, default: 1))
+            screen.clear(row: cursorRow, from: cursorColumn, through: cursorColumn + count - 1, style: currentStyle)
+            markDirty(row: cursorRow)
         case "@":
             screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markDirty(row: cursorRow)
+        case "b":
+            let written = screen.repeatPrecedingGraphicCharacter(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
+            if written > 0 {
+                cursorColumn = min(screen.columns, cursorColumn + written)
+                markDirty(row: cursorRow)
+            }
         case "S":
             let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
             if shouldAppendScrollbackForActiveScrollRegion() {
@@ -1651,11 +1632,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorRow = min(screen.rows - 1, savedCursorRow)
             cursorColumn = min(screen.columns - 1, savedCursorColumn)
         case "n":
-            if parsed.value(at: 0, default: 0) == 6 {
-                send(cursorPositionReport(), recordsUserActivity: false)
+            if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6 {
+                sendTerminalResponse(cursorPositionReport())
             }
         case "c":
-            send("\u{1b}[?1;2c", recordsUserActivity: false)
+            if let response = TerminalDeviceAttributes.response(for: parsed) {
+                sendTerminalResponse(response)
+            }
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":

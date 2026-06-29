@@ -30,19 +30,27 @@ enum TerminalTextInputRouter {
         guard flags.contains(.control), !flags.contains(.command), !flags.contains(.option) else {
             return nil
         }
-        guard let character = event.charactersIgnoringModifiers?.unicodeScalars.first else {
-            return nil
+        if let character = event.charactersIgnoringModifiers?.unicodeScalars.first,
+           let text = terminalControlText(forBaseScalarValue: character.value) {
+            return text
         }
 
-        switch character.value {
+        guard let fallbackValue = controlBaseScalarValue(forKeyCode: event.keyCode) else {
+            return nil
+        }
+        return terminalControlText(forBaseScalarValue: fallbackValue)
+    }
+
+    private static func terminalControlText(forBaseScalarValue value: UInt32) -> String? {
+        switch value {
         case 0x00...0x1f, 0x7f:
-            return String(character)
+            return controlScalarText(value)
         case 0x40, 0x20:
             return "\u{0}"
         case 0x41...0x5a:
-            return controlScalarText(character.value - 0x40)
+            return controlScalarText(value - 0x40)
         case 0x61...0x7a:
-            return controlScalarText(character.value - 0x60)
+            return controlScalarText(value - 0x60)
         case 0x5b:
             return "\u{1b}"
         case 0x5c:
@@ -57,6 +65,13 @@ enum TerminalTextInputRouter {
             return "\u{7f}"
         default:
             return nil
+        }
+    }
+
+    private static func controlBaseScalarValue(forKeyCode keyCode: UInt16) -> UInt32? {
+        switch keyCode {
+        case 11: return 0x62
+        default: return nil
         }
     }
 

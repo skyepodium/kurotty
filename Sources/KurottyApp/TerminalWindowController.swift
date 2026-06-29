@@ -90,6 +90,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.focusPane(direction)
     }
 
+    func sendTextToActivePane(_ text: String) {
+        currentSplitView()?.sendTextToActivePane(text)
+    }
+
     func closeCurrentTab() {
         guard let item = tabView.selectedTabViewItem else {
             return

@@ -39,6 +39,41 @@ enum MainMenu {
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
+        let tmuxMenuItem = NSMenuItem()
+        let tmuxMenu = NSMenu(title: AppConstants.Tmux.menuTitle)
+        let attachTmux = NSMenuItem(title: AppConstants.Tmux.attachOrCreateSessionMenuTitle, action: #selector(AppDelegate.tmuxAttachOrCreateSession), keyEquivalent: "t")
+        attachTmux.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(attachTmux)
+        let listTmux = NSMenuItem(title: AppConstants.Tmux.listSessionsMenuTitle, action: #selector(AppDelegate.tmuxListSessions), keyEquivalent: "l")
+        listTmux.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(listTmux)
+        let applyTmuxTheme = NSMenuItem(title: AppConstants.Tmux.applyKurottyThemeMenuTitle, action: #selector(AppDelegate.tmuxApplyKurottyTheme), keyEquivalent: "p")
+        applyTmuxTheme.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(applyTmuxTheme)
+        tmuxMenu.addItem(.separator())
+        let newTmuxWindow = NSMenuItem(title: AppConstants.Tmux.newWindowMenuTitle, action: #selector(AppDelegate.tmuxNewWindow), keyEquivalent: "n")
+        newTmuxWindow.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(newTmuxWindow)
+        let horizontalTmuxSplit = NSMenuItem(title: AppConstants.Tmux.splitHorizontallyMenuTitle, action: #selector(AppDelegate.tmuxSplitHorizontally), keyEquivalent: "d")
+        horizontalTmuxSplit.keyEquivalentModifierMask = [.command, .option, .shift]
+        tmuxMenu.addItem(horizontalTmuxSplit)
+        let verticalTmuxSplit = NSMenuItem(title: AppConstants.Tmux.splitVerticallyMenuTitle, action: #selector(AppDelegate.tmuxSplitVertically), keyEquivalent: "d")
+        verticalTmuxSplit.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(verticalTmuxSplit)
+        tmuxMenu.addItem(.separator())
+        let previousTmuxWindow = NSMenuItem(title: AppConstants.Tmux.previousWindowMenuTitle, action: #selector(AppDelegate.tmuxPreviousWindow), keyEquivalent: "[")
+        previousTmuxWindow.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(previousTmuxWindow)
+        let nextTmuxWindow = NSMenuItem(title: AppConstants.Tmux.nextWindowMenuTitle, action: #selector(AppDelegate.tmuxNextWindow), keyEquivalent: "]")
+        nextTmuxWindow.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(nextTmuxWindow)
+        tmuxMenu.addItem(.separator())
+        let detachTmux = NSMenuItem(title: AppConstants.Tmux.detachClientMenuTitle, action: #selector(AppDelegate.tmuxDetachClient), keyEquivalent: "w")
+        detachTmux.keyEquivalentModifierMask = [.command, .option]
+        tmuxMenu.addItem(detachTmux)
+        tmuxMenuItem.submenu = tmuxMenu
+        mainMenu.addItem(tmuxMenuItem)
+
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
         let cut = NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")

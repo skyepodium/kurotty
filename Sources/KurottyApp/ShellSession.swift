@@ -81,6 +81,15 @@ final class ShellSession: @unchecked Sendable {
         scheduleOutputDrain()
     }
 
+    func canReceiveTerminalResponseWithoutEcho() -> Bool {
+        guard master >= 0 else { return false }
+        var attributes = termios()
+        guard tcgetattr(master, &attributes) == 0 else {
+            return false
+        }
+        return TerminalLineDiscipline.canReceiveTerminalResponseWithoutEcho(localFlags: attributes.c_lflag)
+    }
+
     func resize(columns: Int, rows: Int) {
         guard master >= 0 else { return }
         var size = winsize(

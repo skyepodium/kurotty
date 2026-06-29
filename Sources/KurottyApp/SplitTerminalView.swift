@@ -121,6 +121,13 @@ final class SplitTerminalView: NSSplitView {
         refreshPaneChrome()
     }
 
+    func sendTextToActivePane(_ text: String) {
+        guard let pane = activePane() ?? firstPane() else {
+            return
+        }
+        pane.sendText(text)
+    }
+
     var primaryTerminalSurface: TerminalSurfaceView? {
         firstPane()?.terminalSurface
     }

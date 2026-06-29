@@ -417,18 +417,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("TerminalPalette.ansiBright"))
     }
 
-    func testPrintableHangulPreservesExistingTuiInputBackground() throws {
+    func testPrintableWritesReplacePreviousCellStyleInsteadOfPreservingPromptFragments() throws {
         let surfaceSource = try terminalSurfaceViewSource()
 
-        XCTAssertTrue(surfaceSource.contains("let printableStyle = styleForPrintableWrite(row: cursorRow, column: cursorColumn, width: width)"))
-        XCTAssertTrue(surfaceSource.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)"))
-        XCTAssertTrue(surfaceSource.contains("private func styleForPrintableWrite(row: Int, column: Int, width: Int) -> TerminalTextStyle"))
-        XCTAssertTrue(surfaceSource.contains("currentStyle.effectiveBackground.sameColor(as: terminalDefaultStyle.background)"))
-        XCTAssertTrue(surfaceSource.contains("existingPersistentBackground(row: row, column: column, width: width)"))
-        XCTAssertTrue(surfaceSource.contains("style.background = existingBackground"))
-        XCTAssertTrue(surfaceSource.contains("private func shouldPreserveExistingBackground(_ style: TerminalTextStyle) -> Bool"))
-        XCTAssertTrue(surfaceSource.contains("guard !style.inverse else"))
-        XCTAssertTrue(surfaceSource.contains("without carrying transient reverse-video paste highlights forward"))
+        XCTAssertTrue(surfaceSource.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
+        XCTAssertFalse(surfaceSource.contains("styleForPrintableWrite"))
+        XCTAssertFalse(surfaceSource.contains("existingPersistentBackground"))
+        XCTAssertFalse(surfaceSource.contains("shouldPreserveExistingBackground"))
+        XCTAssertFalse(surfaceSource.contains("style.background = existingBackground"))
     }
 
     func testMarkedTextStartsAtCursorColumnInAtlasAndFallbackRenderers() throws {
@@ -667,9 +663,29 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("case \"D\":\n            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))"))
         XCTAssertTrue(source.contains("case \"G\", \"`\":\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))"))
         XCTAssertTrue(source.contains("case \"H\", \"f\":\n            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))"))
-        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: printableStyle)"))
+        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
         XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            cursorColumn += width"))
         XCTAssertFalse(source.contains("screen.insertCharacters(row: cursorRow, column: cursorColumn, count: width"))
+    }
+
+    func testTmuxStatusRedrawSupportsRepeatPrecedingGraphicCharacter() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let modelSource = try terminalModelSource()
+
+        XCTAssertTrue(surfaceSource.contains("case \"b\":\n            let written = screen.repeatPrecedingGraphicCharacter(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))"))
+        XCTAssertTrue(surfaceSource.contains("cursorColumn = min(screen.columns, cursorColumn + written)"))
+        XCTAssertTrue(surfaceSource.contains("markDirty(row: cursorRow)"))
+        XCTAssertTrue(modelSource.contains("mutating func repeatPrecedingGraphicCharacter(row: Int, column: Int, count: Int) -> Int"))
+        XCTAssertTrue(modelSource.contains("source.character.terminalColumnWidth == 1"))
+        XCTAssertTrue(modelSource.contains("style: source.style"))
+    }
+
+    func testTmuxStatusRedrawSupportsEraseCharacter() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("case \"X\":\n            let count = max(1, parsed.value(at: 0, default: 1))"))
+        XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: cursorColumn + count - 1, style: currentStyle)"))
+        XCTAssertTrue(surfaceSource.contains("markDirty(row: cursorRow)"))
     }
 
     func testFullModelRedrawFlagControlsDirtyRectInvalidation() throws {
@@ -903,8 +919,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("terminalOscColor"))
         XCTAssertTrue(surfaceSource.contains("case \"n\":"))
         XCTAssertTrue(surfaceSource.contains("cursorPositionReport"))
+        XCTAssertTrue(surfaceSource.contains("if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6"))
         XCTAssertTrue(surfaceSource.contains("case \"c\":"))
-        XCTAssertTrue(surfaceSource.contains("send(\"\\u{1b}[?1;2c\", recordsUserActivity: false)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalDeviceAttributes.response(for: parsed)"))
+        XCTAssertTrue(surfaceSource.contains("private func sendTerminalResponse(_ text: String)"))
+        XCTAssertTrue(surfaceSource.contains("shell.canReceiveTerminalResponseWithoutEcho()"))
 
         XCTAssertTrue(settingsSource.contains("var window: WindowSettings"))
         XCTAssertTrue(settingsSource.contains("struct WindowSettings: Codable, Equatable"))
@@ -935,7 +954,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(appDelegateSource.contains(".version: AppConstants.Bundle.displayVersion(bundle: Bundle.main)"))
 
         let constantsSource = try appConstantsSource()
-        XCTAssertTrue(constantsSource.contains("static let developmentVersion = \"0.1.0-alpha.2\""))
+        XCTAssertTrue(constantsSource.contains("static let developmentVersion = \"development\""))
         XCTAssertTrue(constantsSource.contains("static let developmentBuild = \"dev\""))
         XCTAssertTrue(constantsSource.contains("static func displayVersion(bundle: Foundation.Bundle = .main) -> String"))
         XCTAssertTrue(constantsSource.contains("CFBundleShortVersionString"))
@@ -1069,6 +1088,86 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let inputSource = try terminalInputViewSource()
         XCTAssertTrue(inputSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
+    }
+
+    func testTmuxPrefixCommandsAreExposedThroughMenuAndActivePane() throws {
+        let constantsSource = try appConstantsSource()
+        XCTAssertTrue(constantsSource.contains("enum Tmux"))
+        XCTAssertTrue(constantsSource.contains("static let prefix = \"\\u{2}\""))
+        XCTAssertTrue(constantsSource.contains("static let newWindowSequence = \"\\u{2}c\""))
+        XCTAssertTrue(constantsSource.contains("static let splitHorizontallySequence = \"\\u{2}\\\"\""))
+        XCTAssertTrue(constantsSource.contains("static let splitVerticallySequence = \"\\u{2}%\""))
+        XCTAssertTrue(constantsSource.contains("static let previousWindowSequence = \"\\u{2}p\""))
+        XCTAssertTrue(constantsSource.contains("static let nextWindowSequence = \"\\u{2}n\""))
+        XCTAssertTrue(constantsSource.contains("static let detachClientSequence = \"\\u{2}d\""))
+        XCTAssertTrue(constantsSource.contains("static let attachOrCreateSessionCommand = \"tmux new-session -A -s kurotty\\r\""))
+        XCTAssertTrue(constantsSource.contains("static let listSessionsCommand = \"tmux list-sessions\\r\""))
+        XCTAssertTrue(constantsSource.contains("static let applyKurottyThemeCommand = ["))
+        XCTAssertTrue(constantsSource.contains("tmux set-option status-style bg=\\(themeStatusBackgroundColor),fg=\\(themeStatusForegroundColor)"))
+        XCTAssertTrue(constantsSource.contains("tmux set-option status-justify left"))
+        XCTAssertTrue(constantsSource.contains("tmux set-option window-status-format ''"))
+        XCTAssertTrue(constantsSource.contains("tmux set-option window-status-current-format ''"))
+        XCTAssertTrue(constantsSource.contains("tmux set-option status-left '[#S] #{window_index}:#{window_name}#{window_flags} '"))
+        XCTAssertTrue(constantsSource.contains("tmux set-option status-right ' %H:%M '"))
+        XCTAssertFalse(constantsSource.contains("tmux set-option -g"))
+
+        let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("NSMenu(title: AppConstants.Tmux.menuTitle)"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.attachOrCreateSessionMenuTitle, action: #selector(AppDelegate.tmuxAttachOrCreateSession), keyEquivalent: \"t\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.listSessionsMenuTitle, action: #selector(AppDelegate.tmuxListSessions), keyEquivalent: \"l\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.applyKurottyThemeMenuTitle, action: #selector(AppDelegate.tmuxApplyKurottyTheme), keyEquivalent: \"p\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.newWindowMenuTitle, action: #selector(AppDelegate.tmuxNewWindow), keyEquivalent: \"n\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.splitHorizontallyMenuTitle, action: #selector(AppDelegate.tmuxSplitHorizontally), keyEquivalent: \"d\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.splitVerticallyMenuTitle, action: #selector(AppDelegate.tmuxSplitVertically), keyEquivalent: \"d\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.previousWindowMenuTitle, action: #selector(AppDelegate.tmuxPreviousWindow), keyEquivalent: \"[\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.nextWindowMenuTitle, action: #selector(AppDelegate.tmuxNextWindow), keyEquivalent: \"]\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.detachClientMenuTitle, action: #selector(AppDelegate.tmuxDetachClient), keyEquivalent: \"w\")"))
+        XCTAssertTrue(menuSource.contains("attachTmux.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("listTmux.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("applyTmuxTheme.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("newTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("horizontalTmuxSplit.keyEquivalentModifierMask = [.command, .option, .shift]"))
+        XCTAssertTrue(menuSource.contains("verticalTmuxSplit.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("previousTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("nextTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertTrue(menuSource.contains("detachTmux.keyEquivalentModifierMask = [.command, .option]"))
+
+        let delegateSource = try appDelegateSource()
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxAttachOrCreateSession()"))
+        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.attachOrCreateSessionCommand)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxListSessions()"))
+        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.listSessionsCommand)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxApplyKurottyTheme()"))
+        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.applyKurottyThemeCommand)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxNewWindow()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.newWindowSequence)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxSplitHorizontally()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.splitHorizontallySequence)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxSplitVertically()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.splitVerticallySequence)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxPreviousWindow()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.previousWindowSequence)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxNextWindow()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.nextWindowSequence)"))
+        XCTAssertTrue(delegateSource.contains("@objc func tmuxDetachClient()"))
+        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.detachClientSequence)"))
+
+        let windowSource = try terminalWindowControllerSource()
+        XCTAssertTrue(windowSource.contains("func sendTextToActivePane(_ text: String)"))
+        XCTAssertTrue(windowSource.contains("currentSplitView()?.sendTextToActivePane(text)"))
+
+        let splitSource = try splitTerminalViewSource()
+        XCTAssertTrue(splitSource.contains("func sendTextToActivePane(_ text: String)"))
+        XCTAssertTrue(splitSource.contains("activePane() ?? firstPane()"))
+        XCTAssertTrue(splitSource.contains("pane.sendText(text)"))
+
+        let paneSource = try terminalPaneViewSource()
+        XCTAssertTrue(paneSource.contains("func sendText(_ text: String)"))
+        XCTAssertTrue(paneSource.contains("terminalSurfaceView.sendText(text)"))
+
+        let surfaceSource = try terminalSurfaceViewSource()
+        XCTAssertTrue(surfaceSource.contains("func sendText(_ text: String)"))
+        XCTAssertTrue(surfaceSource.contains("send(text)"))
     }
 
     func testOnlyFocusedTerminalHandlesPasteKeyEquivalent() throws {
@@ -1347,8 +1446,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("notifier.notifyBackgroundTaskCompleted(body: body)"))
         XCTAssertTrue(surfaceSource.contains("private var isTerminalFocusedForUser: Bool"))
         XCTAssertTrue(surfaceSource.contains("NSApp.isActive && window.isKeyWindow && window.firstResponder === self"))
-        XCTAssertTrue(surfaceSource.contains("send(cursorPositionReport(), recordsUserActivity: false)"))
-        XCTAssertTrue(surfaceSource.contains("send(\"\\u{1b}[?1;2c\", recordsUserActivity: false)"))
+        XCTAssertTrue(surfaceSource.contains("sendTerminalResponse(cursorPositionReport())"))
+        XCTAssertTrue(surfaceSource.contains("sendTerminalResponse(response)"))
         XCTAssertFalse(surfaceSource.contains("notifyShellDidExit"))
         XCTAssertFalse(surfaceSource.contains("shell.onExit = { [weak self] status in"))
         XCTAssertTrue(surfaceSource.contains("case \"9\":"))
@@ -1433,22 +1532,59 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
     }
 
-    func testReleasePackagingProducesZipAndChecksumFromVerifiedAppBundle() throws {
+    func testReleasePackagingProducesUniversalDmgAndChecksumFromVerifiedAppBundle() throws {
         let packageSource = try scriptSource(named: "package-release")
+        let installSource = try scriptSource(named: "install-app")
         let readmeSource = try readmeSource()
+        let releaseWorkflowSource = try workflowSource(named: "release")
+        let agentsSource = try agentsSource()
+        let versionSource = try versionSource()
+        let releaseVersion = versionSource.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        XCTAssertTrue(packageSource.contains("scripts/install-app.sh"))
-        XCTAssertTrue(packageSource.contains("INSTALL_DIR=\"$STAGING_DIR\""))
+        XCTAssertTrue(versionSource.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9.-]+\n?$"#, options: .regularExpression) != nil)
+        XCTAssertTrue(installSource.contains("VERSION_FILE=\"$ROOT_DIR/VERSION\""))
+        XCTAssertTrue(installSource.contains("VERSION=\"$(tr -d '[:space:]' < \"$VERSION_FILE\")\""))
+        XCTAssertTrue(installSource.contains("<string>$VERSION</string>"))
+        XCTAssertTrue(packageSource.contains("BUILD_ARCHES=(arm64 x86_64)"))
+        XCTAssertTrue(packageSource.contains("VERSION_FILE=\"$ROOT_DIR/VERSION\""))
+        XCTAssertTrue(packageSource.contains(#"VERSION="${1:-$(tr -d '[:space:]' < "$VERSION_FILE")}""#))
+        XCTAssertTrue(packageSource.contains("swift build -c release --triple \"$triple\" --scratch-path \"$scratch_path\""))
+        XCTAssertTrue(packageSource.contains("lipo -create"))
+        XCTAssertTrue(packageSource.contains("lipo -info \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
+        XCTAssertTrue(packageSource.contains("DMG_NAME=\"kurotty-$VERSION-macos-universal.dmg\""))
+        XCTAssertTrue(packageSource.contains("hdiutil create"))
+        XCTAssertTrue(packageSource.contains("hdiutil attach"))
+        XCTAssertTrue(packageSource.contains("ln -s /Applications \"$DMG_ROOT/Applications\""))
+        XCTAssertTrue(packageSource.contains("hdiutil detach"))
         XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
-        XCTAssertTrue(packageSource.contains("ditto -c -k --sequesterRsrc --keepParent"))
+        XCTAssertTrue(packageSource.contains("codesign --force --deep --options runtime --sign \"$SIGN_IDENTITY\" \"$APP_BUNDLE\""))
+        XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
+        XCTAssertTrue(packageSource.contains("xcrun notarytool submit"))
+        XCTAssertTrue(packageSource.contains("xcrun stapler staple"))
         XCTAssertTrue(packageSource.contains("shasum -a 256"))
         XCTAssertTrue(packageSource.contains("SHA256SUMS"))
-        XCTAssertTrue(packageSource.contains("ZIP_NAME=\"kurotty-$VERSION-macos.zip\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
-        XCTAssertTrue(readmeSource.contains("kurotty-0.1.0-alpha.4-macos.zip"))
+        XCTAssertTrue(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
         XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
-        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh 0.1.0-alpha.4"))
+        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh"))
+        XCTAssertTrue(readmeSource.contains("Intel and Apple Silicon Macs"))
+        XCTAssertTrue(readmeSource.contains("Universal DMG"))
+        XCTAssertTrue(readmeSource.contains("git tag \"v$(cat VERSION)\""))
+        XCTAssertFalse(readmeSource.contains(releaseVersion))
+
+        XCTAssertTrue(releaseWorkflowSource.contains("on:"))
+        XCTAssertTrue(releaseWorkflowSource.contains("tags:"))
+        XCTAssertTrue(releaseWorkflowSource.contains("'v*'"))
+        XCTAssertTrue(releaseWorkflowSource.contains("fetch-depth: 0"))
+        XCTAssertTrue(releaseWorkflowSource.contains("git branch --contains HEAD -r | grep -E '(^|[ /])main$'"))
+        XCTAssertTrue(releaseWorkflowSource.contains("./scripts/package-release.sh \"${VERSION#v}\""))
+        XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-*-macos-universal.dmg"))
+        XCTAssertTrue(releaseWorkflowSource.contains("softprops/action-gh-release"))
+
+        XCTAssertTrue(agentsSource.contains("`VERSION` is the single source of truth"))
+        XCTAssertTrue(agentsSource.contains("Do not hardcode future release numbers"))
+        XCTAssertTrue(agentsSource.contains("The installed app About panel must display the bundle `Info.plist` version"))
     }
 
     func testCoreBridgeDoesNotUseCurrentDirectoryFallbacksInAppBundleMode() throws {
@@ -1787,6 +1923,24 @@ private func installAppScriptSource() throws -> String {
 private func scriptSource(named name: String) throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/\(name).sh")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func workflowSource(named name: String) throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent(".github/workflows/\(name).yml")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func agentsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("AGENTS.md")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func versionSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("VERSION")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
