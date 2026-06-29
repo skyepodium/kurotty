@@ -13,7 +13,6 @@ let package = Package(
         .executableTarget(
             name: "KurottyApp",
             resources: [
-                .process("Shaders"),
                 .copy("Resources/kurotty.png"),
             ]
         ),

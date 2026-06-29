@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installApplicationIcon()
         TerminalNotifier.shared.requestAuthorization()
         if DebugOptions.testNotification {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Application.initialNotificationDelaySeconds) {
                 TerminalNotifier.shared.notifyTestNotification()
             }
         }

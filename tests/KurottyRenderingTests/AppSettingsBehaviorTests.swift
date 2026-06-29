@@ -61,6 +61,50 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "development (dev)")
     }
 
+    @MainActor
+    func testFirstInstallCreatesKurottyThemeSettings() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+        XCTAssertEqual(settings.terminal.colors.background, "#24272E")
+        XCTAssertEqual(settings.terminal.colors.foreground, "#E5E7EB")
+        XCTAssertEqual(settings.terminal.colors.cursor, "#D7C6F4")
+    }
+
+    @MainActor
+    func testOldDefaultDarkThemeMigratesToKurottyTheme() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 6,
+            theme: TerminalThemePreset.darkName,
+            colors: oldDefaultColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+    }
+
+    @MainActor
+    func testExplicitKurottyThemeAppliesPresetColorsOverExistingThemeColors() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 7,
+            theme: TerminalThemePreset.kurottyName,
+            colors: lighttyColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+    }
+
     func testTmuxConstantsUseDefaultPrefixAndSessionCommands() throws {
         XCTAssertEqual(AppConstants.Tmux.prefix, "\u{2}")
         XCTAssertEqual(AppConstants.Tmux.newWindowSequence, "\u{2}c")
@@ -295,6 +339,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
     private func defaultColorsJSON() -> String {
         """
         {
+          "foreground": "#E5E7EB",
+          "background": "#24272E",
+          "cursor": "#D7C6F4",
+          "ansi": [
+            "#2F333A", "#FF5F67", "#5FD38D", "#E5C07B",
+            "#61AFEF", "#C792EA", "#56B6C2", "#D7DAE0",
+            "#60646C", "#FF7B86", "#8EE8A3", "#F0D28A",
+            "#7AB7FF", "#D7A8FF", "#7FDCE3", "#F5F7FA"
+          ]
+        }
+        """
+    }
+
+    private func oldDefaultColorsJSON() -> String {
+        """
+        {
           "foreground": "#E6EDF3",
           "background": "#0B1020",
           "cursor": "#7DD3FC",
@@ -303,6 +363,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
             "#81A1C1", "#B48EAD", "#88C0D0", "#E5E9F0",
             "#4C566A", "#BF616A", "#A3BE8C", "#EBCB8B",
             "#81A1C1", "#B48EAD", "#8FBCBB", "#ECEFF4"
+          ]
+        }
+        """
+    }
+
+    private func lighttyColorsJSON() -> String {
+        """
+        {
+          "foreground": "#202124",
+          "background": "#FFFFFF",
+          "cursor": "#111111",
+          "ansi": [
+            "#AFA7F5", "#AB4634", "#55C236", "#9A4DB4",
+            "#3347C3", "#B445B8", "#4FC3C7", "#C9C9C9",
+            "#666666", "#D47D78", "#55B94A", "#A452BD",
+            "#5B5AA2", "#CF75D3", "#35B9BD", "#FFFFFF"
           ]
         }
         """

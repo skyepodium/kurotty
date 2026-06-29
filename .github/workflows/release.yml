@@ -58,4 +58,5 @@ jobs:
         with:
           files: |
             dist/kurotty-*-macos-universal.dmg
+            dist/kurotty-macos-universal.dmg
             dist/SHA256SUMS

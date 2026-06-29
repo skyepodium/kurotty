@@ -8,6 +8,13 @@ enum TerminalPaneFocusDirection {
 }
 
 enum TerminalCommandDispatcher {
+    private enum KeyCode {
+        static let leftArrow: UInt16 = 123
+        static let rightArrow: UInt16 = 124
+        static let downArrow: UInt16 = 125
+        static let upArrow: UInt16 = 126
+    }
+
     @MainActor
     static func dispatchWindowCommand(from view: NSView, event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -64,13 +71,13 @@ enum TerminalCommandDispatcher {
 
     private static func paneFocusDirection(forKeyCode keyCode: UInt16) -> TerminalPaneFocusDirection? {
         switch keyCode {
-        case 123:
+        case KeyCode.leftArrow:
             return .left
-        case 124:
+        case KeyCode.rightArrow:
             return .right
-        case 125:
+        case KeyCode.downArrow:
             return .down
-        case 126:
+        case KeyCode.upArrow:
             return .up
         default:
             return nil

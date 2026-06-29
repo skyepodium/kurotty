@@ -99,6 +99,11 @@ enum DesignTokens {
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28
         static let terminalPaneChromeDotSizePX: CGFloat = 8
+        static let terminalPaneDragPreviewMinWidthPX: CGFloat = 220
+        static let terminalPaneDragPreviewMaxWidthPX: CGFloat = 420
+        static let terminalPaneDragPreviewCornerRadiusPX: CGFloat = 6
+        static let terminalPaneDragPreviewTextInsetXPX: CGFloat = 12
+        static let terminalPaneDragPreviewTextInsetYPX: CGFloat = 8
         static let terminalSplitDividerHitAreaPX: CGFloat = 8
         static let terminalSplitDividerLinePX: CGFloat = 1
         static let radiusSmallPX: CGFloat = 6

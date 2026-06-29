@@ -127,7 +127,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
         }
         metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
-        metalView.diagnosticFullRedrawEnabled = true
+        // Keep this scaffold explicit until dirty-rect rendering has visual coverage
+        // for resize, IME, scrollback, and tmux status-line redraws.
+        metalView.diagnosticFullRedrawEnabled = AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified
         metalView.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
         metalView.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
         metalView.diagnosticGlyphQuadOverlayEnabled = DebugOptions.renderRects
@@ -472,7 +474,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         var cells: [TerminalCell] = []
         var backgrounds: [TerminalBackground] = []
         var decorations: [TerminalDecoration] = []
-        cells.reserveCapacity(metrics.size.rows * metrics.size.columns / 2)
+        cells.reserveCapacity(metrics.size.rows * metrics.size.columns / AppConstants.Rendering.visibleCellReserveDivisor)
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
         let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)
         let selectedCells = selectedCellSet()
@@ -1145,8 +1147,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
         exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
-        if scrollbackRows.count > maxScrollbackRows {
-            scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
+        if trimScrollbackRowsToLimit() {
             markFullDamage()
         }
         updateScrollIndicator()
@@ -1335,10 +1336,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
         scrollbackRows.append(contentsOf: rows)
-        if scrollbackRows.count > maxScrollbackRows {
-            scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
-        }
+        _ = trimScrollbackRowsToLimit()
         updateScrollIndicator()
+    }
+
+    @discardableResult
+    private func trimScrollbackRowsToLimit() -> Bool {
+        let rowsToDrop = scrollbackRows.count - maxScrollbackRows
+        guard rowsToDrop > 0 else { return false }
+        scrollbackRows = Array(scrollbackRows.dropFirst(rowsToDrop))
+        scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
+        return true
     }
 
     private func layoutScrollIndicator() {
