@@ -180,15 +180,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forResource: AppConstants.Bundle.iconResourceName,
             withExtension: AppConstants.Bundle.installedIconExtension
         )
-        let bundledIconURL = Bundle.module.url(
+        if let installedIconURL,
+           let image = NSImage(contentsOf: installedIconURL) {
+            return (image, true)
+        }
+
+        guard let bundledIconURL = Bundle.module.url(
             forResource: AppConstants.Bundle.iconResourceName,
             withExtension: AppConstants.Bundle.iconResourceExtension
-        )
-        guard let url = installedIconURL ?? bundledIconURL,
-              let image = NSImage(contentsOf: url)
+        ),
+              let image = NSImage(contentsOf: bundledIconURL)
         else {
             return nil
         }
-        return (image, installedIconURL != nil)
+        return (image, false)
     }
 }
