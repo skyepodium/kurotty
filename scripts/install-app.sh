@@ -10,6 +10,8 @@ INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP="$INSTALL_DIR/${APP_NAME}.app"
 RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 ICONSET_DIR="$APP_BUNDLE/Contents/Resources/kurotty.iconset"
+SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
 
@@ -20,11 +22,13 @@ zig build -Doptimize=ReleaseFast
 BUILD_DIR="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" "$APP_BUNDLE/Contents/Frameworks"
 
 cp "$BUILD_DIR/kurotty" "$APP_BUNDLE/Contents/MacOS/kurotty"
 cp -R "$BUILD_DIR/$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/$RESOURCE_BUNDLE"
+cp -R "$BUILD_DIR/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp "$ROOT_DIR/zig-out/lib/libkurotty_core.dylib" "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/kurotty"
 
 create_kurotty_iconset "$ROOT_DIR/kurotty.png" "$ICONSET_DIR"
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/kurotty.icns"
@@ -57,6 +61,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>SUFeedURL</key>
+  <string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key>
+  <string>$SPARKLE_PUBLIC_KEY</string>
 </dict>
 </plist>
 PLIST
