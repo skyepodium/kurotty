@@ -49,14 +49,18 @@ enum AppConstants {
 
     enum Notifications {
         static let categoryIdentifier = "dev.kurotty.terminal"
-        static let shellExitIdentifierPrefix = "dev.kurotty.terminal.shell-exit"
         static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
-        static let codexIdentifierPrefix = "dev.kurotty.terminal.codex"
+        static let backgroundTaskIdentifierPrefix = "dev.kurotty.terminal.background-task"
         static let defaultTitle = "Alert"
-        static let shellExitTitle = "Alert"
-        static let shellExitSuccessBody = "Shell exited successfully."
-        static let shellExitFailureBodyPrefix = "Shell exited with status"
         static let testBody = "Kurotty test notification."
-        static let codexTaskCompletedBody = "Codex 작업이 완료되었습니다."
+        static let backgroundTaskFinishedBody = "Task finished."
+        static let backgroundTaskIdleSeconds: TimeInterval = 1.2
+        static let backgroundTaskSummaryMaxCharacters = 180
+    }
+
+    enum Diagnostics {
+        static let ptyRawLogPrefix = "Kurotty PTY raw"
+        static let notificationSkippedPrefix = "Kurotty notification skipped outside app bundle"
+        static let notificationEnqueuePrefix = "Kurotty notification enqueue"
     }
 }

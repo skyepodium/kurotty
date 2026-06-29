@@ -6,6 +6,7 @@ struct AppSettings: Codable, Equatable {
     var terminal: TerminalSettings
     var window: WindowSettings
     var shell: ShellSettings
+    var notifications: NotificationSettings
 
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
@@ -22,11 +23,12 @@ struct AppSettings: Codable, Equatable {
         ),
         shell: ShellSettings(
             workingDirectory: Defaults.shellWorkingDirectory
-        )
+        ),
+        notifications: NotificationSettings.default
     )
 
     private enum Defaults {
-        static let schemaVersion = 5
+        static let schemaVersion = 6
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
@@ -40,13 +42,21 @@ struct AppSettings: Codable, Equatable {
         case terminal
         case window
         case shell
+        case notifications
     }
 
-    init(schemaVersion: Int?, terminal: TerminalSettings, window: WindowSettings, shell: ShellSettings) {
+    init(
+        schemaVersion: Int?,
+        terminal: TerminalSettings,
+        window: WindowSettings,
+        shell: ShellSettings,
+        notifications: NotificationSettings
+    ) {
         self.schemaVersion = schemaVersion
         self.terminal = terminal
         self.window = window
         self.shell = shell
+        self.notifications = notifications
     }
 
     init(from decoder: Decoder) throws {
@@ -55,6 +65,7 @@ struct AppSettings: Codable, Equatable {
         terminal = try container.decode(TerminalSettings.self, forKey: .terminal)
         window = try container.decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default
         shell = try container.decodeIfPresent(ShellSettings.self, forKey: .shell) ?? .default
+        notifications = try container.decodeIfPresent(NotificationSettings.self, forKey: .notifications) ?? .default
     }
 }
 
@@ -123,6 +134,13 @@ struct ShellSettings: Codable, Equatable {
         }
         return expanded
     }
+}
+
+/// Live-applied notification privacy preferences.
+struct NotificationSettings: Codable, Equatable {
+    var exposeBackgroundTaskOutputSummary: Bool
+
+    static let `default` = NotificationSettings(exposeBackgroundTaskOutputSummary: false)
 }
 
 struct TerminalColorSettings: Codable, Equatable {

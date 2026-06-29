@@ -2,7 +2,6 @@ import AppKit
 
 @MainActor
 final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
-    static let shared = TerminalPaneDragCoordinator()
     static let pasteboardType = NSPasteboard.PasteboardType("dev.kurotty.terminal-pane")
 
     private struct DragContext {
@@ -14,7 +13,7 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
     private var dragContext: DragContext?
     private var detachedWindowControllers: [TerminalWindowController] = []
 
-    private override init() {
+    override init() {
         super.init()
     }
 
@@ -85,7 +84,7 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
         else {
             return
         }
-        let controller = TerminalWindowController(detachedPane: detachedPane)
+        let controller = TerminalWindowController(detachedPane: detachedPane, paneDragCoordinator: self)
         controller.showWindow(nil)
         position(controller.window, near: screenPoint)
         retainDetachedWindowController(controller)

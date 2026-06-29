@@ -7,12 +7,18 @@ final class SplitTerminalView: NSSplitView {
     }
 
     private var needsInitialRebalance = false
+    private let paneDragCoordinator: TerminalPaneDragCoordinator
 
     override var dividerThickness: CGFloat {
         DesignTokens.Component.terminalSplitDividerHitAreaPX
     }
 
-    init(axis: NSLayoutConstraint.Orientation, pane: TerminalPaneView? = TerminalPaneView()) {
+    init(
+        axis: NSLayoutConstraint.Orientation,
+        pane: TerminalPaneView? = TerminalPaneView(),
+        paneDragCoordinator: TerminalPaneDragCoordinator
+    ) {
+        self.paneDragCoordinator = paneDragCoordinator
         super.init(frame: .zero)
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
@@ -199,7 +205,7 @@ final class SplitTerminalView: NSSplitView {
         }
 
         let currentAxis: NSLayoutConstraint.Orientation = isVertical ? .vertical : .horizontal
-        let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil)
+        let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil, paneDragCoordinator: paneDragCoordinator)
         moveCurrentArrangedSubviews(to: existingGroup)
 
         isVertical = axis == .vertical
@@ -249,7 +255,7 @@ final class SplitTerminalView: NSSplitView {
         removeArrangedSubview(pane)
         pane.removeFromSuperview()
 
-        let nestedSplit = SplitTerminalView(axis: axis, pane: pane)
+        let nestedSplit = SplitTerminalView(axis: axis, pane: pane, paneDragCoordinator: paneDragCoordinator)
         configurePane(newPane)
         nestedSplit.addArrangedSubview(newPane)
         insertArrangedSubview(nestedSplit, at: paneIndex)
@@ -290,7 +296,7 @@ final class SplitTerminalView: NSSplitView {
             guard let self else {
                 return
             }
-            TerminalPaneDragCoordinator.shared.beginDraggingPane(pane, from: self.rootSplitView(), with: event)
+            paneDragCoordinator.beginDraggingPane(pane, from: self.rootSplitView(), with: event)
         }
     }
 

@@ -61,11 +61,11 @@ enum TerminalTextInputRouter {
     }
 
     static func logInsertText(_ text: String, replacementRange: NSRange) {
-        log("insertText text=\(debugText(text)) replacement=\(NSStringFromRange(replacementRange))")
+        log("insertText \(metadata(for: text)) replacement=\(NSStringFromRange(replacementRange))")
     }
 
     static func logMarkedText(_ text: String, selectedRange: NSRange, replacementRange: NSRange) {
-        log("setMarkedText text=\(debugText(text)) selected=\(NSStringFromRange(selectedRange)) replacement=\(NSStringFromRange(replacementRange))")
+        log("setMarkedText \(metadata(for: text)) selected=\(NSStringFromRange(selectedRange)) replacement=\(NSStringFromRange(replacementRange))")
     }
 
     static func logUnmarkText() {
@@ -73,7 +73,7 @@ enum TerminalTextInputRouter {
     }
 
     static func logPTYWrite(_ text: String, source: String) {
-        log("ptyWrite source=\(source) utf8=\(text.data(using: .utf8)?.map { String(format: "%02X", $0) }.joined(separator: " ") ?? "") text=\(debugText(text))")
+        log("ptyWrite source=\(source) \(metadata(for: text))")
     }
 
     private static func shouldOfferToInputContext(_ event: NSEvent, hasMarkedText: Bool) -> Bool {
@@ -91,7 +91,7 @@ enum TerminalTextInputRouter {
     }
 
     private static func describe(_ event: NSEvent) -> String {
-        "keyCode=\(event.keyCode) chars=\(debugText(event.characters ?? "")) ignoring=\(debugText(event.charactersIgnoringModifiers ?? "")) flags=\(event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue)"
+        "keyCode=\(event.keyCode) flags=\(event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue)"
     }
 
     private static func controlScalarText(_ value: UInt32) -> String? {
@@ -101,12 +101,8 @@ enum TerminalTextInputRouter {
         return String(scalar)
     }
 
-    private static func debugText(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\u{1b}", with: "\\e")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\t", with: "\\t")
+    private static func metadata(for text: String) -> String {
+        "utf8ByteCount=\(text.utf8.count) characterCount=\(text.count)"
     }
 
     private static func log(_ message: String) {

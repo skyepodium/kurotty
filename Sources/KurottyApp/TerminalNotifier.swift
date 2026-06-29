@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
+import os
 @preconcurrency import UserNotifications
+
+private let terminalNotificationLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
 @MainActor
 final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
@@ -23,42 +26,18 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         guard !didRequestAuthorization, let center else { return }
         didRequestAuthorization = true
         center.getNotificationSettings { settings in
-            NSLog(
-                "Kurotty notification settings before request: authorization=%ld alert=%ld sound=%ld",
-                settings.authorizationStatus.rawValue,
-                settings.alertSetting.rawValue,
-                settings.soundSetting.rawValue
-            )
+            terminalNotificationLogger.info("settings before request authorization=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) sound=\(settings.soundSetting.rawValue, privacy: .public)")
         }
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                NSLog("Kurotty notification authorization failed: %@", error.localizedDescription)
+                terminalNotificationLogger.error("authorization failed error=\(error.localizedDescription, privacy: .public)")
                 return
             }
-            NSLog("Kurotty notification authorization granted: %@", granted ? "yes" : "no")
+            terminalNotificationLogger.info("authorization granted=\(granted ? "yes" : "no", privacy: .public)")
             center.getNotificationSettings { settings in
-                NSLog(
-                    "Kurotty notification settings after request: authorization=%ld alert=%ld sound=%ld",
-                    settings.authorizationStatus.rawValue,
-                    settings.alertSetting.rawValue,
-                    settings.soundSetting.rawValue
-                )
+                terminalNotificationLogger.info("settings after request authorization=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) sound=\(settings.soundSetting.rawValue, privacy: .public)")
             }
         }
-    }
-
-    func notifyShellDidExit(status: Int32) {
-        let body: String
-        if status == 0 {
-            body = AppConstants.Notifications.shellExitSuccessBody
-        } else {
-            body = "\(AppConstants.Notifications.shellExitFailureBodyPrefix) \(status)."
-        }
-        deliver(
-            title: AppConstants.Notifications.shellExitTitle,
-            body: body,
-            identifierPrefix: AppConstants.Notifications.shellExitIdentifierPrefix
-        )
     }
 
     func notifyItermOsc9(message: String) {
@@ -71,18 +50,11 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
-    func notifyCodexTaskCompleted(sessionTitle: String, promptSummary: String?) {
-        let trimmedPrompt = promptSummary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body: String
-        if let trimmedPrompt, !trimmedPrompt.isEmpty {
-            body = "Session \(sessionTitle): \(trimmedPrompt)"
-        } else {
-            body = "Session \(sessionTitle): \(AppConstants.Notifications.codexTaskCompletedBody)"
-        }
+    func notifyBackgroundTaskCompleted(body: String) {
         deliver(
             title: AppConstants.Notifications.defaultTitle,
             body: body,
-            identifierPrefix: AppConstants.Notifications.codexIdentifierPrefix
+            identifierPrefix: AppConstants.Notifications.backgroundTaskIdentifierPrefix
         )
     }
 
@@ -95,8 +67,9 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func deliver(title: String, body: String, identifierPrefix: String) {
+        let metadata = TerminalNotificationLogMetadata(identifierPrefix: identifierPrefix, title: title, body: body)
         guard let center else {
-            NSLog("Kurotty notification skipped outside app bundle: title=%@ body=%@", title, body)
+            terminalNotificationLogger.info("skipped outside app bundle metadata=\(metadata.description, privacy: .public)")
             return
         }
 
@@ -105,18 +78,21 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         content.body = body
         content.categoryIdentifier = AppConstants.Notifications.categoryIdentifier
         content.sound = .default
+        if #available(macOS 12.0, *) {
+            content.interruptionLevel = .active
+        }
 
         let request = UNNotificationRequest(
             identifier: "\(identifierPrefix).\(UUID().uuidString)",
             content: content,
             trigger: nil
         )
-        NSLog("Kurotty notification enqueue: identifier=%@ title=%@ body=%@", request.identifier, title, body)
+        terminalNotificationLogger.info("enqueue identifier=\(request.identifier, privacy: .public) metadata=\(metadata.description, privacy: .public)")
         center.add(request) { error in
             if let error {
-                NSLog("Kurotty notification failed: %@", error.localizedDescription)
+                terminalNotificationLogger.error("delivery failed error=\(error.localizedDescription, privacy: .public)")
             } else {
-                NSLog("Kurotty notification delivered request: %@", request.identifier)
+                terminalNotificationLogger.info("delivered request identifier=\(request.identifier, privacy: .public)")
             }
         }
     }
@@ -126,7 +102,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // Kurotty task notifications should surface even while the terminal window is focused.
+        terminalNotificationLogger.info("will present identifier=\(notification.request.identifier, privacy: .public)")
         completionHandler([.banner, .list, .sound])
     }
 }
