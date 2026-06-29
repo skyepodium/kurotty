@@ -40,7 +40,21 @@ Notes:
 
 - This is an alpha build.
 - Release builds are packaged as a Universal DMG for Intel and Apple Silicon Macs.
-- If the release was built without Developer ID credentials, macOS may ask you to confirm opening the downloaded app.
+- macOS may warn that it cannot verify this app if it was built without Apple notarization. This is expected for unsigned/dev builds and can be bypassed:
+
+  ```sh
+  xattr -dr com.apple.quarantine kurotty-macos-universal.dmg
+  open kurotty-macos-universal.dmg
+  xattr -dr com.apple.quarantine /Applications/kurotty.app
+  open /Applications/kurotty.app
+  ```
+
+  Or right-click the app in Finder and choose **Open**.
+
+  For public releases, this warning should not appear when the release workflow runs with:
+  - `KUROTTY_RELEASE_SIGN_IDENTITY`
+  - `KUROTTY_NOTARY_PROFILE` (or Apple ID notarization credentials)
+
 - On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
 
 ## Features
