@@ -134,6 +134,36 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.terminal.colors.ansi.last, "#000010")
     }
 
+    @MainActor
+    func testNotificationPrivacyDefaultsDoNotExposeBackgroundTaskOutput() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 5,
+            theme: TerminalThemePreset.darkName,
+            colors: defaultColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertFalse(settings.notifications.exposeBackgroundTaskOutputSummary)
+    }
+
+    @MainActor
+    func testNotificationPrivacyOptInIsPreserved() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 6,
+            theme: TerminalThemePreset.darkName,
+            colors: defaultColorsJSON(),
+            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":true}"#
+        ))
+        let settings = try store.load()
+
+        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
+    }
+
     private func settingsURL() -> URL {
         temporaryDirectory.appendingPathComponent("settings.json")
     }
@@ -164,7 +194,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         scrollbackLines: Int = 1000,
         windowWidth: Double = 1100,
         windowHeight: Double = 720,
-        shell: String? = nil
+        shell: String? = nil,
+        notifications: String? = nil
     ) -> String {
         """
         {
@@ -179,7 +210,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
           "window": {
             "width": \(windowWidth),
             "height": \(windowHeight)
-          }\(shell ?? "")
+          }\(shell ?? "")\(notifications ?? "")
         }
         """
     }

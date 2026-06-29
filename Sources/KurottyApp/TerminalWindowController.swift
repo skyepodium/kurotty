@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let dropTargetView = TerminalPaneDropTargetView()
+    private let paneDragCoordinator: TerminalPaneDragCoordinator
     private var rootView: NSView {
         dropTargetView
     }
@@ -11,15 +12,16 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let tabView = NSTabView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
 
-    convenience init() {
-        self.init(initialPane: nil)
+    convenience init(paneDragCoordinator: TerminalPaneDragCoordinator) {
+        self.init(initialPane: nil, paneDragCoordinator: paneDragCoordinator)
     }
 
-    convenience init(detachedPane pane: TerminalPaneView) {
-        self.init(initialPane: pane)
+    convenience init(detachedPane pane: TerminalPaneView, paneDragCoordinator: TerminalPaneDragCoordinator) {
+        self.init(initialPane: pane, paneDragCoordinator: paneDragCoordinator)
     }
 
-    private init(initialPane: TerminalPaneView?) {
+    private init(initialPane: TerminalPaneView?, paneDragCoordinator: TerminalPaneDragCoordinator) {
+        self.paneDragCoordinator = paneDragCoordinator
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
@@ -61,7 +63,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     private func addTab(with pane: TerminalPaneView?) {
         let identifier = UUID().uuidString
-        let splitView = SplitTerminalView(axis: .vertical, pane: nil)
+        let splitView = SplitTerminalView(axis: .vertical, pane: nil, paneDragCoordinator: paneDragCoordinator)
         if let pane {
             splitView.appendDetachedPaneAsTabRoot(pane)
         } else {
@@ -135,13 +137,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             guard let self else {
                 return false
             }
-            return TerminalPaneDragCoordinator.shared.moveDraggedPaneToTab(in: self)
+            return self.paneDragCoordinator.moveDraggedPaneToTab(in: self)
         }
         dropTargetView.onPaneCanDrop = { [weak self] in
             guard let self else {
                 return false
             }
-            return TerminalPaneDragCoordinator.shared.canMoveDraggedPane(to: self)
+            return self.paneDragCoordinator.canMoveDraggedPane(to: self)
         }
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
@@ -152,8 +154,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
         tabStackView.orientation = .horizontal
         tabStackView.alignment = .centerY
-        tabStackView.spacing = 5
-        tabStackView.edgeInsets = NSEdgeInsets(top: 5, left: 12, bottom: 5, right: 12)
+        tabStackView.spacing = DesignTokens.Component.terminalTabStackGapPX
+        tabStackView.edgeInsets = NSEdgeInsets(
+            top: DesignTokens.Component.terminalTabStackInsetTopPX,
+            left: DesignTokens.Component.terminalTabStackInsetLeftPX,
+            bottom: DesignTokens.Component.terminalTabStackInsetBottomPX,
+            right: DesignTokens.Component.terminalTabStackInsetRightPX
+        )
         tabStackView.translatesAutoresizingMaskIntoConstraints = false
 
         tabView.tabViewType = .noTabsNoBorder
@@ -382,7 +389,7 @@ final class TerminalPaneDropTargetView: NSView {
     }
 
     private func updateDropAppearance() {
-        layer?.borderWidth = isDropHighlighted ? 2 : 0
+        layer?.borderWidth = isDropHighlighted ? DesignTokens.Component.paneDropTargetBorderWidthPX : 0
         layer?.borderColor = isDropHighlighted ? DesignTokens.Color.paneDropTargetBorder.cgColor : nil
         layer?.backgroundColor = isDropHighlighted
             ? DesignTokens.Color.paneDropTargetBackground.cgColor
@@ -443,12 +450,12 @@ private final class TerminalTabItemView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX
-        layer?.borderWidth = selected ? 1 : 0
+        layer?.borderWidth = selected ? DesignTokens.Component.terminalTabBorderWidthPX : 0
         layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOffset = NSSize(width: 0, height: -1)
-        layer?.shadowRadius = selected ? 3 : 0
-        layer?.shadowOpacity = selected ? 0.06 : 0
+        layer?.shadowOffset = NSSize(width: 0, height: DesignTokens.Component.terminalTabShadowOffsetYPX)
+        layer?.shadowRadius = selected ? DesignTokens.Component.terminalTabShadowRadiusPX : 0
+        layer?.shadowOpacity = selected ? DesignTokens.Component.terminalTabShadowOpacity : 0
 
         let selectedBar = NSView()
         selectedBar.translatesAutoresizingMaskIntoConstraints = false
@@ -481,16 +488,16 @@ private final class TerminalTabItemView: NSView {
             widthAnchor.constraint(greaterThanOrEqualToConstant: DesignTokens.Component.terminalTabMinWidthPX),
             widthAnchor.constraint(lessThanOrEqualToConstant: DesignTokens.Component.terminalTabMaxWidthPX),
 
-            selectedBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            selectedBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            selectedBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabSelectedBarInsetPX),
+            selectedBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DesignTokens.Component.terminalTabSelectedBarInsetPX),
             selectedBar.topAnchor.constraint(equalTo: topAnchor),
-            selectedBar.heightAnchor.constraint(equalToConstant: 2),
+            selectedBar.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabSelectedBarHeightPX),
 
-            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabTitleLeadingPX),
+            titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -DesignTokens.Component.terminalTabTitleCloseGapPX),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DesignTokens.Component.terminalTabCloseTrailingPX),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabCloseWidthPX),
             closeButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabCloseWidthPX),

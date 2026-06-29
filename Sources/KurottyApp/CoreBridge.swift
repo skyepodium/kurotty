@@ -14,6 +14,15 @@ private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
 private typealias ResizeFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> Void
 private typealias CellAtFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> UInt8
 
+private enum CoreLibraryPath {
+    static let appBundleExtension = "app"
+    static let dylibName = "libkurotty_core"
+    static let dylibExtension = "dylib"
+    static let dylibFilename = "\(dylibName).\(dylibExtension)"
+    static let zigOutDevelopmentPath = "zig-out/lib/\(dylibFilename)"
+    static let swiftPMDebugDevelopmentPath = ".build/debug/\(dylibFilename)"
+}
+
 final class CoreBridge: @unchecked Sendable {
     private let symbols = CoreSymbols.load()
     private var handle: TerminalHandle?
@@ -90,12 +99,7 @@ private struct CoreSymbols {
     let cellAt: CellAtFn
 
     static func load() -> CoreSymbols? {
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let names = [
-            root.appendingPathComponent("zig-out/lib/libkurotty_core.dylib").path,
-            root.appendingPathComponent(".build/debug/libkurotty_core.dylib").path,
-            "./zig-out/lib/libkurotty_core.dylib",
-        ]
+        let names = dylibCandidates()
         guard let dylib = names.compactMap({ dlopen($0, RTLD_NOW | RTLD_LOCAL) }).first else {
             return nil
         }
@@ -133,6 +137,44 @@ private struct CoreSymbols {
             resize: resize,
             cellAt: cellAt
         )
+    }
+
+    private static func dylibCandidates() -> [String] {
+        if Bundle.main.bundleURL.pathExtension == CoreLibraryPath.appBundleExtension {
+            return appBundleDylibCandidates()
+        }
+        return developmentDylibCandidates()
+    }
+
+    private static func appBundleDylibCandidates() -> [String] {
+        let urls = [
+            Bundle.main.url(forResource: CoreLibraryPath.dylibName, withExtension: CoreLibraryPath.dylibExtension),
+            Bundle.main.resourceURL?.appendingPathComponent(CoreLibraryPath.dylibFilename),
+            Bundle.main.privateFrameworksURL?.appendingPathComponent(CoreLibraryPath.dylibFilename),
+            Bundle.main.sharedFrameworksURL?.appendingPathComponent(CoreLibraryPath.dylibFilename),
+        ].compactMap { $0 }
+        return uniquePaths(from: urls)
+    }
+
+    private static func developmentDylibCandidates() -> [String] {
+        let root = repositoryRootURL()
+        return [
+            root.appendingPathComponent(CoreLibraryPath.zigOutDevelopmentPath).path,
+            root.appendingPathComponent(CoreLibraryPath.swiftPMDebugDevelopmentPath).path,
+        ]
+    }
+
+    private static func repositoryRootURL() -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<3 {
+            url.deleteLastPathComponent()
+        }
+        return url
+    }
+
+    private static func uniquePaths(from urls: [URL]) -> [String] {
+        var seen = Set<String>()
+        return urls.map(\.path).filter { seen.insert($0).inserted }
     }
 
     private static func symbol<T>(_ dylib: UnsafeMutableRawPointer, _ name: String) -> T? {

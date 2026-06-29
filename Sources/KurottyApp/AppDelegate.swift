@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let paneDragCoordinator = TerminalPaneDragCoordinator()
     private var windowController: TerminalWindowController?
     private var preferencesController: PreferencesWindowController?
 
@@ -23,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openNewWindow() {
-        let controller = TerminalWindowController()
+        let controller = TerminalWindowController(paneDragCoordinator: paneDragCoordinator)
         controller.showWindow(nil)
         windowController = controller
     }

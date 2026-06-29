@@ -37,27 +37,8 @@ enum DesignTokens {
         static let terminalCursor = SIMD4<Float>(0.49, 0.83, 0.98, 1)
         static let terminalDefaultBackground = SIMD4<Float>(0.04, 0.06, 0.10, 1)
 
-        static let ansiNormal: [SIMD4<Float>] = [
-            SIMD4<Float>(0.00, 0.00, 0.00, 1),
-            SIMD4<Float>(0.78, 0.18, 0.18, 1),
-            SIMD4<Float>(0.18, 0.62, 0.28, 1),
-            SIMD4<Float>(0.78, 0.62, 0.20, 1),
-            SIMD4<Float>(0.22, 0.42, 0.86, 1),
-            SIMD4<Float>(0.68, 0.32, 0.72, 1),
-            SIMD4<Float>(0.20, 0.68, 0.72, 1),
-            SIMD4<Float>(0.82, 0.82, 0.82, 1),
-        ]
-
-        static let ansiBright: [SIMD4<Float>] = [
-            SIMD4<Float>(0.30, 0.30, 0.30, 1),
-            SIMD4<Float>(1.00, 0.32, 0.32, 1),
-            SIMD4<Float>(0.35, 0.85, 0.45, 1),
-            SIMD4<Float>(1.00, 0.82, 0.30, 1),
-            SIMD4<Float>(0.42, 0.62, 1.00, 1),
-            SIMD4<Float>(0.88, 0.50, 0.95, 1),
-            SIMD4<Float>(0.40, 0.88, 0.92, 1),
-            SIMD4<Float>(1.00, 1.00, 1.00, 1),
-        ]
+        static let ansiNormal = TerminalPalette.ansiNormal
+        static let ansiBright = TerminalPalette.ansiBright
     }
 
     enum Typography {
@@ -100,6 +81,21 @@ enum DesignTokens {
         static let terminalTabMaxWidthPX: CGFloat = 260
         static let terminalTabPlusWidthPX: CGFloat = 28
         static let terminalTabCloseWidthPX: CGFloat = 18
+        static let terminalTabStackGapPX: CGFloat = 5
+        static let terminalTabStackInsetTopPX: CGFloat = 5
+        static let terminalTabStackInsetLeftPX: CGFloat = 12
+        static let terminalTabStackInsetBottomPX: CGFloat = 5
+        static let terminalTabStackInsetRightPX: CGFloat = 12
+        static let terminalTabBorderWidthPX: CGFloat = 1
+        static let terminalTabShadowOffsetYPX: CGFloat = -1
+        static let terminalTabShadowRadiusPX: CGFloat = 3
+        static let terminalTabShadowOpacity: Float = 0.06
+        static let terminalTabSelectedBarInsetPX: CGFloat = 6
+        static let terminalTabSelectedBarHeightPX: CGFloat = 2
+        static let terminalTabTitleLeadingPX: CGFloat = 12
+        static let terminalTabTitleCloseGapPX: CGFloat = 4
+        static let terminalTabCloseTrailingPX: CGFloat = 5
+        static let paneDropTargetBorderWidthPX: CGFloat = 2
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28
         static let terminalPaneChromeDotSizePX: CGFloat = 8

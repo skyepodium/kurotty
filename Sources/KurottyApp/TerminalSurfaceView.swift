@@ -1,93 +1,5 @@
 import AppKit
 
-private final class ScrollIndicatorThumbView: NSView {
-    var onDragNormalizedOffset: ((CGFloat) -> Void)?
-    private var trackingArea: NSTrackingArea?
-    private var dragOffsetY: CGFloat = 0
-    private var isHovering = false {
-        didSet { updateAppearance() }
-    }
-    private var isDraggingThumb = false {
-        didSet { updateAppearance() }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        updateAppearance()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override var acceptsFirstResponder: Bool {
-        true
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let nextTrackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(nextTrackingArea)
-        trackingArea = nextTrackingArea
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isDraggingThumb = true
-        let location = convert(event.locationInWindow, from: nil)
-        dragOffsetY = min(max(0, location.y), bounds.height)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let superview else { return }
-        let location = superview.convert(event.locationInWindow, from: nil)
-        let trackFrame = NSRect(x: frame.minX, y: 0, width: frame.width, height: superview.bounds.height)
-        let maxTravel = max(1, trackFrame.height - frame.height)
-        let nextY = min(max(0, location.y - dragOffsetY - trackFrame.minY), maxTravel)
-        onDragNormalizedOffset?(nextY / maxTravel)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        isDraggingThumb = false
-    }
-
-    private func updateAppearance() {
-        let color: NSColor
-        if isDraggingThumb {
-            color = DesignTokens.Color.scrollerThumbActive
-        } else if isHovering {
-            color = DesignTokens.Color.scrollerThumbHover
-        } else {
-            color = DesignTokens.Color.scrollerThumb
-        }
-        layer?.backgroundColor = color.cgColor
-    }
-}
-
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
@@ -141,8 +53,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingFullDamage = true
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
-    private var codexTaskIsRunning = false
-    private var lastCodexPromptSummary: String?
+    private var submittedInputSequence = 0
+    private var backgroundTaskInputSequence: Int?
+    private var backgroundTaskHasOutput = false
+    private var backgroundTaskLatestOutputSummary: String?
+    private var exposeBackgroundTaskOutputSummary = false
+    private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
@@ -167,6 +83,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         terminalAnsiColors = Self.ansiColors(from: settings)
         currentStyle = terminalDefaultStyle
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
+        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         metalView = TerminalMetalView(
             font: configuredFont,
             backgroundColor: terminalDefaultStyle.background,
@@ -203,14 +120,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 self?.enqueueOutput(text)
             }
         }
-        shell.onExit = { [weak self] status in
-            Task { @MainActor in
-                self?.notifyShellDidExit(status: status)
-            }
-        }
         if DebugOptions.ptyLog {
             shell.onRawOutput = { data in
-                NSLog("Kurotty PTY raw: bytes=%@ decoded=%@", Self.hexDump(data), Self.escapedText(data))
+                let metadata = TerminalRawPtyLogMetadata(data: data)
+                NSLog("%@: %@", AppConstants.Diagnostics.ptyRawLogPrefix, metadata.description)
             }
         }
         metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
@@ -632,7 +545,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: CGPoint(x: padding.left, y: padding.top)
         ))
-        detectCodexTaskStateInScreen(rows: liveRowsForTaskDetection())
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
     }
@@ -750,9 +662,99 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return screenRect
     }
 
-    private func send(_ text: String) {
+    private func send(_ text: String, recordsUserActivity: Bool = true) {
         clearSelection()
+        if recordsUserActivity {
+            recordUserInput(text)
+        }
         shell.write(text)
+    }
+
+    private func recordUserInput(_ text: String) {
+        guard text.contains("\r") || text.contains("\n") else {
+            return
+        }
+        submittedInputSequence &+= 1
+        backgroundTaskInputSequence = submittedInputSequence
+        backgroundTaskHasOutput = false
+        backgroundTaskLatestOutputSummary = nil
+        backgroundTaskNotificationWorkItem?.cancel()
+        backgroundTaskNotificationWorkItem = nil
+    }
+
+    private func recordOutputForBackgroundTask() {
+        guard backgroundTaskInputSequence != nil else {
+            return
+        }
+        backgroundTaskHasOutput = true
+        backgroundTaskLatestOutputSummary = latestVisibleNotificationSummary()
+        scheduleBackgroundTaskIdleCheck()
+    }
+
+    private func latestVisibleNotificationSummary() -> String? {
+        let lines = screen.cells.map { row in
+            TerminalSelectionText.line(from: row.map {
+                TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation)
+            })
+        }
+        guard let line = TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: lines) else {
+            return nil
+        }
+        if line.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
+            return line
+        }
+        let endIndex = line.index(
+            line.startIndex,
+            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
+        )
+        return String(line[..<endIndex])
+    }
+
+    private func scheduleBackgroundTaskIdleCheck() {
+        guard let inputSequence = backgroundTaskInputSequence else {
+            return
+        }
+        backgroundTaskNotificationWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.notifyBackgroundTaskIfIdle(inputSequence: inputSequence)
+            }
+        }
+        backgroundTaskNotificationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + AppConstants.Notifications.backgroundTaskIdleSeconds,
+            execute: workItem
+        )
+    }
+
+    private func notifyBackgroundTaskIfIdle(inputSequence: Int) {
+        guard backgroundTaskInputSequence == inputSequence, backgroundTaskHasOutput else {
+            return
+        }
+        backgroundTaskInputSequence = nil
+        backgroundTaskHasOutput = false
+        backgroundTaskNotificationWorkItem = nil
+        let summary = backgroundTaskLatestOutputSummary
+        backgroundTaskLatestOutputSummary = nil
+        guard !isTerminalFocusedForUser else {
+            return
+        }
+        let body = backgroundTaskNotificationBody(summary: summary)
+        notifier.notifyBackgroundTaskCompleted(body: body)
+    }
+
+    private func backgroundTaskNotificationBody(summary: String?) -> String {
+        guard exposeBackgroundTaskOutputSummary, let summary else {
+            return AppConstants.Notifications.backgroundTaskFinishedBody
+        }
+        return summary
+    }
+
+    private var isTerminalFocusedForUser: Bool {
+        guard let window else {
+            return false
+        }
+        return NSApp.isActive && window.isKeyWindow && window.firstResponder === self
     }
 
     private func enqueueOutput(_ text: String) {
@@ -822,6 +824,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
+        recordOutputForBackgroundTask()
         markDirty(row: cursorRow)
         let appendedScrollbackCount = max(0, scrollbackRows.count - scrollbackCountBeforeOutput)
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
@@ -830,161 +833,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         updateScrollIndicator()
         updateMetalFrame()
-    }
-
-    private func detectCodexTaskStateInScreen(rows: [[TerminalScreenCell]]) {
-        let lines = rows.map { row in
-            String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
-        }
-        let screenText = normalizedCodexScreenText(lines)
-        let isCodexScreen = terminalTitle.localizedCaseInsensitiveContains("codex")
-            || screenText.contains("openai codex")
-            || screenText.contains("gpt-")
-        guard isCodexScreen else {
-            codexTaskIsRunning = false
-            lastCodexPromptSummary = nil
-            return
-        }
-
-        if isCodexBusyScreen(screenText) {
-            codexTaskIsRunning = true
-            lastCodexPromptSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
-            return
-        }
-
-        guard codexTaskIsRunning,
-              isCodexIdleScreen(screenText, lines: lines)
-        else {
-            return
-        }
-        // Codex does not emit OSC 9 on task completion, so Kurotty detects the
-        // stable TUI status transition from the parsed screen model instead of
-        // relying on fragile raw PTY chunk boundaries.
-        let hasExplicitCompletionStatus = hasCodexExplicitCompletionStatus(screenText)
-        let completionSummary = extractCodexCompletionSummary(from: rows) ?? lastCodexPromptSummary
-        guard hasExplicitCompletionStatus || completionSummary != nil else {
-            // A stale busy flag can survive a clipped split-pane status transition.
-            // Do not notify for a fresh Codex start screen unless it has an explicit
-            // completion status or a real answer line.
-            codexTaskIsRunning = false
-            lastCodexPromptSummary = nil
-            return
-        }
-        codexTaskIsRunning = false
-        notifier.notifyCodexTaskCompleted(
-            sessionTitle: displayTitle(),
-            promptSummary: completionSummary
-        )
-        lastCodexPromptSummary = nil
-    }
-
-    private func isCodexBusyScreen(_ screenText: String) -> Bool {
-        let text = screenText.lowercased()
-        return text.contains("working (") || text.contains("esc to interrupt")
-    }
-
-    private func isCodexIdleScreen(_ screenText: String, lines: [String]) -> Bool {
-        if hasCodexExplicitCompletionStatus(screenText) {
-            return true
-        }
-        // Narrow split panes can clip Codex's trailing status token. After a
-        // known busy frame, the stable input placeholder is the reliable idle
-        // marker that remains visible near the left edge.
-        return isCodexIdlePromptLine(normalizedCodexScreenText(lines))
-            || lines.contains(where: isCodexIdlePromptLine)
-    }
-
-    private func hasCodexExplicitCompletionStatus(_ screenText: String) -> Bool {
-        let text = screenText.lowercased()
-        return text.contains("ready") || text.contains("no changes") || text.contains("worked for")
-    }
-
-    private func normalizedCodexScreenText(_ lines: [String]) -> String {
-        lines
-            .map { normalizedCodexText($0) }
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func extractCodexCompletionSummary(from rows: [[TerminalScreenCell]]) -> String? {
-        for (rowIndex, row) in rows.enumerated().reversed() {
-            // The active Codex input row often contains placeholder text such as
-            // "Write tests for @filename". It is not task output and should not
-            // become the macOS completion notification body.
-            guard rowIndex != cursorRow else { continue }
-            let text = String(row.map(\.character)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let summary = normalizedCodexCompletionLine(text)
-            guard !summary.isEmpty else { continue }
-            return String(summary.prefix(100))
-        }
-        return nil
-    }
-
-    private func normalizedCodexCompletionLine(_ line: String) -> String {
-        var text = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        while text.first == "•" || text.first == ">" || text.first == "›" {
-            text = text.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard !text.isEmpty, !isCodexNonAnswerLine(text) else { return "" }
-        return text
-    }
-
-    private func isCodexNonAnswerLine(_ line: String) -> Bool {
-        let lowercasedLine = line.lowercased()
-        if line.allSatisfy({ $0 == "─" || $0 == "-" || $0.isWhitespace }) {
-            return true
-        }
-        if lowercasedLine == "explored" || lowercasedLine == "read skill.md" {
-            return true
-        }
-        if lowercasedLine.hasPrefix("using ")
-            || lowercasedLine.hasPrefix("read ")
-            || lowercasedLine.hasPrefix("ran ")
-            || lowercasedLine.hasPrefix("edited ") {
-            // Historical source anchors: line.hasPrefix("Using "), line.hasPrefix("Read "), line.hasPrefix("Ran "), line.hasPrefix("Edited ")
-            return true
-        }
-        if isCodexBusyScreen(line) {
-            return true
-        }
-        if isCodexUsageGuidanceLine(line) {
-            return true
-        }
-        if lowercasedLine.contains("ready")
-            || lowercasedLine.contains("no changes")
-            || lowercasedLine.hasPrefix("gpt-") {
-            return true
-        }
-        return isCodexIdlePromptLine(line)
-    }
-
-    private func isCodexUsageGuidanceLine(_ line: String) -> Bool {
-        let normalized = normalizedCodexText(line).lowercased()
-        // Historical source anchor: line == "use one."
-        return normalized.contains("usage limit reset")
-            || normalized.contains("/usage")
-            || normalized.contains("use one")
-            || (normalized.hasPrefix("you have") && normalized.contains("usage"))
-    }
-
-    private func isCodexIdlePromptLine(_ line: String) -> Bool {
-        let normalized = normalizedCodexText(line).lowercased()
-        // Known Codex placeholders include "Find and fix a bug in @filename" and "Write tests for @filename".
-        return [
-            "find and fix a bug in @filename",
-            "write tests for @filename",
-            "implement {feature}",
-            "explain this codebase",
-            "summarize recent commits",
-            "run /review on my current changes",
-            "use /skills to list available skills",
-        ].contains { normalized == $0 || normalized.contains($0) }
-    }
-
-    private func normalizedCodexText(_ text: String) -> String {
-        text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
     private func visibleText() -> String {
@@ -1253,14 +1101,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackRows + screen.cells
     }
 
-    private func liveRowsForTaskDetection() -> [[TerminalScreenCell]] {
-        // Codex completion detection must read the live terminal model, not the
-        // scrollback-adjusted render rows. If the user scrolls up while Codex is
-        // working, rendered rows can hide the live "Working" -> "Ready" status
-        // transition and suppress the macOS completion notification.
-        screen.cells
-    }
-
     private func terminalMetrics() -> TerminalMetrics {
         let scale = currentBackingScale
         let rawLineHeight = ceil(font.ascender - font.descender + font.leading) + 2
@@ -1292,6 +1132,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         terminalAnsiColors = Self.ansiColors(from: settings)
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
+        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
         if scrollbackRows.count > maxScrollbackRows {
             scrollbackRows.removeFirst(scrollbackRows.count - maxScrollbackRows)
@@ -1318,17 +1159,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             : DesignTokens.Color.ansiNormal + DesignTokens.Color.ansiBright
     }
 
-    private static func hexDump(_ data: Data) -> String {
-        data.prefix(512).map { String(format: "%02X", $0) }.joined(separator: " ")
-    }
-
-    private static func escapedText(_ data: Data) -> String {
-        String(decoding: data.prefix(512), as: UTF8.self)
-            .replacingOccurrences(of: "\u{1b}", with: "ESC")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\n", with: "\\n")
-    }
-
     private func logScreenDumpIfNeeded(rows: [[TerminalScreenCell]], damage: TerminalFrameDamage, metrics: TerminalMetrics) {
         guard DebugOptions.screenDump || DebugOptions.layout else { return }
         NSLog(
@@ -1348,34 +1178,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         for rowIndex in 0..<min(rows.count, metrics.size.rows) {
             let row = Array(rows[rowIndex].prefix(metrics.size.columns))
-            let text = String(row.map(\.character))
             let cursorMarker = rowIndex == cursorRow ? " cursorCol=\(cursorColumn)" : ""
             NSLog(
-                "Kurotty row[%03d]%@: text='%@' bgRuns=%@ fgRuns=%@",
+                "Kurotty row[%03d]%@: occupiedCells=%d bgRuns=%@ fgRuns=%@",
                 rowIndex,
                 cursorMarker,
-                text,
-                styleRuns(for: row.map(\.style), background: true),
-                styleRuns(for: row.map(\.style), background: false)
+                TerminalScreenDiagnostics.occupiedCellCount(in: row),
+                TerminalScreenDiagnostics.styleRuns(for: row.map(\.style), background: true),
+                TerminalScreenDiagnostics.styleRuns(for: row.map(\.style), background: false)
             )
         }
-    }
-
-    private func styleRuns(for styles: [TerminalTextStyle], background: Bool) -> String {
-        guard !styles.isEmpty else { return "[]" }
-        var runs: [String] = []
-        var start = 0
-        var color = background ? styles[0].effectiveBackground : styles[0].effectiveForeground
-        for index in 1..<styles.count {
-            let next = background ? styles[index].effectiveBackground : styles[index].effectiveForeground
-            if !next.sameColor(as: color) {
-                runs.append("\(start)-\(index - 1):\(color.debugRGB)")
-                start = index
-                color = next
-            }
-        }
-        runs.append("\(start)-\(styles.count - 1):\(color.debugRGB)")
-        return "[" + runs.joined(separator: ", ") + "]"
     }
 
     private func currentCursorCellRectInViewCoordinates() -> NSRect {
@@ -1721,10 +1533,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
-    private func notifyShellDidExit(status: Int32) {
-        notifier.notifyShellDidExit(status: status)
-    }
-
     private func notifyItermOsc9(_ payload: String) {
         notifier.notifyItermOsc9(message: payload)
     }
@@ -1732,9 +1540,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func respondToOscQuery(_ code: String) {
         switch code {
         case "10":
-            send("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\")
+            send("\u{1b}]10;\(terminalOscColor(terminalDefaultStyle.foreground))\u{1b}\\", recordsUserActivity: false)
         case "11":
-            send("\u{1b}]11;\(terminalOscColor(terminalDefaultStyle.background))\u{1b}\\")
+            send("\u{1b}]11;\(terminalOscColor(terminalDefaultStyle.background))\u{1b}\\", recordsUserActivity: false)
         default:
             break
         }
@@ -1844,10 +1652,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorColumn = min(screen.columns - 1, savedCursorColumn)
         case "n":
             if parsed.value(at: 0, default: 0) == 6 {
-                send(cursorPositionReport())
+                send(cursorPositionReport(), recordsUserActivity: false)
             }
         case "c":
-            send("\u{1b}[?1;2c")
+            send("\u{1b}[?1;2c", recordsUserActivity: false)
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":
@@ -2157,714 +1965,5 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // on the lightty background.
         let component = 205 + (clamped - 250) * 6
         return TerminalTextStyle.rgb(red: component, green: component, blue: component)
-    }
-}
-
-private enum StreamState {
-    case normal
-    case escape
-    case csi
-    case osc
-    case oscEscape
-}
-
-private struct TerminalLinkRange: Equatable {
-    static let hoverColor = SIMD4<Float>(0.22, 0.48, 0.90, 1)
-
-    private static let linkRegex = try! NSRegularExpression(pattern: #"https?://[^\s<>"'`]+"#)
-    private static let trailingPunctuation = CharacterSet(charactersIn: ".,;:!?)]}")
-
-    let row: Int
-    let startColumn: Int
-    let endColumn: Int
-    let urlString: String
-
-    func contains(row: Int, column: Int) -> Bool {
-        self.row == row && column >= startColumn && column < endColumn
-    }
-
-    static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
-        var text = ""
-        var columnsByCharacterOffset: [Int] = []
-        for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
-            text.append(cell.character)
-            columnsByCharacterOffset.append(cellColumn)
-        }
-        guard !text.isEmpty else { return nil }
-
-        let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        for match in linkRegex.matches(in: text, range: searchRange) {
-            guard let textRange = Range(match.range, in: text) else { continue }
-            var urlString = String(text[textRange])
-            while let scalar = urlString.unicodeScalars.last, trailingPunctuation.contains(scalar) {
-                urlString.removeLast()
-            }
-            guard !urlString.isEmpty else { continue }
-
-            let startOffset = text.distance(from: text.startIndex, to: textRange.lowerBound)
-            let endOffset = startOffset + urlString.count
-            guard startOffset >= 0,
-                  endOffset > startOffset,
-                  startOffset < columnsByCharacterOffset.count,
-                  endOffset - 1 < columnsByCharacterOffset.count else {
-                continue
-            }
-
-            let startColumn = columnsByCharacterOffset[startOffset]
-            let endColumn = columnsByCharacterOffset[endOffset - 1] + 1
-            if column >= startColumn && column < endColumn {
-                return TerminalLinkRange(
-                    row: row,
-                    startColumn: startColumn,
-                    endColumn: endColumn,
-                    urlString: urlString
-                )
-            }
-        }
-        return nil
-    }
-}
-
-private struct TerminalSize: Equatable {
-    let columns: Int
-    let rows: Int
-}
-
-private struct TerminalMetrics {
-    let size: TerminalSize
-    let cellSize: CGSize
-}
-
-private struct TerminalCellPosition: Hashable, Comparable {
-    let row: Int
-    let column: Int
-
-    static func < (lhs: TerminalCellPosition, rhs: TerminalCellPosition) -> Bool {
-        lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
-    }
-}
-
-private struct TerminalSelectionRange {
-    let start: TerminalCellPosition
-    let end: TerminalCellPosition
-}
-
-struct TerminalSelectionPosition: Hashable, Comparable {
-    let row: Int
-    let column: Int
-
-    static func < (lhs: TerminalSelectionPosition, rhs: TerminalSelectionPosition) -> Bool {
-        lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
-    }
-}
-
-struct TerminalSelectionRangeModel: Equatable {
-    let start: TerminalSelectionPosition
-    let end: TerminalSelectionPosition
-
-    static func normalized(anchor: TerminalSelectionPosition?, focus: TerminalSelectionPosition?) -> TerminalSelectionRangeModel? {
-        guard let anchor, let focus else { return nil }
-        if anchor < focus {
-            return TerminalSelectionRangeModel(start: anchor, end: focus)
-        }
-        return TerminalSelectionRangeModel(start: focus, end: anchor)
-    }
-}
-
-struct TerminalSelectionGestureState {
-    private var wordSelectionIsActive = false
-
-    mutating func beginCharacterSelection() {
-        wordSelectionIsActive = false
-    }
-
-    mutating func selectWord() {
-        wordSelectionIsActive = true
-    }
-
-    func shouldUpdateFocusOnPointerDrag() -> Bool {
-        !wordSelectionIsActive
-    }
-
-    mutating func shouldUpdateFocusOnPointerUp() -> Bool {
-        guard wordSelectionIsActive else {
-            return true
-        }
-        return false
-    }
-}
-
-enum TerminalWordSelection {
-    struct Cell: Equatable {
-        let character: Character
-        let isContinuation: Bool
-    }
-
-    struct Bounds: Equatable {
-        let startColumn: Int
-        let endColumn: Int
-
-        func highlightEndColumn(in row: [Cell]) -> Int {
-            guard row.indices.contains(endColumn) else { return endColumn }
-            let cell = row[endColumn]
-            guard !cell.isContinuation else { return endColumn }
-            return min(row.count - 1, endColumn + max(1, cell.character.terminalColumnWidth) - 1)
-        }
-    }
-
-    private static let excludedCharacters = CharacterSet(charactersIn: "()[]{}<>\"'`")
-
-    static func bounds(in row: [Cell], clickedColumn: Int) -> Bounds? {
-        guard row.indices.contains(clickedColumn) else { return nil }
-        let wordColumn = normalizedWordColumn(in: row, clickedColumn: clickedColumn)
-        guard row.indices.contains(wordColumn), isSelectableWordCell(in: row, column: wordColumn) else {
-            return nil
-        }
-
-        var startColumn = wordColumn
-        var endColumn = wordColumn
-        while startColumn > 0, isSelectableWordCell(in: row, column: startColumn - 1) {
-            startColumn -= 1
-        }
-        while endColumn + 1 < row.count, isSelectableWordCell(in: row, column: endColumn + 1) {
-            endColumn += 1
-        }
-        return Bounds(startColumn: startColumn, endColumn: endColumn)
-    }
-
-    private static func normalizedWordColumn(in row: [Cell], clickedColumn: Int) -> Int {
-        if isBlank(row[clickedColumn]) {
-            if clickedColumn > 0, row[clickedColumn - 1].isContinuation {
-                return normalizedWordColumn(in: row, clickedColumn: clickedColumn - 1)
-            }
-            if clickedColumn + 1 < row.count, isWideLeadCell(row[clickedColumn + 1]) {
-                return clickedColumn + 1
-            }
-            return clickedColumn
-        }
-        guard row[clickedColumn].isContinuation else { return clickedColumn }
-        var column = clickedColumn
-        while column > 0, row[column].isContinuation {
-            column -= 1
-        }
-        return column
-    }
-
-    private static func isSelectableWordCell(in row: [Cell], column: Int) -> Bool {
-        guard row.indices.contains(column) else { return false }
-        let cell = row[column]
-        if cell.isContinuation {
-            return true
-        }
-        if isBlank(cell) {
-            return isCJKWordSpacer(in: row, column: column)
-        }
-        let character = String(cell.character)
-        guard !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return character.rangeOfCharacter(from: excludedCharacters) == nil
-    }
-
-    static func isSyntheticCJKSpacer(in row: [Cell], column: Int) -> Bool {
-        isCJKWordSpacer(in: row, column: column)
-    }
-
-    private static func isBlank(_ cell: Cell) -> Bool {
-        !cell.isContinuation && String(cell.character).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private static func isWideLeadCell(_ cell: Cell) -> Bool {
-        !cell.isContinuation && cell.character.terminalColumnWidth > 1
-    }
-
-    private static func isCJKWordSpacer(in row: [Cell], column: Int) -> Bool {
-        guard isBlank(row[column]) else { return false }
-        guard blankRunLength(in: row, containing: column) == 1,
-              let left = nearestNonBlankCell(in: row, from: column, step: -1),
-              let right = nearestNonBlankCell(in: row, from: column, step: 1)
-        else {
-            return false
-        }
-        return isCJKWordCell(left) && (isCJKWordCell(right) || isWordPunctuationCell(right))
-            || isCJKWordCell(right) && isWordPunctuationCell(left)
-    }
-
-    private static func blankRunLength(in row: [Cell], containing column: Int) -> Int {
-        guard row.indices.contains(column), isBlank(row[column]) else { return 0 }
-        var start = column
-        while start > 0, isBlank(row[start - 1]) {
-            start -= 1
-        }
-        var end = column
-        while end + 1 < row.count, isBlank(row[end + 1]) {
-            end += 1
-        }
-        return end - start + 1
-    }
-
-    private static func nearestNonBlankCell(in row: [Cell], from column: Int, step: Int) -> Cell? {
-        var nextColumn = column + step
-        while row.indices.contains(nextColumn) {
-            let cell = row[nextColumn]
-            if !isBlank(cell) {
-                return cell.isContinuation && step < 0 && nextColumn > 0 ? row[nextColumn - 1] : cell
-            }
-            nextColumn += step
-        }
-        return nil
-    }
-
-    private static func isCJKWordCell(_ cell: Cell) -> Bool {
-        guard !cell.isContinuation else { return true }
-        guard cell.character.terminalColumnWidth > 1 else { return false }
-        return String(cell.character).rangeOfCharacter(from: excludedCharacters) == nil
-    }
-
-    private static func isWordPunctuationCell(_ cell: Cell) -> Bool {
-        guard !cell.isContinuation else { return false }
-        guard cell.character.terminalColumnWidth == 1 else { return false }
-        let character = String(cell.character)
-        guard !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        guard character.rangeOfCharacter(from: .alphanumerics) == nil else {
-            return false
-        }
-        return character.rangeOfCharacter(from: excludedCharacters) == nil
-    }
-}
-
-enum TerminalSelectionText {
-    static func line<S: Sequence>(from cells: S) -> String where S.Element == TerminalWordSelection.Cell {
-        let row = Array(cells)
-        let characters = row.indices.lazy.compactMap { column -> Character? in
-            let cell = row[column]
-            if cell.isContinuation || TerminalWordSelection.isSyntheticCJKSpacer(in: row, column: column) {
-                return nil
-            }
-            return cell.character
-        }
-        return String(characters)
-            .trimmingCharacters(in: .whitespaces)
-    }
-}
-
-enum TerminalSelectionStyle {
-    static let backgroundColor = SIMD4<Float>(0.22, 0.48, 0.82, 1)
-    static let foregroundColor = SIMD4<Float>(1, 1, 1, 1)
-}
-
-private struct TerminalFrameDamage {
-    let rows: [Int]
-    let rects: [CGRect]
-    let isFull: Bool
-}
-
-private struct TerminalScreen {
-    private(set) var rows: Int
-    private(set) var columns: Int
-    var cells: [[TerminalScreenCell]]
-    private var resizeHiddenRowsAbove: [[TerminalScreenCell]] = []
-    private var resizeHiddenRowsBelow: [[TerminalScreenCell]] = []
-
-    init(rows: Int, columns: Int) {
-        self.rows = max(1, rows)
-        self.columns = max(1, columns)
-        self.cells = Array(repeating: TerminalScreen.blankRow(columns: self.columns), count: self.rows)
-    }
-
-    @discardableResult
-    mutating func resize(rows newRows: Int, columns newColumns: Int, anchorRow: Int? = nil) -> Int {
-        let targetRows = max(1, newRows)
-        let targetColumns = max(1, newColumns)
-        let oldRows = resizeHiddenRowsAbove + cells + resizeHiddenRowsBelow
-        let normalizedRows = oldRows.map { TerminalScreen.resize(row: $0, columns: targetColumns) }
-        let totalRows = max(1, normalizedRows.count)
-        let visibleStart = resizeHiddenRowsAbove.count
-        let clampedAnchor = min(max(0, anchorRow ?? rows - 1), max(0, rows - 1))
-        let anchorAbsoluteRow = min(totalRows - 1, visibleStart + clampedAnchor)
-        let preferredAnchorRow = min(clampedAnchor, targetRows - 1)
-        let maxStart = max(0, totalRows - targetRows)
-        let start = max(0, min(anchorAbsoluteRow - preferredAnchorRow, maxStart))
-        let end = min(totalRows, start + targetRows)
-        var resized = Array(repeating: TerminalScreen.blankRow(columns: targetColumns), count: targetRows)
-        if !normalizedRows.isEmpty {
-            for targetRow in 0..<(end - start) {
-                resized[targetRow] = normalizedRows[start + targetRow]
-            }
-        }
-        resizeHiddenRowsAbove = start > 0 ? Array(normalizedRows[..<start]) : []
-        resizeHiddenRowsBelow = end < normalizedRows.count ? Array(normalizedRows[end...]) : []
-        rows = targetRows
-        columns = targetColumns
-        cells = resized
-        return min(targetRows - 1, max(0, anchorAbsoluteRow - start))
-    }
-
-    mutating func clear(style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        cells = Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: rows)
-    }
-
-    mutating func clear(row: Int, style: TerminalTextStyle = .default) {
-        guard cells.indices.contains(row) else { return }
-        cells[row] = TerminalScreen.blankRow(columns: columns, style: style)
-    }
-
-    mutating func clear(row: Int, from start: Int, through end: Int, style: TerminalTextStyle = .default) {
-        guard cells.indices.contains(row) else { return }
-        guard start <= end, start < columns, end >= 0 else { return }
-        let lower = max(0, min(start, columns - 1))
-        let upper = max(0, min(end, columns - 1))
-        guard lower <= upper else { return }
-        for column in lower...upper {
-            cells[row][column] = TerminalScreenCell(style: style)
-        }
-    }
-
-    mutating func set(character: Character, row: Int, column: Int, width: Int, style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        clearWideCellIfNeeded(row: row, column: column, style: style)
-        cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style)
-        if width == 2 && column + 1 < columns {
-            cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
-        }
-        if column > 0 && cells[row][column - 1].isContinuation {
-            cells[row][column - 1] = TerminalScreenCell(style: style)
-        }
-        if width == 1 && column + 1 < columns && cells[row][column + 1].isContinuation {
-            cells[row][column + 1] = TerminalScreenCell(style: style)
-        }
-    }
-
-    mutating func appendCombining(character: Character, row: Int, before column: Int) {
-        discardResizeHiddenRows()
-        guard cells.indices.contains(row), column > 0 else { return }
-        var leadColumn = min(column - 1, columns - 1)
-        while leadColumn > 0 && cells[row][leadColumn].isContinuation {
-            leadColumn -= 1
-        }
-        guard cells[row][leadColumn].character != " " else { return }
-        let merged = String(cells[row][leadColumn].character) + String(character)
-        if merged.count == 1, let composed = merged.first {
-            cells[row][leadColumn].character = composed
-        }
-    }
-
-    private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle) {
-        guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        guard cells[row][column].isContinuation else { return }
-        var leadColumn = column
-        while leadColumn > 0 && cells[row][leadColumn].isContinuation {
-            leadColumn -= 1
-        }
-        cells[row][leadColumn] = TerminalScreenCell(style: style)
-        var nextColumn = leadColumn + 1
-        while nextColumn < columns && cells[row][nextColumn].isContinuation {
-            cells[row][nextColumn] = TerminalScreenCell(style: style)
-            nextColumn += 1
-        }
-    }
-
-    @discardableResult
-    mutating func scrollUp(count: Int = 1) -> [[TerminalScreenCell]] {
-        scrollUpRegion(top: 0, bottom: rows - 1, count: count)
-    }
-
-    mutating func scrollDown(count: Int = 1) {
-        _ = scrollDownRegion(top: 0, bottom: rows - 1, count: count)
-    }
-
-    @discardableResult
-    mutating func scrollUpRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default) -> [[TerminalScreenCell]] {
-        discardResizeHiddenRows()
-        guard let region = normalizedRegion(top: top, bottom: bottom) else { return [] }
-        let amount = min(max(1, count), region.count)
-        let removed = Array(cells[region.lowerBound..<(region.lowerBound + amount)])
-        cells.removeSubrange(region.lowerBound..<(region.lowerBound + amount))
-        cells.insert(
-            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
-            at: region.upperBound - amount + 1
-        )
-        return removed
-    }
-
-    @discardableResult
-    mutating func scrollDownRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default) -> [[TerminalScreenCell]] {
-        discardResizeHiddenRows()
-        guard let region = normalizedRegion(top: top, bottom: bottom) else { return [] }
-        let amount = min(max(1, count), region.count)
-        let lower = region.upperBound - amount + 1
-        let removed = Array(cells[lower...region.upperBound])
-        cells.removeSubrange(lower...region.upperBound)
-        cells.insert(
-            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
-            at: region.lowerBound
-        )
-        return removed
-    }
-
-    mutating func insertLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
-        insertLines(at: row, bottom: rows - 1, count: count, style: style)
-    }
-
-    mutating func insertLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        guard let region = normalizedRegion(top: row, bottom: bottom) else { return }
-        let amount = min(max(1, count), region.count)
-        cells.removeSubrange((region.upperBound - amount + 1)...region.upperBound)
-        cells.insert(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount), at: region.lowerBound)
-    }
-
-    mutating func deleteLines(at row: Int, count: Int, style: TerminalTextStyle = .default) {
-        deleteLines(at: row, bottom: rows - 1, count: count, style: style)
-    }
-
-    mutating func deleteLines(at row: Int, bottom: Int, count: Int, style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        guard let region = normalizedRegion(top: row, bottom: bottom) else { return }
-        let amount = min(max(1, count), region.count)
-        cells.removeSubrange(region.lowerBound..<(region.lowerBound + amount))
-        cells.insert(
-            contentsOf: Array(repeating: TerminalScreen.blankRow(columns: columns, style: style), count: amount),
-            at: region.upperBound - amount + 1
-        )
-    }
-
-    mutating func insertCharacters(row: Int, column: Int, count: Int, style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        let amount = min(max(1, count), columns - column)
-        var line = cells[row]
-        line.removeSubrange((columns - amount)..<columns)
-        line.insert(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount), at: column)
-        cells[row] = line
-    }
-
-    mutating func deleteCharacters(row: Int, column: Int, count: Int, style: TerminalTextStyle = .default) {
-        discardResizeHiddenRows()
-        guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        let amount = min(max(1, count), columns - column)
-        var line = cells[row]
-        line.removeSubrange(column..<(column + amount))
-        line.append(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount))
-        cells[row] = line
-    }
-
-    mutating func discardResizeHiddenRows() {
-        resizeHiddenRowsAbove.removeAll(keepingCapacity: true)
-        resizeHiddenRowsBelow.removeAll(keepingCapacity: true)
-    }
-
-    private func normalizedRegion(top: Int, bottom: Int) -> ClosedRange<Int>? {
-        guard rows > 0 else { return nil }
-        let lower = max(0, min(top, rows - 1))
-        let upper = max(0, min(bottom, rows - 1))
-        guard lower <= upper else { return nil }
-        return lower...upper
-    }
-
-    static func blankRow(columns: Int, style: TerminalTextStyle = .default) -> [TerminalScreenCell] {
-        Array(repeating: TerminalScreenCell(style: style), count: columns)
-    }
-
-    private static func resize(row: [TerminalScreenCell], columns: Int) -> [TerminalScreenCell] {
-        if row.count == columns {
-            return row
-        }
-        if row.count > columns {
-            return Array(row.prefix(columns))
-        }
-        return row + Array(repeating: TerminalScreenCell(), count: columns - row.count)
-    }
-}
-
-private struct TerminalScreenCell {
-    var character: Character = " "
-    var isContinuation = false
-    var style = TerminalTextStyle.default
-}
-
-private struct TerminalTextStyle: Equatable {
-    var foreground: SIMD4<Float>
-    var background: SIMD4<Float>
-    var bold = false
-    var dim = false
-    var italic = false
-    var underline = false
-    var blink = false
-    var strikethrough = false
-    var inverse = false
-
-    static let `default` = TerminalTextStyle(
-        foreground: SIMD4<Float>(0.92, 0.92, 0.92, 1),
-        background: SIMD4<Float>(0, 0, 0, 1)
-    )
-
-    var effectiveForeground: SIMD4<Float> {
-        if inverse {
-            return background
-        }
-        let weighted = bold ? brighten(foreground) : foreground
-        return dim ? dimmed(weighted, against: background) : weighted
-    }
-
-    var effectiveBackground: SIMD4<Float> {
-        inverse ? foreground : background
-    }
-
-    var isLightBackground: Bool {
-        luminance(background) > 0.5
-    }
-
-    static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
-        (bright ? DesignTokens.Color.ansiBright : DesignTokens.Color.ansiNormal)[max(0, min(index, 7))]
-    }
-
-    static func rgb(red: Int, green: Int, blue: Int) -> SIMD4<Float> {
-        SIMD4<Float>(
-            Float(max(0, min(red, 255))) / 255,
-            Float(max(0, min(green, 255))) / 255,
-            Float(max(0, min(blue, 255))) / 255,
-            1
-        )
-    }
-
-    static func xterm256Color(_ value: Int) -> SIMD4<Float> {
-        let index = max(0, min(value, 255))
-        if index < 16 {
-            return ansiColor(index % 8, bright: index >= 8)
-        }
-        if index < 232 {
-            let cube = index - 16
-            let r = cube / 36
-            let g = (cube / 6) % 6
-            let b = cube % 6
-            func component(_ v: Int) -> Int { v == 0 ? 0 : 55 + v * 40 }
-            return rgb(red: component(r), green: component(g), blue: component(b))
-        }
-        let gray = 8 + (index - 232) * 10
-        return rgb(red: gray, green: gray, blue: gray)
-    }
-
-    private func brighten(_ color: SIMD4<Float>) -> SIMD4<Float> {
-        SIMD4<Float>(min(color.x * 1.15, 1), min(color.y * 1.15, 1), min(color.z * 1.15, 1), color.w)
-    }
-
-    private func dimmed(_ color: SIMD4<Float>, against background: SIMD4<Float>) -> SIMD4<Float> {
-        if luminance(background) > 0.5 {
-            return blend(color, background, amount: dimBlendAmount(for: color))
-        }
-        return SIMD4<Float>(color.x * 0.62, color.y * 0.62, color.z * 0.62, color.w)
-    }
-
-    private func dimBlendAmount(for color: SIMD4<Float>) -> Float {
-        chroma(color) > 0.08 ? 0.04 : 0.48
-    }
-
-    private func chroma(_ color: SIMD4<Float>) -> Float {
-        max(color.x, max(color.y, color.z)) - min(color.x, min(color.y, color.z))
-    }
-
-    private func blend(_ color: SIMD4<Float>, _ background: SIMD4<Float>, amount: Float) -> SIMD4<Float> {
-        let kept = max(0, min(1, 1 - amount))
-        let mixed = max(0, min(1, amount))
-        return SIMD4<Float>(
-            color.x * kept + background.x * mixed,
-            color.y * kept + background.y * mixed,
-            color.z * kept + background.z * mixed,
-            color.w
-        )
-    }
-
-    private func luminance(_ color: SIMD4<Float>) -> Float {
-        color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722
-    }
-}
-
-private struct CsiParameters {
-    let isPrivate: Bool
-    let values: [Int]
-
-    init(_ raw: String) {
-        let privatePrefixes = CharacterSet(charactersIn: "<=>?")
-        let trimmed = raw.trimmingCharacters(in: privatePrefixes)
-        isPrivate = raw.first.map { privatePrefixes.contains($0.unicodeScalars.first!) } ?? false
-        values = trimmed
-            .split(whereSeparator: { $0 == ";" || $0 == ":" })
-            .map { part in
-                Int(part.filter(\.isNumber)) ?? 0
-            }
-    }
-
-    func value(at index: Int, default defaultValue: Int) -> Int {
-        guard values.indices.contains(index), values[index] > 0 else { return defaultValue }
-        return values[index]
-    }
-}
-
-private extension Character {
-    var terminalColumnWidth: Int {
-        if unicodeScalars.allSatisfy({ CharacterSet.nonBaseCharacters.contains($0) }) {
-            return 0
-        }
-        let widthScalar = firstBaseScalarForTerminalWidth ?? unicodeScalars.first
-        guard let scalar = widthScalar else { return 1 }
-        let value = scalar.value
-        if value == 0 || (value < 32) || (0x7f..<0xa0).contains(value) {
-            return 0
-        }
-        if value >= 0x1100 &&
-            (value <= 0x115f ||
-             value == 0x2329 || value == 0x232a ||
-             (0x2e80...0xa4cf).contains(value) ||
-             (0xac00...0xd7a3).contains(value) ||
-             (0xf900...0xfaff).contains(value) ||
-             (0xfe10...0xfe19).contains(value) ||
-             (0xfe30...0xfe6f).contains(value) ||
-             (0xff00...0xff60).contains(value) ||
-             (0xffe0...0xffe6).contains(value) ||
-             (0x1f300...0x1f64f).contains(value) ||
-             (0x1f900...0x1f9ff).contains(value)) {
-            return 2
-        }
-        return 1
-    }
-
-    var isTerminalPrintableGrapheme: Bool {
-        guard let scalar = unicodeScalars.first else { return false }
-        let value = scalar.value
-        return value != 0x1b && value != 10 && value != 13 && value != 8 && value != 9 &&
-            value >= 32 && value != 127
-    }
-
-    private var firstBaseScalarForTerminalWidth: UnicodeScalar? {
-        unicodeScalars.first { scalar in
-            !CharacterSet.nonBaseCharacters.contains(scalar) &&
-                scalar.value != 0x200d &&
-                !(0xfe00...0xfe0f).contains(scalar.value)
-        }
-    }
-}
-
-private extension String {
-    var terminalColumnWidth: Int {
-        reduce(0) { $0 + $1.terminalColumnWidth }
-    }
-}
-
-private extension SIMD4 where Scalar == Float {
-    func sameColor(as other: SIMD4<Float>) -> Bool {
-        x == other.x && y == other.y && z == other.z && w == other.w
-    }
-
-    var perceivedLuminance: Float {
-        x * 0.2126 + y * 0.7152 + z * 0.0722
-    }
-
-    var debugRGB: String {
-        String(format: "(%0.3f,%0.3f,%0.3f,%0.3f)", x, y, z, w)
     }
 }
