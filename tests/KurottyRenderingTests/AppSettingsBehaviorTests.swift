@@ -3,6 +3,11 @@ import XCTest
 
 final class AppSettingsBehaviorTests: XCTestCase {
     private var temporaryDirectory: URL!
+    private static let appSettingsSourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
 
     override func setUpWithError() throws {
         temporaryDirectory = FileManager.default.temporaryDirectory
@@ -59,6 +64,81 @@ final class AppSettingsBehaviorTests: XCTestCase {
 
         let developmentBundle = try makeBundle(named: "DevelopmentFixture.bundle", infoDictionary: [:])
         XCTAssertEqual(AppConstants.Bundle.displayVersion(bundle: developmentBundle), "development (dev)")
+    }
+
+    func testMainActorSettingsStoreDoesNotPerformDiskIO() throws {
+        let source = try String(contentsOf: Self.appSettingsSourceURL, encoding: .utf8)
+        let storeBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsStore", in: source))
+        let persistenceBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsPersistence", in: source))
+
+        XCTAssertTrue(source.contains("@MainActor\nfinal class AppSettingsStore"))
+        XCTAssertFalse(storeBody.contains("fileExists(atPath:"))
+        XCTAssertFalse(storeBody.contains("createDirectory("))
+        XCTAssertFalse(storeBody.contains("Data(contentsOf:"))
+        XCTAssertFalse(storeBody.contains(".write(to:"))
+        XCTAssertTrue(source.contains("struct AppSettingsPersistence"))
+        XCTAssertTrue(persistenceBody.contains("DispatchQueue"))
+    }
+
+    @MainActor
+    func testFirstInstallCreatesKurottyThemeSettings() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+        XCTAssertEqual(settings.terminal.colors.background, "#22252B")
+        XCTAssertEqual(settings.terminal.colors.foreground, "#E5E7EB")
+        XCTAssertEqual(settings.terminal.colors.cursor, "#D7C6F4")
+    }
+
+    @MainActor
+    func testPreviousKurottyDefaultMigratesToRetunedKurottyTheme() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 7,
+            theme: TerminalThemePreset.kurottyName,
+            colors: previousKurottyColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+        XCTAssertEqual(settings.terminal.colors.background, "#22252B")
+    }
+
+    @MainActor
+    func testOldDefaultDarkThemeMigratesToKurottyTheme() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 6,
+            theme: TerminalThemePreset.darkName,
+            colors: oldDefaultColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
+    }
+
+    @MainActor
+    func testExplicitKurottyThemeAppliesPresetColorsOverExistingThemeColors() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 7,
+            theme: TerminalThemePreset.kurottyName,
+            colors: lighttyColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.theme, TerminalThemePreset.kurottyName)
+        XCTAssertEqual(settings.terminal.colors, .default)
     }
 
     func testTmuxConstantsUseDefaultPrefixAndSessionCommands() throws {
@@ -136,6 +216,74 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(screen.cells[0][4].style, .default)
         XCTAssertEqual(screen.cells[0][5].style, statusStyle)
         XCTAssertEqual(screen.cells[0][9].style, statusStyle)
+    }
+
+    func testThemeReloadRemapsOnlyCellsUsingPreviousDefaultStyle() throws {
+        let previousDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.9, 0.9, 0.9, 1),
+            background: SIMD4<Float>(0.1, 0.1, 0.1, 1)
+        )
+        let nextDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.1, 0.1, 0.1, 1),
+            background: SIMD4<Float>(1, 1, 1, 1)
+        )
+        let explicitStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.2, 0.7, 0.8, 1),
+            background: SIMD4<Float>(0.4, 0.2, 0.9, 1)
+        )
+        var screen = TerminalScreen(rows: 1, columns: 3)
+        screen.set(character: "a", row: 0, column: 0, width: 1, style: previousDefaultStyle)
+        screen.set(character: "b", row: 0, column: 1, width: 1, style: explicitStyle)
+        screen.set(character: "c", row: 0, column: 2, width: 1, style: previousDefaultStyle)
+
+        screen.remapStyle(from: previousDefaultStyle, to: nextDefaultStyle)
+
+        XCTAssertEqual(screen.cells[0][0].style, nextDefaultStyle)
+        XCTAssertEqual(screen.cells[0][1].style, explicitStyle)
+        XCTAssertEqual(screen.cells[0][2].style, nextDefaultStyle)
+    }
+
+    func testThemeReloadRemapsPreviousPaletteColorsByForegroundAndBackgroundRole() throws {
+        let previousDefaultStyle = TerminalTextStyle(
+            foreground: TerminalColorSettings.lightty.foregroundColor,
+            background: TerminalColorSettings.lightty.backgroundColor
+        )
+        let nextDefaultStyle = TerminalTextStyle(
+            foreground: TerminalColorSettings.default.foregroundColor,
+            background: TerminalColorSettings.default.backgroundColor
+        )
+        let previousAnsiColors = TerminalColorSettings.lightty.ansi.map {
+            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+        }
+        let nextAnsiColors = TerminalColorSettings.default.ansi.map {
+            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+        }
+        let colorMap = TerminalStyleColorMap(
+            previousDefaultStyle: previousDefaultStyle,
+            nextDefaultStyle: nextDefaultStyle,
+            previousAnsiColors: previousAnsiColors,
+            nextAnsiColors: nextAnsiColors
+        )
+        var screen = TerminalScreen(rows: 1, columns: 3)
+        let lighttyWhite = TerminalColorSettings.lightty.backgroundColor
+        let promptStyle = TerminalTextStyle(
+            foreground: lighttyWhite,
+            background: previousAnsiColors[5]
+        )
+        let customStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.12, 0.34, 0.56, 1),
+            background: SIMD4<Float>(0.65, 0.43, 0.21, 1)
+        )
+        screen.set(character: "a", row: 0, column: 0, width: 1, style: previousDefaultStyle)
+        screen.set(character: "b", row: 0, column: 1, width: 1, style: promptStyle)
+        screen.set(character: "c", row: 0, column: 2, width: 1, style: customStyle)
+
+        screen.remapColors(colorMap)
+
+        XCTAssertEqual(screen.cells[0][0].style.background, nextDefaultStyle.background)
+        XCTAssertEqual(screen.cells[0][1].style.foreground, nextAnsiColors[15])
+        XCTAssertEqual(screen.cells[0][1].style.background, nextAnsiColors[5])
+        XCTAssertEqual(screen.cells[0][2].style, customStyle)
     }
 
     @MainActor
@@ -245,6 +393,33 @@ final class AppSettingsBehaviorTests: XCTestCase {
         temporaryDirectory.appendingPathComponent("settings.json")
     }
 
+    private static func typeBody(named typeName: String, in source: String) -> String? {
+        let classRange = source.range(of: "final class \(typeName)")
+        let structRange = source.range(of: "struct \(typeName)")
+        guard let typeRange = classRange ?? structRange else {
+            return nil
+        }
+        guard let openingBrace = source[typeRange.upperBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var index = openingBrace
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingBrace...index])
+                }
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
+
     private func makeBundle(named name: String, infoDictionary: [String: String]) throws -> Bundle {
         let bundleURL = temporaryDirectory.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -295,6 +470,38 @@ final class AppSettingsBehaviorTests: XCTestCase {
     private func defaultColorsJSON() -> String {
         """
         {
+          "foreground": "#E5E7EB",
+          "background": "#22252B",
+          "cursor": "#D7C6F4",
+          "ansi": [
+            "#2F333A", "#FF5F67", "#5FD38D", "#E5C07B",
+            "#61AFEF", "#C792EA", "#56B6C2", "#D7DAE0",
+            "#60646C", "#FF7B86", "#8EE8A3", "#F0D28A",
+            "#7AB7FF", "#D7A8FF", "#7FDCE3", "#F5F7FA"
+          ]
+        }
+        """
+    }
+
+    private func previousKurottyColorsJSON() -> String {
+        """
+        {
+          "foreground": "#E5E7EB",
+          "background": "#24272E",
+          "cursor": "#D7C6F4",
+          "ansi": [
+            "#2F333A", "#FF5F67", "#5FD38D", "#E5C07B",
+            "#61AFEF", "#C792EA", "#56B6C2", "#D7DAE0",
+            "#60646C", "#FF7B86", "#8EE8A3", "#F0D28A",
+            "#7AB7FF", "#D7A8FF", "#7FDCE3", "#F5F7FA"
+          ]
+        }
+        """
+    }
+
+    private func oldDefaultColorsJSON() -> String {
+        """
+        {
           "foreground": "#E6EDF3",
           "background": "#0B1020",
           "cursor": "#7DD3FC",
@@ -303,6 +510,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
             "#81A1C1", "#B48EAD", "#88C0D0", "#E5E9F0",
             "#4C566A", "#BF616A", "#A3BE8C", "#EBCB8B",
             "#81A1C1", "#B48EAD", "#8FBCBB", "#ECEFF4"
+          ]
+        }
+        """
+    }
+
+    private func lighttyColorsJSON() -> String {
+        """
+        {
+          "foreground": "#202124",
+          "background": "#FFFFFF",
+          "cursor": "#111111",
+          "ansi": [
+            "#AFA7F5", "#AB4634", "#55C236", "#9A4DB4",
+            "#3347C3", "#B445B8", "#4FC3C7", "#C9C9C9",
+            "#666666", "#D47D78", "#55B94A", "#A452BD",
+            "#5B5AA2", "#CF75D3", "#35B9BD", "#FFFFFF"
           ]
         }
         """

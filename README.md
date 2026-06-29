@@ -10,22 +10,29 @@
 
 Kurotty is a macOS-first terminal emulator built with Swift/AppKit, Zig, and Metal.
 
-Kurotty is currently an early developer build. Install the latest alpha release if you only want to try the app; build from source if you want to contribute.
+Kurotty is currently an early developer build. Download the latest alpha release if you only want to try the app; build from source if you want to contribute.
 
-[Install](#install) · [Features](#features) · [Build From Source](#build-from-source) · [License](#license)
+[Download](#download) · [Features](#features) · [Build From Source](#build-from-source) · [License](#license)
 
-## Install
+## Download
 
-Download the latest alpha Universal DMG from [GitHub Releases](https://github.com/skyepodium/kurotty/releases). It supports Intel and Apple Silicon Macs.
+Download the latest alpha Universal DMG directly:
+
+[Download Kurotty for macOS](https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg)
+
+It supports Intel and Apple Silicon Macs. Release notes and older builds are available on [GitHub Releases](https://github.com/skyepodium/kurotty/releases).
 
 Release asset names:
 
+- `kurotty-macos-universal.dmg`
 - `kurotty-<version>-macos-universal.dmg`
 - `SHA256SUMS`
 
 ```sh
+curl -LO https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg
+curl -LO https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
-open kurotty-<version>-macos-universal.dmg
+open kurotty-macos-universal.dmg
 open /Applications/kurotty.app
 ```
 

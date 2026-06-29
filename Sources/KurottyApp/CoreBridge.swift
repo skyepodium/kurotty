@@ -26,7 +26,6 @@ private enum CoreLibraryPath {
 final class CoreBridge: @unchecked Sendable {
     private let symbols = CoreSymbols.load()
     private var handle: TerminalHandle?
-    private var fallbackBuffer = ""
     private var columns: UInt32
     private var rows: UInt32
 
@@ -47,8 +46,6 @@ final class CoreBridge: @unchecked Sendable {
                 symbols.feed(handle, buffer.baseAddress!, buffer.count)
             }
             symbols.markDamage(handle, 0, 0, rows, columns)
-        } else {
-            fallbackBuffer.append(text)
         }
     }
 

@@ -11,6 +11,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let tabStackView = NSStackView()
     private let tabView = NSTabView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    private var chromeTheme: DesignTokens.ChromeTheme
 
     convenience init(paneDragCoordinator: TerminalPaneDragCoordinator) {
         self.init(initialPane: nil, paneDragCoordinator: paneDragCoordinator)
@@ -23,6 +24,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private init(initialPane: TerminalPaneView?, paneDragCoordinator: TerminalPaneDragCoordinator) {
         self.paneDragCoordinator = paneDragCoordinator
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -30,10 +32,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             defer: false
         )
         window.title = AppConstants.Bundle.displayName
-        window.backgroundColor = DesignTokens.Color.windowBackground
+        window.titlebarAppearsTransparent = true
         window.center()
         super.init(window: window)
         configureTabs(initialPane: initialPane)
+        applyChromeTheme(chromeTheme)
         observeSettings()
         observeTerminalTitles()
     }
@@ -69,6 +72,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         } else {
             splitView.appendDetachedPaneAsTabRoot(TerminalPaneView())
         }
+        splitView.applyChromeTheme(chromeTheme)
         let item = NSTabViewItem(identifier: identifier)
         item.label = pane?.displayTitle ?? defaultTabLabel()
         item.view = splitView
@@ -135,7 +139,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private func configureTabs(initialPane: TerminalPaneView?) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
         rootView.wantsLayer = true
-        rootView.layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
+        rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         window?.contentView = rootView
         dropTargetView.onPaneDrop = { [weak self] in
             guard let self else {
@@ -152,9 +156,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
         tabBarView.wantsLayer = true
-        tabBarView.layer?.backgroundColor = DesignTokens.Color.topChromeBackground.cgColor
+        tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderWidth = DesignTokens.Component.hairlinePX
-        tabBarView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
+        tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor
 
         tabStackView.orientation = .horizontal
         tabStackView.alignment = .centerY
@@ -224,8 +228,31 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
             return
         }
+        chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
+        applyChromeTheme(chromeTheme)
         window?.setContentSize(NSSize(width: settings.window.width, height: settings.window.height))
         window?.center()
+    }
+
+    private func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        chromeTheme = theme
+        window?.appearance = chromeTheme.windowAppearance
+        window?.backgroundColor = chromeTheme.windowBackground
+        dropTargetView.chromeTheme = chromeTheme
+        rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
+        tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
+        tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        applyChromeThemeToTabSplits(chromeTheme)
+        updateTabBar()
+    }
+
+    private func applyChromeThemeToTabSplits(_ theme: DesignTokens.ChromeTheme) {
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView else {
+                continue
+            }
+            splitView.applyChromeTheme(theme)
+        }
     }
 
     @objc private func terminalTitleDidChange(_ notification: Notification) {
@@ -269,9 +296,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
         let addButton = ChromeIconButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
         addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
-        addButton.normalTintColor = DesignTokens.Color.textSecondary
-        addButton.hoverTintColor = DesignTokens.Color.textPrimary
-        addButton.hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground
+        addButton.normalTintColor = chromeTheme.textSecondary
+        addButton.hoverTintColor = chromeTheme.textPrimary
+        addButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
@@ -281,6 +308,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         TerminalTabItemView(
             title: title,
             isSelected: isSelected,
+            chromeTheme: chromeTheme,
             onSelect: { [weak self] in self?.selectTab(at: index) },
             onClose: { [weak self] in self?.closeTab(at: index) }
         )
@@ -344,6 +372,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 final class TerminalPaneDropTargetView: NSView {
     var onPaneDrop: (() -> Bool)?
     var onPaneCanDrop: (() -> Bool)?
+    var chromeTheme = DesignTokens.ChromeTheme.dark {
+        didSet { updateDropAppearance() }
+    }
 
     private var isDropHighlighted = false {
         didSet {
@@ -397,7 +428,7 @@ final class TerminalPaneDropTargetView: NSView {
         layer?.borderColor = isDropHighlighted ? DesignTokens.Color.paneDropTargetBorder.cgColor : nil
         layer?.backgroundColor = isDropHighlighted
             ? DesignTokens.Color.paneDropTargetBackground.cgColor
-            : DesignTokens.Color.windowBackground.cgColor
+            : chromeTheme.windowBackground.cgColor
     }
 }
 
@@ -406,12 +437,20 @@ private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let selected: Bool
+    private let chromeTheme: DesignTokens.ChromeTheme
     private var isHovered = false
     private let onSelect: () -> Void
     private let onClose: () -> Void
 
-    init(title: String, isSelected: Bool, onSelect: @escaping () -> Void, onClose: @escaping () -> Void) {
+    init(
+        title: String,
+        isSelected: Bool,
+        chromeTheme: DesignTokens.ChromeTheme,
+        onSelect: @escaping () -> Void,
+        onClose: @escaping () -> Void
+    ) {
         selected = isSelected
+        self.chromeTheme = chromeTheme
         self.onSelect = onSelect
         self.onClose = onClose
         super.init(frame: .zero)
@@ -455,7 +494,7 @@ private final class TerminalTabItemView: NSView {
         wantsLayer = true
         layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX
         layer?.borderWidth = selected ? DesignTokens.Component.terminalTabBorderWidthPX : 0
-        layer?.borderColor = DesignTokens.Color.borderHairline.cgColor
+        layer?.borderColor = chromeTheme.borderHairline.cgColor
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOffset = NSSize(width: 0, height: DesignTokens.Component.terminalTabShadowOffsetYPX)
         layer?.shadowRadius = selected ? DesignTokens.Component.terminalTabShadowRadiusPX : 0
@@ -465,7 +504,7 @@ private final class TerminalTabItemView: NSView {
         selectedBar.translatesAutoresizingMaskIntoConstraints = false
         selectedBar.wantsLayer = true
         selectedBar.layer?.backgroundColor = selected
-            ? DesignTokens.Color.accentBlue.cgColor
+            ? chromeTheme.activeIndicator.cgColor
             : NSColor.clear.cgColor
         selectedBar.layer?.cornerRadius = DesignTokens.Component.hairlinePX
         addSubview(selectedBar)
@@ -482,9 +521,9 @@ private final class TerminalTabItemView: NSView {
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
         closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        closeButton.normalTintColor = selected ? DesignTokens.Color.textSecondary : DesignTokens.Color.textMuted
-        closeButton.hoverTintColor = DesignTokens.Color.textPrimary
-        closeButton.hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground
+        closeButton.normalTintColor = selected ? chromeTheme.textSecondary : chromeTheme.textMuted
+        closeButton.hoverTintColor = chromeTheme.textPrimary
+        closeButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([
@@ -511,16 +550,16 @@ private final class TerminalTabItemView: NSView {
 
     private func updateAppearance() {
         layer?.backgroundColor = tabBackgroundColor.cgColor
-        titleField.textColor = selected || isHovered ? DesignTokens.Color.textPrimary : DesignTokens.Color.textSecondary
-        closeButton.normalTintColor = selected || isHovered ? DesignTokens.Color.textSecondary : DesignTokens.Color.textMuted
+        titleField.textColor = selected || isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
+        closeButton.normalTintColor = selected || isHovered ? chromeTheme.textSecondary : chromeTheme.textMuted
     }
 
     private var tabBackgroundColor: NSColor {
         if selected {
-            return isHovered ? DesignTokens.Color.activeTabBackground.blended(withFraction: 0.10, of: DesignTokens.Color.accentBlue) ?? DesignTokens.Color.activeTabBackground : DesignTokens.Color.activeTabBackground
+            return isHovered ? chromeTheme.activeTabBackground.blended(withFraction: 0.10, of: DesignTokens.Color.accentBlue) ?? chromeTheme.activeTabBackground : chromeTheme.activeTabBackground
         }
         return isHovered
-            ? DesignTokens.Color.inactiveTabHoverBackground
-            : DesignTokens.Color.inactiveTabBackground
+            ? chromeTheme.inactiveTabHoverBackground
+            : chromeTheme.inactiveTabBackground
     }
 }

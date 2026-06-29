@@ -2,22 +2,87 @@ import AppKit
 import simd
 
 enum DesignTokens {
+    @MainActor
+    struct ChromeTheme {
+        let windowBackground: NSColor
+        let topChromeBackground: NSColor
+        let activeTabBackground: NSColor
+        let inactiveTabBackground: NSColor
+        let inactiveTabHoverBackground: NSColor
+        let paneHeaderBackground: NSColor
+        let paneHeaderHoverBackground: NSColor
+        let borderHairline: NSColor
+        let divider: NSColor
+        let textPrimary: NSColor
+        let textSecondary: NSColor
+        let textMuted: NSColor
+        let activeIndicator: NSColor
+        let activeStatusDot: NSColor
+        let inactiveStatusDot: NSColor
+        let activeBorder: NSColor
+        let windowAppearance: NSAppearance?
+
+        static func theme(for settings: AppSettings) -> ChromeTheme {
+            settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
+        }
+
+        static let dark = ChromeTheme(
+            windowBackground: Color.windowBackground,
+            topChromeBackground: Color.topChromeBackground,
+            activeTabBackground: Color.activeTabBackground,
+            inactiveTabBackground: Color.inactiveTabBackground,
+            inactiveTabHoverBackground: Color.inactiveTabHoverBackground,
+            paneHeaderBackground: Color.paneHeaderBackground,
+            paneHeaderHoverBackground: Color.paneHeaderHoverBackground,
+            borderHairline: Color.borderHairline,
+            divider: Color.divider,
+            textPrimary: Color.textPrimary,
+            textSecondary: Color.textSecondary,
+            textMuted: Color.textMuted,
+            activeIndicator: Color.accentBlue,
+            activeStatusDot: Color.successGreen,
+            inactiveStatusDot: Color.accentPurple.withAlphaComponent(0.45),
+            activeBorder: Color.accentPurple.withAlphaComponent(0.45),
+            windowAppearance: NSAppearance(named: .darkAqua)
+        )
+
+        static let light = ChromeTheme(
+            windowBackground: NSColor(calibratedRed: 250.0 / 255.0, green: 250.0 / 255.0, blue: 250.0 / 255.0, alpha: 1),
+            topChromeBackground: NSColor(calibratedRed: 241.0 / 255.0, green: 241.0 / 255.0, blue: 241.0 / 255.0, alpha: 1),
+            activeTabBackground: NSColor.white,
+            inactiveTabBackground: NSColor(calibratedRed: 233.0 / 255.0, green: 233.0 / 255.0, blue: 233.0 / 255.0, alpha: 1),
+            inactiveTabHoverBackground: NSColor(calibratedRed: 245.0 / 255.0, green: 245.0 / 255.0, blue: 245.0 / 255.0, alpha: 1),
+            paneHeaderBackground: NSColor(calibratedRed: 246.0 / 255.0, green: 246.0 / 255.0, blue: 246.0 / 255.0, alpha: 1),
+            paneHeaderHoverBackground: NSColor(calibratedRed: 251.0 / 255.0, green: 251.0 / 255.0, blue: 251.0 / 255.0, alpha: 1),
+            borderHairline: NSColor(calibratedRed: 221.0 / 255.0, green: 221.0 / 255.0, blue: 221.0 / 255.0, alpha: 1),
+            divider: NSColor(calibratedRed: 224.0 / 255.0, green: 224.0 / 255.0, blue: 224.0 / 255.0, alpha: 1),
+            textPrimary: NSColor(calibratedRed: 36.0 / 255.0, green: 36.0 / 255.0, blue: 36.0 / 255.0, alpha: 1),
+            textSecondary: NSColor(calibratedRed: 119.0 / 255.0, green: 119.0 / 255.0, blue: 119.0 / 255.0, alpha: 1),
+            textMuted: NSColor(calibratedRed: 153.0 / 255.0, green: 153.0 / 255.0, blue: 153.0 / 255.0, alpha: 1),
+            activeIndicator: Color.accentBlue,
+            activeStatusDot: Color.successGreen,
+            inactiveStatusDot: Color.accentPurple.withAlphaComponent(0.45),
+            activeBorder: Color.accentPurple.withAlphaComponent(0.45),
+            windowAppearance: NSAppearance(named: .aqua)
+        )
+    }
+
     enum Color {
-        static let windowBackground = NSColor(calibratedRed: 250.0 / 255.0, green: 250.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
-        static let topChromeBackground = NSColor(calibratedRed: 241.0 / 255.0, green: 241.0 / 255.0, blue: 241.0 / 255.0, alpha: 1)
-        static let activeTabBackground = NSColor.white
-        static let inactiveTabBackground = NSColor(calibratedRed: 233.0 / 255.0, green: 233.0 / 255.0, blue: 233.0 / 255.0, alpha: 1)
-        static let inactiveTabHoverBackground = NSColor(calibratedRed: 245.0 / 255.0, green: 245.0 / 255.0, blue: 245.0 / 255.0, alpha: 1)
-        static let paneHeaderBackground = NSColor(calibratedRed: 246.0 / 255.0, green: 246.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
-        static let paneHeaderHoverBackground = NSColor(calibratedRed: 251.0 / 255.0, green: 251.0 / 255.0, blue: 251.0 / 255.0, alpha: 1)
+        static let windowBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
+        static let topChromeBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
+        static let activeTabBackground = NSColor(calibratedRed: 37.0 / 255.0, green: 40.0 / 255.0, blue: 47.0 / 255.0, alpha: 1)
+        static let inactiveTabBackground = NSColor(calibratedRed: 27.0 / 255.0, green: 30.0 / 255.0, blue: 36.0 / 255.0, alpha: 1)
+        static let inactiveTabHoverBackground = NSColor(calibratedRed: 43.0 / 255.0, green: 46.0 / 255.0, blue: 54.0 / 255.0, alpha: 1)
+        static let paneHeaderBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
+        static let paneHeaderHoverBackground = NSColor(calibratedRed: 43.0 / 255.0, green: 46.0 / 255.0, blue: 54.0 / 255.0, alpha: 1)
         static let paneDropTargetBorder = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.72)
         static let paneDropTargetBackground = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.08)
-        static let inputStatusBackground = NSColor(calibratedRed: 244.0 / 255.0, green: 244.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
-        static let borderHairline = NSColor(calibratedRed: 221.0 / 255.0, green: 221.0 / 255.0, blue: 221.0 / 255.0, alpha: 1)
-        static let divider = NSColor(calibratedRed: 224.0 / 255.0, green: 224.0 / 255.0, blue: 224.0 / 255.0, alpha: 1)
-        static let textPrimary = NSColor(calibratedRed: 36.0 / 255.0, green: 36.0 / 255.0, blue: 36.0 / 255.0, alpha: 1)
-        static let textSecondary = NSColor(calibratedRed: 119.0 / 255.0, green: 119.0 / 255.0, blue: 119.0 / 255.0, alpha: 1)
-        static let textMuted = NSColor(calibratedRed: 153.0 / 255.0, green: 153.0 / 255.0, blue: 153.0 / 255.0, alpha: 1)
+        static let inputStatusBackground = NSColor(calibratedRed: 37.0 / 255.0, green: 40.0 / 255.0, blue: 47.0 / 255.0, alpha: 1)
+        static let borderHairline = NSColor(calibratedRed: 76.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0, alpha: 1)
+        static let divider = NSColor(calibratedRed: 60.0 / 255.0, green: 64.0 / 255.0, blue: 72.0 / 255.0, alpha: 1)
+        static let textPrimary = NSColor(calibratedRed: 229.0 / 255.0, green: 231.0 / 255.0, blue: 235.0 / 255.0, alpha: 1)
+        static let textSecondary = NSColor(calibratedRed: 179.0 / 255.0, green: 183.0 / 255.0, blue: 192.0 / 255.0, alpha: 1)
+        static let textMuted = NSColor(calibratedRed: 125.0 / 255.0, green: 131.0 / 255.0, blue: 142.0 / 255.0, alpha: 1)
         static let accentBlue = NSColor(calibratedRed: 91.0 / 255.0, green: 124.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
         static let accentPurple = NSColor(calibratedRed: 139.0 / 255.0, green: 92.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
         static let successGreen = NSColor(calibratedRed: 47.0 / 255.0, green: 191.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
@@ -28,14 +93,14 @@ enum DesignTokens {
         static let scrollerThumbActive = NSColor(calibratedRed: 138.0 / 255.0, green: 138.0 / 255.0, blue: 138.0 / 255.0, alpha: 0.96)
 
         static let terminalBackground = NSColor(
-            calibratedRed: 0.04,
-            green: 0.06,
-            blue: 0.10,
+            calibratedRed: 34.0 / 255.0,
+            green: 37.0 / 255.0,
+            blue: 43.0 / 255.0,
             alpha: 1
         )
-        static let terminalForeground = SIMD4<Float>(0.90, 0.94, 0.98, 1)
-        static let terminalCursor = SIMD4<Float>(0.49, 0.83, 0.98, 1)
-        static let terminalDefaultBackground = SIMD4<Float>(0.04, 0.06, 0.10, 1)
+        static let terminalForeground = SIMD4<Float>(229.0 / 255.0, 231.0 / 255.0, 235.0 / 255.0, 1)
+        static let terminalCursor = SIMD4<Float>(215.0 / 255.0, 198.0 / 255.0, 244.0 / 255.0, 1)
+        static let terminalDefaultBackground = SIMD4<Float>(34.0 / 255.0, 37.0 / 255.0, 43.0 / 255.0, 1)
 
         static let ansiNormal = TerminalPalette.ansiNormal
         static let ansiBright = TerminalPalette.ansiBright
@@ -99,6 +164,11 @@ enum DesignTokens {
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28
         static let terminalPaneChromeDotSizePX: CGFloat = 8
+        static let terminalPaneDragPreviewMinWidthPX: CGFloat = 220
+        static let terminalPaneDragPreviewMaxWidthPX: CGFloat = 420
+        static let terminalPaneDragPreviewCornerRadiusPX: CGFloat = 6
+        static let terminalPaneDragPreviewTextInsetXPX: CGFloat = 12
+        static let terminalPaneDragPreviewTextInsetYPX: CGFloat = 8
         static let terminalSplitDividerHitAreaPX: CGFloat = 8
         static let terminalSplitDividerLinePX: CGFloat = 1
         static let radiusSmallPX: CGFloat = 6
@@ -116,5 +186,9 @@ extension SIMD4 where Scalar == Float {
             blue: CGFloat(z),
             alpha: CGFloat(w)
         )
+    }
+
+    var isLightTerminalBackground: Bool {
+        (0.2126 * x + 0.7152 * y + 0.0722 * z) > 0.5
     }
 }

@@ -9,7 +9,19 @@ private func systemForkpty(
     _ winp: UnsafePointer<winsize>?
 ) -> pid_t
 
-final class ShellSession: @unchecked Sendable {
+protocol TerminalSession: AnyObject {
+    var onOutput: ((String) -> Void)? { get set }
+    var onRawOutput: ((Data) -> Void)? { get set }
+    var onExit: ((Int32) -> Void)? { get set }
+
+    func start(workingDirectory requestedWorkingDirectory: String)
+    func write(_ text: String)
+    func canReceiveTerminalResponseWithoutEcho() -> Bool
+    func resize(columns: Int, rows: Int)
+    func stop()
+}
+
+final class ShellSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onExit: ((Int32) -> Void)?
@@ -23,6 +35,7 @@ final class ShellSession: @unchecked Sendable {
     private var isStarted = false
     private var isStopping = false
     private var pendingOutput = Data()
+    private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
 
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
@@ -47,7 +60,7 @@ final class ShellSession: @unchecked Sendable {
         isStarted = true
         if pid == 0 {
             runChildShell(workingDirectory: workingDirectory)
-            _exit(127)
+            _exit(AppConstants.Shell.childExecFailureStatusCode)
         }
 
         master = fd
@@ -72,7 +85,7 @@ final class ShellSession: @unchecked Sendable {
                     continue
                 }
                 if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    usleep(1_000)
+                    usleep(AppConstants.Shell.ptyWriteRetryDelayMicros)
                     continue
                 }
                 break
@@ -167,7 +180,7 @@ final class ShellSession: @unchecked Sendable {
         readQueue.async { [weak self] in
             self?.drainOutput(fd)
         }
-        for delay in [4, 8, 16, 32, 64, 120] {
+        for delay in AppConstants.Shell.inputDrainRetryDelaysMS {
             readQueue.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
                 guard let self, self.inputDrainGeneration == generation else { return }
                 self.drainOutput(fd)
@@ -178,10 +191,12 @@ final class ShellSession: @unchecked Sendable {
     private func drainOutput(_ fd: Int32) {
         var didRead = false
         while true {
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            let count = Darwin.read(fd, &buffer, buffer.count)
+            let count = readBuffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+                return Darwin.read(fd, baseAddress, rawBuffer.count)
+            }
             if count > 0 {
-                let chunk = Data(buffer[0..<count])
+                let chunk = Data(readBuffer[0..<count])
                 onRawOutput?(chunk)
                 pendingOutput.append(chunk)
                 didRead = true
@@ -213,23 +228,28 @@ final class ShellSession: @unchecked Sendable {
         }
 
         let count = pendingOutput.count
-        guard count > 4 else { return nil }
-        for validCount in stride(from: count - 1, through: max(0, count - 4), by: -1) {
+        guard count > AppConstants.Shell.maximumUTF8ScalarBytes else { return nil }
+        for validCount in stride(
+            from: count - 1,
+            through: max(0, count - AppConstants.Shell.maximumUTF8ScalarBytes),
+            by: -1
+        ) {
             let prefix = pendingOutput.prefix(validCount)
             if let text = String(data: prefix, encoding: .utf8) {
                 pendingOutput.removeFirst(validCount)
                 return text
             }
         }
-        let text = String(decoding: pendingOutput.prefix(count - 4), as: UTF8.self)
-        pendingOutput.removeFirst(count - 4)
+        let decodableCount = count - AppConstants.Shell.maximumUTF8ScalarBytes
+        let text = String(decoding: pendingOutput.prefix(decodableCount), as: UTF8.self)
+        pendingOutput.removeFirst(decodableCount)
         return text
     }
 
     private static func normalizedExitStatus(_ status: Int32) -> Int32 {
         let signal = status & 0x7f
         if signal != 0 {
-            return 128 + signal
+            return AppConstants.Shell.signalExitStatusBase + signal
         }
         return (status >> 8) & 0xff
     }

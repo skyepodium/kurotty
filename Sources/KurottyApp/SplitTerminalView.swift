@@ -6,6 +6,7 @@ final class SplitTerminalView: NSSplitView {
         let rect: NSRect
     }
 
+    private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var needsInitialRebalance = false
     private let paneDragCoordinator: TerminalPaneDragCoordinator
 
@@ -23,7 +24,7 @@ final class SplitTerminalView: NSSplitView {
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
         wantsLayer = true
-        layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
+        layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         if let pane {
             configurePane(pane)
             addArrangedSubview(pane)
@@ -43,8 +44,21 @@ final class SplitTerminalView: NSSplitView {
         }
     }
 
+    func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        chromeTheme = theme
+        layer?.backgroundColor = theme.windowBackground.cgColor
+        for subview in arrangedSubviews {
+            if let pane = subview as? TerminalPaneView {
+                pane.applyChromeTheme(theme)
+            } else if let splitView = subview as? SplitTerminalView {
+                splitView.applyChromeTheme(theme)
+            }
+        }
+        needsDisplay = true
+    }
+
     override func drawDivider(in rect: NSRect) {
-        DesignTokens.Color.windowBackground.setFill()
+        chromeTheme.windowBackground.setFill()
         rect.fill()
 
         let lineThickness = DesignTokens.Component.terminalSplitDividerLinePX
@@ -64,7 +78,7 @@ final class SplitTerminalView: NSSplitView {
                 height: lineThickness
             )
         }
-        DesignTokens.Color.divider.setFill()
+        chromeTheme.divider.setFill()
         lineRect.fill()
     }
 
@@ -305,6 +319,7 @@ final class SplitTerminalView: NSSplitView {
             }
             paneDragCoordinator.beginDraggingPane(pane, from: self.rootSplitView(), with: event)
         }
+        pane.applyChromeTheme(chromeTheme)
     }
 
     private func configureDetachedPaneForReuse(_ pane: TerminalPaneView) {

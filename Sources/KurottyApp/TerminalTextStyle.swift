@@ -62,6 +62,13 @@ struct TerminalTextStyle: Equatable {
         return rgb(red: gray, green: gray, blue: gray)
     }
 
+    func remappingColors(_ colorMap: TerminalStyleColorMap) -> TerminalTextStyle {
+        var next = self
+        next.foreground = colorMap.remapForeground(foreground)
+        next.background = colorMap.remapBackground(background)
+        return next
+    }
+
     private func brighten(_ color: SIMD4<Float>) -> SIMD4<Float> {
         SIMD4<Float>(min(color.x * 1.15, 1), min(color.y * 1.15, 1), min(color.z * 1.15, 1), color.w)
     }
@@ -94,5 +101,48 @@ struct TerminalTextStyle: Equatable {
 
     private func luminance(_ color: SIMD4<Float>) -> Float {
         color.x * 0.2126 + color.y * 0.7152 + color.z * 0.0722
+    }
+}
+
+struct TerminalStyleColorMap {
+    private let foregroundPairs: [(old: SIMD4<Float>, new: SIMD4<Float>)]
+    private let backgroundPairs: [(old: SIMD4<Float>, new: SIMD4<Float>)]
+
+    init(
+        previousDefaultStyle: TerminalTextStyle,
+        nextDefaultStyle: TerminalTextStyle,
+        previousAnsiColors: [SIMD4<Float>],
+        nextAnsiColors: [SIMD4<Float>]
+    ) {
+        foregroundPairs = Self.pairs(
+            previousColors: [previousDefaultStyle.foreground] + previousAnsiColors,
+            nextColors: [nextDefaultStyle.foreground] + nextAnsiColors
+        )
+        backgroundPairs = Self.pairs(
+            previousColors: [previousDefaultStyle.background] + previousAnsiColors,
+            nextColors: [nextDefaultStyle.background] + nextAnsiColors
+        )
+    }
+
+    func remapForeground(_ color: SIMD4<Float>) -> SIMD4<Float> {
+        remap(color, pairs: foregroundPairs)
+    }
+
+    func remapBackground(_ color: SIMD4<Float>) -> SIMD4<Float> {
+        remap(color, pairs: backgroundPairs)
+    }
+
+    private func remap(_ color: SIMD4<Float>, pairs: [(old: SIMD4<Float>, new: SIMD4<Float>)]) -> SIMD4<Float> {
+        for pair in pairs where color.sameColor(as: pair.old) {
+            return pair.new
+        }
+        return color
+    }
+
+    private static func pairs(
+        previousColors: [SIMD4<Float>],
+        nextColors: [SIMD4<Float>]
+    ) -> [(old: SIMD4<Float>, new: SIMD4<Float>)] {
+        zip(previousColors, nextColors).map { (old: $0.0, new: $0.1) }
     }
 }

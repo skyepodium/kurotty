@@ -14,6 +14,8 @@ APP_DISPLAY_NAME="Kurotty"
 APP_BUNDLE_ID="dev.kurotty.app"
 RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 BUILD_ARCHES=(arm64 x86_64)
+KEEP_WORKDIR="${KUROTTY_KEEP_RELEASE_WORKDIR:-0}"
+STRIP_TOOL="${STRIP_TOOL:-strip}"
 
 DIST_DIR="$ROOT_DIR/dist"
 WORK_DIR="$ROOT_DIR/.build/release-package"
@@ -22,6 +24,8 @@ DMG_ROOT="$WORK_DIR/dmg-root"
 DMG_RW="$WORK_DIR/$APP_NAME-rw.dmg"
 DMG_NAME="kurotty-$VERSION-macos-universal.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
+DMG_LATEST_NAME="kurotty-macos-universal.dmg"
+DMG_LATEST_PATH="$DIST_DIR/$DMG_LATEST_NAME"
 ICONSET_DIR="$WORK_DIR/kurotty.iconset"
 
 SIGN_IDENTITY="${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}"
@@ -29,6 +33,8 @@ NOTARY_PROFILE="${KUROTTY_NOTARY_PROFILE:-}"
 NOTARY_APPLE_ID="${KUROTTY_NOTARY_APPLE_ID:-}"
 NOTARY_TEAM_ID="${KUROTTY_NOTARY_TEAM_ID:-}"
 NOTARY_PASSWORD="${KUROTTY_NOTARY_PASSWORD:-}"
+
+source "$ROOT_DIR/scripts/iconset.sh"
 
 cd "$ROOT_DIR"
 
@@ -62,6 +68,7 @@ for arch in "${BUILD_ARCHES[@]}"; do
   swift_binary_paths+=("$swift_bin_path/kurotty")
 
   zig build -Dtarget="$zig_target" -Doptimize=ReleaseFast --prefix "$zig_prefix"
+  "$STRIP_TOOL" -x "$zig_prefix/lib/libkurotty_core.dylib"
   zig_dylib_paths+=("$zig_prefix/lib/libkurotty_core.dylib")
 
   if [[ "$arch" == "arm64" ]]; then
@@ -70,24 +77,14 @@ for arch in "${BUILD_ARCHES[@]}"; do
 done
 
 lipo -create "${swift_binary_paths[@]}" -output "$APP_BUNDLE/Contents/MacOS/kurotty"
+"$STRIP_TOOL" -x "$APP_BUNDLE/Contents/MacOS/kurotty"
 lipo -info "$APP_BUNDLE/Contents/MacOS/kurotty"
 
 lipo -create "${zig_dylib_paths[@]}" -output "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
+"$STRIP_TOOL" -x "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
 lipo -info "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
 
-cp "$ROOT_DIR/kurotty.png" "$APP_BUNDLE/Contents/Resources/kurotty.png"
-
-mkdir -p "$ICONSET_DIR"
-sips -z 16 16 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
-sips -z 32 32 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
-sips -z 32 32 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
-sips -z 64 64 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
-sips -z 128 128 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
-sips -z 256 256 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
-sips -z 256 256 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
-sips -z 512 512 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
-sips -z 512 512 "$ROOT_DIR/kurotty.png" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
-cp "$ROOT_DIR/kurotty.png" "$ICONSET_DIR/icon_512x512@2x.png"
+create_kurotty_iconset "$ROOT_DIR/kurotty.png" "$ICONSET_DIR"
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/kurotty.icns"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
@@ -138,7 +135,7 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 fi
 
-rm -rf "$DMG_ROOT" "$DMG_RW" "$DMG_PATH" "$DIST_DIR/SHA256SUMS"
+rm -rf "$DMG_ROOT" "$DMG_RW" "$DMG_PATH" "$DMG_LATEST_PATH" "$DIST_DIR/SHA256SUMS"
 mkdir -p "$DMG_ROOT"
 cp -R "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
 ln -s /Applications "$DMG_ROOT/Applications"
@@ -169,10 +166,17 @@ else
   echo "Skipping notarization: set KUROTTY_NOTARY_PROFILE or Apple ID notarization env vars."
 fi
 
+cp "$DMG_PATH" "$DMG_LATEST_PATH"
+
 (
   cd "$DIST_DIR"
-  shasum -a 256 "$DMG_NAME" > SHA256SUMS
+  shasum -a 256 "$DMG_NAME" "$DMG_LATEST_NAME" > SHA256SUMS
 )
 
+if [[ "$KEEP_WORKDIR" != "1" ]]; then
+  rm -rf "$WORK_DIR"/swift-* "$WORK_DIR"/zig-* "$ICONSET_DIR" "$DMG_ROOT" "$DMG_RW"
+fi
+
 echo "Packaged $DMG_PATH"
+echo "Packaged $DMG_LATEST_PATH"
 echo "Wrote $DIST_DIR/SHA256SUMS"

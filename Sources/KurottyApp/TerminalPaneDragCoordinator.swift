@@ -91,20 +91,31 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
     }
 
     private func makeDragImage(for pane: TerminalPaneView) -> NSImage {
-        let imageSize = NSSize(width: min(max(pane.bounds.width, 220), 420), height: DesignTokens.Component.terminalPaneChromeHeightPX)
+        let previewWidth = min(
+            max(pane.bounds.width, DesignTokens.Component.terminalPaneDragPreviewMinWidthPX),
+            DesignTokens.Component.terminalPaneDragPreviewMaxWidthPX
+        )
+        let imageSize = NSSize(width: previewWidth, height: DesignTokens.Component.terminalPaneChromeHeightPX)
         let image = NSImage(size: imageSize)
         image.lockFocus()
         let rect = NSRect(origin: .zero, size: imageSize)
         DesignTokens.Color.paneHeaderBackground.setFill()
         rect.fill()
         DesignTokens.Color.paneDropTargetBorder.setStroke()
-        NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6).stroke()
+        NSBezierPath(
+            roundedRect: rect.insetBy(dx: DesignTokens.Component.hairlinePX, dy: DesignTokens.Component.hairlinePX),
+            xRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX,
+            yRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX
+        ).stroke()
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .semibold),
             .foregroundColor: DesignTokens.Color.textPrimary,
         ]
         pane.displayTitle.draw(
-            in: rect.insetBy(dx: 12, dy: 8),
+            in: rect.insetBy(
+                dx: DesignTokens.Component.terminalPaneDragPreviewTextInsetXPX,
+                dy: DesignTokens.Component.terminalPaneDragPreviewTextInsetYPX
+            ),
             withAttributes: attributes
         )
         image.unlockFocus()

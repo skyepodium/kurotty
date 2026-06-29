@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${1:-/Applications/kurotty.app}"
 ICONSET_CHECK_DIR="$ROOT_DIR/.build/verify-kurotty-icon.iconset"
+RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 
 fail() {
   echo "icon verification failed: $*" >&2
@@ -31,14 +32,14 @@ resource_hash="$(shasum -a 256 "$ROOT_DIR/Sources/KurottyApp/Resources/kurotty.p
 [[ "$(png_dimensions "$ROOT_DIR/Sources/KurottyApp/Resources/kurotty.png")" == "1024x1024" ]] || fail "resource kurotty.png must be 1024x1024"
 
 require_file "$APP_PATH/Contents/Info.plist"
-require_file "$APP_PATH/Contents/Resources/kurotty.png"
+require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/kurotty.png"
 require_file "$APP_PATH/Contents/Resources/kurotty.icns"
 
 installed_icon_file="$(plutil -extract CFBundleIconFile raw -o - "$APP_PATH/Contents/Info.plist")"
 [[ "$installed_icon_file" == "kurotty.icns" ]] || fail "CFBundleIconFile must be kurotty.icns, got $installed_icon_file"
 
-installed_hash="$(shasum -a 256 "$APP_PATH/Contents/Resources/kurotty.png" | awk '{ print $1 }')"
-[[ "$installed_hash" == "$root_hash" ]] || fail "installed PNG differs from root kurotty.png"
+installed_resource_hash="$(shasum -a 256 "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/kurotty.png" | awk '{ print $1 }')"
+[[ "$installed_resource_hash" == "$root_hash" ]] || fail "installed SwiftPM resource PNG differs from root kurotty.png"
 
 rm -rf "$ICONSET_CHECK_DIR"
 iconutil -c iconset "$APP_PATH/Contents/Resources/kurotty.icns" -o "$ICONSET_CHECK_DIR"

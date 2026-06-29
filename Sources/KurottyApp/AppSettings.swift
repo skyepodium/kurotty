@@ -11,7 +11,7 @@ struct AppSettings: Codable, Equatable {
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
         terminal: TerminalSettings(
-            theme: TerminalThemePreset.darkName,
+            theme: TerminalThemePreset.kurottyName,
             fontName: Defaults.fontName,
             fontSize: Defaults.fontSize,
             scrollbackLines: Defaults.scrollbackLines,
@@ -28,12 +28,12 @@ struct AppSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let schemaVersion = 6
+        static let schemaVersion = 8
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
-        static let windowWidth = 1100.0
-        static let windowHeight = 720.0
+        static let windowWidth = AppConstants.Settings.defaultWindowWidthPX
+        static let windowHeight = AppConstants.Settings.defaultWindowHeightPX
         static let shellWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     }
 
@@ -108,7 +108,10 @@ struct WindowSettings: Codable, Equatable {
     var width: Double
     var height: Double
 
-    static let `default` = WindowSettings(width: 1100, height: 720)
+    static let `default` = WindowSettings(
+        width: AppConstants.Settings.defaultWindowWidthPX,
+        height: AppConstants.Settings.defaultWindowHeightPX
+    )
 }
 
 /// Launch-only default for new shell sessions; filesystem validation happens at shell launch.
@@ -159,26 +162,26 @@ struct TerminalColorSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let foreground = "#E6EDF3"
-        static let background = "#0B1020"
-        static let cursor = "#7DD3FC"
+        static let foreground = "#E5E7EB"
+        static let background = "#22252B"
+        static let cursor = "#D7C6F4"
         static let ansi = [
-            "#3B4252",
-            "#BF616A",
-            "#A3BE8C",
-            "#EBCB8B",
-            "#81A1C1",
-            "#B48EAD",
-            "#88C0D0",
-            "#E5E9F0",
-            "#4C566A",
-            "#BF616A",
-            "#A3BE8C",
-            "#EBCB8B",
-            "#81A1C1",
-            "#B48EAD",
-            "#8FBCBB",
-            "#ECEFF4",
+            "#2F333A",
+            "#FF5F67",
+            "#5FD38D",
+            "#E5C07B",
+            "#61AFEF",
+            "#C792EA",
+            "#56B6C2",
+            "#D7DAE0",
+            "#60646C",
+            "#FF7B86",
+            "#8EE8A3",
+            "#F0D28A",
+            "#7AB7FF",
+            "#D7A8FF",
+            "#7FDCE3",
+            "#F5F7FA",
         ]
     }
 
@@ -196,12 +199,15 @@ struct TerminalColorSettings: Codable, Equatable {
 }
 
 enum TerminalThemePreset {
+    static let kurottyName = "kurotty"
     static let darkName = "kuro-dark"
     static let lighttyName = "lightty"
     static let customName = "custom"
 
     static func colors(named name: String) -> TerminalColorSettings? {
         switch canonicalName(name) {
+        case kurottyName:
+            return .default
         case darkName:
             return .default
         case lighttyName:
@@ -261,9 +267,9 @@ final class AppSettingsStore {
     static let shared = AppSettingsStore()
     static let didChangeNotification = Notification.Name("dev.kurotty.settings.didChange")
 
-    private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let persistence: AppSettingsPersistence
 
     let settingsURL: URL
 
@@ -275,12 +281,12 @@ final class AppSettingsStore {
     }
 
     init(fileManager: FileManager = .default, settingsURL: URL? = nil) {
-        self.fileManager = fileManager
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         decoder = JSONDecoder()
 
         self.settingsURL = settingsURL ?? Self.defaultSettingsURL(fileManager: fileManager)
+        persistence = AppSettingsPersistence(fileManager: fileManager, settingsURL: self.settingsURL)
     }
 
     func loadRawJSON() throws -> String {
@@ -289,8 +295,8 @@ final class AppSettingsStore {
     }
 
     func load() throws -> AppSettings {
-        try ensureSettingsFileExists()
-        let data = try Data(contentsOf: settingsURL)
+        let defaultData = try encoder.encode(AppSettings.default)
+        let data = try persistence.loadOrCreateDefaultData(defaultData)
         return normalized(try decoder.decode(AppSettings.self, from: data))
     }
 
@@ -298,8 +304,7 @@ final class AppSettingsStore {
         let data = Data(rawJSON.utf8)
         let settings = normalized(try decoder.decode(AppSettings.self, from: data))
         let normalizedData = try encoder.encode(settings)
-        try ensureSettingsDirectoryExists()
-        try normalizedData.write(to: settingsURL, options: .atomic)
+        try persistence.save(normalizedData)
         NotificationCenter.default.post(
             name: Self.didChangeNotification,
             object: self,
@@ -309,28 +314,6 @@ final class AppSettingsStore {
 
     static let notificationSettingsKey = "settings"
 
-    private func ensureSettingsFileExists() throws {
-        guard !fileManager.fileExists(atPath: settingsURL.path) else {
-            return
-        }
-
-        try ensureSettingsDirectoryExists()
-        let data = try encoder.encode(AppSettings.default)
-        try data.write(to: settingsURL, options: .atomic)
-    }
-
-    private func ensureSettingsDirectoryExists() throws {
-        let directoryURL = settingsURL.deletingLastPathComponent()
-        guard !fileManager.fileExists(atPath: directoryURL.path) else {
-            return
-        }
-
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-    }
-
     private func normalized(_ settings: AppSettings) -> AppSettings {
         var next = settings
         let sourceSchemaVersion = next.schemaVersion ?? 0
@@ -339,18 +322,27 @@ final class AppSettingsStore {
         if sourceSchemaVersion < currentSchemaVersion {
             migrateLegacyDefaults(&next)
         }
-        normalizeTheme(&next)
+        normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.terminal.fontName.isEmpty {
             next.terminal.fontName = AppSettings.default.terminal.fontName
         }
-        next.terminal.fontSize = min(48, max(8, next.terminal.fontSize))
+        next.terminal.fontSize = min(
+            AppConstants.Settings.maximumTerminalFontSizePT,
+            max(AppConstants.Settings.minimumTerminalFontSizePT, next.terminal.fontSize)
+        )
         next.terminal.scrollbackLines = min(
             AppConstants.Terminal.maxScrollbackRows,
-            max(1_000, next.terminal.scrollbackLines)
+            max(AppConstants.Terminal.minimumScrollbackRows, next.terminal.scrollbackLines)
         )
-        next.window.width = min(4_000, max(320, next.window.width))
-        next.window.height = min(3_000, max(240, next.window.height))
+        next.window.width = min(
+            AppConstants.Settings.maximumWindowWidthPX,
+            max(AppConstants.Settings.minimumWindowWidthPX, next.window.width)
+        )
+        next.window.height = min(
+            AppConstants.Settings.maximumWindowHeightPX,
+            max(AppConstants.Settings.minimumWindowHeightPX, next.window.height)
+        )
         if next.terminal.colors.ansi.count < TerminalColorSettings.requiredAnsiColorCount {
             next.terminal.colors.ansi = TerminalColorSettings.default.ansi
         } else if next.terminal.colors.ansi.count > TerminalColorSettings.requiredAnsiColorCount {
@@ -359,12 +351,20 @@ final class AppSettingsStore {
         return next
     }
 
-    private func normalizeTheme(_ settings: inout AppSettings) {
+    private func normalizeTheme(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
         let theme = TerminalThemePreset.canonicalName(settings.terminal.theme)
         if let presetColors = TerminalThemePreset.colors(named: theme) {
-            settings.terminal.theme = settings.terminal.colors == presetColors
-                ? theme
-                : TerminalThemePreset.customName
+            let normalizedPresetName = theme == TerminalThemePreset.darkName
+                ? TerminalThemePreset.kurottyName
+                : theme
+            let currentSchemaVersion = AppSettings.default.schemaVersion ?? 1
+            let explicitPresetThemeCanResetColors = sourceSchemaVersion >= 7
+            guard explicitPresetThemeCanResetColors || sourceSchemaVersion >= currentSchemaVersion || settings.terminal.colors == presetColors else {
+                settings.terminal.theme = TerminalThemePreset.customName
+                return
+            }
+            settings.terminal.theme = normalizedPresetName
+            settings.terminal.colors = presetColors
             return
         }
 
@@ -384,22 +384,20 @@ final class AppSettingsStore {
             return TerminalThemePreset.lighttyName
         }
         if colors == .default {
-            return TerminalThemePreset.darkName
+            return TerminalThemePreset.kurottyName
         }
         return TerminalThemePreset.customName
     }
 
     private func migrateLegacyDefaults(_ settings: inout AppSettings) {
-        let legacyColors = LegacyDefaults.colors
-        guard settings.terminal.colors.foreground == legacyColors.foreground,
-              settings.terminal.colors.background == legacyColors.background,
-              settings.terminal.colors.cursor == legacyColors.cursor
-        else {
+        guard LegacyDefaults.shouldMigrate(colors: settings.terminal.colors) else {
             return
         }
+        settings.terminal.theme = TerminalThemePreset.kurottyName
         settings.terminal.colors.foreground = TerminalColorSettings.default.foreground
         settings.terminal.colors.background = TerminalColorSettings.default.background
         settings.terminal.colors.cursor = TerminalColorSettings.default.cursor
+        settings.terminal.colors.ansi = TerminalColorSettings.default.ansi
     }
 
     private enum LegacyDefaults {
@@ -409,6 +407,39 @@ final class AppSettingsStore {
             cursor: "#D9D9D9",
             ansi: TerminalColorSettings.default.ansi
         )
+        static let oldDefaultColors = TerminalColorSettings(
+            foreground: "#E6EDF3",
+            background: "#0B1020",
+            cursor: "#7DD3FC",
+            ansi: [
+                "#3B4252",
+                "#BF616A",
+                "#A3BE8C",
+                "#EBCB8B",
+                "#81A1C1",
+                "#B48EAD",
+                "#88C0D0",
+                "#E5E9F0",
+                "#4C566A",
+                "#BF616A",
+                "#A3BE8C",
+                "#EBCB8B",
+                "#81A1C1",
+                "#B48EAD",
+                "#8FBCBB",
+                "#ECEFF4",
+            ]
+        )
+        static let previousKurottyColors = TerminalColorSettings(
+            foreground: "#E5E7EB",
+            background: "#24272E",
+            cursor: "#D7C6F4",
+            ansi: TerminalColorSettings.default.ansi
+        )
+
+        static func shouldMigrate(colors: TerminalColorSettings) -> Bool {
+            colors == Self.colors || colors == Self.oldDefaultColors || colors == Self.previousKurottyColors
+        }
     }
 
     private static func defaultSettingsURL(fileManager: FileManager) -> URL {
@@ -426,5 +457,51 @@ final class AppSettingsStore {
         return supportURL
             .appendingPathComponent(Path.appDirectoryName)
             .appendingPathComponent(Path.settingsFileName)
+    }
+}
+
+struct AppSettingsPersistence {
+    private let fileManager: FileManager
+    private let settingsURL: URL
+    private let queue = DispatchQueue(label: Queue.label)
+
+    private enum Queue {
+        static let label = "dev.kurotty.settings.persistence"
+    }
+
+    init(fileManager: FileManager, settingsURL: URL) {
+        self.fileManager = fileManager
+        self.settingsURL = settingsURL
+    }
+
+    func loadOrCreateDefaultData(_ defaultData: Data) throws -> Data {
+        try queue.sync {
+            guard fileManager.fileExists(atPath: settingsURL.path) else {
+                try ensureSettingsDirectoryExists()
+                try defaultData.write(to: settingsURL, options: .atomic)
+                return defaultData
+            }
+
+            return try Data(contentsOf: settingsURL)
+        }
+    }
+
+    func save(_ data: Data) throws {
+        try queue.sync {
+            try ensureSettingsDirectoryExists()
+            try data.write(to: settingsURL, options: .atomic)
+        }
+    }
+
+    private func ensureSettingsDirectoryExists() throws {
+        let directoryURL = settingsURL.deletingLastPathComponent()
+        guard !fileManager.fileExists(atPath: directoryURL.path) else {
+            return
+        }
+
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
     }
 }

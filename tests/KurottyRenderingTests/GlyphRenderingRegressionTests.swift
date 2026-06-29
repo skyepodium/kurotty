@@ -587,7 +587,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
         XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
@@ -696,11 +696,25 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let fullModelRedraw = flag(\"--debug-full-model-redraw\", env: \"KUROTTY_DEBUG_FULL_MODEL_REDRAW\")"))
         XCTAssertTrue(debugSource.contains("static let noDamage = flag(\"--debug-no-damage\", env: \"KUROTTY_DEBUG_NO_DAMAGE\")"))
         XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
-        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = true"))
-        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = true {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
+        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
+        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect)\n            }\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
         XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
+    }
+
+    func testPerFrameMetalInstanceBuffersReuseStorageWhenByteLengthIsStable() throws {
+        let metalSource = try terminalMetalViewSource()
+        let atlasBufferSource = try functionBody(named: "rebuildAtlasBuffers", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T])"))
+        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&atlasInstanceBuffer, with: instances)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&decorationInstanceBuffer, with: decorations)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)"))
+        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&uniformsBuffer, with: &uniforms)"))
+        XCTAssertFalse(atlasBufferSource.contains("makeBuffer(bytes:"))
     }
 
     func testScrollRegionIsTrackedForTuiStatusAndInputRows() throws {
@@ -796,7 +810,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)"))
         XCTAssertTrue(thumbSource.contains("private func updateAppearance()"))
         XCTAssertTrue(thumbSource.contains("color = DesignTokens.Color.scrollerThumb"))
-        XCTAssertTrue(source.contains("let normalizedOffset = max(0, min(1, CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
+        XCTAssertTrue(source.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
         XCTAssertTrue(source.contains("scrollThumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
         XCTAssertTrue(source.contains("scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
@@ -824,6 +838,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("updateScrollIndicator()"))
     }
 
+    func testScrollbackTrimmingUsesBoundedRowStore() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private struct BoundedScrollbackRows"))
+        XCTAssertTrue(source.contains("mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int"))
+        XCTAssertTrue(source.contains("private mutating func compactStorageIfNeeded()"))
+        XCTAssertTrue(source.contains("scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)"))
+        XCTAssertFalse(source.contains("Array(scrollbackRows.dropFirst"))
+        XCTAssertFalse(source.contains("scrollbackRows.removeFirst"))
+    }
+
     func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
         let source = try terminalSurfaceViewSource()
 
@@ -848,7 +873,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
         let shellSource = try shellSessionSource()
+        let surfaceSource = try terminalSurfaceViewSource()
 
+        XCTAssertTrue(shellSource.contains("protocol TerminalSession: AnyObject"))
+        XCTAssertTrue(shellSource.contains("final class ShellSession: TerminalSession, @unchecked Sendable"))
+        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = ShellSession()"))
+        XCTAssertFalse(surfaceSource.contains("private let shell = ShellSession()"))
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
         XCTAssertTrue(shellSource.contains("func start(workingDirectory requestedWorkingDirectory: String)"))
         XCTAssertTrue(shellSource.contains("let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)"))
@@ -871,13 +901,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("unsetenv(\"NO_COLOR\")"))
     }
 
+    func testShellSessionReusesPTYReadBuffer() throws {
+        let shellSource = try shellSessionSource()
+
+        XCTAssertTrue(shellSource.contains("private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
+        XCTAssertTrue(shellSource.contains("readBuffer.withUnsafeMutableBytes"))
+        XCTAssertFalse(shellSource.contains("while true {\n            var buffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
+    }
+
     func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
         let menuSource = try mainMenuSource()
         XCTAssertFalse(menuSource.contains("settingsMenuItem.title = \"Settings\""))
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
 
         let settingsSource = try appSettingsSource()
-        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 6"))
+        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 8"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
         XCTAssertTrue(settingsSource.contains("struct ShellSettings: Codable, Equatable"))
@@ -898,11 +936,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("\"#A452BD\""))
         XCTAssertTrue(settingsSource.contains("\"#CF75D3\""))
         XCTAssertTrue(settingsSource.contains("\"#35B9BD\""))
-        XCTAssertTrue(settingsSource.contains("normalizeTheme(&next)"))
+        XCTAssertTrue(settingsSource.contains("normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)"))
 
         let surfaceSource = try terminalSurfaceViewSource()
         let textStyleSource = try terminalTextStyleSource()
         XCTAssertTrue(surfaceSource.contains("shell.start(workingDirectory: settings.shell.workingDirectory)"))
+        XCTAssertTrue(surfaceSource.contains("let previousDefaultStyle = terminalDefaultStyle"))
+        XCTAssertTrue(surfaceSource.contains("let previousAnsiColors = terminalAnsiColors"))
+        XCTAssertTrue(surfaceSource.contains("let colorMap = TerminalStyleColorMap("))
+        XCTAssertTrue(surfaceSource.contains("screen.remapColors(colorMap)"))
+        XCTAssertTrue(surfaceSource.contains("scrollbackRows.remapColors(colorMap)"))
+        XCTAssertTrue(surfaceSource.contains("screen.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)"))
+        XCTAssertTrue(surfaceSource.contains("scrollbackRows.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)"))
+        XCTAssertTrue(textStyleSource.contains("struct TerminalStyleColorMap"))
+        XCTAssertTrue(textStyleSource.contains("func remapForeground(_ color: SIMD4<Float>)"))
+        XCTAssertTrue(textStyleSource.contains("func remapBackground(_ color: SIMD4<Float>)"))
         XCTAssertTrue(textStyleSource.contains("dimmed(weighted, against: background)"))
         XCTAssertTrue(textStyleSource.contains("luminance(background) > 0.5"))
         XCTAssertTrue(textStyleSource.contains("dimBlendAmount(for: color)"))
@@ -936,6 +984,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let windowSource = try terminalWindowControllerSource()
         XCTAssertTrue(windowSource.contains("AppSettingsStore.shared.load()"))
         XCTAssertTrue(windowSource.contains("contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height)"))
+        XCTAssertTrue(windowSource.contains("private var chromeTheme: DesignTokens.ChromeTheme"))
+        XCTAssertTrue(windowSource.contains("DesignTokens.ChromeTheme.theme(for: settings)"))
+        XCTAssertTrue(windowSource.contains("window?.appearance = chromeTheme.windowAppearance"))
+        XCTAssertTrue(windowSource.contains("private func applyChromeThemeToTabSplits(_ theme: DesignTokens.ChromeTheme)"))
+        XCTAssertTrue(windowSource.contains("splitView.applyChromeTheme(theme)"))
         XCTAssertTrue(windowSource.contains("AppSettingsStore.didChangeNotification"))
         XCTAssertTrue(windowSource.contains("@objc private func settingsDidChange(_ notification: Notification)"))
         XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
@@ -991,10 +1044,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let designSource = try designTokensSource()
 
         XCTAssertTrue(windowSource.contains("final class TerminalWindowController: NSWindowController, NSTabViewDelegate"))
+        XCTAssertTrue(windowSource.contains("window?.appearance = chromeTheme.windowAppearance"))
+        XCTAssertTrue(windowSource.contains("window.titlebarAppearsTransparent = true"))
         XCTAssertTrue(windowSource.contains("private let tabBarView = NSView()"))
         XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
-        XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = DesignTokens.Color.topChromeBackground.cgColor"))
-        XCTAssertTrue(windowSource.contains("tabBarView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor"))
+        XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor"))
+        XCTAssertTrue(windowSource.contains("tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor"))
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = tabView.numberOfTabViewItems > 1"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = tabView.numberOfTabViewItems <= 1"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
@@ -1006,9 +1061,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.accentBlue.cgColor"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.activeTabBackground"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.inactiveTabHoverBackground"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.activeIndicator.cgColor"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.activeTabBackground"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.inactiveTabHoverBackground"))
         XCTAssertTrue(windowSource.contains("onSelect: { [weak self] in self?.selectTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("onClose: { [weak self] in self?.closeTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("private func selectTab(at index: Int)"))
@@ -1034,6 +1089,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("terminalTabBorderWidthPX"))
         XCTAssertTrue(designSource.contains("terminalTabSelectedBarHeightPX"))
         XCTAssertTrue(designSource.contains("topChromeBackground"))
+        XCTAssertTrue(designSource.contains("31.0 / 255.0"))
+        XCTAssertTrue(designSource.contains("34.0 / 255.0"))
+        XCTAssertTrue(designSource.contains("43.0 / 255.0"))
         XCTAssertTrue(designSource.contains("activeTabBackground"))
         XCTAssertTrue(designSource.contains("inactiveTabBackground"))
         XCTAssertTrue(designSource.contains("accentBlue"))
@@ -1071,10 +1129,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(dispatcherSource.contains("case down"))
         XCTAssertTrue(dispatcherSource.contains("flags.subtracting([.command, .option, .numericPad, .function]).isEmpty"))
         XCTAssertTrue(dispatcherSource.contains("paneFocusDirection(forKeyCode: event.keyCode)"))
-        XCTAssertTrue(dispatcherSource.contains("case 123:"))
-        XCTAssertTrue(dispatcherSource.contains("case 124:"))
-        XCTAssertTrue(dispatcherSource.contains("case 125:"))
-        XCTAssertTrue(dispatcherSource.contains("case 126:"))
+        XCTAssertTrue(dispatcherSource.contains("static let leftArrow: UInt16 = 123"))
+        XCTAssertTrue(dispatcherSource.contains("static let rightArrow: UInt16 = 124"))
+        XCTAssertTrue(dispatcherSource.contains("static let downArrow: UInt16 = 125"))
+        XCTAssertTrue(dispatcherSource.contains("static let upArrow: UInt16 = 126"))
+        XCTAssertTrue(dispatcherSource.contains("case KeyCode.leftArrow:"))
+        XCTAssertTrue(dispatcherSource.contains("case KeyCode.rightArrow:"))
+        XCTAssertTrue(dispatcherSource.contains("case KeyCode.downArrow:"))
+        XCTAssertTrue(dispatcherSource.contains("case KeyCode.upArrow:"))
         XCTAssertTrue(dispatcherSource.contains("controller.focusPane(direction)"))
         XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
@@ -1212,8 +1274,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("func focusFirstPane()"))
         XCTAssertTrue(splitSource.contains("override var dividerThickness: CGFloat"))
         XCTAssertTrue(splitSource.contains("DesignTokens.Component.terminalSplitDividerHitAreaPX"))
+        XCTAssertTrue(splitSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(splitSource.contains("override func drawDivider(in rect: NSRect)"))
-        XCTAssertTrue(splitSource.contains("DesignTokens.Color.divider.setFill()"))
+        XCTAssertTrue(splitSource.contains("chromeTheme.divider.setFill()"))
         XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
         XCTAssertTrue(splitSource.contains("let dividerLength = dividerThickness * CGFloat(count - 1)"))
         XCTAssertTrue(splitSource.contains("let paneLength = (totalLength - dividerLength) / CGFloat(count)"))
@@ -1232,6 +1295,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private let statusDotView = NSView()"))
         XCTAssertTrue(paneSource.contains("private let titleField = NSTextField(labelWithString: \"~ (-zsh)\")"))
         XCTAssertTrue(paneSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(paneSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("private final class PaneChromeView: NSView"))
@@ -1241,9 +1305,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private func updateChromeAppearance()"))
         XCTAssertTrue(paneSource.contains("activeIndicatorView.isHidden = !isChromeActive"))
         XCTAssertTrue(paneSource.contains("statusDotView.layer?.backgroundColor = (isChromeActive"))
-        XCTAssertTrue(paneSource.contains("DesignTokens.Color.paneHeaderBackground"))
-        XCTAssertTrue(paneSource.contains("DesignTokens.Color.paneHeaderHoverBackground"))
-        XCTAssertTrue(paneSource.contains("chromeView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor"))
+        XCTAssertTrue(paneSource.contains("chromeTheme.paneHeaderBackground"))
+        XCTAssertTrue(paneSource.contains("chromeTheme.paneHeaderHoverBackground"))
+        XCTAssertTrue(paneSource.contains("chromeTheme.borderHairline"))
         XCTAssertTrue(paneSource.contains("override func mouseDown(with event: NSEvent)"))
         XCTAssertTrue(paneSource.contains("private func observeTerminalTitle()"))
         XCTAssertTrue(paneSource.contains("private func observeTerminalFocus()"))
@@ -1508,12 +1572,18 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testInstalledAppUsesMultiResolutionIcnsForSystemIconSurfaces() throws {
         let installSource = try installAppScriptSource()
+        let iconsetSource = try scriptSource(named: "iconset")
         let appDelegateSource = try appDelegateSource()
         let constantsSource = try appConstantsSource()
 
         XCTAssertTrue(installSource.contains("ICONSET_DIR=\"$APP_BUNDLE/Contents/Resources/kurotty.iconset\""))
-        XCTAssertTrue(installSource.contains("icon_16x16.png"))
-        XCTAssertTrue(installSource.contains("icon_512x512@2x.png"))
+        XCTAssertTrue(installSource.contains("source \"$ROOT_DIR/scripts/iconset.sh\""))
+        XCTAssertTrue(installSource.contains("create_kurotty_iconset \"$ROOT_DIR/kurotty.png\" \"$ICONSET_DIR\""))
+        XCTAssertFalse(installSource.contains("cp \"$ROOT_DIR/kurotty.png\" \"$APP_BUNDLE/Contents/Resources/kurotty.png\""))
+        XCTAssertTrue(installSource.contains("zig build -Doptimize=ReleaseFast"))
+        XCTAssertTrue(installSource.contains("cp \"$ROOT_DIR/zig-out/lib/libkurotty_core.dylib\" \"$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib\""))
+        XCTAssertTrue(iconsetSource.contains("icon_16x16.png"))
+        XCTAssertTrue(iconsetSource.contains("icon_512x512@2x.png"))
         XCTAssertTrue(installSource.contains("iconutil -c icns \"$ICONSET_DIR\" -o \"$APP_BUNDLE/Contents/Resources/kurotty.icns\""))
         XCTAssertTrue(installSource.contains("<string>kurotty.icns</string>"))
         XCTAssertTrue(installSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
@@ -1522,6 +1592,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(installSource.contains("\"$ROOT_DIR/scripts/verify-icon-bundle.sh\" \"$INSTALLED_APP\""))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("icon verification passed"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("CFBundleIconFile must be kurotty.icns"))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("RESOURCE_BUNDLE=\"Kurotty_KurottyApp.bundle\""))
+        XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("$RESOURCE_BUNDLE/kurotty.png"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("icon_512x512@2x.png"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("installed .icns must not be resized"))
         XCTAssertTrue(appDelegateSource.contains("Bundle.main.url("))
@@ -1546,12 +1618,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(installSource.contains("VERSION=\"$(tr -d '[:space:]' < \"$VERSION_FILE\")\""))
         XCTAssertTrue(installSource.contains("<string>$VERSION</string>"))
         XCTAssertTrue(packageSource.contains("BUILD_ARCHES=(arm64 x86_64)"))
+        XCTAssertTrue(packageSource.contains("STRIP_TOOL=\"${STRIP_TOOL:-strip}\""))
         XCTAssertTrue(packageSource.contains("VERSION_FILE=\"$ROOT_DIR/VERSION\""))
         XCTAssertTrue(packageSource.contains(#"VERSION="${1:-$(tr -d '[:space:]' < "$VERSION_FILE")}""#))
+        XCTAssertTrue(packageSource.contains("source \"$ROOT_DIR/scripts/iconset.sh\""))
         XCTAssertTrue(packageSource.contains("swift build -c release --triple \"$triple\" --scratch-path \"$scratch_path\""))
+        XCTAssertTrue(packageSource.contains("\"$STRIP_TOOL\" -x \"$zig_prefix/lib/libkurotty_core.dylib\""))
         XCTAssertTrue(packageSource.contains("lipo -create"))
+        XCTAssertTrue(packageSource.contains("\"$STRIP_TOOL\" -x \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
+        XCTAssertTrue(packageSource.contains("\"$STRIP_TOOL\" -x \"$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib\""))
         XCTAssertTrue(packageSource.contains("lipo -info \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
+        XCTAssertTrue(packageSource.contains("create_kurotty_iconset \"$ROOT_DIR/kurotty.png\" \"$ICONSET_DIR\""))
+        XCTAssertFalse(packageSource.contains("cp \"$ROOT_DIR/kurotty.png\" \"$APP_BUNDLE/Contents/Resources/kurotty.png\""))
         XCTAssertTrue(packageSource.contains("DMG_NAME=\"kurotty-$VERSION-macos-universal.dmg\""))
+        XCTAssertTrue(packageSource.contains("DMG_LATEST_NAME=\"kurotty-macos-universal.dmg\""))
+        XCTAssertTrue(packageSource.contains("cp \"$DMG_PATH\" \"$DMG_LATEST_PATH\""))
         XCTAssertTrue(packageSource.contains("hdiutil create"))
         XCTAssertTrue(packageSource.contains("hdiutil attach"))
         XCTAssertTrue(packageSource.contains("ln -s /Applications \"$DMG_ROOT/Applications\""))
@@ -1561,10 +1642,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
         XCTAssertTrue(packageSource.contains("xcrun notarytool submit"))
         XCTAssertTrue(packageSource.contains("xcrun stapler staple"))
-        XCTAssertTrue(packageSource.contains("shasum -a 256"))
+        XCTAssertTrue(packageSource.contains("shasum -a 256 \"$DMG_NAME\" \"$DMG_LATEST_NAME\""))
         XCTAssertTrue(packageSource.contains("SHA256SUMS"))
+        XCTAssertTrue(packageSource.contains("KUROTTY_KEEP_RELEASE_WORKDIR"))
+        XCTAssertTrue(packageSource.contains("rm -rf \"$WORK_DIR\"/swift-* \"$WORK_DIR\"/zig-* \"$ICONSET_DIR\" \"$DMG_ROOT\" \"$DMG_RW\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
+        XCTAssertTrue(readmeSource.contains("[Download](#download)"))
+        XCTAssertTrue(readmeSource.contains("## Download"))
+        XCTAssertTrue(readmeSource.contains("https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg"))
+        XCTAssertTrue(readmeSource.contains("https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS"))
+        XCTAssertTrue(readmeSource.contains("kurotty-macos-universal.dmg"))
         XCTAssertTrue(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
         XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
         XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh"))
@@ -1580,10 +1668,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(releaseWorkflowSource.contains("git branch --contains HEAD -r | grep -E '(^|[ /])main$'"))
         XCTAssertTrue(releaseWorkflowSource.contains("./scripts/package-release.sh \"${VERSION#v}\""))
         XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-*-macos-universal.dmg"))
+        XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-macos-universal.dmg"))
         XCTAssertTrue(releaseWorkflowSource.contains("softprops/action-gh-release"))
 
         XCTAssertTrue(agentsSource.contains("`VERSION` is the single source of truth"))
         XCTAssertTrue(agentsSource.contains("Do not hardcode future release numbers"))
+        XCTAssertTrue(agentsSource.contains("stable direct-download alias `kurotty-macos-universal.dmg`"))
         XCTAssertTrue(agentsSource.contains("The installed app About panel must display the bundle `Info.plist` version"))
     }
 
@@ -1803,6 +1893,35 @@ private func terminalMetalViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
     return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func functionBody(named name: String, in source: String) throws -> String {
+    guard let signatureRange = source.range(of: "func \(name)") else {
+        XCTFail("missing function \(name)")
+        return ""
+    }
+    guard let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+        XCTFail("missing opening brace for function \(name)")
+        return ""
+    }
+
+    var depth = 0
+    var index = openingBrace
+    while index < source.endIndex {
+        let character = source[index]
+        if character == "{" {
+            depth += 1
+        } else if character == "}" {
+            depth -= 1
+            if depth == 0 {
+                return String(source[openingBrace...index])
+            }
+        }
+        index = source.index(after: index)
+    }
+
+    XCTFail("missing closing brace for function \(name)")
+    return ""
 }
 
 private func designTokensSource() throws -> String {

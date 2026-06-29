@@ -1,6 +1,10 @@
 import Foundation
 
 enum AppConstants {
+    enum Application {
+        static let initialNotificationDelaySeconds: TimeInterval = 1
+    }
+
     enum Bundle {
         static let displayName = "kurotty"
         static let iconResourceName = "kurotty"
@@ -31,6 +35,7 @@ enum AppConstants {
         static let defaultRows = 40
         static let tabWidthColumns = 8
         static let maxScrollbackRows = 1_000_000
+        static let minimumScrollbackRows = 1_000
         static let cursorWidthPX: Float = 2
         static let cursorBlinkIntervalSeconds: TimeInterval = 0.55
         static let minimumCellWidthPX: CGFloat = 8
@@ -39,12 +44,31 @@ enum AppConstants {
     enum Settings {
         static let fileName = "settings.json"
         static let directoryName = "Kurotty"
+        static let minimumTerminalFontSizePT = 8.0
+        static let maximumTerminalFontSizePT = 48.0
+        static let defaultWindowWidthPX = 1100.0
+        static let defaultWindowHeightPX = 720.0
+        static let minimumWindowWidthPX = 320.0
+        static let maximumWindowWidthPX = 4_000.0
+        static let minimumWindowHeightPX = 240.0
+        static let maximumWindowHeightPX = 3_000.0
     }
 
     enum Shell {
         static let term = "xterm-256color"
         static let colorTerm = "truecolor"
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
+        static let childExecFailureStatusCode: Int32 = 127
+        static let signalExitStatusBase: Int32 = 128
+        static let ptyWriteRetryDelayMicros: useconds_t = 1_000
+        static let inputDrainRetryDelaysMS = [4, 8, 16, 32, 64, 120]
+        static let ptyReadBufferSizeBytes = 8192
+        static let maximumUTF8ScalarBytes = 4
+    }
+
+    enum Rendering {
+        static let visibleCellReserveDivisor = 2
+        static let forceFullModelRedrawUntilDamageIsVerified = false
     }
 
     enum Tmux {
