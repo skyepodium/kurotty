@@ -18,7 +18,7 @@ jobs:
 
       - name: Require tag to point at main history
         run: |
-          git fetch origin main --tags
+          git fetch origin main
           git branch --contains HEAD -r | grep -E '(^|[ /])main$'
 
       - name: Install Zig
