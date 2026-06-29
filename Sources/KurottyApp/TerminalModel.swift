@@ -349,6 +349,12 @@ struct TerminalScreen {
         remapStyle(in: &resizeHiddenRowsBelow, from: previousStyle, to: nextStyle)
     }
 
+    mutating func remapColors(_ colorMap: TerminalStyleColorMap) {
+        remapColors(in: &cells, colorMap: colorMap)
+        remapColors(in: &resizeHiddenRowsAbove, colorMap: colorMap)
+        remapColors(in: &resizeHiddenRowsBelow, colorMap: colorMap)
+    }
+
     private func remapStyle(
         in rows: inout [[TerminalScreenCell]],
         from previousStyle: TerminalTextStyle,
@@ -357,6 +363,14 @@ struct TerminalScreen {
         for rowIndex in rows.indices {
             for columnIndex in rows[rowIndex].indices where rows[rowIndex][columnIndex].style == previousStyle {
                 rows[rowIndex][columnIndex].style = nextStyle
+            }
+        }
+    }
+
+    private func remapColors(in rows: inout [[TerminalScreenCell]], colorMap: TerminalStyleColorMap) {
+        for rowIndex in rows.indices {
+            for columnIndex in rows[rowIndex].indices {
+                rows[rowIndex][columnIndex].style = rows[rowIndex][columnIndex].style.remappingColors(colorMap)
             }
         }
     }

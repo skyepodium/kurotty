@@ -1139,15 +1139,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             size: CGFloat(settings.terminal.fontSize)
         ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
         let previousDefaultStyle = terminalDefaultStyle
+        let previousAnsiColors = terminalAnsiColors
+        let nextAnsiColors = Self.ansiColors(from: settings)
         font = nextFont
         terminalDefaultStyle = TerminalTextStyle(
             foreground: settings.terminal.colors.foregroundColor,
             background: settings.terminal.colors.backgroundColor
         )
-        terminalAnsiColors = Self.ansiColors(from: settings)
+        terminalAnsiColors = nextAnsiColors
+        let colorMap = TerminalStyleColorMap(
+            previousDefaultStyle: previousDefaultStyle,
+            nextDefaultStyle: terminalDefaultStyle,
+            previousAnsiColors: previousAnsiColors,
+            nextAnsiColors: nextAnsiColors
+        )
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
         exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
+        screen.remapColors(colorMap)
+        scrollbackRows.remapColors(colorMap)
         screen.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)
         scrollbackRows.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)
         if trimScrollbackRowsToLimit() {
@@ -2012,6 +2022,14 @@ private struct BoundedScrollbackRows {
         for rowIndex in startIndex..<storage.count {
             for columnIndex in storage[rowIndex].indices where storage[rowIndex][columnIndex].style == previousStyle {
                 storage[rowIndex][columnIndex].style = nextStyle
+            }
+        }
+    }
+
+    mutating func remapColors(_ colorMap: TerminalStyleColorMap) {
+        for rowIndex in startIndex..<storage.count {
+            for columnIndex in storage[rowIndex].indices {
+                storage[rowIndex][columnIndex].style = storage[rowIndex][columnIndex].style.remappingColors(colorMap)
             }
         }
     }

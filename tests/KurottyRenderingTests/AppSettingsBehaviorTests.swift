@@ -243,6 +243,49 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(screen.cells[0][2].style, nextDefaultStyle)
     }
 
+    func testThemeReloadRemapsPreviousPaletteColorsByForegroundAndBackgroundRole() throws {
+        let previousDefaultStyle = TerminalTextStyle(
+            foreground: TerminalColorSettings.lightty.foregroundColor,
+            background: TerminalColorSettings.lightty.backgroundColor
+        )
+        let nextDefaultStyle = TerminalTextStyle(
+            foreground: TerminalColorSettings.default.foregroundColor,
+            background: TerminalColorSettings.default.backgroundColor
+        )
+        let previousAnsiColors = TerminalColorSettings.lightty.ansi.map {
+            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+        }
+        let nextAnsiColors = TerminalColorSettings.default.ansi.map {
+            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+        }
+        let colorMap = TerminalStyleColorMap(
+            previousDefaultStyle: previousDefaultStyle,
+            nextDefaultStyle: nextDefaultStyle,
+            previousAnsiColors: previousAnsiColors,
+            nextAnsiColors: nextAnsiColors
+        )
+        var screen = TerminalScreen(rows: 1, columns: 3)
+        let lighttyWhite = TerminalColorSettings.lightty.backgroundColor
+        let promptStyle = TerminalTextStyle(
+            foreground: lighttyWhite,
+            background: previousAnsiColors[5]
+        )
+        let customStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.12, 0.34, 0.56, 1),
+            background: SIMD4<Float>(0.65, 0.43, 0.21, 1)
+        )
+        screen.set(character: "a", row: 0, column: 0, width: 1, style: previousDefaultStyle)
+        screen.set(character: "b", row: 0, column: 1, width: 1, style: promptStyle)
+        screen.set(character: "c", row: 0, column: 2, width: 1, style: customStyle)
+
+        screen.remapColors(colorMap)
+
+        XCTAssertEqual(screen.cells[0][0].style.background, nextDefaultStyle.background)
+        XCTAssertEqual(screen.cells[0][1].style.foreground, nextAnsiColors[15])
+        XCTAssertEqual(screen.cells[0][1].style.background, nextAnsiColors[5])
+        XCTAssertEqual(screen.cells[0][2].style, customStyle)
+    }
+
     @MainActor
     func testSaveLoadPersistsValidShellWorkingDirectory() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
