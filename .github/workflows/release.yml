@@ -31,8 +31,12 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           if [ -z "$MACOS_CERTIFICATE_P12" ]; then
-            echo "Skipping certificate import; release will use ad-hoc signing."
-            exit 0
+            echo "MACOS_CERTIFICATE_P12 is required for release signing." >&2
+            exit 1
+          fi
+          if [ -z "$MACOS_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "MACOS_CERTIFICATE_PASSWORD and KEYCHAIN_PASSWORD are required for release signing." >&2
+            exit 1
           fi
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -52,15 +56,15 @@ jobs:
           KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
           KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY }}
         run: |
-          if [[ -z "${MACOS_CERTIFICATE_P12}" || -z "${MACOS_SIGN_IDENTITY}" ]]; then
-            export KUROTTY_RELEASE_SIGN_IDENTITY="-"
-            export KUROTTY_NOTARY_PROFILE=""
-            export KUROTTY_NOTARY_APPLE_ID=""
-            export KUROTTY_NOTARY_TEAM_ID=""
-            export KUROTTY_NOTARY_PASSWORD=""
-          else
-            export KUROTTY_RELEASE_SIGN_IDENTITY="${MACOS_SIGN_IDENTITY}"
+          if [[ -z "${MACOS_SIGN_IDENTITY}" ]]; then
+            echo "MACOS_SIGN_IDENTITY is required for release signing." >&2
+            exit 1
           fi
+          if [[ -z "${KUROTTY_NOTARY_PROFILE}" && ( -z "${KUROTTY_NOTARY_APPLE_ID}" || -z "${KUROTTY_NOTARY_TEAM_ID}" || -z "${KUROTTY_NOTARY_PASSWORD}" ) ]]; then
+            echo "Notarization credentials are required for release builds." >&2
+            exit 1
+          fi
+          export KUROTTY_RELEASE_SIGN_IDENTITY="${MACOS_SIGN_IDENTITY}"
           VERSION="${GITHUB_REF_NAME}"
           ./scripts/package-release.sh "${VERSION#v}"
 
