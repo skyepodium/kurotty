@@ -9,7 +9,19 @@ private func systemForkpty(
     _ winp: UnsafePointer<winsize>?
 ) -> pid_t
 
-final class ShellSession: @unchecked Sendable {
+protocol TerminalSession: AnyObject {
+    var onOutput: ((String) -> Void)? { get set }
+    var onRawOutput: ((Data) -> Void)? { get set }
+    var onExit: ((Int32) -> Void)? { get set }
+
+    func start(workingDirectory requestedWorkingDirectory: String)
+    func write(_ text: String)
+    func canReceiveTerminalResponseWithoutEcho() -> Bool
+    func resize(columns: Int, rows: Int)
+    func stop()
+}
+
+final class ShellSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onExit: ((Int32) -> Void)?
@@ -23,6 +35,7 @@ final class ShellSession: @unchecked Sendable {
     private var isStarted = false
     private var isStopping = false
     private var pendingOutput = Data()
+    private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
 
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
@@ -178,10 +191,12 @@ final class ShellSession: @unchecked Sendable {
     private func drainOutput(_ fd: Int32) {
         var didRead = false
         while true {
-            var buffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
-            let count = Darwin.read(fd, &buffer, buffer.count)
+            let count = readBuffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+                return Darwin.read(fd, baseAddress, rawBuffer.count)
+            }
             if count > 0 {
-                let chunk = Data(buffer[0..<count])
+                let chunk = Data(readBuffer[0..<count])
                 onRawOutput?(chunk)
                 pendingOutput.append(chunk)
                 didRead = true

@@ -873,7 +873,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
         let shellSource = try shellSessionSource()
+        let surfaceSource = try terminalSurfaceViewSource()
 
+        XCTAssertTrue(shellSource.contains("protocol TerminalSession: AnyObject"))
+        XCTAssertTrue(shellSource.contains("final class ShellSession: TerminalSession, @unchecked Sendable"))
+        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = ShellSession()"))
+        XCTAssertFalse(surfaceSource.contains("private let shell = ShellSession()"))
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
         XCTAssertTrue(shellSource.contains("func start(workingDirectory requestedWorkingDirectory: String)"))
         XCTAssertTrue(shellSource.contains("let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)"))
@@ -894,6 +899,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD"))
         XCTAssertTrue(shellSource.contains("ZSH_DISABLE_COMPFIX"))
         XCTAssertTrue(shellSource.contains("unsetenv(\"NO_COLOR\")"))
+    }
+
+    func testShellSessionReusesPTYReadBuffer() throws {
+        let shellSource = try shellSessionSource()
+
+        XCTAssertTrue(shellSource.contains("private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
+        XCTAssertTrue(shellSource.contains("readBuffer.withUnsafeMutableBytes"))
+        XCTAssertFalse(shellSource.contains("while true {\n            var buffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
     }
 
     func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
@@ -1016,12 +1029,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let designSource = try designTokensSource()
 
         XCTAssertTrue(windowSource.contains("final class TerminalWindowController: NSWindowController, NSTabViewDelegate"))
-        XCTAssertTrue(windowSource.contains("window.appearance = NSAppearance(named: .darkAqua)"))
+        XCTAssertTrue(windowSource.contains("window?.appearance = chromeTheme.windowAppearance"))
         XCTAssertTrue(windowSource.contains("window.titlebarAppearsTransparent = true"))
         XCTAssertTrue(windowSource.contains("private let tabBarView = NSView()"))
         XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
-        XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = DesignTokens.Color.topChromeBackground.cgColor"))
-        XCTAssertTrue(windowSource.contains("tabBarView.layer?.borderColor = DesignTokens.Color.borderHairline.cgColor"))
+        XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor"))
+        XCTAssertTrue(windowSource.contains("tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor"))
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = tabView.numberOfTabViewItems > 1"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = tabView.numberOfTabViewItems <= 1"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
@@ -1033,9 +1046,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.accentBlue.cgColor"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.activeTabBackground"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.Color.inactiveTabHoverBackground"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.activeIndicator.cgColor"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.activeTabBackground"))
+        XCTAssertTrue(windowSource.contains("chromeTheme.inactiveTabHoverBackground"))
         XCTAssertTrue(windowSource.contains("onSelect: { [weak self] in self?.selectTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("onClose: { [weak self] in self?.closeTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("private func selectTab(at index: Int)"))

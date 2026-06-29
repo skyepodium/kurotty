@@ -342,6 +342,25 @@ struct TerminalScreen {
         resizeHiddenRowsBelow.removeAll(keepingCapacity: true)
     }
 
+    mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
+        guard previousStyle != nextStyle else { return }
+        remapStyle(in: &cells, from: previousStyle, to: nextStyle)
+        remapStyle(in: &resizeHiddenRowsAbove, from: previousStyle, to: nextStyle)
+        remapStyle(in: &resizeHiddenRowsBelow, from: previousStyle, to: nextStyle)
+    }
+
+    private func remapStyle(
+        in rows: inout [[TerminalScreenCell]],
+        from previousStyle: TerminalTextStyle,
+        to nextStyle: TerminalTextStyle
+    ) {
+        for rowIndex in rows.indices {
+            for columnIndex in rows[rowIndex].indices where rows[rowIndex][columnIndex].style == previousStyle {
+                rows[rowIndex][columnIndex].style = nextStyle
+            }
+        }
+    }
+
     private func normalizedRegion(top: Int, bottom: Int) -> ClosedRange<Int>? {
         guard rows > 0 else { return nil }
         let lower = max(0, min(top, rows - 1))

@@ -10,7 +10,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cols: UInt32(AppConstants.Terminal.defaultColumns),
         rows: UInt32(AppConstants.Terminal.defaultRows)
     )
-    private let shell = ShellSession()
+    private let shell: any TerminalSession = ShellSession()
     private let notifier = TerminalNotifier.shared
     private let metalView: TerminalMetalView
     private let verticalScroller = NSScroller(frame: .zero)
@@ -1138,6 +1138,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
         ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        let previousDefaultStyle = terminalDefaultStyle
         font = nextFont
         terminalDefaultStyle = TerminalTextStyle(
             foreground: settings.terminal.colors.foregroundColor,
@@ -1147,6 +1148,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
         exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
+        screen.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)
+        scrollbackRows.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)
         if trimScrollbackRowsToLimit() {
             markFullDamage()
         }
@@ -2002,5 +2005,14 @@ private struct BoundedScrollbackRows {
         guard startIndex >= storage.count / 2 || startIndex == storage.count else { return }
         storage.removeSubrange(0..<startIndex)
         startIndex = 0
+    }
+
+    mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
+        guard previousStyle != nextStyle else { return }
+        for rowIndex in startIndex..<storage.count {
+            for columnIndex in storage[rowIndex].indices where storage[rowIndex][columnIndex].style == previousStyle {
+                storage[rowIndex][columnIndex].style = nextStyle
+            }
+        }
     }
 }

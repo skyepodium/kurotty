@@ -218,6 +218,31 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(screen.cells[0][9].style, statusStyle)
     }
 
+    func testThemeReloadRemapsOnlyCellsUsingPreviousDefaultStyle() throws {
+        let previousDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.9, 0.9, 0.9, 1),
+            background: SIMD4<Float>(0.1, 0.1, 0.1, 1)
+        )
+        let nextDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.1, 0.1, 0.1, 1),
+            background: SIMD4<Float>(1, 1, 1, 1)
+        )
+        let explicitStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.2, 0.7, 0.8, 1),
+            background: SIMD4<Float>(0.4, 0.2, 0.9, 1)
+        )
+        var screen = TerminalScreen(rows: 1, columns: 3)
+        screen.set(character: "a", row: 0, column: 0, width: 1, style: previousDefaultStyle)
+        screen.set(character: "b", row: 0, column: 1, width: 1, style: explicitStyle)
+        screen.set(character: "c", row: 0, column: 2, width: 1, style: previousDefaultStyle)
+
+        screen.remapStyle(from: previousDefaultStyle, to: nextDefaultStyle)
+
+        XCTAssertEqual(screen.cells[0][0].style, nextDefaultStyle)
+        XCTAssertEqual(screen.cells[0][1].style, explicitStyle)
+        XCTAssertEqual(screen.cells[0][2].style, nextDefaultStyle)
+    }
+
     @MainActor
     func testSaveLoadPersistsValidShellWorkingDirectory() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
