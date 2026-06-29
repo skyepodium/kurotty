@@ -2,13 +2,24 @@ import AppKit
 
 @MainActor
 final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
-    private let rootView = NSView()
+    private let dropTargetView = TerminalPaneDropTargetView()
+    private var rootView: NSView {
+        dropTargetView
+    }
     private let tabBarView = NSView()
     private let tabStackView = NSStackView()
     private let tabView = NSTabView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
 
-    init() {
+    convenience init() {
+        self.init(initialPane: nil)
+    }
+
+    convenience init(detachedPane pane: TerminalPaneView) {
+        self.init(initialPane: pane)
+    }
+
+    private init(initialPane: TerminalPaneView?) {
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
@@ -20,7 +31,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         window.backgroundColor = DesignTokens.Color.windowBackground
         window.center()
         super.init(window: window)
-        configureTabs()
+        configureTabs(initialPane: initialPane)
         observeSettings()
         observeTerminalTitles()
     }
@@ -34,10 +45,30 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func newTab() {
+        addTab(with: nil)
+    }
+
+    func attachDraggedPaneAsTab(_ pane: TerminalPaneView) {
+        addTab(with: pane)
+    }
+
+    func detachPaneForDrag(_ pane: TerminalPaneView) -> TerminalPaneView? {
+        guard let splitView = splitView(containing: pane) else {
+            return nil
+        }
+        return splitView.detachPaneForDrag(pane)
+    }
+
+    private func addTab(with pane: TerminalPaneView?) {
         let identifier = UUID().uuidString
-        let splitView = SplitTerminalView(axis: .vertical)
+        let splitView = SplitTerminalView(axis: .vertical, pane: nil)
+        if let pane {
+            splitView.appendDetachedPaneAsTabRoot(pane)
+        } else {
+            splitView.appendDetachedPaneAsTabRoot(TerminalPaneView())
+        }
         let item = NSTabViewItem(identifier: identifier)
-        item.label = defaultTabLabel()
+        item.label = pane?.displayTitle ?? defaultTabLabel()
         item.view = splitView
         tabView.addTabViewItem(item)
         tabView.selectTabViewItem(item)
@@ -95,11 +126,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.focusFirstPane()
     }
 
-    private func configureTabs() {
+    private func configureTabs(initialPane: TerminalPaneView?) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
         rootView.wantsLayer = true
         rootView.layer?.backgroundColor = DesignTokens.Color.windowBackground.cgColor
         window?.contentView = rootView
+        dropTargetView.onPaneDrop = { [weak self] in
+            guard let self else {
+                return false
+            }
+            return TerminalPaneDragCoordinator.shared.moveDraggedPaneToTab(in: self)
+        }
+        dropTargetView.onPaneCanDrop = { [weak self] in
+            guard let self else {
+                return false
+            }
+            return TerminalPaneDragCoordinator.shared.canMoveDraggedPane(to: self)
+        }
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
         tabBarView.wantsLayer = true
@@ -139,7 +182,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabView.topAnchor.constraint(equalTo: tabBarView.bottomAnchor),
             tabView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
         ])
-        newTab()
+        addTab(with: initialPane)
     }
 
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
@@ -271,6 +314,79 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             }
         }
         return nil
+    }
+
+    private func splitView(containing pane: TerminalPaneView) -> SplitTerminalView? {
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView,
+                  splitView.containsPane(pane)
+            else {
+                continue
+            }
+            return splitView
+        }
+        return nil
+    }
+}
+
+@MainActor
+final class TerminalPaneDropTargetView: NSView {
+    var onPaneDrop: (() -> Bool)?
+    var onPaneCanDrop: (() -> Bool)?
+
+    private var isDropHighlighted = false {
+        didSet {
+            updateDropAppearance()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([TerminalPaneDragCoordinator.pasteboardType])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadItem(withDataConformingToTypes: [TerminalPaneDragCoordinator.pasteboardType.rawValue]) else {
+            return []
+        }
+        guard onPaneCanDrop?() == true else {
+            return []
+        }
+        isDropHighlighted = true
+        return .move
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard onPaneCanDrop?() == true else {
+            isDropHighlighted = false
+            return []
+        }
+        return .move
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDropHighlighted = false
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        isDropHighlighted = false
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isDropHighlighted = false
+        return onPaneDrop?() == true
+    }
+
+    private func updateDropAppearance() {
+        layer?.borderWidth = isDropHighlighted ? 2 : 0
+        layer?.borderColor = isDropHighlighted ? DesignTokens.Color.paneDropTargetBorder.cgColor : nil
+        layer?.backgroundColor = isDropHighlighted
+            ? DesignTokens.Color.paneDropTargetBackground.cgColor
+            : DesignTokens.Color.windowBackground.cgColor
     }
 }
 

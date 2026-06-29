@@ -12,9 +12,14 @@ final class TerminalPaneView: NSView {
     private var isChromeHovered = false
     var closeRequested: ((TerminalPaneView) -> Void)?
     var focusChanged: ((TerminalPaneView) -> Void)?
+    var detachDragRequested: ((TerminalPaneView, NSEvent) -> Void)?
 
     var terminalSurface: TerminalSurfaceView {
         terminalSurfaceView
+    }
+
+    var displayTitle: String {
+        titleField.stringValue
     }
 
     var ownsFirstResponder: Bool {
@@ -54,6 +59,12 @@ final class TerminalPaneView: NSView {
         }
         chromeView.onSelect = { [weak self] in
             self?.focusTerminal()
+        }
+        chromeView.onDragRequested = { [weak self] event in
+            guard let self else {
+                return
+            }
+            self.beginDraggingPane(self, with: event)
         }
         addSubview(chromeView)
 
@@ -126,6 +137,10 @@ final class TerminalPaneView: NSView {
 
     func focusTerminal() {
         window?.makeFirstResponder(terminalSurfaceView)
+    }
+
+    func beginDraggingPane(_ pane: TerminalPaneView, with event: NSEvent) {
+        detachDragRequested?(pane, event)
     }
 
     func setChromeVisible(_ isVisible: Bool) {
@@ -202,8 +217,14 @@ final class TerminalPaneView: NSView {
 }
 
 private final class PaneChromeView: NSView {
+    private enum Drag {
+        static let thresholdPX: CGFloat = 4
+    }
+
     var onHoverChanged: ((Bool) -> Void)?
     var onSelect: (() -> Void)?
+    var onDragRequested: ((NSEvent) -> Void)?
+    private var mouseDownLocationInWindow = NSPoint.zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -233,6 +254,16 @@ private final class PaneChromeView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        mouseDownLocationInWindow = event.locationInWindow
         onSelect?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let dragDeltaX = abs(event.locationInWindow.x - mouseDownLocationInWindow.x)
+        let dragDeltaY = abs(event.locationInWindow.y - mouseDownLocationInWindow.y)
+        guard max(dragDeltaX, dragDeltaY) >= Drag.thresholdPX else {
+            return
+        }
+        onDragRequested?(event)
     }
 }

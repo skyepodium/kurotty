@@ -133,11 +133,43 @@ final class SplitTerminalView: NSSplitView {
         return false
     }
 
+    func containsPane(_ pane: TerminalPaneView) -> Bool {
+        for subview in arrangedSubviews {
+            if subview === pane {
+                return true
+            }
+            if let splitView = subview as? SplitTerminalView,
+               splitView.containsPane(pane) {
+                return true
+            }
+        }
+        return false
+    }
+
     func closeActivePane() -> Bool {
         guard let pane = activePane() else {
             return false
         }
         return closePaneFromChrome(pane)
+    }
+
+    func detachPaneForDrag(_ pane: TerminalPaneView) -> TerminalPaneView? {
+        guard paneCount > 1 else {
+            return nil
+        }
+        guard remove(pane) else {
+            return nil
+        }
+        configureDetachedPaneForReuse(pane)
+        refreshPaneChrome()
+        focusFirstPane()
+        return pane
+    }
+
+    func appendDetachedPaneAsTabRoot(_ pane: TerminalPaneView) {
+        configurePane(pane)
+        addArrangedSubview(pane)
+        refreshPaneChrome()
     }
 
     private func splitActivePane(axis: NSLayoutConstraint.Orientation) -> Bool {
@@ -254,6 +286,20 @@ final class SplitTerminalView: NSSplitView {
         pane.focusChanged = { [weak self] _ in
             self?.refreshPaneChrome()
         }
+        pane.detachDragRequested = { [weak self] pane, event in
+            guard let self else {
+                return
+            }
+            TerminalPaneDragCoordinator.shared.beginDraggingPane(pane, from: self.rootSplitView(), with: event)
+        }
+    }
+
+    private func configureDetachedPaneForReuse(_ pane: TerminalPaneView) {
+        pane.closeRequested = nil
+        pane.focusChanged = nil
+        pane.detachDragRequested = nil
+        pane.setChromeActive(false)
+        pane.setChromeVisible(false)
     }
 
     private func rootSplitView() -> SplitTerminalView {

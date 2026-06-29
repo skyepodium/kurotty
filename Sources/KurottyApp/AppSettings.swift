@@ -344,8 +344,9 @@ final class AppSettingsStore {
     private func normalizeTheme(_ settings: inout AppSettings) {
         let theme = TerminalThemePreset.canonicalName(settings.terminal.theme)
         if let presetColors = TerminalThemePreset.colors(named: theme) {
-            settings.terminal.theme = theme
-            settings.terminal.colors = presetColors
+            settings.terminal.theme = settings.terminal.colors == presetColors
+                ? theme
+                : TerminalThemePreset.customName
             return
         }
 

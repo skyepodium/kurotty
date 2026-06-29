@@ -788,6 +788,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("updateScrollIndicator()"))
     }
 
+    func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private func visibleRowStartIndex(limit: Int) -> Int"))
+        XCTAssertTrue(source.contains("let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)"))
+        XCTAssertTrue(source.contains("let position = TerminalCellPosition(row: visibleStartRow + row, column: column)"))
+        XCTAssertTrue(source.contains("visibleRowStartIndex(limit: metrics.size.rows) + visibleRow"))
+        XCTAssertFalse(source.contains("let position = TerminalCellPosition(row: row, column: column)"))
+    }
+
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
         let source = try terminalSurfaceViewSource()
 
@@ -1144,6 +1154,41 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("private func collapseChildSplitIfNeeded(_ splitView: SplitTerminalView, at index: Int)"))
         XCTAssertTrue(splitSource.contains("guard splitView.arrangedSubviews.count == 1 else"))
         XCTAssertTrue(splitSource.contains("insertArrangedSubview(remainingSubview, at: min(index, arrangedSubviews.count))"))
+    }
+
+    func testPaneChromeDragDetachesAndReattachesPanesAcrossWindows() throws {
+        let paneSource = try terminalPaneViewSource()
+        let splitSource = try splitTerminalViewSource()
+        let windowSource = try terminalWindowControllerSource()
+        let dragSource = try terminalPaneDragCoordinatorSource()
+        let designSource = try designTokensSource()
+
+        XCTAssertTrue(paneSource.contains("var detachDragRequested: ((TerminalPaneView, NSEvent) -> Void)?"))
+        XCTAssertTrue(paneSource.contains("chromeView.onDragRequested = { [weak self] event in"))
+        XCTAssertTrue(paneSource.contains("func beginDraggingPane(_ pane: TerminalPaneView, with event: NSEvent)"))
+        XCTAssertTrue(paneSource.contains("override func mouseDragged(with event: NSEvent)"))
+        XCTAssertTrue(paneSource.contains("abs(event.locationInWindow.x - mouseDownLocationInWindow.x)"))
+
+        XCTAssertTrue(splitSource.contains("func detachPaneForDrag(_ pane: TerminalPaneView) -> TerminalPaneView?"))
+        XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
+        XCTAssertTrue(splitSource.contains("configureDetachedPaneForReuse(pane)"))
+        XCTAssertTrue(splitSource.contains("func appendDetachedPaneAsTabRoot(_ pane: TerminalPaneView)"))
+
+        XCTAssertTrue(windowSource.contains("private let dropTargetView = TerminalPaneDropTargetView()"))
+        XCTAssertTrue(windowSource.contains("dropTargetView.onPaneDrop = { [weak self] in"))
+        XCTAssertTrue(windowSource.contains("func attachDraggedPaneAsTab(_ pane: TerminalPaneView)"))
+        XCTAssertTrue(windowSource.contains("convenience init(detachedPane pane: TerminalPaneView)"))
+        XCTAssertTrue(windowSource.contains("DesignTokens.Color.paneDropTargetBorder.cgColor"))
+
+        XCTAssertTrue(dragSource.contains("final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource"))
+        XCTAssertTrue(dragSource.contains("static let pasteboardType = NSPasteboard.PasteboardType(\"dev.kurotty.terminal-pane\")"))
+        XCTAssertTrue(dragSource.contains("func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation)"))
+        XCTAssertTrue(dragSource.contains("detachDraggedPaneToNewWindow(at: screenPoint)"))
+        XCTAssertTrue(dragSource.contains("moveDraggedPaneToTab(in controller: TerminalWindowController)"))
+        XCTAssertTrue(dragSource.contains("TerminalWindowController(detachedPane: detachedPane)"))
+
+        XCTAssertTrue(designSource.contains("paneDropTargetBorder"))
+        XCTAssertTrue(designSource.contains("paneDropTargetBackground"))
     }
 
     func testTerminalLinksActivateOnlyOnCommandHoverAndOpenWithConfirmation() throws {
@@ -1588,6 +1633,12 @@ private func preferencesWindowControllerSource() throws -> String {
 private func terminalWindowControllerSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalWindowController.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalPaneDragCoordinatorSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalPaneDragCoordinator.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

@@ -557,12 +557,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         var decorations: [TerminalDecoration] = []
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / 2)
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
+        let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)
         let selectedCells = selectedCellSet()
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
-                let position = TerminalCellPosition(row: row, column: column)
+                let position = TerminalCellPosition(row: visibleStartRow + row, column: column)
                 let isSelected = selectedCells.contains(position)
                 if isSelected {
                     backgrounds.append(TerminalBackground(column: column, row: row, color: TerminalSelectionStyle.backgroundColor))
@@ -994,7 +995,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func selectedText() -> String? {
         guard let range = normalizedSelectionRange() else { return nil }
-        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
+        let rows = allRowsForSelection()
         guard !rows.isEmpty else { return nil }
 
         var selectedLines: [String] = []
@@ -1158,7 +1159,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rawColumn = Int(floor((location.x - padding.left) / metrics.cellSize.width))
         let rawRow = Int(floor((bounds.height - location.y - padding.top) / metrics.cellSize.height))
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
-        let row = max(0, min(metrics.size.rows - 1, rawRow))
+        let visibleRow = max(0, min(metrics.size.rows - 1, rawRow))
+        let maxContentRow = max(0, allRowsForSelection().count - 1)
+        let row = min(maxContentRow, visibleRowStartIndex(limit: metrics.size.rows) + visibleRow)
         return TerminalCellPosition(row: row, column: column)
     }
 
@@ -1186,11 +1189,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange? {
+        let visibleStart = visibleRowStartIndex(limit: terminalMetrics().size.rows)
+        let visibleRow = position.row - visibleStart
         let rowsToRender = visibleRowsForRendering(limit: terminalMetrics().size.rows)
-        guard rowsToRender.indices.contains(position.row) else { return nil }
+        guard rowsToRender.indices.contains(visibleRow) else { return nil }
         return TerminalLinkRange.find(
-            in: rowsToRender[position.row],
-            row: position.row,
+            in: rowsToRender[visibleRow],
+            row: visibleRow,
             column: position.column
         )
     }
@@ -1224,17 +1229,28 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func visibleRowsForRendering(limit: Int) -> [[TerminalScreenCell]] {
-        let allRows = scrollbackRows + screen.cells
+        let allRows = allRowsForSelection()
         guard !allRows.isEmpty else { return [] }
         let visibleCount = max(1, limit)
-        let bottomStart = max(0, allRows.count - visibleCount)
-        let start = max(0, bottomStart - scrollbackOffset)
+        let start = visibleRowStartIndex(limit: limit)
         let end = min(allRows.count, start + visibleCount)
         var rows = Array(allRows[start..<end])
         if rows.count < visibleCount {
             rows.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: screen.columns), count: visibleCount - rows.count))
         }
         return rows
+    }
+
+    private func visibleRowStartIndex(limit: Int) -> Int {
+        let allRows = allRowsForSelection()
+        guard !allRows.isEmpty else { return 0 }
+        let visibleCount = max(1, limit)
+        let bottomStart = max(0, allRows.count - visibleCount)
+        return max(0, bottomStart - scrollbackOffset)
+    }
+
+    private func allRowsForSelection() -> [[TerminalScreenCell]] {
+        scrollbackRows + screen.cells
     }
 
     private func liveRowsForTaskDetection() -> [[TerminalScreenCell]] {
