@@ -60,11 +60,11 @@ for icon_name in "${required_icons[@]}"; do
   require_file "$ICONSET_CHECK_DIR/$icon_name"
 done
 
-if ! rg -q "if !loadedIcon.isInstalledIcon" "$ROOT_DIR/Sources/KurottyApp/AppDelegate.swift"; then
+if ! grep -Fq "if !loadedIcon.isInstalledIcon" "$ROOT_DIR/Sources/KurottyApp/AppDelegate.swift"; then
   fail "installed .icns must not be resized through the SwiftPM PNG fallback path"
 fi
 
-if ! rg -q "withExtension: AppConstants.Bundle.installedIconExtension" "$ROOT_DIR/Sources/KurottyApp/AppDelegate.swift"; then
+if ! grep -Fq "withExtension: AppConstants.Bundle.installedIconExtension" "$ROOT_DIR/Sources/KurottyApp/AppDelegate.swift"; then
   fail "runtime icon loading must prefer installed .icns"
 fi
 
