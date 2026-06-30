@@ -116,6 +116,31 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummaryUsesLatestAnswerFromOutputText() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
+            \u{1b}[2m•\u{1b}[0m 안녕하세요. 무엇을 도와드릴까요?
+
+            ────────────────────────────────────────
+
+            › 아녕
+
+            • 안녕! 편하게 말씀해 주세요.
+            """),
+            "• 안녕! 편하게 말씀해 주세요."
+        )
+    }
+
+    func testNotificationSummarySkipsUsageStatusFromOutputText() {
+        XCTAssertNil(
+            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
+            Weekly limit:
+            [██████████████████████████████]
+            100% left (resets 05:23 on 8 Jul) |
+            """)
+        )
+    }
+
     func testNotificationSummaryDoesNotReturnOnlySeparatorVariants() {
         XCTAssertNil(
             TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [

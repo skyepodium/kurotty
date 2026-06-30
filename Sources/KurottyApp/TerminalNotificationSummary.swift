@@ -12,6 +12,12 @@ enum TerminalNotificationSummary {
         return nil
     }
 
+    static func latestMeaningfulLine(fromOutputText text: String) -> String? {
+        let normalizedText = stripTerminalControls(from: text)
+            .replacingOccurrences(of: "\r", with: "\n")
+        return latestMeaningfulLine(fromVisibleLines: normalizedText.components(separatedBy: .newlines))
+    }
+
     private static func isMeaningfulLine(_ line: String) -> Bool {
         guard !line.isEmpty else {
             return false
@@ -22,6 +28,9 @@ enum TerminalNotificationSummary {
         guard !isMetadataStatusLine(line) else {
             return false
         }
+        guard !isUsageStatusLine(line) else {
+            return false
+        }
         guard !isPromptInputLine(line) else {
             return false
         }
@@ -29,6 +38,63 @@ enum TerminalNotificationSummary {
             return false
         }
         return true
+    }
+
+    private static func stripTerminalControls(from text: String) -> String {
+        var result = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            if character == "\u{1b}" {
+                index = Self.index(afterSkippingEscapeSequenceIn: text, from: index)
+                continue
+            }
+            if character.unicodeScalars.allSatisfy({ $0.value < 32 && $0 != "\n" && $0 != "\r" && $0 != "\t" }) {
+                index = text.index(after: index)
+                continue
+            }
+            result.append(character)
+            index = text.index(after: index)
+        }
+        return result
+    }
+
+    private static func index(afterSkippingEscapeSequenceIn text: String, from escapeIndex: String.Index) -> String.Index {
+        var index = text.index(after: escapeIndex)
+        guard index < text.endIndex else {
+            return index
+        }
+
+        if text[index] == "]" {
+            index = text.index(after: index)
+            while index < text.endIndex {
+                if text[index] == "\u{7}" {
+                    return text.index(after: index)
+                }
+                if text[index] == "\u{1b}" {
+                    let nextIndex = text.index(after: index)
+                    if nextIndex < text.endIndex, text[nextIndex] == "\\" {
+                        return text.index(after: nextIndex)
+                    }
+                }
+                index = text.index(after: index)
+            }
+            return index
+        }
+
+        if text[index] == "[" {
+            index = text.index(after: index)
+            while index < text.endIndex {
+                let scalar = text[index].unicodeScalars.first?.value ?? 0
+                if (0x40...0x7E).contains(scalar) {
+                    return text.index(after: index)
+                }
+                index = text.index(after: index)
+            }
+            return index
+        }
+
+        return text.index(after: index)
     }
 
     private static func isDecorativeLine(_ line: String) -> Bool {
@@ -103,6 +169,19 @@ enum TerminalNotificationSummary {
                 || segment == "high"
                 || segment == "low"
         }
+    }
+
+    private static func isUsageStatusLine(_ line: String) -> Bool {
+        if line == "Weekly limit:" || line == "5h limit:" || line == "Context window:" {
+            return true
+        }
+        if line.range(of: #"^[0-9]+% left \(resets .+\) \|?$"#, options: .regularExpression) != nil {
+            return true
+        }
+        if line.range(of: #"^\[[\s\u{2580}-\u{259F}\u{2800}-\u{28FF}|]+\]\|?$"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
     }
 
     private static func isPromptInputLine(_ line: String) -> Bool {

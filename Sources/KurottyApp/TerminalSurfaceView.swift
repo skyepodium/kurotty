@@ -59,8 +59,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var submittedInputSequence = 0
     private var backgroundTaskInputSequence: Int?
     private var backgroundTaskHasOutput = false
-    private var backgroundTaskLatestOutputSummary: String?
-    private var exposeBackgroundTaskOutputSummary = true
+    private var backgroundTaskOutputText = ""
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
@@ -86,7 +85,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         terminalAnsiColors = Self.ansiColors(from: settings)
         currentStyle = terminalDefaultStyle
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
-        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         renderer = TerminalRendererFactory.makeDefaultRenderer(
             font: configuredFont,
             backgroundColor: terminalDefaultStyle.background,
@@ -805,37 +803,28 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         submittedInputSequence &+= 1
         backgroundTaskInputSequence = submittedInputSequence
         backgroundTaskHasOutput = false
-        backgroundTaskLatestOutputSummary = nil
+        backgroundTaskOutputText = ""
         backgroundTaskNotificationWorkItem?.cancel()
         backgroundTaskNotificationWorkItem = nil
     }
 
-    private func recordOutputForBackgroundTask() {
+    private func recordOutputForBackgroundTask(_ text: String) {
         guard backgroundTaskInputSequence != nil else {
             return
         }
         backgroundTaskHasOutput = true
-        backgroundTaskLatestOutputSummary = latestVisibleNotificationSummary()
+        appendBackgroundTaskOutputText(text)
         scheduleBackgroundTaskIdleCheck()
     }
 
-    private func latestVisibleNotificationSummary() -> String? {
-        let lines = screen.cells.map { row in
-            TerminalSelectionText.line(from: row.map {
-                TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation)
-            })
+    private func appendBackgroundTaskOutputText(_ text: String) {
+        backgroundTaskOutputText.append(text)
+        let maxCharacters = AppConstants.Notifications.backgroundTaskOutputCaptureMaxCharacters
+        guard backgroundTaskOutputText.count > maxCharacters else {
+            return
         }
-        guard let line = TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: lines) else {
-            return nil
-        }
-        if line.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
-            return line
-        }
-        let endIndex = line.index(
-            line.startIndex,
-            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
-        )
-        return String(line[..<endIndex])
+        let startIndex = backgroundTaskOutputText.index(backgroundTaskOutputText.endIndex, offsetBy: -maxCharacters)
+        backgroundTaskOutputText = String(backgroundTaskOutputText[startIndex...])
     }
 
     private func scheduleBackgroundTaskIdleCheck() {
@@ -862,17 +851,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskInputSequence = nil
         backgroundTaskHasOutput = false
         backgroundTaskNotificationWorkItem = nil
-        let summary = backgroundTaskLatestOutputSummary
-        backgroundTaskLatestOutputSummary = nil
-        let body = backgroundTaskNotificationBody(summary: summary)
+        let outputText = backgroundTaskOutputText
+        backgroundTaskOutputText = ""
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        let body = backgroundTaskNotificationBody(outputText: outputText)
         notifier.notifyBackgroundTaskCompleted(body: body)
     }
 
-    private func backgroundTaskNotificationBody(summary: String?) -> String {
-        guard exposeBackgroundTaskOutputSummary, let summary else {
+    private var isTerminalFocusedForUser: Bool {
+        NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
+    }
+
+    private var shouldDeliverUserNotification: Bool {
+        !isTerminalFocusedForUser
+    }
+
+    private func backgroundTaskNotificationBody(outputText: String) -> String {
+        guard let summary = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: outputText) else {
             return AppConstants.Notifications.backgroundTaskFinishedBody
         }
-        return summary
+        if summary.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
+            return summary
+        }
+        let endIndex = summary.index(
+            summary.startIndex,
+            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
+        )
+        return String(summary[..<endIndex])
     }
 
     private func enqueueOutput(_ text: String) {
@@ -942,7 +949,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        recordOutputForBackgroundTask()
+        recordOutputForBackgroundTask(text)
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
@@ -1273,7 +1280,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             nextAnsiColors: nextAnsiColors
         )
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
-        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
         screen.remapColors(colorMap)
         scrollbackRows.remapColors(colorMap)
@@ -1621,6 +1627,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func notifyItermOsc9(_ payload: String) {
+        guard shouldDeliverUserNotification else {
+            return
+        }
         notifier.notifyItermOsc9(message: payload)
     }
 
