@@ -80,7 +80,7 @@ enum TerminalTextInputRouter {
 
         switch event.keyCode {
         case 36, 76:
-            return "\r"
+            return flags.contains(.shift) ? "\n" : "\r"
         default:
             return nil
         }

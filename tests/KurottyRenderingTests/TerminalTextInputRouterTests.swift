@@ -19,7 +19,34 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertTrue(setMarkedTextSource.contains("needsDisplay = true"))
     }
 
-    func testShiftReturnUsesTerminalEnterAction() throws {
+    func testPromptInputViewNewlineCommandSendsCarriageReturn() throws {
+        let source = try terminalInputViewSource()
+        let doCommandStart = try XCTUnwrap(source.range(of: "override func doCommand"))
+        let setMarkedTextStart = try XCTUnwrap(source.range(of: "func setMarkedText"))
+        let doCommandSource = source[doCommandStart.lowerBound..<setMarkedTextStart.lowerBound]
+
+        XCTAssertTrue(doCommandSource.contains("case #selector(insertNewline(_:)):\n            core.feed(\"\\r\")"))
+        XCTAssertFalse(doCommandSource.contains("case #selector(insertNewline(_:)):\n            core.feed(\"\\n\")"))
+    }
+
+    func testReturnUsesTerminalEnterAction() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\r")
+    }
+
+    func testShiftReturnUsesLineFeedInsteadOfTerminalEnterAction() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -33,7 +60,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
             keyCode: 36
         ))
 
-        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\r")
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\n")
     }
 
     @MainActor

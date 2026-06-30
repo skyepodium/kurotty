@@ -42,6 +42,22 @@ enum TerminalNotificationSummary {
             return false
         }
 
+        let hasModelSegment = segments.contains { segment in
+            segment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil
+        }
+        let hasCodexStatusSegment = segments.contains { segment in
+            segment == "Ready"
+                || segment == "Workspace"
+                || segment == "No changes"
+                || segment == "Clean"
+                || segment == "Full Access"
+                || segment == "never"
+                || segment.hasPrefix("Context ")
+        }
+        if hasModelSegment && hasCodexStatusSegment {
+            return true
+        }
+
         let statusKeywordCount = segments.filter { segment in
             segment == "Ready"
                 || segment == "Workspace"

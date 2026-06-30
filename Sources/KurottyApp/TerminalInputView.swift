@@ -113,7 +113,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     override func doCommand(by selector: Selector) {
         switch selector {
         case #selector(insertNewline(_:)):
-            core.feed("\n")
+            core.feed("\r")
         case #selector(insertTab(_:)):
             core.feed("\t")
         case #selector(cancelOperation(_:)):
