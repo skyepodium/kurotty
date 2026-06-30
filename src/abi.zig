@@ -119,6 +119,16 @@ export fn kurotty_terminal_cursor_col(terminal: ?*Terminal) u32 {
     return @intCast(ptr.grid.cursorCol());
 }
 
+export fn kurotty_terminal_width(terminal: ?*Terminal) u32 {
+    const ptr = terminal orelse return 0;
+    return @intCast(ptr.grid.widthCells());
+}
+
+export fn kurotty_terminal_height(terminal: ?*Terminal) u32 {
+    const ptr = terminal orelse return 0;
+    return @intCast(ptr.grid.heightRows());
+}
+
 export fn kurotty_terminal_mark_damage(terminal: ?*Terminal, row: u32, col: u32, rows: u32, cols: u32) void {
     const ptr = terminal orelse return;
     ptr.last_error = .none;

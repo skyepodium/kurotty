@@ -323,6 +323,19 @@ test "grid restores alternate screen deterministically after resize" {
     try std.testing.expectEqualStrings("     ", grid.rowText(2));
 }
 
+test "grid reports current dimensions after init and resize" {
+    var grid = try core.Grid.init(std.testing.allocator, 4, 2);
+    defer grid.deinit();
+
+    try std.testing.expectEqual(@as(usize, 4), grid.widthCells());
+    try std.testing.expectEqual(@as(usize, 2), grid.heightRows());
+
+    try grid.resize(0, 5);
+
+    try std.testing.expectEqual(@as(usize, 1), grid.widthCells());
+    try std.testing.expectEqual(@as(usize, 5), grid.heightRows());
+}
+
 test "scrollback keeps line addresses with bounded lookup" {
     const line_count = 10_000;
     var scrollback = try core.Scrollback.init(std.testing.allocator, line_count);

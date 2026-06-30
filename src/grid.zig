@@ -221,6 +221,14 @@ pub const Grid = struct {
         return self.cursor_col;
     }
 
+    pub fn widthCells(self: *const Grid) usize {
+        return self.width;
+    }
+
+    pub fn heightRows(self: *const Grid) usize {
+        return self.height;
+    }
+
     fn newline(self: *Grid) void {
         self.cursor_col = 0;
         self.cursor_row += 1;

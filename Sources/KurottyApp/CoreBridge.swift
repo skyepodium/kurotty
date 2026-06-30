@@ -23,7 +23,7 @@ private enum CoreLibraryPath {
     static let swiftPMDebugDevelopmentPath = ".build/debug/\(dylibFilename)"
 }
 
-final class CoreBridge: @unchecked Sendable {
+final class CoreBridge: TerminalCore, @unchecked Sendable {
     private let symbols = CoreSymbols.load()
     private var handle: TerminalHandle?
     private var columns: UInt32

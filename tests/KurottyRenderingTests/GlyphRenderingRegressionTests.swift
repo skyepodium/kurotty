@@ -282,8 +282,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("let underlinePositionPixels = max(0, descenderPixels - underlineThicknessPixels)"))
         XCTAssertTrue(source.contains("yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))"))
         XCTAssertFalse(source.contains("underlinePositionPixels: max(0, heightPixels - 2)"))
-        XCTAssertTrue(source.contains("height: terminalFrame.cellSize.height\n            ).fill()"))
+        XCTAssertTrue(source.contains("height: terminalFrame.cellSize.cgHeight\n            ).fill()"))
         XCTAssertFalse(source.contains("height: max(1, terminalFrame.cellSize.height - 4)"))
+        XCTAssertFalse(source.contains("height: max(1, terminalFrame.cellSize.cgHeight - 4)"))
         XCTAssertFalse(source.contains("+ 2,\n                width: 2,"))
     }
 
@@ -437,6 +438,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("TerminalPalette.ansiBright"))
     }
 
+    func testZigCorePublicModuleDoesNotExposePlatformPtyAdapter() throws {
+        let coreSource = try zigCoreSource()
+
+        XCTAssertFalse(coreSource.contains("@import(\"pty.zig\")"))
+        XCTAssertFalse(coreSource.contains("pub const Pty"))
+        XCTAssertFalse(coreSource.contains("pub const PtyConfig"))
+    }
+
     func testRenderFrameContractStaysOutOfMetalViewAndPlatformTypes() throws {
         let frameSource = try terminalRenderFrameSource()
         let metalSource = try terminalMetalViewSource()
@@ -449,6 +458,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(frameSource.contains("NSRange"))
         XCTAssertFalse(frameSource.contains("CGRect"))
         XCTAssertFalse(frameSource.contains("CGSize"))
+        XCTAssertFalse(frameSource.contains("CGFloat"))
+        XCTAssertFalse(frameSource.contains("import Foundation"))
+        XCTAssertTrue(frameSource.contains("let width: Double"))
+        XCTAssertTrue(frameSource.contains("let height: Double"))
     }
 
     func testPrintableWritesReplacePreviousCellStyleInsteadOfPreservingPromptFragments() throws {
@@ -597,7 +610,40 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func handleDisplayConfigurationChanged()"))
         XCTAssertTrue(source.contains("markFullDamage()"))
         XCTAssertTrue(source.contains("syncSizeWithView()"))
-        XCTAssertTrue(source.contains("updateMetalFrame()"))
+        XCTAssertTrue(source.contains("updateRendererFrame()"))
+    }
+
+    func testTerminalSurfaceUsesRendererProtocolFactoryInsteadOfMetalViewDirectly() throws {
+        let rendererSource = try terminalRendererSource()
+        let frameRendererSource = try terminalFrameRendererSource()
+        let metalSource = try terminalMetalViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(frameRendererSource.contains("protocol TerminalFrameRenderer: AnyObject"))
+        XCTAssertTrue(frameRendererSource.contains("func update(frame: TerminalFrame)"))
+        XCTAssertFalse(frameRendererSource.contains("import AppKit"))
+        XCTAssertFalse(frameRendererSource.contains("NSView"))
+        XCTAssertFalse(frameRendererSource.contains("NSFont"))
+        XCTAssertTrue(rendererSource.contains("protocol TerminalAppKitRenderer: TerminalFrameRenderer"))
+        XCTAssertTrue(rendererSource.contains("var rendererView: NSView { get }"))
+        XCTAssertTrue(rendererSource.contains("func applyAppearance("))
+        XCTAssertTrue(rendererSource.contains("enum TerminalRendererFactory"))
+        XCTAssertTrue(rendererSource.contains("static func makeDefaultRenderer("))
+        XCTAssertTrue(rendererSource.contains(") -> any TerminalAppKitRenderer"))
+        XCTAssertTrue(rendererSource.contains("TerminalMetalView("))
+        XCTAssertTrue(metalSource.contains("final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer"))
+        XCTAssertTrue(metalSource.contains("var rendererView: NSView { self }"))
+        XCTAssertTrue(surfaceSource.contains("private let renderer: any TerminalAppKitRenderer"))
+        XCTAssertTrue(surfaceSource.contains("TerminalRendererFactory.makeDefaultRenderer("))
+        XCTAssertTrue(surfaceSource.contains("let rendererView = renderer.rendererView"))
+        XCTAssertTrue(surfaceSource.contains("rendererFramePresented()"))
+        XCTAssertTrue(surfaceSource.contains("renderer.update(frame: TerminalFrame("))
+        XCTAssertTrue(surfaceSource.contains("renderer.applyAppearance("))
+        XCTAssertFalse(surfaceSource.contains("private let renderer: any TerminalRenderer"))
+        XCTAssertFalse(surfaceSource.contains("private let metalView"))
+        XCTAssertFalse(surfaceSource.contains("TerminalMetalView("))
+        XCTAssertFalse(surfaceSource.contains("metalView."))
+        XCTAssertFalse(surfaceSource.contains("metalFramePresented()"))
     }
 
     func testTerminalSurfaceSnapsCellMetricsToPhysicalPixels() throws {
@@ -743,7 +789,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let fullModelRedraw = flag(\"--debug-full-model-redraw\", env: \"KUROTTY_DEBUG_FULL_MODEL_REDRAW\")"))
         XCTAssertTrue(debugSource.contains("static let noDamage = flag(\"--debug-no-damage\", env: \"KUROTTY_DEBUG_NO_DAMAGE\")"))
         XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
-        XCTAssertTrue(surfaceSource.contains("metalView.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
+        XCTAssertTrue(surfaceSource.contains("renderer.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect.cgRect)\n            }\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
@@ -900,7 +946,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
-        XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateMetalFrame()"))
+        XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
         XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordUserInput(text)\n        }"))
     }
 
@@ -948,12 +994,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
         let shellSource = try shellSessionSource()
+        let sessionSource = try terminalSessionSource()
         let surfaceSource = try terminalSurfaceViewSource()
 
-        XCTAssertTrue(shellSource.contains("protocol TerminalSession: AnyObject"))
+        XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
+        XCTAssertFalse(shellSource.contains("protocol TerminalSession"))
         XCTAssertTrue(shellSource.contains("final class ShellSession: TerminalSession, @unchecked Sendable"))
-        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = ShellSession()"))
+        XCTAssertTrue(sessionSource.contains("enum TerminalSessionFactory"))
+        XCTAssertTrue(sessionSource.contains("static func makeDefaultSession() -> any TerminalSession"))
+        XCTAssertTrue(sessionSource.contains("#if os(macOS)"))
+        XCTAssertTrue(sessionSource.contains("ShellSession()"))
+        XCTAssertTrue(sessionSource.contains("#else"))
+        XCTAssertTrue(sessionSource.contains("UnsupportedTerminalSession()"))
+        XCTAssertTrue(shellSource.contains("#if os(macOS)"))
+        XCTAssertTrue(shellSource.contains("import Darwin"))
+        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()"))
         XCTAssertFalse(surfaceSource.contains("private let shell = ShellSession()"))
+        XCTAssertFalse(surfaceSource.contains("ShellSession()"))
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
         XCTAssertTrue(shellSource.contains("func start(workingDirectory requestedWorkingDirectory: String)"))
         XCTAssertTrue(shellSource.contains("let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)"))
@@ -1820,7 +1877,19 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testCoreBridgeDoesNotUseCurrentDirectoryFallbacksInAppBundleMode() throws {
         let source = try coreBridgeSource()
+        let coreSource = try terminalCoreSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
 
+        XCTAssertTrue(coreSource.contains("protocol TerminalCore: AnyObject"))
+        XCTAssertTrue(coreSource.contains("enum TerminalCoreFactory"))
+        XCTAssertTrue(coreSource.contains("static func makeDefaultCore(cols: UInt32, rows: UInt32) -> any TerminalCore"))
+        XCTAssertTrue(coreSource.contains("CoreBridge(cols: cols, rows: rows)"))
+        XCTAssertTrue(source.contains("final class CoreBridge: TerminalCore, @unchecked Sendable"))
+        XCTAssertTrue(surfaceSource.contains("private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore("))
+        XCTAssertFalse(surfaceSource.contains("CoreBridge("))
+        XCTAssertTrue(inputSource.contains("private let core: any TerminalCore"))
+        XCTAssertTrue(inputSource.contains("init(core: any TerminalCore)"))
         XCTAssertTrue(source.contains("static let appBundleExtension = \"app\""))
         XCTAssertTrue(source.contains("Bundle.main.bundleURL.pathExtension == CoreLibraryPath.appBundleExtension"))
         XCTAssertTrue(source.contains("Bundle.main.url(forResource: CoreLibraryPath.dylibName, withExtension: CoreLibraryPath.dylibExtension)"))
@@ -2089,6 +2158,24 @@ private func terminalRenderFrameSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func terminalRendererSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalRenderer.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalFrameRendererSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalFrameRenderer.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func zigCoreSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("src/core.zig")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func terminalTextStyleSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalTextStyle.swift")
@@ -2137,6 +2224,12 @@ private func debugOptionsSource() throws -> String {
 private func shellSessionSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/ShellSession.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalSessionSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalSession.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -2267,5 +2360,11 @@ private func splitTerminalViewSource() throws -> String {
 private func coreBridgeSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/CoreBridge.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalCoreSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalCore.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }

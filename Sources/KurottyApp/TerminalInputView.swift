@@ -2,11 +2,11 @@ import AppKit
 
 @MainActor
 final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
-    private let core: CoreBridge
+    private let core: any TerminalCore
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
 
-    init(core: CoreBridge) {
+    init(core: any TerminalCore) {
         self.core = core
         super.init(frame: .zero)
         observeInputSourceChanges()

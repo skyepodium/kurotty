@@ -1,5 +1,3 @@
-import Foundation
-
 struct TerminalFrame {
     let cells: [TerminalCell]
     let backgrounds: [TerminalBackground]
@@ -52,22 +50,22 @@ struct TerminalDecoration {
 struct TerminalFrameSize: Equatable {
     static let zero = TerminalFrameSize(width: 0, height: 0)
 
-    let width: CGFloat
-    let height: CGFloat
+    let width: Double
+    let height: Double
 }
 
 struct TerminalFramePoint: Equatable {
     static let zero = TerminalFramePoint(x: 0, y: 0)
 
-    let x: CGFloat
-    let y: CGFloat
+    let x: Double
+    let y: Double
 }
 
 struct TerminalFrameRect: Equatable {
-    let x: CGFloat
-    let y: CGFloat
-    let width: CGFloat
-    let height: CGFloat
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
 }
 
 struct TerminalTextSelectionRange: Equatable {

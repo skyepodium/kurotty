@@ -10,6 +10,8 @@ The AppKit layer is responsible for platform integration:
 - `MainMenu` wires app, file, split, tab, edit, and preferences actions.
 - `PreferencesWindowController` provides the first preferences shell.
 - `TerminalMetalView` hosts Metal rendering and reports frame-present timestamps to the core bridge.
+- `TerminalSession` is the platform-neutral session contract. `ShellSession` is the current macOS/Darwin `forkpty` implementation selected through `TerminalSessionFactory`.
+- `TerminalCore` is the app-facing terminal core contract. `CoreBridge` is the current dynamic C ABI loader selected through `TerminalCoreFactory`.
 
 ## Zig Core
 
@@ -21,7 +23,10 @@ The Zig layer owns state that must be fast and predictable:
 - `Metrics` records input-to-present latency samples.
 - `RendererOrchestrator` tracks damage rectangles and frame stats before Metal consumes them.
 - `abi.zig` exposes a small C ABI to the Swift shell.
+- `core.zig` is the public portable barrel for the Zig core. Platform PTY adapters are not exported from that barrel.
 
 ## Metal Renderer
 
-The current renderer scaffold creates an `MTKView`, loads a Metal pipeline from package resources, tracks full-surface damage, and presents frames. The next rendering milestone is replacing the clear-pass scaffold with real glyph atlas population and dirty-cell quad emission.
+`TerminalRenderFrame` defines the renderer-facing frame contract without AppKit, Metal, `CGRect`, `CGSize`, or `NSRange` types. `TerminalMetalView` adapts that contract to `MTKView`, CoreText glyph rasterization, Metal buffers, dirty-rect invalidation, and presentation callbacks.
+
+The current renderer uses Metal for glyph atlas, background, cursor, underline, strikethrough, and box-drawing passes. A future Linux or Windows renderer should consume `TerminalFrame`-shaped data through a backend-specific adapter instead of depending on AppKit or Metal types.
