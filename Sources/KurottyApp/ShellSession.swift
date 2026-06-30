@@ -10,7 +10,7 @@ private func systemForkpty(
     _ winp: UnsafePointer<winsize>?
 ) -> pid_t
 
-final class ShellSession: TerminalSession, @unchecked Sendable {
+final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onExit: ((Int32) -> Void)?

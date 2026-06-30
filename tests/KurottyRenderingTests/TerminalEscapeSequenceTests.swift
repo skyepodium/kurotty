@@ -1,4 +1,5 @@
 import XCTest
+@testable import KurottyCore
 @testable import KurottyApp
 
 final class TerminalEscapeSequenceTests: XCTestCase {

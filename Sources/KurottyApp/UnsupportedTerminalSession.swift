@@ -1,8 +1,12 @@
 import Foundation
 
 private enum UnsupportedTerminalSessionConstants {
-    static let message = "Terminal sessions are not supported on this platform.\n"
+    static let unknownPlatformName = "this platform"
     static let exitStatus: Int32 = 1
+
+    static func message(platformName: String) -> String {
+        "Terminal sessions are not supported on \(platformName).\n"
+    }
 }
 
 final class UnsupportedTerminalSession: TerminalSession {
@@ -10,8 +14,14 @@ final class UnsupportedTerminalSession: TerminalSession {
     var onRawOutput: ((Data) -> Void)?
     var onExit: ((Int32) -> Void)?
 
+    private let platformName: String
+
+    init(platformName: String = UnsupportedTerminalSessionConstants.unknownPlatformName) {
+        self.platformName = platformName
+    }
+
     func start(workingDirectory requestedWorkingDirectory: String) {
-        onOutput?(UnsupportedTerminalSessionConstants.message)
+        onOutput?(UnsupportedTerminalSessionConstants.message(platformName: platformName))
         onExit?(UnsupportedTerminalSessionConstants.exitStatus)
     }
 

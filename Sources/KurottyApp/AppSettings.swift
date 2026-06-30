@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 import simd
 
 // MARK: - Portable Settings Values
@@ -30,13 +31,13 @@ struct AppSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let schemaVersion = 9
-        static let fontName = "Menlo"
-        static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
-        static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
-        static let windowWidth = AppConstants.Settings.defaultWindowWidthPX
-        static let windowHeight = AppConstants.Settings.defaultWindowHeightPX
-        static let shellWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        static let schemaVersion = SettingsDefaults.schemaVersion
+        static let fontName = SettingsDefaults.terminalFontName
+        static let fontSize = SettingsDefaults.terminalFontSizePT
+        static let scrollbackLines = SettingsDefaults.maximumScrollbackRows
+        static let windowWidth = SettingsDefaults.defaultWindowWidthPX
+        static let windowHeight = SettingsDefaults.defaultWindowHeightPX
+        static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -111,8 +112,8 @@ struct WindowSettings: Codable, Equatable {
     var height: Double
 
     static let `default` = WindowSettings(
-        width: AppConstants.Settings.defaultWindowWidthPX,
-        height: AppConstants.Settings.defaultWindowHeightPX
+        width: SettingsDefaults.defaultWindowWidthPX,
+        height: SettingsDefaults.defaultWindowHeightPX
     )
 }
 
@@ -121,7 +122,7 @@ struct ShellSettings: Codable, Equatable {
     var workingDirectory: String
 
     static let `default` = ShellSettings(
-        workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+        workingDirectory: SettingsDefaults.shellWorkingDirectory
     )
 
     static func normalizedWorkingDirectory(_ value: String) -> String {
@@ -164,39 +165,22 @@ struct TerminalColorSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let foreground = "#E5E7EB"
-        static let background = "#22252B"
-        static let cursor = "#D7C6F4"
-        static let ansi = [
-            "#2F333A",
-            "#FF5F67",
-            "#5FD38D",
-            "#E5C07B",
-            "#61AFEF",
-            "#C792EA",
-            "#56B6C2",
-            "#D7DAE0",
-            "#60646C",
-            "#FF7B86",
-            "#8EE8A3",
-            "#F0D28A",
-            "#7AB7FF",
-            "#D7A8FF",
-            "#7FDCE3",
-            "#F5F7FA",
-        ]
+        static let foreground = TerminalColorDefaults.foregroundHex
+        static let background = TerminalColorDefaults.backgroundHex
+        static let cursor = TerminalColorDefaults.cursorHex
+        static let ansi = TerminalColorDefaults.ansiHex
     }
 
     var foregroundColor: SIMD4<Float> {
-        ColorHexParser.parse(foreground, fallback: DesignTokens.Color.terminalForeground)
+        ColorHexParser.parse(foreground, fallback: TerminalColorDefaults.foreground)
     }
 
     var backgroundColor: SIMD4<Float> {
-        ColorHexParser.parse(background, fallback: DesignTokens.Color.terminalDefaultBackground)
+        ColorHexParser.parse(background, fallback: TerminalColorDefaults.background)
     }
 
     var cursorColor: SIMD4<Float> {
-        ColorHexParser.parse(cursor, fallback: DesignTokens.Color.terminalCursor)
+        ColorHexParser.parse(cursor, fallback: TerminalColorDefaults.cursor)
     }
 }
 
@@ -282,20 +266,20 @@ struct AppSettingsNormalizer {
             next.terminal.fontName = AppSettings.default.terminal.fontName
         }
         next.terminal.fontSize = min(
-            AppConstants.Settings.maximumTerminalFontSizePT,
-            max(AppConstants.Settings.minimumTerminalFontSizePT, next.terminal.fontSize)
+            SettingsDefaults.maximumTerminalFontSizePT,
+            max(SettingsDefaults.minimumTerminalFontSizePT, next.terminal.fontSize)
         )
         next.terminal.scrollbackLines = min(
-            AppConstants.Terminal.maxScrollbackRows,
-            max(AppConstants.Terminal.minimumScrollbackRows, next.terminal.scrollbackLines)
+            SettingsDefaults.maximumScrollbackRows,
+            max(SettingsDefaults.minimumScrollbackRows, next.terminal.scrollbackLines)
         )
         next.window.width = min(
-            AppConstants.Settings.maximumWindowWidthPX,
-            max(AppConstants.Settings.minimumWindowWidthPX, next.window.width)
+            SettingsDefaults.maximumWindowWidthPX,
+            max(SettingsDefaults.minimumWindowWidthPX, next.window.width)
         )
         next.window.height = min(
-            AppConstants.Settings.maximumWindowHeightPX,
-            max(AppConstants.Settings.minimumWindowHeightPX, next.window.height)
+            SettingsDefaults.maximumWindowHeightPX,
+            max(SettingsDefaults.minimumWindowHeightPX, next.window.height)
         )
         if next.terminal.colors.ansi.count < TerminalColorSettings.requiredAnsiColorCount {
             next.terminal.colors.ansi = TerminalColorSettings.default.ansi

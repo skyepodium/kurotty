@@ -99,9 +99,9 @@ enum DesignTokens {
             blue: 43.0 / 255.0,
             alpha: 1
         )
-        static let terminalForeground = SIMD4<Float>(229.0 / 255.0, 231.0 / 255.0, 235.0 / 255.0, 1)
-        static let terminalCursor = SIMD4<Float>(215.0 / 255.0, 198.0 / 255.0, 244.0 / 255.0, 1)
-        static let terminalDefaultBackground = SIMD4<Float>(34.0 / 255.0, 37.0 / 255.0, 43.0 / 255.0, 1)
+        static let terminalForeground = TerminalColorDefaults.foreground
+        static let terminalCursor = TerminalColorDefaults.cursor
+        static let terminalDefaultBackground = TerminalColorDefaults.background
 
         static let ansiNormal = TerminalPalette.ansiNormal
         static let ansiBright = TerminalPalette.ansiBright

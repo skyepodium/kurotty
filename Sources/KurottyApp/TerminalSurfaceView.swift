@@ -14,8 +14,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
-    private let verticalScroller = NSScroller(frame: .zero)
-    private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)
+    private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
+        self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
+    }
     private var terminalDefaultStyle: TerminalTextStyle
     private var terminalAnsiColors: [SIMD4<Float>]
     private var maxScrollbackRows: Int
@@ -106,18 +107,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             rendererView.topAnchor.constraint(equalTo: topAnchor),
             rendererView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        verticalScroller.scrollerStyle = .legacy
-        verticalScroller.controlSize = .small
-        verticalScroller.target = self
-        verticalScroller.action = #selector(scrollerDidChange(_:))
-        verticalScroller.isHidden = true
-        addSubview(verticalScroller)
-        scrollThumbView.layer?.cornerRadius = DesignTokens.Component.terminalScrollerThumbWidthPX / 2
-        scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in
-            self?.setScrollbackOffsetFromNormalizedThumbDrag(normalizedOffset)
-        }
-        scrollThumbView.isHidden = true
-        addSubview(scrollThumbView)
+        scrollIndicatorCoordinator.install(in: self)
         shell.onOutput = { [weak self] text in
             Task { @MainActor in
                 self?.enqueueOutput(text)
@@ -372,19 +362,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         updateRendererFrame()
     }
 
-    @objc private func scrollerDidChange(_ sender: NSScroller) {
-        let maxOffset = maxScrollbackOffset()
-        guard maxOffset > 0 else { return }
-        let normalized = max(0, min(1, sender.doubleValue))
-        let nextOffset = min(maxOffset, max(0, Int(round((1 - normalized) * CGFloat(maxOffset)))))
-        guard nextOffset != scrollbackOffset else { return }
-        scrollbackOffset = nextOffset
-        markFullDamage()
-        updateScrollIndicator()
-        updateRendererFrame()
-    }
-
-    private func setScrollbackOffsetFromNormalizedThumbDrag(_ normalizedOffset: CGFloat) {
+    private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat) {
         let maxOffset = maxScrollbackOffset()
         guard maxOffset > 0 else { return }
         let nextOffset = min(maxOffset, max(0, Int(round(normalizedOffset * CGFloat(maxOffset)))))
@@ -1506,54 +1484,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func layoutScrollIndicator() {
-        let width = DesignTokens.Component.terminalScrollerWidthPX
-        let scrollerX = max(0, bounds.width - width)
-        verticalScroller.frame = NSRect(
-            x: scrollerX,
-            y: 0,
-            width: width,
-            height: bounds.height
+        let visibleRows = max(1, terminalMetrics().size.rows)
+        scrollIndicatorCoordinator.layout(
+            in: bounds,
+            visibleRows: visibleRows,
+            maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
+            scrollbackOffset: scrollbackOffset
         )
-        updateScrollIndicator()
     }
 
     private func updateScrollIndicator() {
         let visibleRows = max(1, terminalMetrics().size.rows)
-        let maxOffset = maxScrollbackOffset(visibleRows: visibleRows)
-        let isHidden = maxOffset == 0 || bounds.height <= 0
-        verticalScroller.isHidden = isHidden
-        scrollThumbView.isHidden = isHidden
-        guard !isHidden else { return }
-        let trackHeight = max(CGFloat(1), verticalScroller.bounds.height)
-        let contentRows = visibleRows + maxOffset
-        let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)
-        let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight
-        let knobProportion = min(
-            CGFloat(1),
-            max(
-                DesignTokens.Component.terminalScrollerMinKnobProportion,
-                minimumHeightKnob,
-                proportionalKnob
-            )
+        scrollIndicatorCoordinator.update(
+            bounds: bounds,
+            visibleRows: visibleRows,
+            maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
+            scrollbackOffset: scrollbackOffset
         )
-        verticalScroller.knobProportion = knobProportion
-        verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
-        verticalScroller.needsDisplay = true
-
-        // NSScroller can be nearly invisible depending on system overlay style.
-        // Draw a deterministic thumb so scrollback position is always visible.
-        let thumbWidth = DesignTokens.Component.terminalScrollerThumbWidthPX
-        let thumbHeight = trackHeight * knobProportion
-        let clampedThumbHeight = min(trackHeight, thumbHeight)
-        let maxTravel = max(CGFloat.zero, trackHeight - clampedThumbHeight)
-        let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
-        scrollThumbView.frame = NSRect(
-            x: verticalScroller.frame.minX + (verticalScroller.bounds.width - thumbWidth) / 2,
-            y: verticalScroller.frame.minY + maxTravel * normalizedOffset,
-            width: thumbWidth,
-            height: clampedThumbHeight
-        )
-        scrollThumbView.needsDisplay = true
     }
 
     private func shouldAppendScrollbackForActiveScrollRegion() -> Bool {

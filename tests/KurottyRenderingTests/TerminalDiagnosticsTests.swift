@@ -189,13 +189,13 @@ final class TerminalDiagnosticsTests: XCTestCase {
 
     func testOccupiedCellCountDoesNotExposeCellText() {
         let cells = [
-            TerminalScreenCell(character: "s"),
-            TerminalScreenCell(character: "e"),
-            TerminalScreenCell(character: "c"),
-            TerminalScreenCell(character: "r"),
-            TerminalScreenCell(character: "e"),
-            TerminalScreenCell(character: "t"),
-            TerminalScreenCell(character: " "),
+            KurottyCore.TerminalScreenCell(character: "s"),
+            KurottyCore.TerminalScreenCell(character: "e"),
+            KurottyCore.TerminalScreenCell(character: "c"),
+            KurottyCore.TerminalScreenCell(character: "r"),
+            KurottyCore.TerminalScreenCell(character: "e"),
+            KurottyCore.TerminalScreenCell(character: "t"),
+            KurottyCore.TerminalScreenCell(character: " "),
         ]
 
         XCTAssertEqual(TerminalScreenDiagnostics.occupiedCellCount(in: cells), 6)

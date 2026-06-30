@@ -450,6 +450,41 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("TerminalPalette.ansiBright"))
     }
 
+    func testKurottyCoreSourceFilesStayFreeOfAppKitAndPlatformAdapters() throws {
+        for (filename, source) in try kurottyCoreSourceFiles() {
+            XCTAssertFalse(source.contains("import AppKit"), "\(filename) must stay AppKit-free")
+            XCTAssertFalse(source.contains("import Darwin"), "\(filename) must stay Darwin-free")
+            XCTAssertFalse(source.contains("import Metal"), "\(filename) must stay Metal-free")
+            XCTAssertFalse(source.contains("ShellSession"), "\(filename) must not reference app shell adapters")
+            XCTAssertFalse(source.contains("DarwinPTYTerminalSession"), "\(filename) must not reference Darwin shell adapters")
+            XCTAssertFalse(source.contains("CoreBridge"), "\(filename) must not reference the dynamic ABI loader")
+            XCTAssertFalse(source.contains("TerminalAppKitRenderer"), "\(filename) must not reference AppKit renderer adapters")
+        }
+    }
+
+    func testSessionFactoryChoosesPlatformGuardedAdapters() throws {
+        let factorySource = try terminalSessionFactorySource()
+        let adapterSource = try terminalSessionAdapterSource()
+        let shellSource = try shellSessionSource()
+        let unsupportedSource = try unsupportedTerminalSessionSource()
+
+        XCTAssertTrue(factorySource.contains("DefaultTerminalSessionAdapter.makeSession()"))
+        XCTAssertFalse(factorySource.contains("#if os(macOS)"))
+        XCTAssertFalse(factorySource.contains("DarwinPTYTerminalSession()"))
+        XCTAssertFalse(factorySource.contains("UnsupportedTerminalSession()"))
+        XCTAssertTrue(adapterSource.contains("#if os(macOS)"))
+        XCTAssertTrue(adapterSource.contains("DarwinTerminalSessionAdapter.makeSession()"))
+        XCTAssertTrue(adapterSource.contains("#elseif os(Linux)"))
+        XCTAssertTrue(adapterSource.contains("#elseif os(Windows)"))
+        XCTAssertTrue(adapterSource.contains("DarwinPTYTerminalSession()"))
+        XCTAssertTrue(adapterSource.contains("UnsupportedTerminalSessionAdapter.makeSession(platformName: TerminalSessionPlatformNames.linux)"))
+        XCTAssertTrue(adapterSource.contains("UnsupportedTerminalSessionAdapter.makeSession(platformName: TerminalSessionPlatformNames.windows)"))
+        XCTAssertTrue(shellSource.hasPrefix("#if os(macOS)\n"))
+        XCTAssertTrue(shellSource.contains("import Darwin"))
+        XCTAssertFalse(unsupportedSource.contains("import AppKit"))
+        XCTAssertFalse(unsupportedSource.contains("import Darwin"))
+    }
+
     func testZigCorePublicModuleDoesNotExposePlatformPtyAdapter() throws {
         let coreSource = try zigCoreSource()
 
@@ -826,14 +861,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testTmuxStatusRedrawSupportsRepeatPrecedingGraphicCharacter() throws {
         let surfaceSource = try terminalSurfaceViewSource()
-        let modelSource = try terminalModelSource()
+        let screenSource = try terminalScreenSource()
 
         XCTAssertTrue(surfaceSource.contains("case \"b\":\n            let written = screen.repeatPrecedingGraphicCharacter(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))"))
         XCTAssertTrue(surfaceSource.contains("cursorColumn = min(screen.columns, cursorColumn + written)"))
         XCTAssertTrue(surfaceSource.contains("markDirty(row: cursorRow)"))
-        XCTAssertTrue(modelSource.contains("mutating func repeatPrecedingGraphicCharacter(row: Int, column: Int, count: Int) -> Int"))
-        XCTAssertTrue(modelSource.contains("source.character.terminalColumnWidth == 1"))
-        XCTAssertTrue(modelSource.contains("style: source.style"))
+        XCTAssertTrue(screenSource.contains("mutating func repeatPrecedingGraphicCharacter(row: Int, column: Int, count: Int) -> Int"))
+        XCTAssertTrue(screenSource.contains("source.character.terminalColumnWidth == 1"))
+        XCTAssertTrue(screenSource.contains("style: source.style"))
     }
 
     func testTmuxStatusRedrawSupportsEraseCharacter() throws {
@@ -927,14 +962,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testCombiningMarksAndContinuationOverwriteDoNotLeaveSplitHangulCells() throws {
         let surfaceSource = try terminalSurfaceViewSource()
-        let modelSource = try terminalModelSource()
+        let screenSource = try terminalScreenSource()
 
         XCTAssertTrue(surfaceSource.contains("screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)"))
-        XCTAssertTrue(modelSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
-        XCTAssertTrue(modelSource.contains("guard cells[row][column].isContinuation else { return }"))
-        XCTAssertTrue(modelSource.contains("cells[row][column - 1] = TerminalScreenCell(style: style)"))
-        XCTAssertTrue(modelSource.contains("cells[row][column + 1] = TerminalScreenCell(style: style)"))
-        XCTAssertTrue(modelSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
+        XCTAssertTrue(screenSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
+        XCTAssertTrue(screenSource.contains("guard cells[row][column].isContinuation else { return }"))
+        XCTAssertTrue(screenSource.contains("cells[row][column - 1] = TerminalScreenCell(style: style)"))
+        XCTAssertTrue(screenSource.contains("cells[row][column + 1] = TerminalScreenCell(style: style)"))
+        XCTAssertTrue(screenSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
     }
 
     func testTopAnchoredScrollRegionFeedsTerminalScrollback() throws {
@@ -950,6 +985,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testNativeScrollerReflectsTerminalScrollbackOffset() throws {
         let source = try terminalSurfaceViewSource()
+        let coordinatorSource = try terminalScrollIndicatorCoordinatorSource()
         let tokens = try String(
             contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift"),
@@ -957,28 +993,30 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         )
         let thumbSource = try scrollIndicatorThumbViewSource()
 
-        XCTAssertTrue(source.contains("private let verticalScroller = NSScroller(frame: .zero)"))
-        XCTAssertTrue(source.contains("verticalScroller.target = self"))
-        XCTAssertTrue(source.contains("verticalScroller.action = #selector(scrollerDidChange(_:))"))
-        XCTAssertTrue(source.contains("@objc private func scrollerDidChange(_ sender: NSScroller)"))
-        XCTAssertTrue(source.contains("verticalScroller.knobProportion"))
+        XCTAssertTrue(source.contains("private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator"))
+        XCTAssertTrue(source.contains("scrollIndicatorCoordinator.install(in: self)"))
+        XCTAssertTrue(coordinatorSource.contains("private let scroller = NSScroller(frame: .zero)"))
+        XCTAssertTrue(coordinatorSource.contains("scroller.target = self"))
+        XCTAssertTrue(coordinatorSource.contains("scroller.action = #selector(scrollerDidChange(_:))"))
+        XCTAssertTrue(coordinatorSource.contains("@objc private func scrollerDidChange(_ sender: NSScroller)"))
+        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion"))
         XCTAssertTrue(source.contains("let maxOffset = maxScrollbackOffset()"))
         XCTAssertTrue(source.contains("private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int"))
         XCTAssertTrue(source.contains("return max(0, allRowsForSelection().count - visibleCount)"))
-        XCTAssertTrue(source.contains("let contentRows = visibleRows + maxOffset"))
-        XCTAssertTrue(source.contains("let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)"))
-        XCTAssertTrue(source.contains("let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight"))
-        XCTAssertTrue(source.contains("DesignTokens.Component.terminalScrollerMinKnobProportion"))
-        XCTAssertTrue(source.contains("verticalScroller.knobProportion = knobProportion"))
-        XCTAssertTrue(source.contains("verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
-        XCTAssertTrue(source.contains("private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)"))
+        XCTAssertTrue(coordinatorSource.contains("let contentRows = visibleRows + maxScrollbackOffset"))
+        XCTAssertTrue(coordinatorSource.contains("let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)"))
+        XCTAssertTrue(coordinatorSource.contains("let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight"))
+        XCTAssertTrue(coordinatorSource.contains("DesignTokens.Component.terminalScrollerMinKnobProportion"))
+        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion = knobProportion"))
+        XCTAssertTrue(coordinatorSource.contains("scroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
+        XCTAssertTrue(coordinatorSource.contains("private let thumbView = ScrollIndicatorThumbView(frame: .zero)"))
         XCTAssertTrue(thumbSource.contains("private func updateAppearance()"))
         XCTAssertTrue(thumbSource.contains("color = DesignTokens.Color.scrollerThumb"))
-        XCTAssertTrue(source.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))"))
-        XCTAssertTrue(source.contains("scrollThumbView.frame = NSRect("))
+        XCTAssertTrue(coordinatorSource.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
+        XCTAssertTrue(coordinatorSource.contains("thumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
-        XCTAssertTrue(source.contains("scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
-        XCTAssertTrue(source.contains("private func setScrollbackOffsetFromNormalizedThumbDrag(_ normalizedOffset: CGFloat)"))
+        XCTAssertTrue(coordinatorSource.contains("thumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
+        XCTAssertTrue(source.contains("private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat)"))
         XCTAssertTrue(thumbSource.contains("override func mouseDragged(with event: NSEvent)"))
         XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbHover"))
         XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbActive"))
@@ -1044,7 +1082,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     }
 
     func testScreenRegionMutatorsPreserveRowsOutsideRegion() throws {
-        let source = try terminalModelSource()
+        let source = try terminalScreenSource()
 
         XCTAssertTrue(source.contains("mutating func scrollUpRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default)"))
         XCTAssertTrue(source.contains("mutating func scrollDownRegion(top: Int, bottom: Int, count: Int = 1, style: TerminalTextStyle = .default)"))
@@ -1062,12 +1100,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
         XCTAssertFalse(shellSource.contains("protocol TerminalSession"))
-        XCTAssertTrue(shellSource.contains("final class ShellSession: TerminalSession, @unchecked Sendable"))
+        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable"))
         XCTAssertTrue(shellSource.contains("#if os(macOS)"))
         XCTAssertTrue(shellSource.contains("import Darwin"))
         XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()"))
-        XCTAssertFalse(surfaceSource.contains("private let shell = ShellSession()"))
-        XCTAssertFalse(surfaceSource.contains("ShellSession()"))
+        XCTAssertFalse(surfaceSource.contains("private let shell = DarwinPTYTerminalSession()"))
+        XCTAssertFalse(surfaceSource.contains("DarwinPTYTerminalSession()"))
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
         XCTAssertTrue(shellSource.contains("func start(workingDirectory requestedWorkingDirectory: String)"))
         XCTAssertTrue(shellSource.contains("let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)"))
@@ -1104,7 +1142,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
 
         let settingsSource = try appSettingsSource()
-        XCTAssertTrue(settingsSource.contains("static let schemaVersion = 9"))
+        let settingsDefaultsSource = try settingsDefaultsSource()
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 9"))
+        XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
         XCTAssertTrue(settingsSource.contains("struct ShellSettings: Codable, Equatable"))
@@ -2009,18 +2049,31 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testTerminalSessionProtocolDoesNotDependOnAppFactoryTypes() throws {
         let sessionSource = try terminalSessionSource()
         let factorySource = try terminalSessionFactorySource()
+        let adapterSource = try terminalSessionAdapterSource()
 
         XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
-        XCTAssertFalse(sessionSource.contains("ShellSession"))
+        XCTAssertFalse(sessionSource.contains("DarwinPTYTerminalSession"))
         XCTAssertFalse(sessionSource.contains("UnsupportedTerminalSession"))
         XCTAssertFalse(sessionSource.contains("TerminalSessionFactory"))
         XCTAssertFalse(sessionSource.contains("makeDefaultSession"))
         XCTAssertTrue(factorySource.contains("enum TerminalSessionFactory"))
         XCTAssertTrue(factorySource.contains("static func makeDefaultSession() -> any TerminalSession"))
-        XCTAssertTrue(factorySource.contains("#if os(macOS)"))
-        XCTAssertTrue(factorySource.contains("ShellSession()"))
-        XCTAssertTrue(factorySource.contains("#else"))
-        XCTAssertTrue(factorySource.contains("UnsupportedTerminalSession()"))
+        XCTAssertTrue(factorySource.contains("DefaultTerminalSessionAdapter.makeSession()"))
+        XCTAssertFalse(factorySource.contains("#if os(macOS)"))
+        XCTAssertFalse(factorySource.contains("DarwinPTYTerminalSession()"))
+        XCTAssertFalse(factorySource.contains("UnsupportedTerminalSession()"))
+
+        XCTAssertTrue(adapterSource.contains("protocol TerminalSessionAdapter"))
+        XCTAssertTrue(adapterSource.contains("enum DefaultTerminalSessionAdapter"))
+        XCTAssertTrue(adapterSource.contains("#if os(macOS)"))
+        XCTAssertTrue(adapterSource.contains("DarwinTerminalSessionAdapter.makeSession()"))
+        XCTAssertTrue(adapterSource.contains("#elseif os(Linux)"))
+        XCTAssertTrue(adapterSource.contains("UnsupportedTerminalSessionAdapter.makeSession(platformName: TerminalSessionPlatformNames.linux)"))
+        XCTAssertTrue(adapterSource.contains("#elseif os(Windows)"))
+        XCTAssertTrue(adapterSource.contains("UnsupportedTerminalSessionAdapter.makeSession(platformName: TerminalSessionPlatformNames.windows)"))
+        XCTAssertTrue(adapterSource.contains("struct DarwinTerminalSessionAdapter: TerminalSessionAdapter"))
+        XCTAssertTrue(adapterSource.contains("DarwinPTYTerminalSession()"))
+        XCTAssertTrue(adapterSource.contains("struct UnsupportedTerminalSessionAdapter: TerminalSessionAdapter"))
     }
 }
 
@@ -2242,6 +2295,21 @@ private func functionBody(named name: String, in source: String) throws -> Strin
     return ""
 }
 
+private func kurottyCoreSourceFiles() throws -> [(filename: String, source: String)] {
+    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyCore")
+    let urls = try FileManager.default.contentsOfDirectory(
+        at: directory,
+        includingPropertiesForKeys: nil
+    )
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+    return try urls.map { url in
+        (url.lastPathComponent, try String(contentsOf: url, encoding: .utf8))
+    }
+}
+
 private func designTokensSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift")
@@ -2257,6 +2325,12 @@ private func terminalSurfaceViewSource() throws -> String {
 private func terminalModelSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalModel.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalScreenSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyCore/TerminalScreen.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -2314,6 +2388,12 @@ private func scrollIndicatorThumbViewSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func terminalScrollIndicatorCoordinatorSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalScrollIndicatorCoordinator.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func integerConstant(named name: String, in source: String) throws -> Int {
     let pattern = #"static let \#(name)\s*=\s*([0-9_]+)"#
     let regex = try NSRegularExpression(pattern: pattern)
@@ -2347,6 +2427,18 @@ private func terminalSessionFactorySource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func terminalSessionAdapterSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalSessionAdapter.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func unsupportedTerminalSessionSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/UnsupportedTerminalSession.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func mainMenuSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/MainMenu.swift")
@@ -2356,6 +2448,12 @@ private func mainMenuSource() throws -> String {
 private func appSettingsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func settingsDefaultsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyCore/SettingsDefaults.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
