@@ -1,4 +1,5 @@
 import AppKit
+import KurottyCore
 
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
@@ -6,15 +7,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
     static let titleNotificationKey = "title"
 
-    private let core = CoreBridge(
+    private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore(
         cols: UInt32(AppConstants.Terminal.defaultColumns),
         rows: UInt32(AppConstants.Terminal.defaultRows)
     )
-    private let shell: any TerminalSession = ShellSession()
+    private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()
     private let notifier = TerminalNotifier.shared
-    private let metalView: TerminalMetalView
-    private let verticalScroller = NSScroller(frame: .zero)
-    private let scrollThumbView = ScrollIndicatorThumbView(frame: .zero)
+    private let renderer: any TerminalAppKitRenderer
+    private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
+        self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
+    }
     private var terminalDefaultStyle: TerminalTextStyle
     private var terminalAnsiColors: [SIMD4<Float>]
     private var maxScrollbackRows: Int
@@ -57,8 +59,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var submittedInputSequence = 0
     private var backgroundTaskInputSequence: Int?
     private var backgroundTaskHasOutput = false
-    private var backgroundTaskLatestOutputSummary: String?
-    private var exposeBackgroundTaskOutputSummary = true
+    private var backgroundTaskOutputText = ""
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
@@ -84,8 +85,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         terminalAnsiColors = Self.ansiColors(from: settings)
         currentStyle = terminalDefaultStyle
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
-        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
-        metalView = TerminalMetalView(
+        renderer = TerminalRendererFactory.makeDefaultRenderer(
             font: configuredFont,
             backgroundColor: terminalDefaultStyle.background,
             cursorColor: settings.terminal.colors.cursorColor
@@ -93,29 +93,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
-        metalView.translatesAutoresizingMaskIntoConstraints = false
-        metalView.onPresented = { [weak self] in
-            self?.metalFramePresented()
+        let rendererView = renderer.rendererView
+        rendererView.translatesAutoresizingMaskIntoConstraints = false
+        renderer.onPresented = { [weak self] in
+            self?.rendererFramePresented()
         }
-        addSubview(metalView)
+        addSubview(rendererView)
         NSLayoutConstraint.activate([
-            metalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            metalView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            metalView.topAnchor.constraint(equalTo: topAnchor),
-            metalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            rendererView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rendererView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rendererView.topAnchor.constraint(equalTo: topAnchor),
+            rendererView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        verticalScroller.scrollerStyle = .legacy
-        verticalScroller.controlSize = .small
-        verticalScroller.target = self
-        verticalScroller.action = #selector(scrollerDidChange(_:))
-        verticalScroller.isHidden = true
-        addSubview(verticalScroller)
-        scrollThumbView.layer?.cornerRadius = DesignTokens.Component.terminalScrollerThumbWidthPX / 2
-        scrollThumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in
-            self?.setScrollbackOffsetFromNormalizedThumbDrag(normalizedOffset)
-        }
-        scrollThumbView.isHidden = true
-        addSubview(scrollThumbView)
+        scrollIndicatorCoordinator.install(in: self)
         shell.onOutput = { [weak self] text in
             Task { @MainActor in
                 self?.enqueueOutput(text)
@@ -127,13 +117,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 NSLog("%@: %@", AppConstants.Diagnostics.ptyRawLogPrefix, metadata.description)
             }
         }
-        metalView.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
+        renderer.diagnosticRenderingLogEnabled = DebugOptions.layout || DebugOptions.renderRects || DebugOptions.dirtyRects || DebugOptions.backgroundRuns || DebugOptions.cursorCell || DebugOptions.scrollRegion
         // Keep the scaffold available as an explicit diagnostic escape hatch for
         // resize, IME, scrollback, or tmux status-line dirty-rect regressions.
-        metalView.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified
-        metalView.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
-        metalView.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
-        metalView.diagnosticGlyphQuadOverlayEnabled = DebugOptions.renderRects
+        renderer.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified
+        renderer.diagnosticCellBoundaryOverlayEnabled = DebugOptions.renderRects
+        renderer.diagnosticBaselineOverlayEnabled = DebugOptions.renderRects
+        renderer.diagnosticGlyphQuadOverlayEnabled = DebugOptions.renderRects
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(settingsDidChange(_:)),
@@ -223,7 +213,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         selectionAnchor = position
         selectionFocus = nil
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -260,7 +250,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markFullDamage()
         }
         updateScrollIndicator()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -284,7 +274,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return handleCommandKey(event) || super.performKeyEquivalent(with: event)
     }
 
-    func metalFramePresented() {
+    func rendererFramePresented() {
         core.recordFramePresented()
     }
 
@@ -367,22 +357,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markFullDamage()
         syncSizeWithView()
         layoutScrollIndicator()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
-    @objc private func scrollerDidChange(_ sender: NSScroller) {
-        let maxOffset = maxScrollbackOffset()
-        guard maxOffset > 0 else { return }
-        let normalized = max(0, min(1, sender.doubleValue))
-        let nextOffset = min(maxOffset, max(0, Int(round((1 - normalized) * CGFloat(maxOffset)))))
-        guard nextOffset != scrollbackOffset else { return }
-        scrollbackOffset = nextOffset
-        markFullDamage()
-        updateScrollIndicator()
-        updateMetalFrame()
-    }
-
-    private func setScrollbackOffsetFromNormalizedThumbDrag(_ normalizedOffset: CGFloat) {
+    private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat) {
         let maxOffset = maxScrollbackOffset()
         guard maxOffset > 0 else { return }
         let nextOffset = min(maxOffset, max(0, Int(round(normalizedOffset * CGFloat(maxOffset)))))
@@ -390,7 +368,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackOffset = nextOffset
         markFullDamage()
         updateScrollIndicator()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func observeWindowScreenChanges() {
@@ -444,7 +422,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
         markDirty(row: cursorRow)
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func handleDisplayConfigurationChanged() {
@@ -453,7 +431,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         currentBackingScale = effectiveBackingScale
         markFullDamage()
         syncSizeWithView()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func syncSizeWithView() {
@@ -470,7 +448,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
-    private func updateMetalFrame() {
+    private func updateRendererFrame() {
         let metrics = terminalMetrics()
         let damage = consumePendingDamage(metrics: metrics)
         var cells: [TerminalCell] = []
@@ -530,6 +508,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 ) {
                     continue
                 }
+                if appendBlockElementDecoration(
+                    for: cell.character,
+                    column: column,
+                    row: row,
+                    color: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
+                    to: &decorations
+                ) {
+                    continue
+                }
                 if cell.character != " " {
                     cells.append(TerminalCell(
                         character: cell.character,
@@ -541,7 +528,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        metalView.update(frame: TerminalFrame(
+        renderer.update(frame: TerminalFrame(
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
@@ -559,8 +546,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markedTextSelectedRange: .none,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
-            cellSize: TerminalFrameSize(width: metrics.cellSize.width, height: metrics.cellSize.height),
-            padding: TerminalFramePoint(x: padding.left, y: padding.top)
+            cellSize: metrics.cellSize,
+            padding: TerminalFramePoint(x: Double(padding.left), y: Double(padding.top))
         ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
@@ -623,6 +610,62 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return true
     }
 
+    private func appendBlockElementDecoration(
+        for character: Character,
+        column: Int,
+        row: Int,
+        color: SIMD4<Float>,
+        to decorations: inout [TerminalDecoration]
+    ) -> Bool {
+        let rect: (x: Double, y: Double, width: Double, height: Double)
+        switch character {
+        case "█":
+            rect = (0, 0, 1, 1)
+        case "▉":
+            rect = (0, 0, 7.0 / 8.0, 1)
+        case "▊":
+            rect = (0, 0, 6.0 / 8.0, 1)
+        case "▋":
+            rect = (0, 0, 5.0 / 8.0, 1)
+        case "▌":
+            rect = (0, 0, 0.5, 1)
+        case "▍":
+            rect = (0, 0, 3.0 / 8.0, 1)
+        case "▎":
+            rect = (0, 0, 2.0 / 8.0, 1)
+        case "▏":
+            rect = (0, 0, 1.0 / 8.0, 1)
+        case "▐":
+            rect = (0.5, 0, 0.5, 1)
+        case "▀":
+            rect = (0, 0.5, 1, 0.5)
+        case "▄":
+            rect = (0, 0, 1, 0.5)
+        case "▁":
+            rect = (0, 0, 1, 1.0 / 8.0)
+        case "▂":
+            rect = (0, 0, 1, 2.0 / 8.0)
+        case "▃":
+            rect = (0, 0, 1, 3.0 / 8.0)
+        case "▅":
+            rect = (0, 0, 1, 5.0 / 8.0)
+        case "▆":
+            rect = (0, 0, 1, 6.0 / 8.0)
+        case "▇":
+            rect = (0, 0, 1, 7.0 / 8.0)
+        default:
+            return false
+        }
+        decorations.append(TerminalDecoration(
+            column: column,
+            row: row,
+            width: 1,
+            kind: .blockElement(x: rect.x, y: rect.y, width: rect.width, height: rect.height),
+            color: color
+        ))
+        return true
+    }
+
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
@@ -675,7 +718,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         inputSelectedRange = selectedRange
         markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
         markMarkedTextDirty()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     func unmarkText() {
@@ -685,7 +728,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
         markDirty(row: cursorRow)
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func markMarkedTextDirty() {
@@ -712,8 +755,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func characterIndex(for point: NSPoint) -> Int {
         let metrics = terminalMetrics()
         guard metrics.cellSize.width > 0, metrics.cellSize.height > 0 else { return 0 }
-        let column = Int((point.x - padding.left) / metrics.cellSize.width)
-        let row = Int((bounds.height - padding.top - point.y) / metrics.cellSize.height)
+        let cellWidth = CGFloat(metrics.cellSize.width)
+        let cellHeight = CGFloat(metrics.cellSize.height)
+        let column = Int((point.x - padding.left) / cellWidth)
+        let row = Int((bounds.height - padding.top - point.y) / cellHeight)
         let clampedColumn = min(max(0, column), max(0, metrics.size.columns - 1))
         let clampedRow = min(max(0, row), max(0, metrics.size.rows - 1))
         return clampedRow * metrics.size.columns + clampedColumn
@@ -741,7 +786,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackOffset = 0
         markFullDamage()
         updateScrollIndicator()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func sendTerminalResponse(_ text: String) {
@@ -758,37 +803,28 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         submittedInputSequence &+= 1
         backgroundTaskInputSequence = submittedInputSequence
         backgroundTaskHasOutput = false
-        backgroundTaskLatestOutputSummary = nil
+        backgroundTaskOutputText = ""
         backgroundTaskNotificationWorkItem?.cancel()
         backgroundTaskNotificationWorkItem = nil
     }
 
-    private func recordOutputForBackgroundTask() {
+    private func recordOutputForBackgroundTask(_ text: String) {
         guard backgroundTaskInputSequence != nil else {
             return
         }
         backgroundTaskHasOutput = true
-        backgroundTaskLatestOutputSummary = latestVisibleNotificationSummary()
+        appendBackgroundTaskOutputText(text)
         scheduleBackgroundTaskIdleCheck()
     }
 
-    private func latestVisibleNotificationSummary() -> String? {
-        let lines = screen.cells.map { row in
-            TerminalSelectionText.line(from: row.map {
-                TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation)
-            })
+    private func appendBackgroundTaskOutputText(_ text: String) {
+        backgroundTaskOutputText.append(text)
+        let maxCharacters = AppConstants.Notifications.backgroundTaskOutputCaptureMaxCharacters
+        guard backgroundTaskOutputText.count > maxCharacters else {
+            return
         }
-        guard let line = TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: lines) else {
-            return nil
-        }
-        if line.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
-            return line
-        }
-        let endIndex = line.index(
-            line.startIndex,
-            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
-        )
-        return String(line[..<endIndex])
+        let startIndex = backgroundTaskOutputText.index(backgroundTaskOutputText.endIndex, offsetBy: -maxCharacters)
+        backgroundTaskOutputText = String(backgroundTaskOutputText[startIndex...])
     }
 
     private func scheduleBackgroundTaskIdleCheck() {
@@ -815,17 +851,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskInputSequence = nil
         backgroundTaskHasOutput = false
         backgroundTaskNotificationWorkItem = nil
-        let summary = backgroundTaskLatestOutputSummary
-        backgroundTaskLatestOutputSummary = nil
-        let body = backgroundTaskNotificationBody(summary: summary)
+        let outputText = backgroundTaskOutputText
+        backgroundTaskOutputText = ""
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        let body = backgroundTaskNotificationBody(outputText: outputText)
         notifier.notifyBackgroundTaskCompleted(body: body)
     }
 
-    private func backgroundTaskNotificationBody(summary: String?) -> String {
-        guard exposeBackgroundTaskOutputSummary, let summary else {
+    private var isTerminalFocusedForUser: Bool {
+        NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
+    }
+
+    private var shouldDeliverUserNotification: Bool {
+        !isTerminalFocusedForUser
+    }
+
+    private func backgroundTaskNotificationBody(outputText: String) -> String {
+        guard let summary = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: outputText) else {
             return AppConstants.Notifications.backgroundTaskFinishedBody
         }
-        return summary
+        if summary.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
+            return summary
+        }
+        let endIndex = summary.index(
+            summary.startIndex,
+            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
+        )
+        return String(summary[..<endIndex])
     }
 
     private func enqueueOutput(_ text: String) {
@@ -895,7 +949,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        recordOutputForBackgroundTask()
+        recordOutputForBackgroundTask(text)
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
@@ -904,7 +958,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func visibleText() -> String {
@@ -988,7 +1042,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorBlinkTimer = timer
         RunLoop.main.add(timer, forMode: .common)
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func stopCursorBlinking(showCursor: Bool) {
@@ -996,7 +1050,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorBlinkTimer = nil
         cursorBlinkOn = showCursor
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func toggleCursorBlink() {
@@ -1006,7 +1060,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         cursorBlinkOn.toggle()
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func selectWord(at position: TerminalCellPosition) {
@@ -1026,7 +1080,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         selectionFocus = TerminalCellPosition(row: position.row, column: bounds.endColumn)
         selectionGestureState.selectWord()
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func updateSelectionFocus(with event: NSEvent, autoscroll: Bool) {
@@ -1040,14 +1094,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let focus = cellPosition(for: event)
         selectionFocus = focus == anchor ? nil : focus
         markFullDamage()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func autoscrollSelectionIfNeeded(with event: NSEvent) {
         guard !scrollbackRows.isEmpty else { return }
         let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
-        let threshold = max(metrics.cellSize.height, 18)
+        let threshold = max(CGFloat(metrics.cellSize.height), 18)
         let topEdge = bounds.height - padding.top
         let bottomEdge = padding.bottom
 
@@ -1076,8 +1130,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func cellPosition(for event: NSEvent) -> TerminalCellPosition {
         let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
-        let rawColumn = Int(floor((location.x - padding.left) / metrics.cellSize.width))
-        let rawRow = Int(floor((bounds.height - location.y - padding.top) / metrics.cellSize.height))
+        let cellWidth = CGFloat(metrics.cellSize.width)
+        let cellHeight = CGFloat(metrics.cellSize.height)
+        let rawColumn = Int(floor((location.x - padding.left) / cellWidth))
+        let rawRow = Int(floor((bounds.height - location.y - padding.top) / cellHeight))
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
         let visibleRow = max(0, min(metrics.size.rows - 1, rawRow))
         let maxContentRow = max(0, allRowsForSelection().count - 1)
@@ -1105,7 +1161,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         } else {
             NSCursor.iBeam.set()
         }
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange? {
@@ -1181,12 +1237,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func terminalMetrics() -> TerminalMetrics {
         let scale = currentBackingScale
         let rawLineHeight = ceil(font.ascender - font.descender + font.leading) + 2
-        let rawWidth = max(AppConstants.Terminal.minimumCellWidthPX, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
+        let rawWidth = max(
+            AppConstants.Terminal.minimumCellWidthPX,
+            ("0" as NSString).size(withAttributes: [.font: font]).width
+        )
         let lineHeight = snapMetricToPhysicalPixels(rawLineHeight, scale: scale)
         let width = snapMetricToPhysicalPixels(rawWidth, scale: scale)
         let columns = max(1, Int((bounds.width - padding.left - padding.right) / width))
         let rows = max(1, Int((bounds.height - padding.top - padding.bottom) / lineHeight))
-        return TerminalMetrics(size: TerminalSize(columns: columns, rows: rows), cellSize: CGSize(width: width, height: lineHeight))
+        return TerminalMetrics(
+            size: TerminalSize(columns: columns, rows: rows),
+            cellSize: TerminalFrameSize(width: Double(width), height: Double(lineHeight))
+        )
     }
 
     private var effectiveBackingScale: CGFloat {
@@ -1218,7 +1280,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             nextAnsiColors: nextAnsiColors
         )
         maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
-        exposeBackgroundTaskOutputSummary = settings.notifications.exposeBackgroundTaskOutputSummary
         currentStyle = terminalDefaultStyle
         screen.remapColors(colorMap)
         scrollbackRows.remapColors(colorMap)
@@ -1229,14 +1290,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         updateScrollIndicator()
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
-        metalView.applyAppearance(
+        renderer.applyAppearance(
             font: nextFont,
             backgroundColor: terminalDefaultStyle.background,
             cursorColor: settings.terminal.colors.cursorColor
         )
         markFullDamage()
         syncSizeWithView()
-        updateMetalFrame()
+        updateRendererFrame()
     }
 
     private static func ansiColors(from settings: AppSettings) -> [SIMD4<Float>] {
@@ -1286,7 +1347,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             padding: padding,
             cursorRow: cursorRow,
             cursorColumn: cursorColumn,
-            cellSize: metrics.cellSize,
+            cellSize: CGSize(
+                width: CGFloat(metrics.cellSize.width),
+                height: CGFloat(metrics.cellSize.height)
+            ),
             columns: metrics.size.columns,
             rows: metrics.size.rows
         )
@@ -1426,54 +1490,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func layoutScrollIndicator() {
-        let width = DesignTokens.Component.terminalScrollerWidthPX
-        let scrollerX = max(0, bounds.width - width)
-        verticalScroller.frame = NSRect(
-            x: scrollerX,
-            y: 0,
-            width: width,
-            height: bounds.height
+        let visibleRows = max(1, terminalMetrics().size.rows)
+        scrollIndicatorCoordinator.layout(
+            in: bounds,
+            visibleRows: visibleRows,
+            maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
+            scrollbackOffset: scrollbackOffset
         )
-        updateScrollIndicator()
     }
 
     private func updateScrollIndicator() {
         let visibleRows = max(1, terminalMetrics().size.rows)
-        let maxOffset = maxScrollbackOffset(visibleRows: visibleRows)
-        let isHidden = maxOffset == 0 || bounds.height <= 0
-        verticalScroller.isHidden = isHidden
-        scrollThumbView.isHidden = isHidden
-        guard !isHidden else { return }
-        let trackHeight = max(CGFloat(1), verticalScroller.bounds.height)
-        let contentRows = visibleRows + maxOffset
-        let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)
-        let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight
-        let knobProportion = min(
-            CGFloat(1),
-            max(
-                DesignTokens.Component.terminalScrollerMinKnobProportion,
-                minimumHeightKnob,
-                proportionalKnob
-            )
+        scrollIndicatorCoordinator.update(
+            bounds: bounds,
+            visibleRows: visibleRows,
+            maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
+            scrollbackOffset: scrollbackOffset
         )
-        verticalScroller.knobProportion = knobProportion
-        verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
-        verticalScroller.needsDisplay = true
-
-        // NSScroller can be nearly invisible depending on system overlay style.
-        // Draw a deterministic thumb so scrollback position is always visible.
-        let thumbWidth = DesignTokens.Component.terminalScrollerThumbWidthPX
-        let thumbHeight = trackHeight * knobProportion
-        let clampedThumbHeight = min(trackHeight, thumbHeight)
-        let maxTravel = max(CGFloat.zero, trackHeight - clampedThumbHeight)
-        let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
-        scrollThumbView.frame = NSRect(
-            x: verticalScroller.frame.minX + (verticalScroller.bounds.width - thumbWidth) / 2,
-            y: verticalScroller.frame.minY + maxTravel * normalizedOffset,
-            width: thumbWidth,
-            height: clampedThumbHeight
-        )
-        scrollThumbView.needsDisplay = true
     }
 
     private func shouldAppendScrollbackForActiveScrollRegion() -> Bool {
@@ -1594,6 +1627,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func notifyItermOsc9(_ payload: String) {
+        guard shouldDeliverUserNotification else {
+            return
+        }
         notifier.notifyItermOsc9(message: payload)
     }
 
@@ -1919,11 +1955,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 .sorted()
         }
         let rects = rows.map { row in
-            TerminalFrameRect(
-                x: padding.left,
-                y: bounds.height - padding.top - metrics.cellSize.height * CGFloat(row + 1),
-                width: metrics.cellSize.width * CGFloat(metrics.size.columns),
-                height: metrics.cellSize.height
+            let cellWidth = CGFloat(metrics.cellSize.width)
+            let cellHeight = CGFloat(metrics.cellSize.height)
+            return TerminalFrameRect(
+                x: Double(padding.left),
+                y: Double(bounds.height - padding.top - cellHeight * CGFloat(row + 1)),
+                width: Double(cellWidth * CGFloat(metrics.size.columns)),
+                height: Double(cellHeight)
             )
         }
         pendingDirtyRows.removeAll(keepingCapacity: true)

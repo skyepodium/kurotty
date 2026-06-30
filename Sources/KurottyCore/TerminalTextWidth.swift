@@ -1,6 +1,6 @@
 import Foundation
 
-extension Character {
+public extension Character {
     var terminalColumnWidth: Int {
         if unicodeScalars.allSatisfy({ CharacterSet.nonBaseCharacters.contains($0) }) {
             return 0
@@ -44,7 +44,7 @@ extension Character {
     }
 }
 
-extension String {
+public extension String {
     var terminalColumnWidth: Int {
         reduce(0) { $0 + $1.terminalColumnWidth }
     }

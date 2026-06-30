@@ -1,4 +1,5 @@
 import XCTest
+@testable import KurottyCore
 @testable import KurottyApp
 
 final class AppSettingsBehaviorTests: XCTestCase {
@@ -8,6 +9,11 @@ final class AppSettingsBehaviorTests: XCTestCase {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
+    private static let settingsDefaultsSourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/KurottyCore/SettingsDefaults.swift")
 
     override func setUpWithError() throws {
         temporaryDirectory = FileManager.default.temporaryDirectory
@@ -78,6 +84,34 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertFalse(storeBody.contains(".write(to:"))
         XCTAssertTrue(source.contains("struct AppSettingsPersistence"))
         XCTAssertTrue(persistenceBody.contains("DispatchQueue"))
+    }
+
+    func testSettingsNormalizationIsSeparatedFromMainActorStore() throws {
+        let source = try String(contentsOf: Self.appSettingsSourceURL, encoding: .utf8)
+        let defaultsSource = try String(contentsOf: Self.settingsDefaultsSourceURL, encoding: .utf8)
+        let portableValuesSection = try XCTUnwrap(Self.sectionBody(
+            from: "// MARK: - Portable Settings Values",
+            to: "// MARK: - Portable Settings Normalization",
+            in: source
+        ))
+        let normalizerBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsNormalizer", in: source))
+        let storeBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsStore", in: source))
+
+        XCTAssertTrue(source.contains("// MARK: - Portable Settings Values"))
+        XCTAssertTrue(source.contains("// MARK: - Portable Settings Normalization"))
+        XCTAssertTrue(source.contains("// MARK: - App-Side Settings Store"))
+        XCTAssertTrue(source.contains("struct AppSettingsNormalizer"))
+        XCTAssertTrue(defaultsSource.contains("public enum SettingsDefaults"))
+        XCTAssertTrue(defaultsSource.contains("public enum TerminalColorDefaults"))
+        XCTAssertFalse(portableValuesSection.contains("DesignTokens"))
+        XCTAssertFalse(portableValuesSection.contains("AppConstants"))
+        XCTAssertFalse(normalizerBody.contains("DesignTokens"))
+        XCTAssertFalse(normalizerBody.contains("AppConstants"))
+        XCTAssertFalse(normalizerBody.contains("FileManager"))
+        XCTAssertFalse(normalizerBody.contains("NotificationCenter"))
+        XCTAssertFalse(storeBody.contains("migrateLegacyDefaults"))
+        XCTAssertFalse(storeBody.contains("normalizeTheme"))
+        XCTAssertTrue(storeBody.contains("AppSettingsNormalizer.normalized"))
     }
 
     @MainActor
@@ -162,7 +196,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     }
 
     func testRepeatPrecedingGraphicCharacterCopiesCellAndStyleForTmuxStatusRedraws() throws {
-        var screen = TerminalScreen(rows: 1, columns: 6)
+        var screen = KurottyCore.TerminalScreen(rows: 1, columns: 6)
         let style = TerminalTextStyle(
             foreground: SIMD4<Float>(1, 1, 1, 1),
             background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
@@ -181,7 +215,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     }
 
     func testPrintableSpaceOverwritesPreviousGlyphForColumnAlignedOutput() throws {
-        var screen = TerminalScreen(rows: 1, columns: 12)
+        var screen = KurottyCore.TerminalScreen(rows: 1, columns: 12)
         let promptStyle = TerminalTextStyle(
             foreground: SIMD4<Float>(1, 1, 1, 1),
             background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
@@ -201,7 +235,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     }
 
     func testEraseCharacterClearsOnlyRequestedCellsWithCurrentStyle() throws {
-        var screen = TerminalScreen(rows: 1, columns: 10)
+        var screen = KurottyCore.TerminalScreen(rows: 1, columns: 10)
         let statusStyle = TerminalTextStyle(
             foreground: SIMD4<Float>(1, 1, 1, 1),
             background: SIMD4<Float>(0.35, 0.2, 0.9, 1)
@@ -231,7 +265,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
             foreground: SIMD4<Float>(0.2, 0.7, 0.8, 1),
             background: SIMD4<Float>(0.4, 0.2, 0.9, 1)
         )
-        var screen = TerminalScreen(rows: 1, columns: 3)
+        var screen = KurottyCore.TerminalScreen(rows: 1, columns: 3)
         screen.set(character: "a", row: 0, column: 0, width: 1, style: previousDefaultStyle)
         screen.set(character: "b", row: 0, column: 1, width: 1, style: explicitStyle)
         screen.set(character: "c", row: 0, column: 2, width: 1, style: previousDefaultStyle)
@@ -253,10 +287,10 @@ final class AppSettingsBehaviorTests: XCTestCase {
             background: TerminalColorSettings.default.backgroundColor
         )
         let previousAnsiColors = TerminalColorSettings.lightty.ansi.map {
-            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+            ColorHexParser.parse($0, fallback: TerminalColorDefaults.foreground)
         }
         let nextAnsiColors = TerminalColorSettings.default.ansi.map {
-            ColorHexParser.parse($0, fallback: DesignTokens.Color.terminalForeground)
+            ColorHexParser.parse($0, fallback: TerminalColorDefaults.foreground)
         }
         let colorMap = TerminalStyleColorMap(
             previousDefaultStyle: previousDefaultStyle,
@@ -264,7 +298,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
             previousAnsiColors: previousAnsiColors,
             nextAnsiColors: nextAnsiColors
         )
-        var screen = TerminalScreen(rows: 1, columns: 3)
+        var screen = KurottyCore.TerminalScreen(rows: 1, columns: 3)
         let lighttyWhite = TerminalColorSettings.lightty.backgroundColor
         let promptStyle = TerminalTextStyle(
             foreground: lighttyWhite,
@@ -448,6 +482,15 @@ final class AppSettingsBehaviorTests: XCTestCase {
             index = source.index(after: index)
         }
         return nil
+    }
+
+    private static func sectionBody(from startMarker: String, to endMarker: String, in source: String) -> String? {
+        guard let start = source.range(of: startMarker)?.upperBound,
+              let end = source[start...].range(of: endMarker)?.lowerBound
+        else {
+            return nil
+        }
+        return String(source[start..<end])
     }
 
     private func makeBundle(named name: String, infoDictionary: [String: String]) throws -> Bundle {

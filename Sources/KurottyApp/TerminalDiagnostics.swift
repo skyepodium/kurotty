@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 import simd
 
 struct TerminalNotificationLogMetadata: CustomStringConvertible {
