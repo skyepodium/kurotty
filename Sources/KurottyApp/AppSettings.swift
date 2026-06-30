@@ -28,7 +28,7 @@ struct AppSettings: Codable, Equatable {
     )
 
     private enum Defaults {
-        static let schemaVersion = 8
+        static let schemaVersion = 9
         static let fontName = "Menlo"
         static let fontSize = Double(DesignTokens.Typography.terminalFontSizePT)
         static let scrollbackLines = AppConstants.Terminal.maxScrollbackRows
@@ -143,7 +143,7 @@ struct ShellSettings: Codable, Equatable {
 struct NotificationSettings: Codable, Equatable {
     var exposeBackgroundTaskOutputSummary: Bool
 
-    static let `default` = NotificationSettings(exposeBackgroundTaskOutputSummary: false)
+    static let `default` = NotificationSettings(exposeBackgroundTaskOutputSummary: true)
 }
 
 struct TerminalColorSettings: Codable, Equatable {
@@ -321,6 +321,7 @@ final class AppSettingsStore {
         next.schemaVersion = currentSchemaVersion
         if sourceSchemaVersion < currentSchemaVersion {
             migrateLegacyDefaults(&next)
+            migrateNotificationDefaults(&next, sourceSchemaVersion: sourceSchemaVersion)
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,6 +399,13 @@ final class AppSettingsStore {
         settings.terminal.colors.background = TerminalColorSettings.default.background
         settings.terminal.colors.cursor = TerminalColorSettings.default.cursor
         settings.terminal.colors.ansi = TerminalColorSettings.default.ansi
+    }
+
+    private func migrateNotificationDefaults(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
+        guard sourceSchemaVersion < 9 else {
+            return
+        }
+        settings.notifications.exposeBackgroundTaskOutputSummary = true
     }
 
     private enum LegacyDefaults {

@@ -360,7 +360,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     }
 
     @MainActor
-    func testNotificationPrivacyDefaultsDoNotExposeBackgroundTaskOutput() throws {
+    func testNotificationDefaultsExposeBackgroundTaskOutputSummary() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
 
         try store.save(rawJSON: settingsJSON(
@@ -371,7 +371,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         let settings = try store.load()
 
         XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
-        XCTAssertFalse(settings.notifications.exposeBackgroundTaskOutputSummary)
+        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
     }
 
     @MainActor
@@ -387,6 +387,36 @@ final class AppSettingsBehaviorTests: XCTestCase {
         let settings = try store.load()
 
         XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
+    }
+
+    @MainActor
+    func testLegacyNotificationPrivacyDefaultMigratesToVisibleSummary() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 8,
+            theme: TerminalThemePreset.darkName,
+            colors: defaultColorsJSON(),
+            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":false}"#
+        ))
+        let settings = try store.load()
+
+        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
+    }
+
+    @MainActor
+    func testCurrentNotificationPrivacyOptOutIsPreserved() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: AppSettings.default.schemaVersion ?? 9,
+            theme: TerminalThemePreset.darkName,
+            colors: defaultColorsJSON(),
+            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":false}"#
+        ))
+        let settings = try store.load()
+
+        XCTAssertFalse(settings.notifications.exposeBackgroundTaskOutputSummary)
     }
 
     private func settingsURL() -> URL {

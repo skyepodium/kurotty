@@ -58,7 +58,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var backgroundTaskInputSequence: Int?
     private var backgroundTaskHasOutput = false
     private var backgroundTaskLatestOutputSummary: String?
-    private var exposeBackgroundTaskOutputSummary = false
+    private var exposeBackgroundTaskOutputSummary = true
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
@@ -816,9 +816,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskNotificationWorkItem = nil
         let summary = backgroundTaskLatestOutputSummary
         backgroundTaskLatestOutputSummary = nil
-        guard !isTerminalFocusedForUser else {
-            return
-        }
         let body = backgroundTaskNotificationBody(summary: summary)
         notifier.notifyBackgroundTaskCompleted(body: body)
     }
@@ -828,13 +825,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return AppConstants.Notifications.backgroundTaskFinishedBody
         }
         return summary
-    }
-
-    private var isTerminalFocusedForUser: Bool {
-        guard let window else {
-            return false
-        }
-        return NSApp.isActive && window.isKeyWindow && window.firstResponder === self
     }
 
     private func enqueueOutput(_ text: String) {

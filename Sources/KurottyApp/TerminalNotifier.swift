@@ -69,7 +69,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     private func deliver(title: String, body: String, identifierPrefix: String) {
         let metadata = TerminalNotificationLogMetadata(identifierPrefix: identifierPrefix, title: title, body: body)
         guard let center else {
-            terminalNotificationLogger.info("skipped outside app bundle metadata=\(metadata.description, privacy: .public)")
+            deliverDevelopmentNotification(title: title, body: body, metadata: metadata)
             return
         }
 
@@ -95,6 +95,30 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
                 terminalNotificationLogger.info("delivered request identifier=\(request.identifier, privacy: .public)")
             }
         }
+    }
+
+    private func deliverDevelopmentNotification(
+        title: String,
+        body: String,
+        metadata: TerminalNotificationLogMetadata
+    ) {
+        let script = "display notification \(appleScriptString(body)) with title \(appleScriptString(title))"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: AppConstants.Notifications.developmentNotificationExecutablePath)
+        process.arguments = ["-e", script]
+        do {
+            try process.run()
+            terminalNotificationLogger.info("development fallback enqueue metadata=\(metadata.description, privacy: .public)")
+        } catch {
+            terminalNotificationLogger.error("development fallback failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func appleScriptString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     nonisolated func userNotificationCenter(
