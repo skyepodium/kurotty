@@ -132,6 +132,7 @@ enum AppConstants {
         static let backgroundTaskFinishedBody = "Task finished."
         static let backgroundTaskIdleSeconds: TimeInterval = 1.2
         static let backgroundTaskSummaryMaxCharacters = 180
+        static let developmentNotificationExecutablePath = "/usr/bin/osascript"
     }
 
     enum Diagnostics {

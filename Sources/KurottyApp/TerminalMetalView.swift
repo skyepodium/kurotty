@@ -56,6 +56,7 @@ struct TerminalDecoration {
     enum Kind {
         case underline
         case strikethrough
+        case boxDrawing(left: Bool, right: Bool, up: Bool, down: Bool)
     }
 }
 
@@ -598,6 +599,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         var glyphDebugRects: [CGRect] = []
         instances.reserveCapacity(terminalFrame.cells.count + terminalFrame.markedText.count)
         for cell in terminalFrame.cells {
+            guard !isCellCoveredByMarkedText(cell) else { continue }
             appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, debugRects: &glyphDebugRects, color: cell.foreground)
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
@@ -643,12 +645,28 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         var decorations: [GlyphInstance] = []
         decorations.reserveCapacity(terminalFrame.decorations.count)
         for decoration in terminalFrame.decorations where decoration.row >= 0 && decoration.row < terminalFrame.visibleRows {
+            if case let .boxDrawing(left, right, up, down) = decoration.kind {
+                appendBoxDrawingDecorationInstances(
+                    column: decoration.column,
+                    row: decoration.row,
+                    left: left,
+                    right: right,
+                    up: up,
+                    down: down,
+                    color: decoration.color,
+                    to: &decorations
+                )
+                continue
+            }
+
             let yOffset: CGFloat
             switch decoration.kind {
             case .underline:
                 yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))
             case .strikethrough:
                 yOffset = pixelAlign(terminalFrame.cellSize.height * 0.52, scale: backingScale)
+            case .boxDrawing:
+                continue
             }
             decorations.append(solidInstance(
                 column: decoration.column,
@@ -834,6 +852,57 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
             height: terminalFrame.cellSize.height
         )
+    }
+
+    private func appendBoxDrawingDecorationInstances(
+        column: Int,
+        row: Int,
+        left: Bool,
+        right: Bool,
+        up: Bool,
+        down: Bool,
+        color: SIMD4<Float>,
+        to instances: inout [GlyphInstance]
+    ) {
+        let lineThickness = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlineThicknessPixels))
+        let cellX = terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width
+        let cellY = bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1)
+        let centerX = pixelAlign(cellX + (terminalFrame.cellSize.width - lineThickness) * 0.5, scale: backingScale)
+        let centerY = pixelAlign(cellY + (terminalFrame.cellSize.height - lineThickness) * 0.5, scale: backingScale)
+        if left {
+            instances.append(solidInstance(rect: CGRect(
+                x: cellX,
+                y: centerY,
+                width: centerX - cellX + lineThickness,
+                height: lineThickness
+            ), color: color))
+        }
+        if right {
+            let cellMaxX = cellX + terminalFrame.cellSize.width
+            instances.append(solidInstance(rect: CGRect(
+                x: centerX,
+                y: centerY,
+                width: cellMaxX - centerX,
+                height: lineThickness
+            ), color: color))
+        }
+        if up {
+            let cellMaxY = cellY + terminalFrame.cellSize.height
+            instances.append(solidInstance(rect: CGRect(
+                x: centerX,
+                y: centerY,
+                width: lineThickness,
+                height: cellMaxY - centerY
+            ), color: color))
+        }
+        if down {
+            instances.append(solidInstance(rect: CGRect(
+                x: centerX,
+                y: cellY,
+                width: lineThickness,
+                height: centerY - cellY + lineThickness
+            ), color: color))
+        }
     }
 
     private func solidInstance(rect pointRect: CGRect, color: SIMD4<Float>) -> GlyphInstance {
@@ -1344,6 +1413,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             .foregroundColor: NSColor(calibratedWhite: 0.92, alpha: 1),
         ]
         for cell in terminalFrame.cells where cell.row >= 0 && cell.row < terminalFrame.visibleRows {
+            guard !isCellCoveredByMarkedText(cell) else { continue }
             let rect = cellRect(column: cell.column, row: cell.row, width: cell.character.terminalColumnWidth)
             (String(cell.character) as NSString).draw(in: rect, withAttributes: attrs)
         }
@@ -1392,6 +1462,25 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         text.reduce(0) { width, character in
             width + character.terminalColumnWidth
         }
+    }
+
+    private func isCellCoveredByMarkedText(_ cell: TerminalCell) -> Bool {
+        guard !terminalFrame.markedText.isEmpty,
+              terminalFrame.cursorRow >= 0,
+              cell.row == terminalFrame.cursorRow
+        else {
+            return false
+        }
+
+        let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns
+        guard !markedTextRange.isEmpty else { return false }
+
+        let cellEndColumn = min(
+            terminalFrame.columns,
+            cell.column + max(1, cell.character.terminalColumnWidth)
+        )
+        let cellRange = cell.column..<cellEndColumn
+        return cellRange.overlaps(markedTextRange)
     }
 
     private func markedTextColor(for character: Character, utf16Offset: Int) -> SIMD4<Float> {

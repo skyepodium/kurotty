@@ -53,11 +53,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingFullDamage = true
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
+    private var scrollbackRowsAppendedDuringOutput = 0
     private var submittedInputSequence = 0
     private var backgroundTaskInputSequence: Int?
     private var backgroundTaskHasOutput = false
     private var backgroundTaskLatestOutputSummary: String?
-    private var exposeBackgroundTaskOutputSummary = false
+    private var exposeBackgroundTaskOutputSummary = true
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
     private var windowScreenObserver: NSObjectProtocol?
@@ -519,6 +520,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         color: TerminalLinkRange.hoverColor
                     ))
                 }
+                if appendBoxDrawingDecoration(
+                    for: cell.character,
+                    column: column,
+                    row: row,
+                    color: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
+                    to: &decorations
+                ) {
+                    continue
+                }
                 if cell.character != " " {
                     cells.append(TerminalCell(
                         character: cell.character,
@@ -562,6 +572,53 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if cell.character == " ", cell.style == .default {
             return false
         }
+        return true
+    }
+
+    private func appendBoxDrawingDecoration(
+        for character: Character,
+        column: Int,
+        row: Int,
+        color: SIMD4<Float>,
+        to decorations: inout [TerminalDecoration]
+    ) -> Bool {
+        let left: Bool
+        let right: Bool
+        let up: Bool
+        let down: Bool
+        switch character {
+        case "─":
+            left = true; right = true; up = false; down = false
+        case "│":
+            left = false; right = false; up = true; down = true
+        case "┌", "╭":
+            left = false; right = true; up = false; down = true
+        case "┐", "╮":
+            left = true; right = false; up = false; down = true
+        case "└", "╰":
+            left = false; right = true; up = true; down = false
+        case "┘", "╯":
+            left = true; right = false; up = true; down = false
+        case "├":
+            left = false; right = true; up = true; down = true
+        case "┤":
+            left = true; right = false; up = true; down = true
+        case "┬":
+            left = true; right = true; up = false; down = true
+        case "┴":
+            left = true; right = true; up = true; down = false
+        case "┼":
+            left = true; right = true; up = true; down = true
+        default:
+            return false
+        }
+        decorations.append(TerminalDecoration(
+            column: column,
+            row: row,
+            width: 1,
+            kind: .boxDrawing(left: left, right: right, up: up, down: down),
+            color: color
+        ))
         return true
     }
 
@@ -609,6 +666,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        followLiveOutputForUserInput()
         markMarkedTextDirty()
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
@@ -671,9 +729,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func send(_ text: String, recordsUserActivity: Bool = true) {
         clearSelection()
         if recordsUserActivity {
+            followLiveOutputForUserInput()
             recordUserInput(text)
         }
         shell.write(text)
+    }
+
+    private func followLiveOutputForUserInput() {
+        guard scrollbackOffset != 0 else { return }
+        scrollbackOffset = 0
+        markFullDamage()
+        updateScrollIndicator()
+        updateMetalFrame()
     }
 
     private func sendTerminalResponse(_ text: String) {
@@ -749,9 +816,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskNotificationWorkItem = nil
         let summary = backgroundTaskLatestOutputSummary
         backgroundTaskLatestOutputSummary = nil
-        guard !isTerminalFocusedForUser else {
-            return
-        }
         let body = backgroundTaskNotificationBody(summary: summary)
         notifier.notifyBackgroundTaskCompleted(body: body)
     }
@@ -761,13 +825,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return AppConstants.Notifications.backgroundTaskFinishedBody
         }
         return summary
-    }
-
-    private var isTerminalFocusedForUser: Bool {
-        guard let window else {
-            return false
-        }
-        return NSApp.isActive && window.isKeyWindow && window.firstResponder === self
     }
 
     private func enqueueOutput(_ text: String) {
@@ -798,7 +855,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func appendOutput(_ text: String) {
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
-        let scrollbackCountBeforeOutput = scrollbackRows.count
+        scrollbackRowsAppendedDuringOutput = 0
         let shouldFollowOutput = scrollbackOffset == 0
         if shouldFollowOutput {
             scrollbackOffset = 0
@@ -839,11 +896,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         recordOutputForBackgroundTask()
         markDirty(row: cursorRow)
-        let appendedScrollbackCount = max(0, scrollbackRows.count - scrollbackCountBeforeOutput)
+        let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
             scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)
             markFullDamage()
         }
+        scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
         updateMetalFrame()
     }
@@ -1348,6 +1406,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
+        scrollbackRowsAppendedDuringOutput += rows.count
         scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)
         scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
         updateScrollIndicator()

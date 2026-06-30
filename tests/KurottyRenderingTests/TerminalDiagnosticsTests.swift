@@ -35,6 +35,19 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummarySkipsCodexContextStatusLines() {
+        let answerLine = "작업 완료: 알림 본문은 마지막 완료 요약을 보여줍니다."
+        let statusLine = "gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Full Access · never · Context 100% left · Context 0% used · 5h 7..."
+
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
+                answerLine,
+                statusLine,
+            ]),
+            answerLine
+        )
+    }
+
     func testNotificationSummarySkipsPromptPlaceholderLines() {
         let answerLine = "원인 잡아서 고쳤습니다."
 

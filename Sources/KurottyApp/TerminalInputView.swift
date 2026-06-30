@@ -113,7 +113,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     override func doCommand(by selector: Selector) {
         switch selector {
         case #selector(insertNewline(_:)):
-            core.feed("\n")
+            core.feed("\r")
         case #selector(insertTab(_:)):
             core.feed("\t")
         case #selector(cancelOperation(_:)):
@@ -131,12 +131,14 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
         markedText = NSMutableAttributedString(attributedString: attr)
         self.inputSelectedRange = selectedRange
+        needsDisplay = true
     }
 
     func unmarkText() {
         TerminalTextInputRouter.logUnmarkText()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+        needsDisplay = true
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
@@ -172,5 +174,6 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     private func resetMarkedTextForInputSourceChange() {
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+        needsDisplay = true
     }
 }

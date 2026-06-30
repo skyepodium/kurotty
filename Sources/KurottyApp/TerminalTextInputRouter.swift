@@ -26,6 +26,10 @@ enum TerminalTextInputRouter {
     }
 
     static func terminalControlText(for event: NSEvent) -> String? {
+        if let enterText = terminalEnterText(for: event) {
+            return enterText
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.control), !flags.contains(.command), !flags.contains(.option) else {
             return nil
@@ -68,6 +72,20 @@ enum TerminalTextInputRouter {
         }
     }
 
+    private static func terminalEnterText(for event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.subtracting([.shift, .numericPad, .function]).isEmpty else {
+            return nil
+        }
+
+        switch event.keyCode {
+        case 36, 76:
+            return flags.contains(.shift) ? "\n" : "\r"
+        default:
+            return nil
+        }
+    }
+
     private static func controlBaseScalarValue(forKeyCode keyCode: UInt16) -> UInt32? {
         switch keyCode {
         case 11: return 0x62
@@ -94,6 +112,10 @@ enum TerminalTextInputRouter {
     private static func shouldOfferToInputContext(_ event: NSEvent, hasMarkedText: Bool) -> Bool {
         if hasMarkedText {
             return true
+        }
+
+        if terminalControlText(for: event) != nil {
+            return false
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

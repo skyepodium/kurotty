@@ -30,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController = controller
     }
 
+    @objc func focusExistingTerminalWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        activeTerminalWindowController?.window?.makeKeyAndOrderFront(nil)
+    }
+
     @objc func openPreferences() {
         let controller = preferencesController ?? PreferencesWindowController()
         preferencesController = controller
