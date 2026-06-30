@@ -131,6 +131,7 @@ enum AppConstants {
         static let testBody = "Kurotty test notification."
         static let backgroundTaskFinishedBody = "Task finished."
         static let backgroundTaskIdleSeconds: TimeInterval = 1.2
+        static let backgroundTaskOutputCaptureMaxCharacters = 4096
         static let backgroundTaskSummaryMaxCharacters = 180
         static let developmentNotificationExecutablePath = "/usr/bin/osascript"
     }

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Darwin
 import Foundation
 
@@ -9,19 +10,7 @@ private func systemForkpty(
     _ winp: UnsafePointer<winsize>?
 ) -> pid_t
 
-protocol TerminalSession: AnyObject {
-    var onOutput: ((String) -> Void)? { get set }
-    var onRawOutput: ((Data) -> Void)? { get set }
-    var onExit: ((Int32) -> Void)? { get set }
-
-    func start(workingDirectory requestedWorkingDirectory: String)
-    func write(_ text: String)
-    func canReceiveTerminalResponseWithoutEcho() -> Bool
-    func resize(columns: Int, rows: Int)
-    func stop()
-}
-
-final class ShellSession: TerminalSession, @unchecked Sendable {
+final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onExit: ((Int32) -> Void)?
@@ -284,3 +273,5 @@ private func runChildShell(workingDirectory: String) {
         execv(shellPath, &argv)
     }
 }
+
+#endif

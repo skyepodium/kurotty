@@ -208,6 +208,13 @@ pub const Grid = struct {
         return self.scratch;
     }
 
+    pub fn copyRow(self: *const Grid, row: usize, destination: []u8) usize {
+        if (row >= self.height or destination.len == 0) return 0;
+        const copied = @min(self.width, destination.len);
+        @memcpy(destination[0..copied], self.cells[self.index(row, 0)..self.index(row, copied)]);
+        return copied;
+    }
+
     pub fn cellAt(self: *const Grid, row: usize, col: usize) u8 {
         if (row >= self.height or col >= self.width) return ' ';
         return self.cells[self.index(row, col)];
@@ -219,6 +226,14 @@ pub const Grid = struct {
 
     pub fn cursorCol(self: *const Grid) usize {
         return self.cursor_col;
+    }
+
+    pub fn widthCells(self: *const Grid) usize {
+        return self.width;
+    }
+
+    pub fn heightRows(self: *const Grid) usize {
+        return self.height;
     }
 
     fn newline(self: *Grid) void {

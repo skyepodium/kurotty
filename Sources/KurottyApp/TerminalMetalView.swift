@@ -1,19 +1,28 @@
 import AppKit
 import CoreText
 import CoreGraphics
+import KurottyCore
 import Metal
 import MetalKit
 
 private extension TerminalFrameRect {
     var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
+        CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
     }
 }
 
 private extension TerminalFrameSize {
     var cgSize: CGSize {
-        CGSize(width: width, height: height)
+        CGSize(width: CGFloat(width), height: CGFloat(height))
     }
+
+    var cgWidth: CGFloat { CGFloat(width) }
+    var cgHeight: CGFloat { CGFloat(height) }
+}
+
+private extension TerminalFramePoint {
+    var cgX: CGFloat { CGFloat(x) }
+    var cgY: CGFloat { CGFloat(y) }
 }
 
 private struct BackgroundRun {
@@ -37,7 +46,7 @@ struct TerminalRenderingDiagnostics {
     let linearGlyphSamplingEnabled: Bool
 }
 
-final class TerminalMetalView: MTKView, MTKViewDelegate {
+final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
     private static let glyphFallbackFontNames = [
@@ -137,6 +146,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     override var isOpaque: Bool {
         true
     }
+
+    var rendererView: NSView { self }
 
     init(
         font: NSFont,
@@ -375,8 +386,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             drawableSize: drawableSize,
             cellSizePoints: terminalFrame.cellSize.cgSize,
             cellSizePixels: CGSize(
-                width: terminalFrame.cellSize.width * scale,
-                height: terminalFrame.cellSize.height * scale
+                width: terminalFrame.cellSize.cgWidth * scale,
+                height: terminalFrame.cellSize.cgHeight * scale
             ),
             glyphAtlasSizePixels: atlasSize,
             lastGlyphRectPixels: lastGlyphRectPixels,
@@ -598,7 +609,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                 column: background.column,
                 row: background.row,
                 width: background.width,
-                height: terminalFrame.cellSize.height,
+                height: terminalFrame.cellSize.cgHeight,
                 yOffset: 0,
                 color: background.color
             ))
@@ -608,7 +619,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         var decorations: [GlyphInstance] = []
         decorations.reserveCapacity(terminalFrame.decorations.count)
         for decoration in terminalFrame.decorations where decoration.row >= 0 && decoration.row < terminalFrame.visibleRows {
-            if case let .boxDrawing(left, right, up, down) = decoration.kind {
+            switch decoration.kind {
+            case let .boxDrawing(left, right, up, down):
                 appendBoxDrawingDecorationInstances(
                     column: decoration.column,
                     row: decoration.row,
@@ -620,6 +632,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
                     to: &decorations
                 )
                 continue
+            case let .blockElement(x, y, width, height):
+                decorations.append(blockElementInstance(
+                    column: decoration.column,
+                    row: decoration.row,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    color: decoration.color
+                ))
+                continue
+            case .underline, .strikethrough:
+                break
             }
 
             let yOffset: CGFloat
@@ -627,8 +652,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             case .underline:
                 yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))
             case .strikethrough:
-                yOffset = pixelAlign(terminalFrame.cellSize.height * 0.52, scale: backingScale)
-            case .boxDrawing:
+                yOffset = pixelAlign(terminalFrame.cellSize.cgHeight * 0.52, scale: backingScale)
+            case .boxDrawing, .blockElement:
                 continue
             }
             decorations.append(solidInstance(
@@ -699,9 +724,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         overrideWidth: CGFloat? = nil
     ) -> GlyphInstance {
         let pointRect = CGRect(
-            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
-            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1) + yOffset,
-            width: overrideWidth ?? terminalFrame.cellSize.width * CGFloat(max(1, width)),
+            x: terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth,
+            y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1) + yOffset,
+            width: overrideWidth ?? terminalFrame.cellSize.cgWidth * CGFloat(max(1, width)),
             height: height
         )
         let rect = physicalPixelRect(pointRect)
@@ -714,6 +739,25 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         )
     }
 
+    private func blockElementInstance(
+        column: Int,
+        row: Int,
+        x: Double,
+        y: Double,
+        width: Double,
+        height: Double,
+        color: SIMD4<Float>
+    ) -> GlyphInstance {
+        let cellX = terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth
+        let cellY = bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1)
+        return solidInstance(rect: CGRect(
+            x: cellX + terminalFrame.cellSize.cgWidth * CGFloat(x),
+            y: cellY + terminalFrame.cellSize.cgHeight * CGFloat(y),
+            width: terminalFrame.cellSize.cgWidth * CGFloat(width),
+            height: terminalFrame.cellSize.cgHeight * CGFloat(height)
+        ), color: color)
+    }
+
     private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect]) {
         guard self.device != nil else { return }
         var overlays: [GlyphInstance] = []
@@ -723,9 +767,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             for row in 0...terminalFrame.visibleRows {
                 overlays.append(debugSolidInstance(
                     rect: CGRect(
-                        x: terminalFrame.padding.x,
-                        y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row),
-                        width: terminalFrame.cellSize.width * CGFloat(max(1, terminalFrame.columns)),
+                        x: terminalFrame.padding.cgX,
+                        y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row),
+                        width: terminalFrame.cellSize.cgWidth * CGFloat(max(1, terminalFrame.columns)),
                         height: onePixel
                     ),
                     color: color
@@ -734,10 +778,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             for column in 0...terminalFrame.columns {
                 overlays.append(debugSolidInstance(
                     rect: CGRect(
-                        x: terminalFrame.padding.x + terminalFrame.cellSize.width * CGFloat(column),
-                        y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(1, terminalFrame.visibleRows)),
+                        x: terminalFrame.padding.cgX + terminalFrame.cellSize.cgWidth * CGFloat(column),
+                        y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(max(1, terminalFrame.visibleRows)),
                         width: onePixel,
-                        height: terminalFrame.cellSize.height * CGFloat(max(1, terminalFrame.visibleRows))
+                        height: terminalFrame.cellSize.cgHeight * CGFloat(max(1, terminalFrame.visibleRows))
                     ),
                     color: color
                 ))
@@ -749,9 +793,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             for row in 0..<terminalFrame.visibleRows {
                 overlays.append(debugSolidInstance(
                     rect: CGRect(
-                        x: terminalFrame.padding.x,
-                        y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1) + baselineOffset,
-                        width: terminalFrame.cellSize.width * CGFloat(max(1, terminalFrame.columns)),
+                        x: terminalFrame.padding.cgX,
+                        y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1) + baselineOffset,
+                        width: terminalFrame.cellSize.cgWidth * CGFloat(max(1, terminalFrame.columns)),
                         height: onePixel
                     ),
                     color: color
@@ -810,10 +854,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func inputCursorRect(row: Int) -> CGRect {
         CGRect(
-            x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,
-            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1),
+            x: terminalFrame.padding.cgX + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.cgWidth,
+            y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1),
             width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
-            height: terminalFrame.cellSize.height
+            height: terminalFrame.cellSize.cgHeight
         )
     }
 
@@ -828,10 +872,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         to instances: inout [GlyphInstance]
     ) {
         let lineThickness = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlineThicknessPixels))
-        let cellX = terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width
-        let cellY = bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1)
-        let centerX = pixelAlign(cellX + (terminalFrame.cellSize.width - lineThickness) * 0.5, scale: backingScale)
-        let centerY = pixelAlign(cellY + (terminalFrame.cellSize.height - lineThickness) * 0.5, scale: backingScale)
+        let cellX = terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth
+        let cellY = bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1)
+        let centerX = pixelAlign(cellX + (terminalFrame.cellSize.cgWidth - lineThickness) * 0.5, scale: backingScale)
+        let centerY = pixelAlign(cellY + (terminalFrame.cellSize.cgHeight - lineThickness) * 0.5, scale: backingScale)
         if left {
             instances.append(solidInstance(rect: CGRect(
                 x: cellX,
@@ -841,7 +885,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             ), color: color))
         }
         if right {
-            let cellMaxX = cellX + terminalFrame.cellSize.width
+            let cellMaxX = cellX + terminalFrame.cellSize.cgWidth
             instances.append(solidInstance(rect: CGRect(
                 x: centerX,
                 y: centerY,
@@ -850,7 +894,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             ), color: color))
         }
         if up {
-            let cellMaxY = cellY + terminalFrame.cellSize.height
+            let cellMaxY = cellY + terminalFrame.cellSize.cgHeight
             instances.append(solidInstance(rect: CGRect(
                 x: centerX,
                 y: centerY,
@@ -930,8 +974,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private func rasterizeGlyph(_ character: Character, x: Int, y: Int) -> RasterizedGlyph {
         var slotMask = [UInt8](repeating: 0, count: glyphSlotWidth * glyphSlotHeight)
         let columnWidth = max(1, character.terminalColumnWidth)
-        let logicalAdvanceWidth = terminalFrame.cellSize.width * CGFloat(columnWidth)
-        let logicalHeight = terminalFrame.cellSize.height
+        let logicalAdvanceWidth = terminalFrame.cellSize.cgWidth * CGFloat(columnWidth)
+        let logicalHeight = terminalFrame.cellSize.cgHeight
         let scale = atlasScale(forLogicalWidth: logicalAdvanceWidth, logicalHeight: logicalHeight)
         let scaledFont = scaledFont(for: character, scale: scale)
         let string = NSAttributedString(
@@ -1195,7 +1239,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             NSStringFromSize(drawableSize),
             NSStringFromSize(drawableSize),
             NSStringFromRect(bounds),
-            atlasScale(forLogicalWidth: max(1, terminalFrame.cellSize.width), logicalHeight: max(1, terminalFrame.cellSize.height)),
+            atlasScale(forLogicalWidth: max(1, terminalFrame.cellSize.cgWidth), logicalHeight: max(1, terminalFrame.cellSize.cgHeight)),
             atlasSize,
             "\(Self.glyphAtlasPixelFormat)",
             "\(Self.renderTargetPixelFormat)",
@@ -1279,8 +1323,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
 
     private func physicalPixelCellOrigin(column: Int, row: Int) -> PixelPoint {
         let pointOrigin = CGPoint(
-            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
-            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1)
+            x: terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth,
+            y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1)
         )
         let origin = physicalPixelPoint(pointOrigin)
         return PixelPoint(x: Int(origin.x), y: Int(origin.y))
@@ -1404,20 +1448,20 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         if terminalFrame.cursorBlinkOn, terminalFrame.cursorRow >= 0 {
             NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
             NSRect(
-                x: terminalFrame.padding.x + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.width,
-                y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(max(0, terminalFrame.cursorRow) + 1),
+                x: terminalFrame.padding.cgX + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.cgWidth,
+                y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(max(0, terminalFrame.cursorRow) + 1),
                 width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
-                height: terminalFrame.cellSize.height
+                height: terminalFrame.cellSize.cgHeight
             ).fill()
         }
     }
 
     private func cellRect(column: Int, row: Int, width: Int) -> NSRect {
         NSRect(
-            x: terminalFrame.padding.x + CGFloat(column) * terminalFrame.cellSize.width,
-            y: bounds.height - terminalFrame.padding.y - terminalFrame.cellSize.height * CGFloat(row + 1),
-            width: terminalFrame.cellSize.width * CGFloat(max(1, width)),
-            height: terminalFrame.cellSize.height
+            x: terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth,
+            y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1),
+            width: terminalFrame.cellSize.cgWidth * CGFloat(max(1, width)),
+            height: terminalFrame.cellSize.cgHeight
         )
     }
 
@@ -1671,8 +1715,14 @@ private struct FontCellMetrics {
         let widthPixels = max(1, Int(round(cellSize.width * safeScale)))
         let heightPixels = max(1, Int(round(cellSize.height * safeScale)))
         let descenderPixels = max(0, Int(round(abs(font.descender) * safeScale)))
-        let underlineThicknessPixels = 1
-        let underlinePositionPixels = max(0, descenderPixels - underlineThicknessPixels)
+        let underlineThicknessPixels = max(1, Int(round(font.underlineThickness * safeScale)))
+        let underlinePositionPixels = max(
+            0,
+            min(
+                heightPixels - underlineThicknessPixels,
+                Int(round((abs(font.descender) + font.underlinePosition) * safeScale))
+            )
+        )
         self.init(
             fixedCellWidth: cellSize.width,
             fixedCellHeight: cellSize.height,

@@ -1,22 +1,42 @@
-import simd
+public struct TerminalTextStyle: Equatable, Sendable {
+    public var foreground: SIMD4<Float>
+    public var background: SIMD4<Float>
+    public var bold: Bool
+    public var dim: Bool
+    public var italic: Bool
+    public var underline: Bool
+    public var blink: Bool
+    public var strikethrough: Bool
+    public var inverse: Bool
 
-struct TerminalTextStyle: Equatable {
-    var foreground: SIMD4<Float>
-    var background: SIMD4<Float>
-    var bold = false
-    var dim = false
-    var italic = false
-    var underline = false
-    var blink = false
-    var strikethrough = false
-    var inverse = false
-
-    static let `default` = TerminalTextStyle(
+    public static let `default` = TerminalTextStyle(
         foreground: SIMD4<Float>(0.92, 0.92, 0.92, 1),
         background: SIMD4<Float>(0, 0, 0, 1)
     )
 
-    var effectiveForeground: SIMD4<Float> {
+    public init(
+        foreground: SIMD4<Float>,
+        background: SIMD4<Float>,
+        bold: Bool = false,
+        dim: Bool = false,
+        italic: Bool = false,
+        underline: Bool = false,
+        blink: Bool = false,
+        strikethrough: Bool = false,
+        inverse: Bool = false
+    ) {
+        self.foreground = foreground
+        self.background = background
+        self.bold = bold
+        self.dim = dim
+        self.italic = italic
+        self.underline = underline
+        self.blink = blink
+        self.strikethrough = strikethrough
+        self.inverse = inverse
+    }
+
+    public var effectiveForeground: SIMD4<Float> {
         if inverse {
             return background
         }
@@ -24,19 +44,19 @@ struct TerminalTextStyle: Equatable {
         return dim ? dimmed(weighted, against: background) : weighted
     }
 
-    var effectiveBackground: SIMD4<Float> {
+    public var effectiveBackground: SIMD4<Float> {
         inverse ? foreground : background
     }
 
-    var isLightBackground: Bool {
+    public var isLightBackground: Bool {
         luminance(background) > 0.5
     }
 
-    static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
+    public static func ansiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
         TerminalPalette.ansiColor(index, bright: bright)
     }
 
-    static func rgb(red: Int, green: Int, blue: Int) -> SIMD4<Float> {
+    public static func rgb(red: Int, green: Int, blue: Int) -> SIMD4<Float> {
         SIMD4<Float>(
             Float(max(0, min(red, 255))) / 255,
             Float(max(0, min(green, 255))) / 255,
@@ -45,7 +65,7 @@ struct TerminalTextStyle: Equatable {
         )
     }
 
-    static func xterm256Color(_ value: Int) -> SIMD4<Float> {
+    public static func xterm256Color(_ value: Int) -> SIMD4<Float> {
         let index = max(0, min(value, 255))
         if index < 16 {
             return ansiColor(index % 8, bright: index >= 8)
@@ -62,7 +82,7 @@ struct TerminalTextStyle: Equatable {
         return rgb(red: gray, green: gray, blue: gray)
     }
 
-    func remappingColors(_ colorMap: TerminalStyleColorMap) -> TerminalTextStyle {
+    public func remappingColors(_ colorMap: TerminalStyleColorMap) -> TerminalTextStyle {
         var next = self
         next.foreground = colorMap.remapForeground(foreground)
         next.background = colorMap.remapBackground(background)
@@ -104,11 +124,11 @@ struct TerminalTextStyle: Equatable {
     }
 }
 
-struct TerminalStyleColorMap {
+public struct TerminalStyleColorMap {
     private let foregroundPairs: [(old: SIMD4<Float>, new: SIMD4<Float>)]
     private let backgroundPairs: [(old: SIMD4<Float>, new: SIMD4<Float>)]
 
-    init(
+    public init(
         previousDefaultStyle: TerminalTextStyle,
         nextDefaultStyle: TerminalTextStyle,
         previousAnsiColors: [SIMD4<Float>],
@@ -124,11 +144,11 @@ struct TerminalStyleColorMap {
         )
     }
 
-    func remapForeground(_ color: SIMD4<Float>) -> SIMD4<Float> {
+    public func remapForeground(_ color: SIMD4<Float>) -> SIMD4<Float> {
         remap(color, pairs: foregroundPairs)
     }
 
-    func remapBackground(_ color: SIMD4<Float>) -> SIMD4<Float> {
+    public func remapBackground(_ color: SIMD4<Float>) -> SIMD4<Float> {
         remap(color, pairs: backgroundPairs)
     }
 

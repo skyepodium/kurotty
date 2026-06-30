@@ -323,6 +323,40 @@ test "grid restores alternate screen deterministically after resize" {
     try std.testing.expectEqualStrings("     ", grid.rowText(2));
 }
 
+test "grid reports current dimensions after init and resize" {
+    var grid = try core.Grid.init(std.testing.allocator, 4, 2);
+    defer grid.deinit();
+
+    try std.testing.expectEqual(@as(usize, 4), grid.widthCells());
+    try std.testing.expectEqual(@as(usize, 2), grid.heightRows());
+
+    try grid.resize(0, 5);
+
+    try std.testing.expectEqual(@as(usize, 1), grid.widthCells());
+    try std.testing.expectEqual(@as(usize, 5), grid.heightRows());
+}
+
+test "grid copies rows into caller buffers without exposing owned storage" {
+    var grid = try core.Grid.init(std.testing.allocator, 5, 2);
+    defer grid.deinit();
+
+    try grid.write("abcde");
+    try grid.write("xy");
+
+    var full_buffer: [5]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 5), grid.copyRow(0, &full_buffer));
+    try std.testing.expectEqualStrings("abcde", &full_buffer);
+
+    var short_buffer: [3]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 3), grid.copyRow(1, &short_buffer));
+    try std.testing.expectEqualStrings("xy ", &short_buffer);
+
+    var unchanged: [2]u8 = .{ 1, 2 };
+    try std.testing.expectEqual(@as(usize, 0), grid.copyRow(2, &unchanged));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2 }, &unchanged);
+    try std.testing.expectEqual(@as(usize, 0), grid.copyRow(0, unchanged[0..0]));
+}
+
 test "scrollback keeps line addresses with bounded lookup" {
     const line_count = 10_000;
     var scrollback = try core.Scrollback.init(std.testing.allocator, line_count);
