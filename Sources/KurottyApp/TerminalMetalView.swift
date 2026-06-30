@@ -4,39 +4,16 @@ import CoreGraphics
 import Metal
 import MetalKit
 
-struct TerminalCell {
-    let character: Character
-    let column: Int
-    let row: Int
-    let foreground: SIMD4<Float>
-    let background: SIMD4<Float>
+private extension TerminalFrameRect {
+    var cgRect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
 }
 
-struct TerminalFrame {
-    let cells: [TerminalCell]
-    let backgrounds: [TerminalBackground]
-    let decorations: [TerminalDecoration]
-    let defaultForeground: SIMD4<Float>
-    let defaultBackground: SIMD4<Float>
-    let dirtyRows: [Int]
-    let dirtyRects: [CGRect]
-    let isFullDamage: Bool
-    let cursorColumn: Int
-    let cursorRow: Int
-    let cursorBlinkOn: Bool
-    let markedTextColumn: Int
-    let markedText: String
-    let markedTextSelectedRange: NSRange
-    let columns: Int
-    let visibleRows: Int
-    let cellSize: CGSize
-    let padding: CGPoint
-}
-
-struct TerminalBackground {
-    let column: Int
-    let row: Int
-    let color: SIMD4<Float>
+private extension TerminalFrameSize {
+    var cgSize: CGSize {
+        CGSize(width: width, height: height)
+    }
 }
 
 private struct BackgroundRun {
@@ -44,20 +21,6 @@ private struct BackgroundRun {
     let row: Int
     var width: Int
     let color: SIMD4<Float>
-}
-
-struct TerminalDecoration {
-    let column: Int
-    let row: Int
-    let width: Int
-    let kind: Kind
-    let color: SIMD4<Float>
-
-    enum Kind {
-        case underline
-        case strikethrough
-        case boxDrawing(left: Bool, right: Bool, up: Bool, down: Bool)
-    }
 }
 
 struct TerminalRenderingDiagnostics {
@@ -153,7 +116,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private var atlasPixels: [UInt8] = []
     private var glyphs: [String: GlyphAtlasEntry] = [:]
     private var atlasSlot = 0
-    private var atlasCellSize = CGSize.zero
+    private var atlasCellSize = TerminalFrameSize.zero
     private var atlasBackingScale: CGFloat = 0
     private var windowScreenObserver: NSObjectProtocol?
     private var isSynchronizingDisplay = false
@@ -169,7 +132,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     private let glyphSlotWidth = DesignTokens.Component.glyphSlotWidthPX
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
-    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: NSRange(location: NSNotFound, length: 0), columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
 
     override var isOpaque: Bool {
         true
@@ -248,7 +211,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             setNeedsDisplay(bounds)
         } else {
             for rect in frame.dirtyRects {
-                setNeedsDisplay(rect)
+                setNeedsDisplay(rect.cgRect)
             }
         }
     }
@@ -410,7 +373,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
         return TerminalRenderingDiagnostics(
             backingScaleFactor: scale,
             drawableSize: drawableSize,
-            cellSizePoints: terminalFrame.cellSize,
+            cellSizePoints: terminalFrame.cellSize.cgSize,
             cellSizePixels: CGSize(
                 width: terminalFrame.cellSize.width * scale,
                 height: terminalFrame.cellSize.height * scale
@@ -430,7 +393,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     var lastFrameDirtyRectsForDiagnostics: [CGRect] {
-        terminalFrame.dirtyRects
+        terminalFrame.dirtyRects.map(\.cgRect)
     }
 
     var lastFrameDamageWasFullForDiagnostics: Bool {
@@ -504,7 +467,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
             NSLog(
                 "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ cursorCell=(%d,%d) noScissor=%@",
                 terminalFrame.dirtyRows.map(String.init).joined(separator: ","),
-                terminalFrame.dirtyRects.map(NSStringFromRect).joined(separator: " | "),
+                terminalFrame.dirtyRects.map { NSStringFromRect($0.cgRect) }.joined(separator: " | "),
                 terminalFrame.cursorRow,
                 terminalFrame.cursorColumn,
                 DebugOptions.noScissor ? "yes" : "no"
@@ -1332,7 +1295,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func rebuildFontCellMetrics() {
-        fontCellMetrics = FontCellMetrics(font: font, cellSize: terminalFrame.cellSize, scale: backingScale)
+        fontCellMetrics = FontCellMetrics(font: font, cellSize: terminalFrame.cellSize.cgSize, scale: backingScale)
     }
 
     private func logRenderingDiagnosticsIfNeeded() {
@@ -1484,15 +1447,21 @@ final class TerminalMetalView: MTKView, MTKViewDelegate {
     }
 
     private func markedTextColor(for character: Character, utf16Offset: Int) -> SIMD4<Float> {
-        guard terminalFrame.markedTextSelectedRange.location != NSNotFound,
+        guard terminalFrame.markedTextSelectedRange.location != TerminalTextSelectionRange.notFound,
               terminalFrame.markedTextSelectedRange.length > 0
         else {
             return terminalFrame.defaultForeground
         }
         let characterRange = NSRange(location: utf16Offset, length: String(character).utf16.count)
-        return NSIntersectionRange(characterRange, terminalFrame.markedTextSelectedRange).length > 0
+        return Self.intersects(characterRange, terminalFrame.markedTextSelectedRange)
             ? TerminalSelectionStyle.foregroundColor
             : terminalFrame.defaultForeground
+    }
+
+    private static func intersects(_ lhs: NSRange, _ rhs: TerminalTextSelectionRange) -> Bool {
+        let lhsEnd = lhs.location + lhs.length
+        let rhsEnd = rhs.location + rhs.length
+        return lhs.location < rhsEnd && rhs.location < lhsEnd
     }
 
     private static func makePipeline(device: MTLDevice?) -> MTLRenderPipelineState? {

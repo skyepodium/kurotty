@@ -108,7 +108,7 @@ struct TerminalSelectionRange {
 
 struct TerminalFrameDamage {
     let rows: [Int]
-    let rects: [CGRect]
+    let rects: [TerminalFrameRect]
     let isFull: Bool
 }
 

@@ -249,9 +249,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func scrollWheel(with event: NSEvent) {
         let lineDelta = max(1, Int(abs(event.scrollingDeltaY) / 8))
+        let maxOffset = maxScrollbackOffset()
         let previousOffset = scrollbackOffset
         if event.scrollingDeltaY > 0 {
-            scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + lineDelta)
+            scrollbackOffset = min(maxOffset, scrollbackOffset + lineDelta)
         } else if event.scrollingDeltaY < 0 {
             scrollbackOffset = max(0, scrollbackOffset - lineDelta)
         }
@@ -370,7 +371,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @objc private func scrollerDidChange(_ sender: NSScroller) {
-        let maxOffset = scrollbackRows.count
+        let maxOffset = maxScrollbackOffset()
         guard maxOffset > 0 else { return }
         let normalized = max(0, min(1, sender.doubleValue))
         let nextOffset = min(maxOffset, max(0, Int(round((1 - normalized) * CGFloat(maxOffset)))))
@@ -382,7 +383,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func setScrollbackOffsetFromNormalizedThumbDrag(_ normalizedOffset: CGFloat) {
-        let maxOffset = scrollbackRows.count
+        let maxOffset = maxScrollbackOffset()
         guard maxOffset > 0 else { return }
         let nextOffset = min(maxOffset, max(0, Int(round(normalizedOffset * CGFloat(maxOffset)))))
         guard nextOffset != scrollbackOffset else { return }
@@ -555,11 +556,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn,
             markedTextColumn: cursorColumn,
             markedText: markedText.string,
-            markedTextSelectedRange: NSRange(location: NSNotFound, length: 0),
+            markedTextSelectedRange: .none,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
-            cellSize: metrics.cellSize,
-            padding: CGPoint(x: padding.left, y: padding.top)
+            cellSize: TerminalFrameSize(width: metrics.cellSize.width, height: metrics.cellSize.height),
+            padding: TerminalFramePoint(x: padding.left, y: padding.top)
         ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
@@ -898,7 +899,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
-            scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)
+            scrollbackOffset = min(maxScrollbackOffset(), scrollbackOffset + appendedScrollbackCount)
             markFullDamage()
         }
         scrollbackRowsAppendedDuringOutput = 0
@@ -1168,6 +1169,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return max(0, bottomStart - scrollbackOffset)
     }
 
+    private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int {
+        let visibleCount = max(1, visibleRows ?? terminalMetrics().size.rows)
+        return max(0, allRowsForSelection().count - visibleCount)
+    }
+
     private func allRowsForSelection() -> [[TerminalScreenCell]] {
         scrollbackRows.rows + screen.cells
     }
@@ -1408,14 +1414,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func appendScrollback(rows: [[TerminalScreenCell]]) {
         scrollbackRowsAppendedDuringOutput += rows.count
         scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)
-        scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
+        scrollbackOffset = min(scrollbackOffset, maxScrollbackOffset())
         updateScrollIndicator()
     }
 
     @discardableResult
     private func trimScrollbackRowsToLimit() -> Bool {
         let didTrim = scrollbackRows.trim(to: maxScrollbackRows)
-        scrollbackOffset = min(scrollbackOffset, scrollbackRows.count)
+        scrollbackOffset = min(scrollbackOffset, maxScrollbackOffset())
         return didTrim
     }
 
@@ -1432,27 +1438,32 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func updateScrollIndicator() {
-        let maxOffset = scrollbackRows.count
+        let visibleRows = max(1, terminalMetrics().size.rows)
+        let maxOffset = maxScrollbackOffset(visibleRows: visibleRows)
         let isHidden = maxOffset == 0 || bounds.height <= 0
         verticalScroller.isHidden = isHidden
         scrollThumbView.isHidden = isHidden
         guard !isHidden else { return }
-        let visibleRows = max(1, terminalMetrics().size.rows)
-        verticalScroller.knobProportion = max(
-            0.05,
-            min(1, CGFloat(visibleRows) / CGFloat(visibleRows + maxOffset))
+        let trackHeight = max(CGFloat(1), verticalScroller.bounds.height)
+        let contentRows = visibleRows + maxOffset
+        let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)
+        let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight
+        let knobProportion = min(
+            CGFloat(1),
+            max(
+                DesignTokens.Component.terminalScrollerMinKnobProportion,
+                minimumHeightKnob,
+                proportionalKnob
+            )
         )
+        verticalScroller.knobProportion = knobProportion
         verticalScroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
         verticalScroller.needsDisplay = true
 
         // NSScroller can be nearly invisible depending on system overlay style.
         // Draw a deterministic thumb so scrollback position is always visible.
-        let trackHeight = max(CGFloat(1), verticalScroller.bounds.height)
         let thumbWidth = DesignTokens.Component.terminalScrollerThumbWidthPX
-        let thumbHeight = max(
-            DesignTokens.Component.terminalScrollerMinThumbHeightPX,
-            trackHeight * CGFloat(visibleRows) / CGFloat(visibleRows + maxOffset)
-        )
+        let thumbHeight = trackHeight * knobProportion
         let clampedThumbHeight = min(trackHeight, thumbHeight)
         let maxTravel = max(CGFloat.zero, trackHeight - clampedThumbHeight)
         let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxOffset)))
@@ -1908,7 +1919,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 .sorted()
         }
         let rects = rows.map { row in
-            CGRect(
+            TerminalFrameRect(
                 x: padding.left,
                 y: bounds.height - padding.top - metrics.cellSize.height * CGFloat(row + 1),
                 width: metrics.cellSize.width * CGFloat(metrics.size.columns),
