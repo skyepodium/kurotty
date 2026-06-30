@@ -1,4 +1,4 @@
-protocol TerminalCore: AnyObject {
+public protocol TerminalCore: AnyObject {
     func feed(_ text: String)
     func recordKeyEvent()
     func recordFramePresented()
@@ -7,10 +7,5 @@ protocol TerminalCore: AnyObject {
     func lastLatencyMicros() -> UInt64
     func resize(cols: UInt32, rows: UInt32)
     func cell(row: UInt32, col: UInt32) -> UInt8
-}
-
-enum TerminalCoreFactory {
-    static func makeDefaultCore(cols: UInt32, rows: UInt32) -> any TerminalCore {
-        CoreBridge(cols: cols, rows: rows)
-    }
+    func copyRow(_ row: UInt32, into buffer: inout [UInt8]) -> Int
 }

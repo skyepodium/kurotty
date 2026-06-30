@@ -1,6 +1,8 @@
 import Foundation
 import simd
 
+// MARK: - Portable Settings Values
+
 struct AppSettings: Codable, Equatable {
     var schemaVersion: Int?
     var terminal: TerminalSettings
@@ -262,59 +264,10 @@ enum ColorHexParser {
     }
 }
 
-@MainActor
-final class AppSettingsStore {
-    static let shared = AppSettingsStore()
-    static let didChangeNotification = Notification.Name("dev.kurotty.settings.didChange")
+// MARK: - Portable Settings Normalization
 
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
-    private let persistence: AppSettingsPersistence
-
-    let settingsURL: URL
-
-    private enum Path {
-        static let appDirectoryName = AppConstants.Settings.directoryName
-        static let settingsFileName = AppConstants.Settings.fileName
-        static let libraryDirectoryName = "Library"
-        static let applicationSupportDirectoryName = "Application Support"
-    }
-
-    init(fileManager: FileManager = .default, settingsURL: URL? = nil) {
-        encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        decoder = JSONDecoder()
-
-        self.settingsURL = settingsURL ?? Self.defaultSettingsURL(fileManager: fileManager)
-        persistence = AppSettingsPersistence(fileManager: fileManager, settingsURL: self.settingsURL)
-    }
-
-    func loadRawJSON() throws -> String {
-        let data = try encoder.encode(load())
-        return String(data: data, encoding: .utf8) ?? "{}"
-    }
-
-    func load() throws -> AppSettings {
-        let defaultData = try encoder.encode(AppSettings.default)
-        let data = try persistence.loadOrCreateDefaultData(defaultData)
-        return normalized(try decoder.decode(AppSettings.self, from: data))
-    }
-
-    func save(rawJSON: String) throws {
-        let data = Data(rawJSON.utf8)
-        let settings = normalized(try decoder.decode(AppSettings.self, from: data))
-        let normalizedData = try encoder.encode(settings)
-        try persistence.save(normalizedData)
-        NotificationCenter.default.post(
-            name: Self.didChangeNotification,
-            object: self,
-            userInfo: [Self.notificationSettingsKey: settings]
-        )
-    }
-
-    static let notificationSettingsKey = "settings"
-
-    private func normalized(_ settings: AppSettings) -> AppSettings {
+struct AppSettingsNormalizer {
+    static func normalized(_ settings: AppSettings) -> AppSettings {
         var next = settings
         let sourceSchemaVersion = next.schemaVersion ?? 0
         let currentSchemaVersion = AppSettings.default.schemaVersion ?? 1
@@ -352,7 +305,7 @@ final class AppSettingsStore {
         return next
     }
 
-    private func normalizeTheme(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
+    private static func normalizeTheme(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
         let theme = TerminalThemePreset.canonicalName(settings.terminal.theme)
         if let presetColors = TerminalThemePreset.colors(named: theme) {
             let normalizedPresetName = theme == TerminalThemePreset.darkName
@@ -380,7 +333,7 @@ final class AppSettingsStore {
         settings.terminal.theme = TerminalThemePreset.customName
     }
 
-    private func inferredThemeName(for colors: TerminalColorSettings) -> String {
+    private static func inferredThemeName(for colors: TerminalColorSettings) -> String {
         if colors == .lightty {
             return TerminalThemePreset.lighttyName
         }
@@ -390,7 +343,7 @@ final class AppSettingsStore {
         return TerminalThemePreset.customName
     }
 
-    private func migrateLegacyDefaults(_ settings: inout AppSettings) {
+    private static func migrateLegacyDefaults(_ settings: inout AppSettings) {
         guard LegacyDefaults.shouldMigrate(colors: settings.terminal.colors) else {
             return
         }
@@ -401,7 +354,7 @@ final class AppSettingsStore {
         settings.terminal.colors.ansi = TerminalColorSettings.default.ansi
     }
 
-    private func migrateNotificationDefaults(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
+    private static func migrateNotificationDefaults(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
         guard sourceSchemaVersion < 9 else {
             return
         }
@@ -449,6 +402,61 @@ final class AppSettingsStore {
             colors == Self.colors || colors == Self.oldDefaultColors || colors == Self.previousKurottyColors
         }
     }
+}
+
+// MARK: - App-Side Settings Store
+
+@MainActor
+final class AppSettingsStore {
+    static let shared = AppSettingsStore()
+    static let didChangeNotification = Notification.Name("dev.kurotty.settings.didChange")
+
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private let persistence: AppSettingsPersistence
+
+    let settingsURL: URL
+
+    private enum Path {
+        static let appDirectoryName = AppConstants.Settings.directoryName
+        static let settingsFileName = AppConstants.Settings.fileName
+        static let libraryDirectoryName = "Library"
+        static let applicationSupportDirectoryName = "Application Support"
+    }
+
+    init(fileManager: FileManager = .default, settingsURL: URL? = nil) {
+        encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        decoder = JSONDecoder()
+
+        self.settingsURL = settingsURL ?? Self.defaultSettingsURL(fileManager: fileManager)
+        persistence = AppSettingsPersistence(fileManager: fileManager, settingsURL: self.settingsURL)
+    }
+
+    func loadRawJSON() throws -> String {
+        let data = try encoder.encode(load())
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    func load() throws -> AppSettings {
+        let defaultData = try encoder.encode(AppSettings.default)
+        let data = try persistence.loadOrCreateDefaultData(defaultData)
+        return AppSettingsNormalizer.normalized(try decoder.decode(AppSettings.self, from: data))
+    }
+
+    func save(rawJSON: String) throws {
+        let data = Data(rawJSON.utf8)
+        let settings = AppSettingsNormalizer.normalized(try decoder.decode(AppSettings.self, from: data))
+        let normalizedData = try encoder.encode(settings)
+        try persistence.save(normalizedData)
+        NotificationCenter.default.post(
+            name: Self.didChangeNotification,
+            object: self,
+            userInfo: [Self.notificationSettingsKey: settings]
+        )
+    }
+
+    static let notificationSettingsKey = "settings"
 
     private static func defaultSettingsURL(fileManager: FileManager) -> URL {
         guard let supportURL = fileManager.urls(
@@ -467,6 +475,8 @@ final class AppSettingsStore {
             .appendingPathComponent(Path.settingsFileName)
     }
 }
+
+// MARK: - App-Side Settings Persistence
 
 struct AppSettingsPersistence {
     private let fileManager: FileManager

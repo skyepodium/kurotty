@@ -1,20 +1,29 @@
 import Foundation
-import simd
 
-struct TerminalSelectionPosition: Hashable, Comparable {
-    let row: Int
-    let column: Int
+public struct TerminalSelectionPosition: Hashable, Comparable, Sendable {
+    public let row: Int
+    public let column: Int
 
-    static func < (lhs: TerminalSelectionPosition, rhs: TerminalSelectionPosition) -> Bool {
+    public init(row: Int, column: Int) {
+        self.row = row
+        self.column = column
+    }
+
+    public static func < (lhs: TerminalSelectionPosition, rhs: TerminalSelectionPosition) -> Bool {
         lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
     }
 }
 
-struct TerminalSelectionRangeModel: Equatable {
-    let start: TerminalSelectionPosition
-    let end: TerminalSelectionPosition
+public struct TerminalSelectionRangeModel: Equatable, Sendable {
+    public let start: TerminalSelectionPosition
+    public let end: TerminalSelectionPosition
 
-    static func normalized(anchor: TerminalSelectionPosition?, focus: TerminalSelectionPosition?) -> TerminalSelectionRangeModel? {
+    public init(start: TerminalSelectionPosition, end: TerminalSelectionPosition) {
+        self.start = start
+        self.end = end
+    }
+
+    public static func normalized(anchor: TerminalSelectionPosition?, focus: TerminalSelectionPosition?) -> TerminalSelectionRangeModel? {
         guard let anchor, let focus else { return nil }
         if anchor < focus {
             return TerminalSelectionRangeModel(start: anchor, end: focus)
@@ -23,22 +32,24 @@ struct TerminalSelectionRangeModel: Equatable {
     }
 }
 
-struct TerminalSelectionGestureState {
+public struct TerminalSelectionGestureState: Sendable {
     private var wordSelectionIsActive = false
 
-    mutating func beginCharacterSelection() {
+    public init() {}
+
+    public mutating func beginCharacterSelection() {
         wordSelectionIsActive = false
     }
 
-    mutating func selectWord() {
+    public mutating func selectWord() {
         wordSelectionIsActive = true
     }
 
-    func shouldUpdateFocusOnPointerDrag() -> Bool {
+    public func shouldUpdateFocusOnPointerDrag() -> Bool {
         !wordSelectionIsActive
     }
 
-    mutating func shouldUpdateFocusOnPointerUp() -> Bool {
+    public mutating func shouldUpdateFocusOnPointerUp() -> Bool {
         guard wordSelectionIsActive else {
             return true
         }
@@ -46,17 +57,27 @@ struct TerminalSelectionGestureState {
     }
 }
 
-enum TerminalWordSelection {
-    struct Cell: Equatable {
-        let character: Character
-        let isContinuation: Bool
+public enum TerminalWordSelection: Sendable {
+    public struct Cell: Equatable, Sendable {
+        public let character: Character
+        public let isContinuation: Bool
+
+        public init(character: Character, isContinuation: Bool) {
+            self.character = character
+            self.isContinuation = isContinuation
+        }
     }
 
-    struct Bounds: Equatable {
-        let startColumn: Int
-        let endColumn: Int
+    public struct Bounds: Equatable, Sendable {
+        public let startColumn: Int
+        public let endColumn: Int
 
-        func highlightEndColumn(in row: [Cell]) -> Int {
+        public init(startColumn: Int, endColumn: Int) {
+            self.startColumn = startColumn
+            self.endColumn = endColumn
+        }
+
+        public func highlightEndColumn(in row: [Cell]) -> Int {
             guard row.indices.contains(endColumn) else { return endColumn }
             let cell = row[endColumn]
             guard !cell.isContinuation else { return endColumn }
@@ -66,7 +87,7 @@ enum TerminalWordSelection {
 
     private static let excludedCharacters = CharacterSet(charactersIn: "()[]{}<>\"'`")
 
-    static func bounds(in row: [Cell], clickedColumn: Int) -> Bounds? {
+    public static func bounds(in row: [Cell], clickedColumn: Int) -> Bounds? {
         guard row.indices.contains(clickedColumn) else { return nil }
         let wordColumn = normalizedWordColumn(in: row, clickedColumn: clickedColumn)
         guard row.indices.contains(wordColumn), isSelectableWordCell(in: row, column: wordColumn) else {
@@ -118,7 +139,7 @@ enum TerminalWordSelection {
         return character.rangeOfCharacter(from: excludedCharacters) == nil
     }
 
-    static func isSyntheticCJKSpacer(in row: [Cell], column: Int) -> Bool {
+    public static func isSyntheticCJKSpacer(in row: [Cell], column: Int) -> Bool {
         isCJKWordSpacer(in: row, column: column)
     }
 
@@ -144,15 +165,15 @@ enum TerminalWordSelection {
 
     private static func blankRunLength(in row: [Cell], containing column: Int) -> Int {
         guard row.indices.contains(column), isBlank(row[column]) else { return 0 }
-        var start = column
-        while start > 0, isBlank(row[start - 1]) {
-            start -= 1
+        var startColumn = column
+        while startColumn > 0, isBlank(row[startColumn - 1]) {
+            startColumn -= 1
         }
-        var end = column
-        while end + 1 < row.count, isBlank(row[end + 1]) {
-            end += 1
+        var endColumn = column
+        while endColumn + 1 < row.count, isBlank(row[endColumn + 1]) {
+            endColumn += 1
         }
-        return end - start + 1
+        return endColumn - startColumn + 1
     }
 
     private static func nearestNonBlankCell(in row: [Cell], from column: Int, step: Int) -> Cell? {
@@ -187,8 +208,8 @@ enum TerminalWordSelection {
     }
 }
 
-enum TerminalSelectionText {
-    static func line<S: Sequence>(from cells: S) -> String where S.Element == TerminalWordSelection.Cell {
+public enum TerminalSelectionText {
+    public static func line<S: Sequence>(from cells: S) -> String where S.Element == TerminalWordSelection.Cell {
         let row = Array(cells)
         let characters = row.indices.lazy.compactMap { column -> Character? in
             let cell = row[column]
@@ -202,7 +223,7 @@ enum TerminalSelectionText {
     }
 }
 
-enum TerminalSelectionStyle {
-    static let backgroundColor = SIMD4<Float>(0.22, 0.48, 0.82, 1)
-    static let foregroundColor = SIMD4<Float>(1, 1, 1, 1)
+public enum TerminalSelectionStyle {
+    public static let backgroundColor = SIMD4<Float>(0.22, 0.48, 0.82, 1)
+    public static let foregroundColor = SIMD4<Float>(1, 1, 1, 1)
 }

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import KurottyCore
 @testable import KurottyApp
 
 final class TerminalDiagnosticsTests: XCTestCase {
@@ -97,6 +98,31 @@ final class TerminalDiagnosticsTests: XCTestCase {
             TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
                 "────────────────────────────────────────",
                 "gpt-5.5 medium · ~/dev/kurotty · gpt-5.5 · medium · kurotty · develop · No changes · Ready · Workspace",
+            ])
+        )
+    }
+
+    func testNotificationSummarySkipsSeparatorVariantsAfterAnswer() {
+        let answerLine = "안녕. 오늘은 Kurotty 작업 도와줄까, 아니면 다른 얘기할까?"
+
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
+                answerLine,
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
+                "⎯⎯⎯⎯⎯⎯⎯⎯",
+                "╭────────────────────────╮",
+            ]),
+            answerLine
+        )
+    }
+
+    func testNotificationSummaryDoesNotReturnOnlySeparatorVariants() {
+        XCTAssertNil(
+            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
+                "⎯⎯⎯⎯⎯⎯⎯⎯",
+                "╰────────────────────────╯",
+                "••••••••••",
             ])
         )
     }

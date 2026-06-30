@@ -1,6 +1,7 @@
 import AppKit
 import CoreText
 import CoreGraphics
+import KurottyCore
 import Metal
 import MetalKit
 
@@ -618,7 +619,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         var decorations: [GlyphInstance] = []
         decorations.reserveCapacity(terminalFrame.decorations.count)
         for decoration in terminalFrame.decorations where decoration.row >= 0 && decoration.row < terminalFrame.visibleRows {
-            if case let .boxDrawing(left, right, up, down) = decoration.kind {
+            switch decoration.kind {
+            case let .boxDrawing(left, right, up, down):
                 appendBoxDrawingDecorationInstances(
                     column: decoration.column,
                     row: decoration.row,
@@ -630,6 +632,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                     to: &decorations
                 )
                 continue
+            case let .blockElement(x, y, width, height):
+                decorations.append(blockElementInstance(
+                    column: decoration.column,
+                    row: decoration.row,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    color: decoration.color
+                ))
+                continue
+            case .underline, .strikethrough:
+                break
             }
 
             let yOffset: CGFloat
@@ -638,7 +653,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 yOffset = physicalPixelsToPoints(CGFloat(fontCellMetrics.underlinePositionPixels))
             case .strikethrough:
                 yOffset = pixelAlign(terminalFrame.cellSize.cgHeight * 0.52, scale: backingScale)
-            case .boxDrawing:
+            case .boxDrawing, .blockElement:
                 continue
             }
             decorations.append(solidInstance(
@@ -722,6 +737,25 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             uvSize: .zero,
             color: color
         )
+    }
+
+    private func blockElementInstance(
+        column: Int,
+        row: Int,
+        x: Double,
+        y: Double,
+        width: Double,
+        height: Double,
+        color: SIMD4<Float>
+    ) -> GlyphInstance {
+        let cellX = terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth
+        let cellY = bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1)
+        return solidInstance(rect: CGRect(
+            x: cellX + terminalFrame.cellSize.cgWidth * CGFloat(x),
+            y: cellY + terminalFrame.cellSize.cgHeight * CGFloat(y),
+            width: terminalFrame.cellSize.cgWidth * CGFloat(width),
+            height: terminalFrame.cellSize.cgHeight * CGFloat(height)
+        ), color: color)
     }
 
     private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect]) {
@@ -1681,8 +1715,14 @@ private struct FontCellMetrics {
         let widthPixels = max(1, Int(round(cellSize.width * safeScale)))
         let heightPixels = max(1, Int(round(cellSize.height * safeScale)))
         let descenderPixels = max(0, Int(round(abs(font.descender) * safeScale)))
-        let underlineThicknessPixels = 1
-        let underlinePositionPixels = max(0, descenderPixels - underlineThicknessPixels)
+        let underlineThicknessPixels = max(1, Int(round(font.underlineThickness * safeScale)))
+        let underlinePositionPixels = max(
+            0,
+            min(
+                heightPixels - underlineThicknessPixels,
+                Int(round((abs(font.descender) + font.underlinePosition) * safeScale))
+            )
+        )
         self.init(
             fixedCellWidth: cellSize.width,
             fixedCellHeight: cellSize.height,

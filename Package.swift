@@ -7,15 +7,20 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .library(name: "KurottyCore", targets: ["KurottyCore"]),
         .executable(name: "kurotty", targets: ["KurottyApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.3"),
     ],
     targets: [
+        .target(
+            name: "KurottyCore"
+        ),
         .executableTarget(
             name: "KurottyApp",
             dependencies: [
+                "KurottyCore",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             resources: [
@@ -24,7 +29,7 @@ let package = Package(
         ),
         .testTarget(
             name: "KurottyRenderingTests",
-            dependencies: ["KurottyApp"]
+            dependencies: ["KurottyApp", "KurottyCore"]
         ),
     ]
 )

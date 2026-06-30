@@ -32,8 +32,34 @@ enum TerminalNotificationSummary {
     }
 
     private static func isDecorativeLine(_ line: String) -> Bool {
-        let decorativeScalars = CharacterSet(charactersIn: "-_=─━·•* ")
-        return !line.unicodeScalars.contains { !decorativeScalars.contains($0) }
+        let scalars = line.unicodeScalars.filter { !$0.properties.isWhitespace }
+        guard !scalars.isEmpty else {
+            return true
+        }
+
+        guard !scalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else {
+            return false
+        }
+
+        return scalars.allSatisfy { scalar in
+            decorativeCharacterScalars().contains(scalar)
+                || isBoxDrawingOrBlockElement(scalar)
+                || isDashLikeScalar(scalar)
+        }
+    }
+
+    private static func decorativeCharacterScalars() -> CharacterSet {
+        CharacterSet(charactersIn: "-_=+|\\/.:,;`'\"~^·•*…⎯")
+    }
+
+    private static func isBoxDrawingOrBlockElement(_ scalar: UnicodeScalar) -> Bool {
+        (0x2500...0x259F).contains(Int(scalar.value))
+            || (0x2800...0x28FF).contains(Int(scalar.value))
+    }
+
+    private static func isDashLikeScalar(_ scalar: UnicodeScalar) -> Bool {
+        (0x2010...0x2015).contains(Int(scalar.value))
+            || scalar.value == 0x2212
     }
 
     private static func isMetadataStatusLine(_ line: String) -> Bool {

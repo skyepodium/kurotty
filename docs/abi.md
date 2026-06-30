@@ -19,5 +19,10 @@ Current exported functions:
 - `kurotty_terminal_end_frame(handle)`
 - `kurotty_terminal_resize(handle, width, height)`
 - `kurotty_terminal_cell_at(handle, row, col)`
+- `kurotty_terminal_copy_row(handle, row, buffer, buffer_len)`
 
 Dimension queries return the current Zig grid size after creation or resize. A null handle returns `0`, matching the existing cursor and metric query fallback shape.
+
+`kurotty_terminal_copy_row` is the first caller-buffer screen-state API for Swift-owned migration work. It copies the requested Zig-owned grid row into caller-owned memory and returns the number of bytes copied. The copy is bounded to `min(terminal_width, buffer_len)`, performs no allocation, and transfers no heap ownership across the ABI. A null handle, null buffer, invalid row, or zero-length buffer returns `0` and leaves caller memory unchanged.
+
+Current limitation: cells are still exposed as the core grid's compact byte storage. This is enough for the current ASCII scaffold and avoids per-cell ABI calls, but it is not yet a full styled Unicode cell-run ABI.

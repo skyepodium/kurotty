@@ -1,4 +1,5 @@
 import AppKit
+import KurottyCore
 
 @MainActor
 protocol TerminalAppKitRenderer: TerminalFrameRenderer {

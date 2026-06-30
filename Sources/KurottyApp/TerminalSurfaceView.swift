@@ -1,4 +1,5 @@
 import AppKit
+import KurottyCore
 
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
@@ -531,6 +532,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 ) {
                     continue
                 }
+                if appendBlockElementDecoration(
+                    for: cell.character,
+                    column: column,
+                    row: row,
+                    color: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
+                    to: &decorations
+                ) {
+                    continue
+                }
                 if cell.character != " " {
                     cells.append(TerminalCell(
                         character: cell.character,
@@ -560,7 +570,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markedTextSelectedRange: .none,
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
-            cellSize: TerminalFrameSize(width: Double(metrics.cellSize.width), height: Double(metrics.cellSize.height)),
+            cellSize: metrics.cellSize,
             padding: TerminalFramePoint(x: Double(padding.left), y: Double(padding.top))
         ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
@@ -619,6 +629,62 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             row: row,
             width: 1,
             kind: .boxDrawing(left: left, right: right, up: up, down: down),
+            color: color
+        ))
+        return true
+    }
+
+    private func appendBlockElementDecoration(
+        for character: Character,
+        column: Int,
+        row: Int,
+        color: SIMD4<Float>,
+        to decorations: inout [TerminalDecoration]
+    ) -> Bool {
+        let rect: (x: Double, y: Double, width: Double, height: Double)
+        switch character {
+        case "█":
+            rect = (0, 0, 1, 1)
+        case "▉":
+            rect = (0, 0, 7.0 / 8.0, 1)
+        case "▊":
+            rect = (0, 0, 6.0 / 8.0, 1)
+        case "▋":
+            rect = (0, 0, 5.0 / 8.0, 1)
+        case "▌":
+            rect = (0, 0, 0.5, 1)
+        case "▍":
+            rect = (0, 0, 3.0 / 8.0, 1)
+        case "▎":
+            rect = (0, 0, 2.0 / 8.0, 1)
+        case "▏":
+            rect = (0, 0, 1.0 / 8.0, 1)
+        case "▐":
+            rect = (0.5, 0, 0.5, 1)
+        case "▀":
+            rect = (0, 0.5, 1, 0.5)
+        case "▄":
+            rect = (0, 0, 1, 0.5)
+        case "▁":
+            rect = (0, 0, 1, 1.0 / 8.0)
+        case "▂":
+            rect = (0, 0, 1, 2.0 / 8.0)
+        case "▃":
+            rect = (0, 0, 1, 3.0 / 8.0)
+        case "▅":
+            rect = (0, 0, 1, 5.0 / 8.0)
+        case "▆":
+            rect = (0, 0, 1, 6.0 / 8.0)
+        case "▇":
+            rect = (0, 0, 1, 7.0 / 8.0)
+        default:
+            return false
+        }
+        decorations.append(TerminalDecoration(
+            column: column,
+            row: row,
+            width: 1,
+            kind: .blockElement(x: rect.x, y: rect.y, width: rect.width, height: rect.height),
             color: color
         ))
         return true
@@ -713,8 +779,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func characterIndex(for point: NSPoint) -> Int {
         let metrics = terminalMetrics()
         guard metrics.cellSize.width > 0, metrics.cellSize.height > 0 else { return 0 }
-        let column = Int((point.x - padding.left) / metrics.cellSize.width)
-        let row = Int((bounds.height - padding.top - point.y) / metrics.cellSize.height)
+        let cellWidth = CGFloat(metrics.cellSize.width)
+        let cellHeight = CGFloat(metrics.cellSize.height)
+        let column = Int((point.x - padding.left) / cellWidth)
+        let row = Int((bounds.height - padding.top - point.y) / cellHeight)
         let clampedColumn = min(max(0, column), max(0, metrics.size.columns - 1))
         let clampedRow = min(max(0, row), max(0, metrics.size.rows - 1))
         return clampedRow * metrics.size.columns + clampedColumn
@@ -1048,7 +1116,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard !scrollbackRows.isEmpty else { return }
         let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
-        let threshold = max(metrics.cellSize.height, 18)
+        let threshold = max(CGFloat(metrics.cellSize.height), 18)
         let topEdge = bounds.height - padding.top
         let bottomEdge = padding.bottom
 
@@ -1077,8 +1145,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func cellPosition(for event: NSEvent) -> TerminalCellPosition {
         let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
-        let rawColumn = Int(floor((location.x - padding.left) / metrics.cellSize.width))
-        let rawRow = Int(floor((bounds.height - location.y - padding.top) / metrics.cellSize.height))
+        let cellWidth = CGFloat(metrics.cellSize.width)
+        let cellHeight = CGFloat(metrics.cellSize.height)
+        let rawColumn = Int(floor((location.x - padding.left) / cellWidth))
+        let rawRow = Int(floor((bounds.height - location.y - padding.top) / cellHeight))
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
         let visibleRow = max(0, min(metrics.size.rows - 1, rawRow))
         let maxContentRow = max(0, allRowsForSelection().count - 1)
@@ -1182,12 +1252,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func terminalMetrics() -> TerminalMetrics {
         let scale = currentBackingScale
         let rawLineHeight = ceil(font.ascender - font.descender + font.leading) + 2
-        let rawWidth = max(AppConstants.Terminal.minimumCellWidthPX, ceil(("0" as NSString).size(withAttributes: [.font: font]).width))
+        let rawWidth = max(
+            AppConstants.Terminal.minimumCellWidthPX,
+            ("0" as NSString).size(withAttributes: [.font: font]).width
+        )
         let lineHeight = snapMetricToPhysicalPixels(rawLineHeight, scale: scale)
         let width = snapMetricToPhysicalPixels(rawWidth, scale: scale)
         let columns = max(1, Int((bounds.width - padding.left - padding.right) / width))
         let rows = max(1, Int((bounds.height - padding.top - padding.bottom) / lineHeight))
-        return TerminalMetrics(size: TerminalSize(columns: columns, rows: rows), cellSize: CGSize(width: width, height: lineHeight))
+        return TerminalMetrics(
+            size: TerminalSize(columns: columns, rows: rows),
+            cellSize: TerminalFrameSize(width: Double(width), height: Double(lineHeight))
+        )
     }
 
     private var effectiveBackingScale: CGFloat {
@@ -1287,7 +1363,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             padding: padding,
             cursorRow: cursorRow,
             cursorColumn: cursorColumn,
-            cellSize: metrics.cellSize,
+            cellSize: CGSize(
+                width: CGFloat(metrics.cellSize.width),
+                height: CGFloat(metrics.cellSize.height)
+            ),
             columns: metrics.size.columns,
             rows: metrics.size.rows
         )
@@ -1920,11 +1999,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 .sorted()
         }
         let rects = rows.map { row in
-            TerminalFrameRect(
+            let cellWidth = CGFloat(metrics.cellSize.width)
+            let cellHeight = CGFloat(metrics.cellSize.height)
+            return TerminalFrameRect(
                 x: Double(padding.left),
-                y: Double(bounds.height - padding.top - metrics.cellSize.height * CGFloat(row + 1)),
-                width: Double(metrics.cellSize.width * CGFloat(metrics.size.columns)),
-                height: Double(metrics.cellSize.height)
+                y: Double(bounds.height - padding.top - cellHeight * CGFloat(row + 1)),
+                width: Double(cellWidth * CGFloat(metrics.size.columns)),
+                height: Double(cellHeight)
             )
         }
         pendingDirtyRows.removeAll(keepingCapacity: true)

@@ -1,4 +1,5 @@
 import XCTest
+@testable import KurottyCore
 @testable import KurottyApp
 
 final class AppSettingsBehaviorTests: XCTestCase {
@@ -78,6 +79,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertFalse(storeBody.contains(".write(to:"))
         XCTAssertTrue(source.contains("struct AppSettingsPersistence"))
         XCTAssertTrue(persistenceBody.contains("DispatchQueue"))
+    }
+
+    func testSettingsNormalizationIsSeparatedFromMainActorStore() throws {
+        let source = try String(contentsOf: Self.appSettingsSourceURL, encoding: .utf8)
+        let normalizerBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsNormalizer", in: source))
+        let storeBody = try XCTUnwrap(Self.typeBody(named: "AppSettingsStore", in: source))
+
+        XCTAssertTrue(source.contains("// MARK: - Portable Settings Values"))
+        XCTAssertTrue(source.contains("// MARK: - Portable Settings Normalization"))
+        XCTAssertTrue(source.contains("// MARK: - App-Side Settings Store"))
+        XCTAssertTrue(source.contains("struct AppSettingsNormalizer"))
+        XCTAssertFalse(normalizerBody.contains("FileManager"))
+        XCTAssertFalse(normalizerBody.contains("NotificationCenter"))
+        XCTAssertFalse(storeBody.contains("migrateLegacyDefaults"))
+        XCTAssertFalse(storeBody.contains("normalizeTheme"))
+        XCTAssertTrue(storeBody.contains("AppSettingsNormalizer.normalized"))
     }
 
     @MainActor

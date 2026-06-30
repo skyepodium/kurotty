@@ -1,4 +1,5 @@
 import AppKit
+import KurottyCore
 
 @MainActor
 final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {

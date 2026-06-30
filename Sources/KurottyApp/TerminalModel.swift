@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 enum StreamState {
     case normal
@@ -89,7 +90,7 @@ struct TerminalSize: Equatable {
 
 struct TerminalMetrics {
     let size: TerminalSize
-    let cellSize: CGSize
+    let cellSize: TerminalFrameSize
 }
 
 struct TerminalCellPosition: Hashable, Comparable {

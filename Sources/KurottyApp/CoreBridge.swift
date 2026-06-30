@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 typealias TerminalHandle = OpaquePointer
 
@@ -13,6 +14,7 @@ private typealias BeginFrameFn = @convention(c) (TerminalHandle?, UInt32) -> UIn
 private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
 private typealias ResizeFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> Void
 private typealias CellAtFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> UInt8
+private typealias CopyRowFn = @convention(c) (TerminalHandle?, UInt32, UnsafeMutablePointer<UInt8>?, Int) -> Int
 
 private enum CoreLibraryPath {
     static let appBundleExtension = "app"
@@ -78,6 +80,13 @@ final class CoreBridge: TerminalCore, @unchecked Sendable {
     func cell(row: UInt32, col: UInt32) -> UInt8 {
         symbols?.cellAt(handle, row, col) ?? 32
     }
+
+    func copyRow(_ row: UInt32, into buffer: inout [UInt8]) -> Int {
+        guard let symbols, !buffer.isEmpty else { return 0 }
+        return buffer.withUnsafeMutableBufferPointer { rawBuffer in
+            symbols.copyRow(handle, row, rawBuffer.baseAddress, rawBuffer.count)
+        }
+    }
 }
 
 private struct CoreSymbols {
@@ -94,6 +103,7 @@ private struct CoreSymbols {
     let endFrame: EndFrameFn
     let resize: ResizeFn
     let cellAt: CellAtFn
+    let copyRow: CopyRowFn
 
     static func load() -> CoreSymbols? {
         let names = dylibCandidates()
@@ -113,7 +123,8 @@ private struct CoreSymbols {
             let beginFrame: BeginFrameFn = symbol(dylib, "kurotty_terminal_begin_frame"),
             let endFrame: EndFrameFn = symbol(dylib, "kurotty_terminal_end_frame"),
             let resize: ResizeFn = symbol(dylib, "kurotty_terminal_resize"),
-            let cellAt: CellAtFn = symbol(dylib, "kurotty_terminal_cell_at")
+            let cellAt: CellAtFn = symbol(dylib, "kurotty_terminal_cell_at"),
+            let copyRow: CopyRowFn = symbol(dylib, "kurotty_terminal_copy_row")
         else {
             dlclose(dylib)
             return nil
@@ -132,7 +143,8 @@ private struct CoreSymbols {
             beginFrame: beginFrame,
             endFrame: endFrame,
             resize: resize,
-            cellAt: cellAt
+            cellAt: cellAt,
+            copyRow: copyRow
         )
     }
 

@@ -11,13 +11,3 @@ protocol TerminalSession: AnyObject {
     func resize(columns: Int, rows: Int)
     func stop()
 }
-
-enum TerminalSessionFactory {
-    static func makeDefaultSession() -> any TerminalSession {
-        #if os(macOS)
-        ShellSession()
-        #else
-        UnsupportedTerminalSession()
-        #endif
-    }
-}

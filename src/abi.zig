@@ -165,6 +165,12 @@ export fn kurotty_terminal_cell_at(terminal: ?*Terminal, row: u32, col: u32) u8 
     return ptr.grid.cellAt(row, col);
 }
 
+export fn kurotty_terminal_copy_row(terminal: ?*Terminal, row: u32, buffer: ?[*]u8, buffer_len: usize) usize {
+    const ptr = terminal orelse return 0;
+    const output = buffer orelse return 0;
+    return ptr.grid.copyRow(row, output[0..buffer_len]);
+}
+
 fn applyCsi(ptr: *Terminal, csi: core.CsiEvent) void {
     const first = param(csi, 0, 1);
     switch (csi.final) {
@@ -208,4 +214,34 @@ fn applyCsi(ptr: *Terminal, csi: core.CsiEvent) void {
 fn param(csi: core.CsiEvent, index: usize, default: usize) usize {
     if (index >= csi.params.len or csi.params[index] == 0) return default;
     return csi.params[index];
+}
+
+test "ABI copies row text into caller buffer and reports copied byte count" {
+    const terminal = kurotty_terminal_create(5, 2) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    try std.testing.expectEqual(@as(usize, 5), kurotty_terminal_feed(terminal, "abcde".ptr, "abcde".len));
+    try std.testing.expectEqual(@as(usize, 2), kurotty_terminal_feed(terminal, "xy".ptr, "xy".len));
+
+    var full_buffer: [5]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 5), kurotty_terminal_copy_row(terminal, 0, &full_buffer, full_buffer.len));
+    try std.testing.expectEqualStrings("abcde", &full_buffer);
+
+    var short_buffer: [3]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 3), kurotty_terminal_copy_row(terminal, 1, &short_buffer, short_buffer.len));
+    try std.testing.expectEqualStrings("xy ", &short_buffer);
+}
+
+test "ABI row copy returns zero for null handle invalid row or empty buffer" {
+    var buffer: [4]u8 = .{ 1, 2, 3, 4 };
+
+    try std.testing.expectEqual(@as(usize, 0), kurotty_terminal_copy_row(null, 0, &buffer, buffer.len));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &buffer);
+
+    const terminal = kurotty_terminal_create(4, 2) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    try std.testing.expectEqual(@as(usize, 0), kurotty_terminal_copy_row(terminal, 2, &buffer, buffer.len));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &buffer);
+    try std.testing.expectEqual(@as(usize, 0), kurotty_terminal_copy_row(terminal, 0, &buffer, 0));
 }
