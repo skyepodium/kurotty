@@ -214,6 +214,24 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("glyphAtlasMinimumScale"))
     }
 
+    func testBoxDrawingGlyphsRenderAsPixelAlignedLineQuads() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("private func appendBoxDrawingDecoration"))
+        XCTAssertTrue(surfaceSource.contains("if appendBoxDrawingDecoration("))
+        XCTAssertTrue(surfaceSource.contains("continue"))
+        XCTAssertTrue(metalSource.contains("case boxDrawing(left: Bool, right: Bool, up: Bool, down: Bool)"))
+        XCTAssertTrue(metalSource.contains("appendBoxDrawingDecorationInstances"))
+        XCTAssertTrue(metalSource.contains("if left"))
+        XCTAssertTrue(metalSource.contains("if right"))
+        XCTAssertTrue(metalSource.contains("if up"))
+        XCTAssertTrue(metalSource.contains("if down"))
+        XCTAssertTrue(surfaceSource.contains("case \"┌\", \"╭\":"))
+        XCTAssertTrue(surfaceSource.contains("case \"┘\", \"╯\":"))
+        XCTAssertTrue(surfaceSource.contains("case \"┼\":"))
+    }
+
     func testInactivePaneCursorRemainsVisibleWhileFocusedPaneBlinks() throws {
         let metalSource = try terminalMetalViewSource()
         let surfaceSource = try terminalSurfaceViewSource()
@@ -436,6 +454,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextColumn: cursorColumn"))
         XCTAssertTrue(surfaceSource.contains("cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth"))
         XCTAssertFalse(source.contains("terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText)"))
+    }
+
+    func testMarkedTextMasksUnderlyingPromptPlaceholderCells() throws {
+        let source = try terminalMetalViewSource()
+
+        XCTAssertTrue(source.contains("private func isCellCoveredByMarkedText(_ cell: TerminalCell) -> Bool"))
+        XCTAssertTrue(source.contains("guard !isCellCoveredByMarkedText(cell) else { continue }"))
+        XCTAssertTrue(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns"))
+        XCTAssertFalse(source.contains("terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)"))
+        XCTAssertTrue(source.contains("return cellRange.overlaps(markedTextRange)"))
     }
 
     func testMarkedTextCompositionDoesNotPersistSelectionBackgrounds() throws {
@@ -829,13 +857,32 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
         let source = try terminalSurfaceViewSource()
 
-        XCTAssertTrue(source.contains("let scrollbackCountBeforeOutput = scrollbackRows.count"))
+        XCTAssertTrue(source.contains("private var scrollbackRowsAppendedDuringOutput = 0"))
+        XCTAssertTrue(source.contains("scrollbackRowsAppendedDuringOutput = 0"))
         XCTAssertTrue(source.contains("let shouldFollowOutput = scrollbackOffset == 0"))
         XCTAssertTrue(source.contains("if shouldFollowOutput {\n            scrollbackOffset = 0\n        }"))
-        XCTAssertTrue(source.contains("let appendedScrollbackCount = max(0, scrollbackRows.count - scrollbackCountBeforeOutput)"))
+        XCTAssertTrue(source.contains("let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput"))
         XCTAssertTrue(source.contains("scrollbackOffset = min(scrollbackRows.count, scrollbackOffset + appendedScrollbackCount)\n            markFullDamage()"))
         XCTAssertFalse(source.contains("if !text.isEmpty {\n            scrollbackOffset = 0\n        }"))
         XCTAssertTrue(source.contains("updateScrollIndicator()"))
+    }
+
+    func testUserInputReturnsScrollbackToLiveCursorPosition() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
+        XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
+        XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateMetalFrame()"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordUserInput(text)\n        }"))
+    }
+
+    func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
+        let source = try terminalSurfaceViewSource()
+        let setMarkedTextStart = try XCTUnwrap(source.range(of: "func setMarkedText"))
+        let unmarkTextStart = try XCTUnwrap(source.range(of: "func unmarkText"))
+        let setMarkedTextSource = source[setMarkedTextStart.lowerBound..<unmarkTextStart.lowerBound]
+
+        XCTAssertTrue(setMarkedTextSource.contains("followLiveOutputForUserInput()"))
     }
 
     func testScrollbackTrimmingUsesBoundedRowStore() throws {
@@ -1531,6 +1578,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let shellSource = try shellSessionSource()
         let surfaceSource = try terminalSurfaceViewSource()
         let notifierSource = try terminalNotifierSource()
+        let appDelegateSource = try appDelegateSource()
         let readmeSource = try readmeSource()
 
         XCTAssertTrue(shellSource.contains("var onExit: ((Int32) -> Void)?"))
@@ -1608,7 +1656,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(notifierSource.contains("will present identifier="))
         XCTAssertTrue(notifierSource.contains("completionHandler([.banner, .list, .sound])"))
         XCTAssertEqual(notifierSource.components(separatedBy: "completionHandler([.banner, .list, .sound])").count - 1, 1)
+        XCTAssertTrue(notifierSource.contains("didReceive response: UNNotificationResponse"))
+        XCTAssertTrue(notifierSource.contains("focusExistingTerminalWindow"))
+        XCTAssertTrue(notifierSource.contains("notification response identifier="))
         XCTAssertTrue(notifierSource.contains("UNNotificationRequest("))
+        XCTAssertTrue(appDelegateSource.contains("@objc func focusExistingTerminalWindow()"))
+        XCTAssertTrue(appDelegateSource.contains("activeTerminalWindowController?.window?.makeKeyAndOrderFront(nil)"))
+        XCTAssertEqual(appDelegateSource.components(separatedBy: "openNewWindow()").count - 1, 2)
         XCTAssertTrue(try appConstantsSource().contains("static let defaultTitle = \"Alert\""))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskIdentifierPrefix = \"dev.kurotty.terminal.background-task\""))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskSummaryMaxCharacters"))
