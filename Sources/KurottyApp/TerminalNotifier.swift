@@ -5,8 +5,8 @@ import os
 
 private let terminalNotificationLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
-@MainActor
 final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
+    @MainActor
     static let shared = TerminalNotifier()
 
     private let supportsUserNotifications = Bundle.main.bundleURL.pathExtension == "app"
@@ -22,6 +22,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         super.init()
     }
 
+    @MainActor
     func requestAuthorization() {
         guard !didRequestAuthorization, let center else { return }
         didRequestAuthorization = true
@@ -40,6 +41,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    @MainActor
     func notifyItermOsc9(message: String) {
         let body = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
@@ -50,6 +52,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
+    @MainActor
     func notifyBackgroundTaskCompleted(body: String) {
         deliver(
             title: AppConstants.Notifications.defaultTitle,
@@ -58,6 +61,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
+    @MainActor
     func notifyTestNotification() {
         deliver(
             title: AppConstants.Notifications.defaultTitle,
@@ -66,6 +70,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
+    @MainActor
     private func deliver(title: String, body: String, identifierPrefix: String) {
         let metadata = TerminalNotificationLogMetadata(identifierPrefix: identifierPrefix, title: title, body: body)
         guard let center else {
@@ -97,6 +102,7 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    @MainActor
     private func deliverDevelopmentNotification(
         title: String,
         body: String,
