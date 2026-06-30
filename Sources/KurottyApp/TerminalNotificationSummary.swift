@@ -25,6 +25,9 @@ enum TerminalNotificationSummary {
         guard !isPromptInputLine(line) else {
             return false
         }
+        guard !isShellPromptLine(line) else {
+            return false
+        }
         return true
     }
 
@@ -78,5 +81,37 @@ enum TerminalNotificationSummary {
 
     private static func isPromptInputLine(_ line: String) -> Bool {
         line.range(of: #"^[›>]\s+\S"#, options: .regularExpression) != nil
+    }
+
+    private static func isShellPromptLine(_ line: String) -> Bool {
+        let normalizedLine = line
+            .replacingOccurrences(of: "\u{fffd}", with: " ")
+            .replacingOccurrences(of: "\u{00a0}", with: " ")
+        let parts = normalizedLine
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        guard parts.count >= 2 else {
+            return false
+        }
+
+        guard promptUsernames().contains(parts[0]) else {
+            return false
+        }
+
+        return parts.dropFirst().contains { part in
+            part == "~" || part.hasPrefix("~/") || part.hasPrefix("/")
+        }
+    }
+
+    private static func promptUsernames() -> Set<String> {
+        var names = Set<String>()
+        let userName = NSUserName()
+        if !userName.isEmpty {
+            names.insert(userName)
+        }
+        if let environmentUser = ProcessInfo.processInfo.environment["USER"], !environmentUser.isEmpty {
+            names.insert(environmentUser)
+        }
+        return names
     }
 }

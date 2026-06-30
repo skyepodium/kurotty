@@ -61,6 +61,28 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummarySkipsShellPromptLines() {
+        let answerLine = "작업 완료: 알림 본문은 이 줄이어야 합니다."
+        let promptLine = "\(NSUserName()) ~/dev kurotty"
+
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
+                answerLine,
+                promptLine,
+            ]),
+            answerLine
+        )
+    }
+
+    func testNotificationSummaryDoesNotReturnOnlyShellPrompt() {
+        XCTAssertNil(
+            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
+                "\(NSUserName()) ~/dev",
+                "\(NSUserName()) /Users/\(NSUserName())/dev/kurotty",
+            ])
+        )
+    }
+
     func testNotificationSummaryDoesNotReturnOnlyPromptPlaceholder() {
         XCTAssertNil(
             TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
