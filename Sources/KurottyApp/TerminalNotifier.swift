@@ -5,15 +5,16 @@ import os
 
 private let terminalNotificationLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
-final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
+final class TerminalNotifier: NSObject {
     @MainActor
     static let shared = TerminalNotifier()
 
+    private let notificationDelegate = TerminalNotificationDelegate()
     private let supportsUserNotifications = Bundle.main.bundleURL.pathExtension == "app"
     private lazy var center: UNUserNotificationCenter? = {
         guard supportsUserNotifications else { return nil }
         let center = UNUserNotificationCenter.current()
-        center.delegate = self
+        center.delegate = notificationDelegate
         return center
     }()
     private var didRequestAuthorization = false
@@ -127,6 +128,9 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
         return "\"\(escaped)\""
     }
 
+}
+
+private final class TerminalNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
