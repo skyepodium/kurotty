@@ -20,33 +20,17 @@ Kurotty ships as a notarized Universal DMG for Intel and Apple Silicon Macs.
 
 [Download the latest Kurotty DMG](https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg)
 
-Open the DMG, drag `kurotty.app` to `Applications`, then launch it from `/Applications`. Release notes and older builds are available on [GitHub Releases](https://github.com/skyepodium/kurotty/releases).
+Open the DMG, drag `kurotty.app` to `Applications`, then launch it from `/Applications`.
 
-To download and install from a shell:
+Shell download:
 
 ```sh
 curl -fL -o kurotty-macos-universal.dmg \
   https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg
-curl -fL -O \
-  https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS
-grep '  kurotty-macos-universal.dmg$' SHA256SUMS | shasum -a 256 -c -
-
-MOUNT_DIR="$(mktemp -d)"
-hdiutil attach kurotty-macos-universal.dmg -mountpoint "$MOUNT_DIR" -nobrowse
-ditto "$MOUNT_DIR/kurotty.app" /Applications/kurotty.app
-hdiutil detach "$MOUNT_DIR"
-rmdir "$MOUNT_DIR"
-open /Applications/kurotty.app
+open kurotty-macos-universal.dmg
 ```
 
-The stable download URL always points to the latest release. Each release also includes:
-
-- `kurotty-<version>-macos-universal.dmg`
-- `kurotty-macos-universal.dmg`
-- `SHA256SUMS`
-- `appcast.xml` for automatic updates
-
-On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
+Release notes, checksums, and older builds are available on [GitHub Releases](https://github.com/skyepodium/kurotty/releases). On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
 
 ## Features
 
@@ -85,37 +69,15 @@ swift run kurotty
 To install a local app bundle:
 
 ```sh
-export KUROTTY_LOCAL_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ./scripts/install-app.sh
 open /Applications/kurotty.app
 ```
-
-If you do not set `KUROTTY_LOCAL_SIGN_IDENTITY`, local install uses ad-hoc signing.
 
 To create a local Universal DMG:
 
 ```sh
 ./scripts/package-release.sh
 ```
-
-The script writes:
-
-- `dist/kurotty-$(cat VERSION)-macos-universal.dmg`
-- `dist/kurotty-macos-universal.dmg`
-- `dist/SHA256SUMS`
-- `dist/appcast.xml` when Sparkle signing is configured
-
-To publish an alpha release from `main`:
-
-```sh
-git switch main
-git pull --ff-only
-swift test
-git tag "v$(cat VERSION)"
-git push origin "v$(cat VERSION)"
-```
-
-The release workflow builds, signs, notarizes, staples, generates the Sparkle appcast, and uploads the release assets to GitHub Releases. Bump `VERSION` first, merge the release commit to `main`, then tag from `main`.
 
 Developer notes live in `docs/`.
 
