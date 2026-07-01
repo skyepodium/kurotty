@@ -1052,7 +1052,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
         XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordUserInput(text)\n        }"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
     }
 
     func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
@@ -1581,6 +1581,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("case #selector(moveRightAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)"))
         XCTAssertTrue(surfaceSource.contains("case #selector(moveLeftAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)"))
         XCTAssertTrue(surfaceSource.contains("private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int)"))
+        XCTAssertTrue(surfaceSource.contains("private var keyboardSelectionInputStart: TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("recordKeyboardSelectionInputStartIfNeeded(for: text)"))
+        XCTAssertTrue(surfaceSource.contains("let inputStart = keyboardSelectionInputStart ?? liveCursorPosition"))
+        XCTAssertTrue(surfaceSource.contains("let minimumColumn = nextRow == inputStart.row ? inputStart.column : 0"))
 
         for source in [surfaceSource, inputSource] {
             XCTAssertTrue(source.contains("case #selector(moveUpAndModifySelection(_:))"))

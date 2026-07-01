@@ -49,6 +49,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
+    private var keyboardSelectionInputStart: TerminalCellPosition?
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
     private var pendingDirtyRows = Set<Int>()
@@ -807,6 +808,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         clearSelection()
         if recordsUserActivity {
             followLiveOutputForUserInput()
+            recordKeyboardSelectionInputStartIfNeeded(for: text)
             recordUserInput(text)
         }
         shell.write(text)
@@ -831,12 +833,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard text.contains("\r") || text.contains("\n") else {
             return
         }
+        keyboardSelectionInputStart = nil
         submittedInputSequence &+= 1
         backgroundTaskInputSequence = submittedInputSequence
         backgroundTaskHasOutput = false
         backgroundTaskOutputText = ""
         backgroundTaskNotificationWorkItem?.cancel()
         backgroundTaskNotificationWorkItem = nil
+    }
+
+    private func recordKeyboardSelectionInputStartIfNeeded(for text: String) {
+        guard keyboardSelectionInputStart == nil else { return }
+        guard text.contains(where: { $0.isTerminalPrintableGrapheme }) else { return }
+        keyboardSelectionInputStart = TerminalCellPosition(
+            row: visibleRowStartIndex(limit: terminalMetrics().size.rows) + cursorRow,
+            column: cursorColumn
+        )
     }
 
     private func recordOutputForBackgroundTask(_ text: String) {
@@ -1179,12 +1191,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             row: visibleRowStartIndex(limit: metrics.size.rows) + cursorRow,
             column: cursorColumn
         )
+        let inputStart = keyboardSelectionInputStart ?? liveCursorPosition
         let anchor = selectionAnchor ?? liveCursorPosition
         let focus = selectionFocus ?? liveCursorPosition
         let nextFocus = clampedSelectionPosition(
             row: focus.row + rowDelta,
             column: focus.column + columnDelta,
-            metrics: metrics
+            metrics: metrics,
+            inputStart: inputStart
         )
 
         selectionGestureState.beginCharacterSelection()
@@ -1194,10 +1208,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         updateRendererFrame()
     }
 
-    private func clampedSelectionPosition(row: Int, column: Int, metrics: TerminalMetrics) -> TerminalCellPosition {
+    private func clampedSelectionPosition(
+        row: Int,
+        column: Int,
+        metrics: TerminalMetrics,
+        inputStart: TerminalCellPosition
+    ) -> TerminalCellPosition {
         let maxRow = max(0, allRowsForSelection().count - 1)
-        let nextRow = max(0, min(maxRow, row))
-        let nextColumn = max(0, min(metrics.size.columns - 1, column))
+        let nextRow = max(inputStart.row, min(maxRow, row))
+        let minimumColumn = nextRow == inputStart.row ? inputStart.column : 0
+        let nextColumn = max(minimumColumn, min(metrics.size.columns - 1, column))
         return TerminalCellPosition(row: nextRow, column: nextColumn)
     }
 
