@@ -722,13 +722,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case #selector(moveRight(_:)):
             send("\u{1b}[C")
         case #selector(moveUpAndModifySelection(_:)):
-            send("\u{1b}[1;2A")
+            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)
         case #selector(moveDownAndModifySelection(_:)):
-            send("\u{1b}[1;2B")
+            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)
         case #selector(moveRightAndModifySelection(_:)):
-            send("\u{1b}[1;2C")
+            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)
         case #selector(moveLeftAndModifySelection(_:)):
-            send("\u{1b}[1;2D")
+            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)
         case #selector(scrollPageUp(_:)):
             send("\u{1b}[5~")
         case #selector(scrollPageDown(_:)):
@@ -1166,6 +1166,39 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let maxContentRow = max(0, allRowsForSelection().count - 1)
         let row = min(maxContentRow, visibleRowStartIndex(limit: metrics.size.rows) + visibleRow)
         return TerminalCellPosition(row: row, column: column)
+    }
+
+    private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int) {
+        if scrollbackOffset != 0 {
+            scrollbackOffset = 0
+            updateScrollIndicator()
+        }
+
+        let metrics = terminalMetrics()
+        let liveCursorPosition = TerminalCellPosition(
+            row: visibleRowStartIndex(limit: metrics.size.rows) + cursorRow,
+            column: cursorColumn
+        )
+        let anchor = selectionAnchor ?? liveCursorPosition
+        let focus = selectionFocus ?? liveCursorPosition
+        let nextFocus = clampedSelectionPosition(
+            row: focus.row + rowDelta,
+            column: focus.column + columnDelta,
+            metrics: metrics
+        )
+
+        selectionGestureState.beginCharacterSelection()
+        selectionAnchor = anchor
+        selectionFocus = nextFocus == anchor ? nil : nextFocus
+        markFullDamage()
+        updateRendererFrame()
+    }
+
+    private func clampedSelectionPosition(row: Int, column: Int, metrics: TerminalMetrics) -> TerminalCellPosition {
+        let maxRow = max(0, allRowsForSelection().count - 1)
+        let nextRow = max(0, min(maxRow, row))
+        let nextColumn = max(0, min(metrics.size.columns - 1, column))
+        return TerminalCellPosition(row: nextRow, column: nextColumn)
     }
 
     private func updateHoveredLinkRange(with event: NSEvent) {

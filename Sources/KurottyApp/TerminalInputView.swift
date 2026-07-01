@@ -134,13 +134,13 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         case #selector(deleteBackward(_:)):
             core.feed("\u{7f}")
         case #selector(moveUpAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2A")
+            break
         case #selector(moveDownAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2B")
+            break
         case #selector(moveRightAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2C")
+            break
         case #selector(moveLeftAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2D")
+            break
         default:
             break
         }

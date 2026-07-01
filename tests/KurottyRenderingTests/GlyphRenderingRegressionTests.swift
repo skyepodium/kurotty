@@ -1574,16 +1574,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(routerSource.contains("32: \"u\""))
         XCTAssertTrue(dispatcherSource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
 
+        XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
+        XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveUpAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveDownAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveRightAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveLeftAndModifySelection(_:)):\n            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)"))
+        XCTAssertTrue(surfaceSource.contains("private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int)"))
+
         for source in [surfaceSource, inputSource] {
-            XCTAssertTrue(source.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
             XCTAssertTrue(source.contains("case #selector(moveUpAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2A"))
             XCTAssertTrue(source.contains("case #selector(moveDownAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2B"))
             XCTAssertTrue(source.contains("case #selector(moveRightAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2C"))
             XCTAssertTrue(source.contains("case #selector(moveLeftAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2D"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2A"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2B"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2C"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2D"))
         }
     }
 
