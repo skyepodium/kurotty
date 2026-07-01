@@ -41,10 +41,27 @@ if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
   SPARKLE_CONFIGURED_UPDATES="0"
   echo "Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set."
 fi
+SPARKLE_PRIVATE_KEY="${KUROTTY_SPARKLE_PRIVATE_KEY:-}"
 SPARKLE_TOOLS_DERIVED_DATA="$WORK_DIR/sparkle-tools"
-SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-$SPARKLE_TOOLS_DERIVED_DATA/Build/Products/Release/generate_appcast}"
+SPARKLE_ARTIFACT_GENERATE_APPCAST="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+if [[ -z "${SPARKLE_GENERATE_APPCAST:-}" ]]; then
+  if [[ -x "$SPARKLE_ARTIFACT_GENERATE_APPCAST" ]]; then
+    SPARKLE_GENERATE_APPCAST="$SPARKLE_ARTIFACT_GENERATE_APPCAST"
+  else
+    SPARKLE_GENERATE_APPCAST="$SPARKLE_TOOLS_DERIVED_DATA/Build/Products/Release/generate_appcast"
+  fi
+fi
 
 source "$ROOT_DIR/scripts/iconset.sh"
+
+generate_sparkle_appcast() {
+  local archives_dir="$1"
+  if [[ -n "$SPARKLE_PRIVATE_KEY" ]]; then
+    printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_GENERATE_APPCAST" --ed-key-file - "$archives_dir"
+    return
+  fi
+  "$SPARKLE_GENERATE_APPCAST" "$archives_dir"
+}
 
 cd "$ROOT_DIR"
 
@@ -203,14 +220,14 @@ if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
   mkdir -p "$APPCAST_WORK_DIR"
   cp "$DMG_PATH" "$APPCAST_WORK_DIR/$DMG_NAME"
   if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
-    "$SPARKLE_GENERATE_APPCAST" "$APPCAST_WORK_DIR"
+    generate_sparkle_appcast "$APPCAST_WORK_DIR"
   else
     xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
       -scheme generate_appcast \
       -configuration Release \
       -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
       build
-    "$SPARKLE_GENERATE_APPCAST" "$APPCAST_WORK_DIR"
+    generate_sparkle_appcast "$APPCAST_WORK_DIR"
   fi
   cp "$APPCAST_WORK_DIR/appcast.xml" "$DIST_DIR/appcast.xml"
 else

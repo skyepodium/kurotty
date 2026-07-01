@@ -55,6 +55,7 @@ jobs:
           KUROTTY_NOTARY_TEAM_ID: ${{ secrets.KUROTTY_NOTARY_TEAM_ID }}
           KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
           KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY }}
+          KUROTTY_SPARKLE_PRIVATE_KEY: ${{ secrets.KUROTTY_SPARKLE_PRIVATE_KEY }}
         run: |
           if [[ -z "${MACOS_SIGN_IDENTITY}" ]]; then
             echo "MACOS_SIGN_IDENTITY is required for release signing." >&2
