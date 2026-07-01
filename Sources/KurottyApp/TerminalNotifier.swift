@@ -139,12 +139,16 @@ final class TerminalNotifier: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
     ) {
         terminalNotificationLogger.info("notification response identifier=\(response.notification.request.identifier, privacy: .public)")
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else {
+            completionHandler()
+            return
+        }
         Task { @MainActor in
             (NSApp.delegate as? AppDelegate)?.focusExistingTerminalWindow()
+            completionHandler()
         }
-        completionHandler()
     }
 }

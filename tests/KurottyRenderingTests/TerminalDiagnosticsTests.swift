@@ -131,6 +131,25 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummaryUsesLatestMeaningfulOutputBlock() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            build step 1 passed
+            build step 2 passed
+            tests failed: 2 regressions
+
+            ────────────────────────────────────────
+
+            \(NSUserName()) ~/dev/kurotty
+            """),
+            """
+            build step 1 passed
+            build step 2 passed
+            tests failed: 2 regressions
+            """
+        )
+    }
+
     func testNotificationSummarySkipsUsageStatusFromOutputText() {
         XCTAssertNil(
             TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """

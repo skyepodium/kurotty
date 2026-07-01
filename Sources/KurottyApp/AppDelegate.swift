@@ -146,21 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showUpdateUnavailableNotice() {
         let alert = NSAlert()
-        alert.messageText = "업데이트가 필요할까요?"
-        alert.informativeText = "이 빌드에서는 자동 업데이트가 동작하지 않습니다. 릴리스 페이지에서 최신 버전을 확인하시겠습니까?"
+        alert.messageText = "자동 업데이트를 사용할 수 없습니다"
+        alert.informativeText = "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "릴리스 페이지 열기")
-        alert.addButton(withTitle: "닫기")
-        if alert.runModal() == .alertFirstButtonReturn {
-            showReleaseURL()
-        }
-    }
-
-    private func showReleaseURL() {
-        guard let url = URL(string: AppConstants.Bundle.sparkleReleasesPageURL) else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        alert.addButton(withTitle: "확인")
+        alert.runModal()
     }
 
     private func installApplicationIcon() {

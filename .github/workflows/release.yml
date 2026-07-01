@@ -74,4 +74,5 @@ jobs:
           files: |
             dist/kurotty-*-macos-universal.dmg
             dist/kurotty-macos-universal.dmg
+            dist/appcast.xml
             dist/SHA256SUMS

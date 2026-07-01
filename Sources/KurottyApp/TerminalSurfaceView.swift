@@ -271,7 +271,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard window?.firstResponder === self else {
             return super.performKeyEquivalent(with: event)
         }
-        return handleCommandKey(event) || super.performKeyEquivalent(with: event)
+        return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)
     }
 
     func rendererFramePresented() {
@@ -310,7 +310,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
-              let characters = event.charactersIgnoringModifiers?.lowercased()
+              let characters = TerminalTextInputRouter.latinKeyEquivalent(for: event)
         else {
             return false
         }
@@ -335,6 +335,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             send(controlText)
             return true
         }
+        if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
+            send(commandControlText)
+            return true
+        }
 
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
               event.charactersIgnoringModifiers == "\t"
@@ -343,6 +347,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         send("\t")
         return true
+    }
+
+    private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
+        guard !hasMarkedText() else {
+            return false
+        }
+        return handleTerminalControlKey(event)
     }
 
     @objc private func settingsDidChange(_ notification: Notification) {
@@ -417,6 +428,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func resetMarkedTextForInputSourceChange() {
+        guard hasMarkedText() else { return }
         markMarkedTextDirty()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
@@ -528,6 +540,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
+        let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow)
+        let displayCursorRow = markedTextPosition?.row ?? cursorRow
+        let displayCursorColumn = markedTextPosition?.column ?? cursorColumn
         renderer.update(frame: TerminalFrame(
             cells: cells,
             backgrounds: backgrounds,
@@ -537,11 +552,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
             isFullDamage: damage.isFull,
-            cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
-            cursorRow: cursorVisible && scrollbackOffset == 0 ? min(cursorRow, metrics.size.rows - 1) : -1,
+            cursorColumn: min(displayCursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
+            cursorRow: cursorVisible && scrollbackOffset == 0 ? min(displayCursorRow, metrics.size.rows - 1) : -1,
             // Inactive panes keep a steady cursor; focus only controls blink.
             cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn,
-            markedTextColumn: cursorColumn,
+            markedTextColumn: displayCursorColumn,
             markedText: markedText.string,
             markedTextSelectedRange: .none,
             columns: metrics.size.columns,
@@ -551,6 +566,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
+    }
+
+    private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition? {
+        guard markedText.length > 0 else { return nil }
+        let anchor = markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
+        return TerminalCellPosition(row: anchor.row - visibleStartRow, column: anchor.column)
     }
 
     private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool {
@@ -700,6 +721,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             send("\u{1b}[D")
         case #selector(moveRight(_:)):
             send("\u{1b}[C")
+        case #selector(moveUpAndModifySelection(_:)):
+            send("\u{1b}[1;2A")
+        case #selector(moveDownAndModifySelection(_:)):
+            send("\u{1b}[1;2B")
+        case #selector(moveRightAndModifySelection(_:)):
+            send("\u{1b}[1;2C")
+        case #selector(moveLeftAndModifySelection(_:)):
+            send("\u{1b}[1;2D")
         case #selector(scrollPageUp(_:)):
             send("\u{1b}[5~")
         case #selector(scrollPageDown(_:)):
@@ -714,9 +743,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markMarkedTextDirty()
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
+        if markedText.length == 0 {
+            markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
+        }
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
-        markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
         markMarkedTextDirty()
         updateRendererFrame()
     }
@@ -869,17 +900,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func backgroundTaskNotificationBody(outputText: String) -> String {
-        guard let summary = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: outputText) else {
+        guard let summary = TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText) else {
             return AppConstants.Notifications.backgroundTaskFinishedBody
         }
         if summary.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
             return summary
         }
-        let endIndex = summary.index(
-            summary.startIndex,
-            offsetBy: AppConstants.Notifications.backgroundTaskSummaryMaxCharacters
-        )
-        return String(summary[..<endIndex])
+        return String(summary.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
     }
 
     private func enqueueOutput(_ text: String) {

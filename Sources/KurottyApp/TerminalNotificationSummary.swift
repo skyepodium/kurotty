@@ -18,6 +18,28 @@ enum TerminalNotificationSummary {
         return latestMeaningfulLine(fromVisibleLines: normalizedText.components(separatedBy: .newlines))
     }
 
+    static func latestMeaningfulText(fromOutputText text: String) -> String? {
+        let normalizedText = stripTerminalControls(from: text)
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalizedText.components(separatedBy: .newlines)
+        var block = [String]()
+        for line in lines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isMeaningfulLine(trimmed) {
+                block.append(trimmed)
+                continue
+            }
+            if !block.isEmpty {
+                break
+            }
+        }
+
+        guard !block.isEmpty else {
+            return nil
+        }
+        return block.reversed().joined(separator: "\n")
+    }
+
     private static func isMeaningfulLine(_ line: String) -> Bool {
         guard !line.isEmpty else {
             return false

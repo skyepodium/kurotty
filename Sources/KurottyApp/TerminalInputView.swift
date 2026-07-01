@@ -41,7 +41,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         guard window?.firstResponder === self else {
             return super.performKeyEquivalent(with: event)
         }
-        return handleCommandKey(event) || super.performKeyEquivalent(with: event)
+        return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)
     }
 
     @objc func paste(_ sender: Any?) {
@@ -67,7 +67,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
-              let characters = event.charactersIgnoringModifiers?.lowercased()
+              let characters = TerminalTextInputRouter.latinKeyEquivalent(for: event)
         else {
             return false
         }
@@ -92,6 +92,10 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             core.feed(controlText)
             return true
         }
+        if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
+            core.feed(commandControlText)
+            return true
+        }
 
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
               event.charactersIgnoringModifiers == "\t"
@@ -100,6 +104,13 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         }
         core.feed("\t")
         return true
+    }
+
+    private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
+        guard !hasMarkedText() else {
+            return false
+        }
+        return handleTerminalControlKey(event)
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
@@ -122,6 +133,14 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             core.feed("\u{1b}")
         case #selector(deleteBackward(_:)):
             core.feed("\u{7f}")
+        case #selector(moveUpAndModifySelection(_:)):
+            core.feed("\u{1b}[1;2A")
+        case #selector(moveDownAndModifySelection(_:)):
+            core.feed("\u{1b}[1;2B")
+        case #selector(moveRightAndModifySelection(_:)):
+            core.feed("\u{1b}[1;2C")
+        case #selector(moveLeftAndModifySelection(_:)):
+            core.feed("\u{1b}[1;2D")
         default:
             break
         }
@@ -173,6 +192,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func resetMarkedTextForInputSourceChange() {
+        guard hasMarkedText() else { return }
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         needsDisplay = true

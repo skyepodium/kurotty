@@ -26,6 +26,7 @@ DMG_NAME="kurotty-$VERSION-macos-universal.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 DMG_LATEST_NAME="kurotty-macos-universal.dmg"
 DMG_LATEST_PATH="$DIST_DIR/$DMG_LATEST_NAME"
+APPCAST_WORK_DIR="$WORK_DIR/appcast"
 ICONSET_DIR="$WORK_DIR/kurotty.iconset"
 
 SIGN_IDENTITY="${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}"
@@ -34,7 +35,7 @@ NOTARY_APPLE_ID="${KUROTTY_NOTARY_APPLE_ID:-}"
 NOTARY_TEAM_ID="${KUROTTY_NOTARY_TEAM_ID:-}"
 NOTARY_PASSWORD="${KUROTTY_NOTARY_PASSWORD:-}"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
-SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}"
 SPARKLE_CONFIGURED_UPDATES="1"
 if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
   SPARKLE_CONFIGURED_UPDATES="0"
@@ -129,6 +130,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>SUFeedURL</key>
   <string>$SPARKLE_FEED_URL</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUAutomaticallyUpdate</key>
+  <true/>
+  <key>SUAllowsAutomaticUpdates</key>
+  <true/>
 $(if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
   cat <<SUPUBLIC
   <key>SUPublicEDKey</key>
@@ -154,7 +161,13 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 fi
 
-rm -rf "$DMG_ROOT" "$DMG_RW" "$DMG_PATH" "$DMG_LATEST_PATH" "$DIST_DIR/SHA256SUMS"
+rm -rf \
+  "$DMG_ROOT" \
+  "$DMG_RW" \
+  "$DIST_DIR"/kurotty-*-macos-universal.dmg \
+  "$DMG_LATEST_PATH" \
+  "$DIST_DIR/SHA256SUMS" \
+  "$DIST_DIR/appcast.xml"
 mkdir -p "$DMG_ROOT"
 cp -R "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
 ln -s /Applications "$DMG_ROOT/Applications"
@@ -185,6 +198,25 @@ else
   echo "Skipping notarization: set KUROTTY_NOTARY_PROFILE or Apple ID notarization env vars."
 fi
 
+if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
+  rm -rf "$APPCAST_WORK_DIR"
+  mkdir -p "$APPCAST_WORK_DIR"
+  cp "$DMG_PATH" "$APPCAST_WORK_DIR/$DMG_NAME"
+  if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
+    "$SPARKLE_GENERATE_APPCAST" "$APPCAST_WORK_DIR"
+  else
+    xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
+      -scheme generate_appcast \
+      -configuration Release \
+      -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
+      build
+    "$SPARKLE_GENERATE_APPCAST" "$APPCAST_WORK_DIR"
+  fi
+  cp "$APPCAST_WORK_DIR/appcast.xml" "$DIST_DIR/appcast.xml"
+else
+  echo "Skipping Sparkle appcast generation because update key is not configured."
+fi
+
 cp "$DMG_PATH" "$DMG_LATEST_PATH"
 
 (
@@ -192,23 +224,8 @@ cp "$DMG_PATH" "$DMG_LATEST_PATH"
   shasum -a 256 "$DMG_NAME" "$DMG_LATEST_NAME" > SHA256SUMS
 )
 
-if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
-  if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
-    "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
-  else
-    xcodebuild -project "$ROOT_DIR/.build/checkouts/Sparkle/Sparkle.xcodeproj" \
-      -scheme generate_appcast \
-      -configuration Release \
-      -derivedDataPath "$SPARKLE_TOOLS_DERIVED_DATA" \
-      build
-    "$SPARKLE_GENERATE_APPCAST" "$DIST_DIR"
-  fi
-else
-  echo "Skipping Sparkle appcast generation because update key is not configured."
-fi
-
 if [[ "$KEEP_WORKDIR" != "1" ]]; then
-  rm -rf "$WORK_DIR"/swift-* "$WORK_DIR"/zig-* "$ICONSET_DIR" "$DMG_ROOT" "$DMG_RW"
+  rm -rf "$WORK_DIR"/swift-* "$WORK_DIR"/zig-* "$ICONSET_DIR" "$DMG_ROOT" "$DMG_RW" "$APPCAST_WORK_DIR"
 fi
 
 echo "Packaged $DMG_PATH"
