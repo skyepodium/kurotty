@@ -1549,12 +1549,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("guard window?.firstResponder === self else"))
         XCTAssertTrue(surfaceSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
         XCTAssertTrue(surfaceSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            send(commandControlText)\n            return true\n        }"))
         XCTAssertTrue(surfaceSource.contains("guard !hasMarkedText() else"))
 
         let inputSource = try terminalInputViewSource()
         XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else"))
         XCTAssertTrue(inputSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
         XCTAssertTrue(inputSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
+        XCTAssertTrue(inputSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            core.feed(commandControlText)\n            return true\n        }"))
     }
 
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {

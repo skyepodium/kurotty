@@ -107,6 +107,11 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
+        if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
+            resetMarkedTextForInputSourceChange()
+            core.feed(commandControlText)
+            return true
+        }
         guard !hasMarkedText() else {
             return false
         }
