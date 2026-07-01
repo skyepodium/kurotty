@@ -63,6 +63,26 @@ generate_sparkle_appcast() {
   "$SPARKLE_GENERATE_APPCAST" "$archives_dir"
 }
 
+resolve_sparkle_generate_appcast() {
+  if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
+    return
+  fi
+
+  local discovered_tool
+  discovered_tool="$(
+    find "$WORK_DIR" "$ROOT_DIR/.build" \
+      -path '*/Sparkle/bin/generate_appcast' \
+      -type f \
+      -perm -111 \
+      -print \
+      -quit 2>/dev/null || true
+  )"
+
+  if [[ -n "$discovered_tool" ]]; then
+    SPARKLE_GENERATE_APPCAST="$discovered_tool"
+  fi
+}
+
 cd "$ROOT_DIR"
 
 rm -rf "$WORK_DIR"
@@ -219,6 +239,7 @@ if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
   rm -rf "$APPCAST_WORK_DIR"
   mkdir -p "$APPCAST_WORK_DIR"
   cp "$DMG_PATH" "$APPCAST_WORK_DIR/$DMG_NAME"
+  resolve_sparkle_generate_appcast
   if [[ -x "$SPARKLE_GENERATE_APPCAST" ]]; then
     generate_sparkle_appcast "$APPCAST_WORK_DIR"
   else
