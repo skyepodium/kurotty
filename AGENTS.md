@@ -63,6 +63,17 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Keep platform-specific code behind platform adapters. AppKit, Darwin PTY, macOS shell integration, notifications, and Metal setup belong in the macOS app layer; the Zig terminal core and protocol logic must stay portable enough for future Linux and Windows frontends.
 - Do not introduce new macOS command-line tool dependencies outside macOS-only scripts or adapters.
 
+## Terminal Protocol And Rendering
+
+- Do not treat every CSI sequence with final byte `m` as SGR. SGR is only the non-private `CSI ... m` family; private CSI variants such as `CSI > 4 ; 2 m` belong to protocols like Kitty keyboard mode and must not mutate text style.
+- Preserve CSI parameter structure when parsing. Semicolon-separated parameters and colon subparameters have different meaning. For SGR, keep elements such as `4:0`, `4:3`, and `38:2::r:g:b` intact so underline and color handling cannot be confused with unrelated style codes.
+- The Claude Code startup regression was caused by interpreting `ESC[>4;2m` as SGR underline (`4`) plus dim (`2`). The fix is protocol classification: private CSI `m` is ignored by SGR handling, while normal `CSI 4;2m` remains valid SGR.
+- Do not special-case applications, versions, prompt text, or art output when fixing terminal protocol behavior. Capture the PTY stream when possible, identify the protocol sequence, and fix the parser/state model generally.
+- Screen cells need to distinguish placeholder blanks produced by erase, clear, scroll, insert, or delete operations from printable spaces emitted by the program. Text decorations such as underline, strikethrough, and link hover should render for real content cells, not for placeholder blanks.
+- Keep terminal visual state in the screen/model layer, not in renderer-only heuristics. The renderer may skip drawing placeholder decorations, but it should not infer protocol semantics from literal text like `" "` or from a specific TUI layout.
+- Rendering regressions involving TUIs should be checked against a reference terminal such as Ghostty and backed by PTY sequence evidence when possible. Avoid relying only on screenshots when escape-sequence classification is in question.
+- Regression coverage for protocol/rendering fixes should include executable tests for parsed CSI structure, SGR/private-CSI classification, and cell decoration policy, then broaden to `swift test` and an installed `.app` smoke check for user-visible renderer behavior.
+
 ## macOS IME Input
 
 - macOS IME composition belongs to AppKit. Do not manually compose Hangul jamo, normalize partial jamo into syllables, or hide pending jamo in Kurotty code.
