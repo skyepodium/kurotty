@@ -73,6 +73,9 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Input-source changes may discard stale AppKit marked text, but must not synthesize replacement text.
 - The critical regression case is: type `d` in English, switch to Korean IME, type `안녕`; PTY output must be `d안녕`, not `dㅇㅏㄴ녕` or any compatibility-jamo sequence.
 - IME verification must include real event-flow evidence when possible: `keyDown`, `setMarkedText`, `insertText`, `unmarkText`, and PTY write logs. Source-shape tests alone are not enough to claim an IME fix.
+- If `main` and `develop` appear to differ on Korean IME behavior, first compare branch heads and confirm the running binary was rebuilt from the checked-out branch. The 2026-07-01 investigation found `main` and `develop` had identical IME source while stale experimental binaries made behavior appear branch-specific.
+- Do not revive the old committed-jamo repair from `2225300` (`composingCompatibilityHangulJamo`, `pendingCompatibilityJamo`, or buffering a leading `ㅇ` after `keyboardSelectionDidChangeNotification`) as a first-line fix. That masks AppKit/IMK event ordering by synthesizing Hangul inside Kurotty and previously caused regressions such as `dㅇㅏㄴ`, `dㅏㄴ`, and duplicated text after input-source switches.
+- When Korean IME regresses, treat the event-flow log as the source of truth: determine whether AppKit is sending `insertText("안")`, `setMarkedText` preedit updates, or premature compatibility jamo commits before changing code. Fix the routing/lifecycle boundary that makes AppKit emit the wrong event sequence; do not patch the PTY text after the fact unless there is fresh evidence and a written reason.
 
 ## macOS Notifications
 
