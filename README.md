@@ -16,47 +16,37 @@ Kurotty is currently an early developer build. Download the latest alpha release
 
 ## Download
 
-Download the latest alpha Universal DMG directly:
+Kurotty ships as a notarized Universal DMG for Intel and Apple Silicon Macs.
 
-[Download Kurotty for macOS](https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg)
+[Download the latest Kurotty DMG](https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg)
 
-It supports Intel and Apple Silicon Macs. Release notes and older builds are available on [GitHub Releases](https://github.com/skyepodium/kurotty/releases).
+Open the DMG, drag `kurotty.app` to `Applications`, then launch it from `/Applications`. Release notes and older builds are available on [GitHub Releases](https://github.com/skyepodium/kurotty/releases).
 
-Release asset names:
-
-- `kurotty-macos-universal.dmg`
-- `kurotty-<version>-macos-universal.dmg`
-- `SHA256SUMS`
+To download and install from a shell:
 
 ```sh
-curl -LO https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg
-curl -LO https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS
-shasum -a 256 -c SHA256SUMS
-open kurotty-macos-universal.dmg
+curl -fL -o kurotty-macos-universal.dmg \
+  https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg
+curl -fL -O \
+  https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS
+grep '  kurotty-macos-universal.dmg$' SHA256SUMS | shasum -a 256 -c -
+
+MOUNT_DIR="$(mktemp -d)"
+hdiutil attach kurotty-macos-universal.dmg -mountpoint "$MOUNT_DIR" -nobrowse
+ditto "$MOUNT_DIR/kurotty.app" /Applications/kurotty.app
+hdiutil detach "$MOUNT_DIR"
+rmdir "$MOUNT_DIR"
 open /Applications/kurotty.app
 ```
 
-Notes:
+The stable download URL always points to the latest release. Each release also includes:
 
-- This is an alpha build.
-- Release builds are packaged as a Universal DMG for Intel and Apple Silicon Macs.
-- macOS may warn that it cannot verify this app if it was built without Apple notarization. This is expected for unsigned/dev builds and can be bypassed:
+- `kurotty-<version>-macos-universal.dmg`
+- `kurotty-macos-universal.dmg`
+- `SHA256SUMS`
+- `appcast.xml` for automatic updates
 
-  ```sh
-  xattr -dr com.apple.quarantine kurotty-macos-universal.dmg
-  open kurotty-macos-universal.dmg
-  xattr -dr com.apple.quarantine /Applications/kurotty.app
-  open /Applications/kurotty.app
-  ```
-
-  Or right-click the app in Finder and choose **Open**.
-
-  For public releases, this warning should not appear when the release workflow runs with:
-  - `KUROTTY_RELEASE_SIGN_IDENTITY`
-  - `KUROTTY_NOTARY_PROFILE` (or Apple ID notarization credentials)
-  - `KUROTTY_SPARKLE_PUBLIC_KEY` (optional override for the built-in Sparkle public key)
-
-- On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
+On first launch, macOS may ask for notification permission because Kurotty supports terminal-triggered task notifications.
 
 ## Features
 
@@ -102,7 +92,7 @@ open /Applications/kurotty.app
 
 If you do not set `KUROTTY_LOCAL_SIGN_IDENTITY`, local install uses ad-hoc signing.
 
-To create the same Universal DMG locally:
+To create a local Universal DMG:
 
 ```sh
 ./scripts/package-release.sh
@@ -111,18 +101,21 @@ To create the same Universal DMG locally:
 The script writes:
 
 - `dist/kurotty-$(cat VERSION)-macos-universal.dmg`
+- `dist/kurotty-macos-universal.dmg`
 - `dist/SHA256SUMS`
+- `dist/appcast.xml` when Sparkle signing is configured
 
 To publish an alpha release from `main`:
 
 ```sh
 git switch main
 git pull --ff-only
+swift test
 git tag "v$(cat VERSION)"
 git push origin "v$(cat VERSION)"
 ```
 
-The release workflow builds a Universal DMG and uploads it to GitHub Releases. Bump `VERSION` first, then tag from `main`. Set Developer ID and notarization secrets in GitHub Actions when you want a fully signed and notarized DMG.
+The release workflow builds, signs, notarizes, staples, generates the Sparkle appcast, and uploads the release assets to GitHub Releases. Bump `VERSION` first, merge the release commit to `main`, then tag from `main`.
 
 Developer notes live in `docs/`.
 
