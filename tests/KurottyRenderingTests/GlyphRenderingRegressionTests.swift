@@ -666,6 +666,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("let bitmapMinXPixels = floor(imageBounds.minX) - CGFloat(paddingPixels)"))
         XCTAssertTrue(source.contains("let bitmapMaxXPixels = ceil(imageBounds.maxX) + CGFloat(paddingPixels)"))
         XCTAssertTrue(source.contains("let pixelWidth = min(glyphSlotWidth, max(1, Int(bitmapMaxXPixels - bitmapMinXPixels)))"))
+        XCTAssertTrue(source.contains("let desiredInkLeft: CGFloat = 0"))
+        XCTAssertFalse(source.contains("(logicalAdvanceWidth - imageLogicalWidth) * 0.5"))
         XCTAssertTrue(source.contains("let baselineX = round(-bitmapMinXPixels)"))
         XCTAssertFalse(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
     }
