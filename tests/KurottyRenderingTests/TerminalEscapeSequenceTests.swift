@@ -32,6 +32,24 @@ final class TerminalEscapeSequenceTests: XCTestCase {
         XCTAssertNil(TerminalDeviceAttributes.response(for: CsiParameters("=1")))
     }
 
+    func testCsiParametersPreserveSgrColonSubparameters() {
+        let underlineOff = CsiParameters("4:0")
+        XCTAssertEqual(underlineOff.elements.map(\.values), [[4, 0]])
+
+        let trueColor = CsiParameters("38:2::1:2:3;4:3")
+        XCTAssertEqual(trueColor.elements.map(\.values), [[38, 2, 0, 1, 2, 3], [4, 3]])
+        XCTAssertEqual(trueColor.values, [38, 2, 0, 1, 2, 3, 4, 3])
+    }
+
+    func testPrivateCsiMIsKeyboardProtocolNotSgr() {
+        let keyboardProtocolMode = CsiParameters(">4;2")
+
+        XCTAssertTrue(keyboardProtocolMode.isPrivate)
+        XCTAssertEqual(keyboardProtocolMode.prefix, ">")
+        XCTAssertFalse(TerminalSgrPolicy.shouldApplySgr(for: keyboardProtocolMode))
+        XCTAssertTrue(TerminalSgrPolicy.shouldApplySgr(for: CsiParameters("4;2")))
+    }
+
     func testTerminalResponsesAreSuppressedWhenPtyWouldEchoThem() {
         XCTAssertFalse(TerminalLineDiscipline.canReceiveTerminalResponseWithoutEcho(localFlags: tcflag_t(ECHO)))
         XCTAssertTrue(TerminalLineDiscipline.canReceiveTerminalResponseWithoutEcho(localFlags: 0))
