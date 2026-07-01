@@ -1004,8 +1004,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let bitmapMaxXPixels = ceil(imageBounds.maxX) + CGFloat(paddingPixels)
         let pixelWidth = min(glyphSlotWidth, max(1, Int(bitmapMaxXPixels - bitmapMinXPixels)))
         let pixelHeight = min(glyphSlotHeight, max(1, Int(ceil(imageBounds.height)) + paddingPixels * 2))
-        let imageLogicalWidth = imageBounds.width / scale
-        let desiredInkLeft = columnWidth > 1 ? max(0, (logicalAdvanceWidth - imageLogicalWidth) * 0.5) : 0
+        let desiredInkLeft: CGFloat = 0
         // CoreText metrics are fractional pixels after scaling. Snap the atlas draw origin so
         // bitmap rasterization and the later Metal quad share one canonical row baseline.
         let unsnappedBaselineY = CGFloat(glyphSlotHeight) - CGFloat(paddingPixels) - imageBounds.maxY

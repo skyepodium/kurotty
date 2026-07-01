@@ -2,6 +2,11 @@ import AppKit
 
 enum TerminalTextInputRouter {
     private enum KeyCode {
+        static let leftArrow: UInt16 = 123
+        static let rightArrow: UInt16 = 124
+        static let downArrow: UInt16 = 125
+        static let upArrow: UInt16 = 126
+
         static let qwertyLatinKeys: [UInt16: String] = [
             0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
             8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
@@ -149,8 +154,26 @@ enum TerminalTextInputRouter {
             return false
         }
 
+        if isNavigationCommandKey(event) {
+            return false
+        }
+
         return !(event.characters ?? "").isEmpty ||
             !(event.charactersIgnoringModifiers ?? "").isEmpty
+    }
+
+    private static func isNavigationCommandKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.subtracting([.shift, .numericPad, .function]).isEmpty else {
+            return false
+        }
+
+        switch event.keyCode {
+        case KeyCode.leftArrow, KeyCode.rightArrow, KeyCode.downArrow, KeyCode.upArrow:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func describe(_ event: NSEvent) -> String {

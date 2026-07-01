@@ -107,6 +107,11 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
+        if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
+            resetMarkedTextForInputSourceChange()
+            core.feed(commandControlText)
+            return true
+        }
         guard !hasMarkedText() else {
             return false
         }
@@ -134,13 +139,13 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         case #selector(deleteBackward(_:)):
             core.feed("\u{7f}")
         case #selector(moveUpAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2A")
+            break
         case #selector(moveDownAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2B")
+            break
         case #selector(moveRightAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2C")
+            break
         case #selector(moveLeftAndModifySelection(_:)):
-            core.feed("\u{1b}[1;2D")
+            break
         default:
             break
         }

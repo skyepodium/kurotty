@@ -607,11 +607,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("Self.intersects(characterRange, terminalFrame.markedTextSelectedRange)"))
         XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: .none"))
         XCTAssertTrue(surfaceSource.contains("private var markedTextAnchor: TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("private var pendingMarkedTextAnchor: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("private func markMarkedTextDirty()"))
-        XCTAssertTrue(surfaceSource.contains("if markedText.length == 0 {\n            markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)\n        }"))
+        XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)"))
+        XCTAssertTrue(surfaceSource.contains("private func advancedTerminalPosition(from position: TerminalCellPosition, by text: String) -> TerminalCellPosition"))
+        XCTAssertTrue(surfaceSource.contains("markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)"))
+        XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil"))
+        XCTAssertTrue(surfaceSource.contains("recordOutputForBackgroundTask(text)\n        pendingMarkedTextAnchor = nil\n        markDirty(row: cursorRow)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(deleteBackward(_:)):\n            pendingMarkedTextAnchor = nil\n            send(\"\\u{7f}\")"))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
-        XCTAssertTrue(surfaceSource.contains("unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
+        XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)\n        unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
         XCTAssertFalse(surfaceSource.contains("appendMarkedTextSelectionBackgrounds(to: &backgrounds)"))
         XCTAssertFalse(surfaceSource.contains("private func selectedMarkedTextRange()"))
     }
@@ -660,6 +666,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("let bitmapMinXPixels = floor(imageBounds.minX) - CGFloat(paddingPixels)"))
         XCTAssertTrue(source.contains("let bitmapMaxXPixels = ceil(imageBounds.maxX) + CGFloat(paddingPixels)"))
         XCTAssertTrue(source.contains("let pixelWidth = min(glyphSlotWidth, max(1, Int(bitmapMaxXPixels - bitmapMinXPixels)))"))
+        XCTAssertTrue(source.contains("let desiredInkLeft: CGFloat = 0"))
+        XCTAssertFalse(source.contains("(logicalAdvanceWidth - imageLogicalWidth) * 0.5"))
         XCTAssertTrue(source.contains("let baselineX = round(-bitmapMinXPixels)"))
         XCTAssertFalse(source.contains("let unsnappedBaselineX = CGFloat(paddingPixels) - imageBounds.minX"))
     }
@@ -1052,7 +1060,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
         XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordUserInput(text)\n        }"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
     }
 
     func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
@@ -1543,12 +1551,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("guard window?.firstResponder === self else"))
         XCTAssertTrue(surfaceSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
         XCTAssertTrue(surfaceSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            send(commandControlText)\n            return true\n        }"))
         XCTAssertTrue(surfaceSource.contains("guard !hasMarkedText() else"))
 
         let inputSource = try terminalInputViewSource()
         XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else"))
         XCTAssertTrue(inputSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
         XCTAssertTrue(inputSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
+        XCTAssertTrue(inputSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            core.feed(commandControlText)\n            return true\n        }"))
     }
 
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
@@ -1574,16 +1584,27 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(routerSource.contains("32: \"u\""))
         XCTAssertTrue(dispatcherSource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
 
+        XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
+        XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveUpAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveDownAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveRightAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)"))
+        XCTAssertTrue(surfaceSource.contains("case #selector(moveLeftAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)"))
+        XCTAssertTrue(surfaceSource.contains("private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int)"))
+        XCTAssertTrue(surfaceSource.contains("private var keyboardSelectionInputStart: TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("recordKeyboardSelectionInputStartIfNeeded(for: text)"))
+        XCTAssertTrue(surfaceSource.contains("let inputStart = keyboardSelectionInputStart ?? liveCursorPosition"))
+        XCTAssertTrue(surfaceSource.contains("let minimumColumn = nextRow == inputStart.row ? inputStart.column : 0"))
+
         for source in [surfaceSource, inputSource] {
-            XCTAssertTrue(source.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
             XCTAssertTrue(source.contains("case #selector(moveUpAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2A"))
             XCTAssertTrue(source.contains("case #selector(moveDownAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2B"))
             XCTAssertTrue(source.contains("case #selector(moveRightAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2C"))
             XCTAssertTrue(source.contains("case #selector(moveLeftAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("\\u{1b}[1;2D"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2A"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2B"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2C"))
+            XCTAssertFalse(source.contains("\\u{1b}[1;2D"))
         }
     }
 

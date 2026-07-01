@@ -81,6 +81,34 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertFalse(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
     }
 
+    @MainActor
+    func testShiftArrowsBypassTextInputContextWhenNoCompositionIsActive() throws {
+        let arrowEvents: [(keyCode: UInt16, functionKey: unichar)] = [
+            (keyCode: 123, functionKey: unichar(NSLeftArrowFunctionKey)),
+            (keyCode: 124, functionKey: unichar(NSRightArrowFunctionKey)),
+            (keyCode: 125, functionKey: unichar(NSDownArrowFunctionKey)),
+            (keyCode: 126, functionKey: unichar(NSUpArrowFunctionKey)),
+        ]
+
+        for arrowEvent in arrowEvents {
+            let characters = String(UnicodeScalar(arrowEvent.functionKey)!)
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.shift, .numericPad],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: arrowEvent.keyCode
+            ))
+
+            XCTAssertFalse(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
+        }
+    }
+
     func testKeypadEnterUsesTerminalEnterActionWithNumericPadFlag() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
