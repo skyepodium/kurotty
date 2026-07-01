@@ -1746,7 +1746,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markFullDamage()
         case "m":
-            applySgr(parsed.values)
+            guard TerminalSgrPolicy.shouldApplySgr(for: parsed) else { break }
+            applySgr(parsed.elements)
         case "r":
             setScrollRegion(parsed)
         case "s":
@@ -1969,11 +1970,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return TerminalFrameDamage(rows: rows, rects: rects, isFull: isFull)
     }
 
-    private func applySgr(_ values: [Int]) {
-        let codes = values.isEmpty ? [0] : values
+    private func applySgr(_ elements: [CsiParameterElement]) {
+        let codes = elements.isEmpty ? [CsiParameterElement(values: [0])] : elements
         var index = 0
         while index < codes.count {
-            let code = codes[index]
+            let element = codes[index]
+            let code = element.value
             switch code {
             case 0:
                 currentStyle = terminalDefaultStyle
@@ -1984,7 +1986,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             case 3:
                 currentStyle.italic = true
             case 4:
-                currentStyle.underline = true
+                applyUnderlineSgr(element)
             case 5:
                 currentStyle.blink = true
             case 9:
@@ -2018,17 +2020,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 currentStyle.background = terminalAnsiColor(code - 100, bright: true)
             case 38, 48:
                 let isForeground = code == 38
+                if let color = colorFromColonSgr(element) {
+                    if isForeground {
+                        currentStyle.foreground = color
+                    } else {
+                        currentStyle.background = color
+                    }
+                    break
+                }
                 guard index + 1 < codes.count else { break }
-                if codes[index + 1] == 5, index + 2 < codes.count {
-                    let color = xterm256Color(codes[index + 2])
+                if codes[index + 1].value == 5, index + 2 < codes.count {
+                    let color = xterm256Color(codes[index + 2].value)
                     if isForeground {
                         currentStyle.foreground = color
                     } else {
                         currentStyle.background = color
                     }
                     index += 2
-                } else if codes[index + 1] == 2, index + 4 < codes.count {
-                    let color = TerminalTextStyle.rgb(red: codes[index + 2], green: codes[index + 3], blue: codes[index + 4])
+                } else if codes[index + 1].value == 2, index + 4 < codes.count {
+                    let color = TerminalTextStyle.rgb(red: codes[index + 2].value, green: codes[index + 3].value, blue: codes[index + 4].value)
                     if isForeground {
                         currentStyle.foreground = color
                     } else {
@@ -2040,6 +2050,29 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 break
             }
             index += 1
+        }
+    }
+
+    private func applyUnderlineSgr(_ element: CsiParameterElement) {
+        guard element.values.count > 1 else {
+            currentStyle.underline = true
+            return
+        }
+        currentStyle.underline = element.values[1] != 0
+    }
+
+    private func colorFromColonSgr(_ element: CsiParameterElement) -> SIMD4<Float>? {
+        guard element.values.count > 1 else { return nil }
+        switch element.values[1] {
+        case 5:
+            guard element.values.count > 2 else { return nil }
+            return xterm256Color(element.values[2])
+        case 2:
+            let colorComponents = Array(element.values.dropFirst(2).suffix(3))
+            guard colorComponents.count == 3 else { return nil }
+            return TerminalTextStyle.rgb(red: colorComponents[0], green: colorComponents[1], blue: colorComponents[2])
+        default:
+            return nil
         }
     }
 

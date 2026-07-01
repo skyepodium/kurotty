@@ -63,6 +63,17 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Keep platform-specific code behind platform adapters. AppKit, Darwin PTY, macOS shell integration, notifications, and Metal setup belong in the macOS app layer; the Zig terminal core and protocol logic must stay portable enough for future Linux and Windows frontends.
 - Do not introduce new macOS command-line tool dependencies outside macOS-only scripts or adapters.
 
+## Terminal Protocol And Rendering
+
+- Do not treat every CSI sequence with final byte `m` as SGR. SGR is only the non-private `CSI ... m` family; private CSI variants such as `CSI > 4 ; 2 m` belong to protocols like Kitty keyboard mode and must not mutate text style.
+- Preserve CSI parameter structure when parsing. Semicolon-separated parameters and colon subparameters have different meaning. For SGR, keep elements such as `4:0`, `4:3`, and `38:2::r:g:b` intact so underline and color handling cannot be confused with unrelated style codes.
+- The Claude Code startup regression was caused by interpreting `ESC[>4;2m` as SGR underline (`4`) plus dim (`2`). The fix is protocol classification: private CSI `m` is ignored by SGR handling, while normal `CSI 4;2m` remains valid SGR.
+- Do not special-case applications, versions, prompt text, or art output when fixing terminal protocol behavior. Capture the PTY stream when possible, identify the protocol sequence, and fix the parser/state model generally.
+- Screen cells need to distinguish placeholder blanks produced by erase, clear, scroll, insert, or delete operations from printable spaces emitted by the program. Text decorations such as underline, strikethrough, and link hover should render for real content cells, not for placeholder blanks.
+- Keep terminal visual state in the screen/model layer, not in renderer-only heuristics. The renderer may skip drawing placeholder decorations, but it should not infer protocol semantics from literal text like `" "` or from a specific TUI layout.
+- Rendering regressions involving TUIs should be checked against a reference terminal such as Ghostty and backed by PTY sequence evidence when possible. Avoid relying only on screenshots when escape-sequence classification is in question.
+- Regression coverage for protocol/rendering fixes should include executable tests for parsed CSI structure, SGR/private-CSI classification, and cell decoration policy, then broaden to `swift test` and an installed `.app` smoke check for user-visible renderer behavior.
+
 ## macOS IME Input
 
 - macOS IME composition belongs to AppKit. Do not manually compose Hangul jamo, normalize partial jamo into syllables, or hide pending jamo in Kurotty code.
@@ -73,6 +84,11 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Input-source changes may discard stale AppKit marked text, but must not synthesize replacement text.
 - The critical regression case is: type `d` in English, switch to Korean IME, type `안녕`; PTY output must be `d안녕`, not `dㅇㅏㄴ녕` or any compatibility-jamo sequence.
 - IME verification must include real event-flow evidence when possible: `keyDown`, `setMarkedText`, `insertText`, `unmarkText`, and PTY write logs. Source-shape tests alone are not enough to claim an IME fix.
+- If `main` and `develop` appear to differ on Korean IME behavior, first compare branch heads and confirm the running binary was rebuilt from the checked-out branch. The 2026-07-01 investigation found `main` and `develop` had identical IME source while stale experimental binaries made behavior appear branch-specific.
+- Korean IME behavior must be validated against the installed app bundle, not only `.build/debug/kurotty`. The debug executable is a raw terminal-launched binary, while `/Applications/kurotty.app` runs through LaunchServices with an app bundle, `Info.plist`, bundle identifier, activation policy, code signature, resources, and bundled Zig dylib. AppKit/IMK can produce a different `keyDown`/`setMarkedText`/`insertText` sequence between those contexts.
+- For IME debugging, use `./scripts/install-app.sh`, quit any existing Kurotty process, then open `/Applications/kurotty.app`. If input logs are needed for the installed app, export the debug flag into the launch environment before opening it, for example `launchctl setenv KUROTTY_DEBUG_INPUT_CLIENT 1`, then inspect the installed app's event-flow logs.
+- Do not revive the old committed-jamo repair from `2225300` (`composingCompatibilityHangulJamo`, `pendingCompatibilityJamo`, or buffering a leading `ㅇ` after `keyboardSelectionDidChangeNotification`) as a first-line fix. That masks AppKit/IMK event ordering by synthesizing Hangul inside Kurotty and previously caused regressions such as `dㅇㅏㄴ`, `dㅏㄴ`, and duplicated text after input-source switches.
+- When Korean IME regresses, treat the event-flow log as the source of truth: determine whether AppKit is sending `insertText("안")`, `setMarkedText` preedit updates, or premature compatibility jamo commits before changing code. Fix the routing/lifecycle boundary that makes AppKit emit the wrong event sequence; do not patch the PTY text after the fact unless there is fresh evidence and a written reason.
 
 ## macOS Notifications
 

@@ -301,6 +301,7 @@ public struct TerminalScreenCell: Equatable, Sendable {
 public struct CsiParameters: Sendable {
     public let isPrivate: Bool
     public let prefix: Character?
+    public let elements: [CsiParameterElement]
     public let values: [Int]
 
     public init(_ raw: String) {
@@ -315,16 +316,45 @@ public struct CsiParameters: Sendable {
             return character
         }
         isPrivate = prefix != nil
-        values = trimmed
-            .split(whereSeparator: { $0 == ";" || $0 == ":" })
-            .map { part in
-                Int(part.filter(\.isNumber)) ?? 0
-            }
+        elements = CsiParameterElement.parseElements(from: trimmed)
+        values = elements.flatMap(\.values)
     }
 
     public func value(at index: Int, default defaultValue: Int) -> Int {
         guard values.indices.contains(index), values[index] > 0 else { return defaultValue }
         return values[index]
+    }
+}
+
+public struct CsiParameterElement: Equatable, Sendable {
+    public let values: [Int]
+
+    public init(values: [Int]) {
+        self.values = values
+    }
+
+    public var value: Int {
+        values.first ?? 0
+    }
+
+    static func parseElements(from raw: String) -> [CsiParameterElement] {
+        guard !raw.isEmpty else { return [] }
+        return raw
+            .split(separator: ";", omittingEmptySubsequences: false)
+            .map { element in
+                let values = element
+                    .split(separator: ":", omittingEmptySubsequences: false)
+                    .map { part in
+                        Int(part.filter(\.isNumber)) ?? 0
+                    }
+                return CsiParameterElement(values: values)
+            }
+    }
+}
+
+public enum TerminalSgrPolicy {
+    public static func shouldApplySgr(for params: CsiParameters) -> Bool {
+        !params.isPrivate
     }
 }
 
