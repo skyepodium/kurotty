@@ -578,8 +578,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(frameSource.contains("let markedTextColumn: Int"))
         XCTAssertTrue(source.contains("var column = terminalFrame.markedTextColumn"))
-        XCTAssertTrue(surfaceSource.contains("markedTextColumn: cursorColumn"))
-        XCTAssertTrue(surfaceSource.contains("cursorColumn: min(cursorColumn + markedText.string.terminalColumnWidth"))
+        XCTAssertTrue(surfaceSource.contains("private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow)"))
+        XCTAssertTrue(surfaceSource.contains("let displayCursorColumn = markedTextPosition?.column ?? cursorColumn"))
+        XCTAssertTrue(surfaceSource.contains("markedTextColumn: displayCursorColumn"))
+        XCTAssertTrue(surfaceSource.contains("cursorColumn: min(displayCursorColumn + markedText.string.terminalColumnWidth"))
         XCTAssertFalse(source.contains("terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText)"))
     }
 
@@ -605,6 +608,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: .none"))
         XCTAssertTrue(surfaceSource.contains("private var markedTextAnchor: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("private func markMarkedTextDirty()"))
+        XCTAssertTrue(surfaceSource.contains("if markedText.length == 0 {\n            markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)\n        }"))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
         XCTAssertTrue(surfaceSource.contains("unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
@@ -1262,6 +1266,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(appDelegateSource.contains("var canCheckForUpdates: Bool"))
         XCTAssertTrue(appDelegateSource.contains("@objc func checkForUpdates(_ sender: Any?)"))
         XCTAssertTrue(appDelegateSource.contains("updateController.checkForUpdates(sender)"))
+        XCTAssertTrue(appDelegateSource.contains("자동 업데이트를 사용할 수 없습니다"))
+        XCTAssertTrue(appDelegateSource.contains("정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."))
+        XCTAssertTrue(appDelegateSource.contains("alert.addButton(withTitle: \"확인\")"))
+        XCTAssertFalse(appDelegateSource.contains("showReleaseURL()"))
+        XCTAssertFalse(appDelegateSource.contains("NSWorkspace.shared.open(url)"))
 
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Check for Updates...\", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: \"\")"))
@@ -1271,6 +1280,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(constantsSource.contains("static let sparklePublicKeyInfoKey = \"SUPublicEDKey\""))
         XCTAssertTrue(constantsSource.contains("static let sparklePublicKeyEnvironmentName = \"KUROTTY_SPARKLE_PUBLIC_KEY\""))
         XCTAssertTrue(constantsSource.contains("static let sparkleFeedURLEnvironmentName = \"KUROTTY_SPARKLE_FEED_URL\""))
+        XCTAssertFalse(constantsSource.contains("sparkleReleasesPageURL"))
 
         let installSource = try installAppScriptSource()
         XCTAssertTrue(installSource.contains("mkdir -p \"$APP_BUNDLE/Contents/MacOS\" \"$APP_BUNDLE/Contents/Resources\" \"$APP_BUNDLE/Contents/Frameworks\""))
@@ -1281,12 +1291,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(installSource.contains("<string>$SPARKLE_FEED_URL</string>"))
         XCTAssertTrue(installSource.contains("<key>SUPublicEDKey</key>"))
         XCTAssertTrue(installSource.contains("<string>$SPARKLE_PUBLIC_KEY</string>"))
+        XCTAssertTrue(installSource.contains("<key>SUEnableAutomaticChecks</key>"))
+        XCTAssertTrue(installSource.contains("<key>SUAutomaticallyUpdate</key>"))
+        XCTAssertTrue(installSource.contains("<key>SUAllowsAutomaticUpdates</key>"))
 
         let packageReleaseSource = try scriptSource(named: "package-release")
         XCTAssertTrue(packageReleaseSource.contains("mkdir -p \"$DIST_DIR\" \"$WORK_DIR\" \"$APP_BUNDLE/Contents/MacOS\" \"$APP_BUNDLE/Contents/Resources\" \"$APP_BUNDLE/Contents/Frameworks\""))
         XCTAssertTrue(packageReleaseSource.contains("cp -R \"$swift_bin_path/Sparkle.framework\" \"$APP_BUNDLE/Contents/Frameworks/Sparkle.framework\""))
         XCTAssertTrue(packageReleaseSource.contains("install_name_tool -add_rpath \"@executable_path/../Frameworks\" \"$APP_BUNDLE/Contents/MacOS/kurotty\""))
-        XCTAssertTrue(packageReleaseSource.contains("SPARKLE_PUBLIC_KEY=\"${KUROTTY_SPARKLE_PUBLIC_KEY:-}\""))
+        XCTAssertTrue(packageReleaseSource.contains("SPARKLE_PUBLIC_KEY=\"${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}\""))
+        XCTAssertTrue(installSource.contains("SPARKLE_PUBLIC_KEY=\"${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}\""))
         XCTAssertTrue(packageReleaseSource.contains("SPARKLE_CONFIGURED_UPDATES=\"1\""))
         XCTAssertTrue(packageReleaseSource.contains("if [[ -z \"$SPARKLE_PUBLIC_KEY\" ]]; then"))
         XCTAssertTrue(packageReleaseSource.contains("Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set."))
@@ -1294,6 +1308,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageReleaseSource.contains("-scheme generate_appcast"))
         XCTAssertTrue(packageReleaseSource.contains("<key>SUFeedURL</key>"))
         XCTAssertTrue(packageReleaseSource.contains("SUPublicEDKey"))
+        XCTAssertTrue(packageReleaseSource.contains("<key>SUEnableAutomaticChecks</key>"))
+        XCTAssertTrue(packageReleaseSource.contains("<key>SUAutomaticallyUpdate</key>"))
+        XCTAssertTrue(packageReleaseSource.contains("<key>SUAllowsAutomaticUpdates</key>"))
         XCTAssertTrue(packageReleaseSource.contains("generate_appcast"))
     }
 
@@ -1517,10 +1534,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testOnlyFocusedTerminalHandlesPasteKeyEquivalent() throws {
         let surfaceSource = try terminalSurfaceViewSource()
-        XCTAssertTrue(surfaceSource.contains("guard window?.firstResponder === self else {\n            return super.performKeyEquivalent(with: event)\n        }\n        return handleCommandKey(event) || super.performKeyEquivalent(with: event)"))
+        XCTAssertTrue(surfaceSource.contains("guard window?.firstResponder === self else"))
+        XCTAssertTrue(surfaceSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
+        XCTAssertTrue(surfaceSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("guard !hasMarkedText() else"))
 
         let inputSource = try terminalInputViewSource()
-        XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else {\n            return super.performKeyEquivalent(with: event)\n        }\n        return handleCommandKey(event) || super.performKeyEquivalent(with: event)"))
+        XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else"))
+        XCTAssertTrue(inputSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
+        XCTAssertTrue(inputSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
     }
 
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
@@ -1533,6 +1555,30 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
         XCTAssertTrue(routerSource.contains("case 0x5b:\n            return \"\\u{1b}\""))
+    }
+
+    func testCommandShortcutsAndShiftArrowsUseTerminalControlFallbacks() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
+        let routerSource = try terminalTextInputRouterSource()
+        let dispatcherSource = try terminalCommandDispatcherSource()
+
+        XCTAssertTrue(routerSource.contains("static func latinKeyEquivalent(for event: NSEvent) -> String?"))
+        XCTAssertTrue(routerSource.contains("static func commandShortcutControlText(for event: NSEvent) -> String?"))
+        XCTAssertTrue(routerSource.contains("32: \"u\""))
+        XCTAssertTrue(dispatcherSource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
+
+        for source in [surfaceSource, inputSource] {
+            XCTAssertTrue(source.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
+            XCTAssertTrue(source.contains("case #selector(moveUpAndModifySelection(_:))"))
+            XCTAssertTrue(source.contains("\\u{1b}[1;2A"))
+            XCTAssertTrue(source.contains("case #selector(moveDownAndModifySelection(_:))"))
+            XCTAssertTrue(source.contains("\\u{1b}[1;2B"))
+            XCTAssertTrue(source.contains("case #selector(moveRightAndModifySelection(_:))"))
+            XCTAssertTrue(source.contains("\\u{1b}[1;2C"))
+            XCTAssertTrue(source.contains("case #selector(moveLeftAndModifySelection(_:))"))
+            XCTAssertTrue(source.contains("\\u{1b}[1;2D"))
+        }
     }
 
     func testSplitViewTargetsActivePaneAndRebalancesDividers() throws {
@@ -1794,7 +1840,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private var isTerminalFocusedForUser: Bool"))
         XCTAssertTrue(surfaceSource.contains("NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self"))
         XCTAssertTrue(surfaceSource.contains("private func backgroundTaskNotificationBody(outputText: String) -> String"))
-        XCTAssertTrue(surfaceSource.contains("TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: outputText)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText)"))
         XCTAssertTrue(surfaceSource.contains("AppConstants.Notifications.backgroundTaskFinishedBody"))
         XCTAssertFalse(surfaceSource.contains("guard exposeBackgroundTaskOutputSummary"))
         XCTAssertFalse(surfaceSource.contains("backgroundTaskNotificationBody(summary:"))
@@ -1852,6 +1898,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(notifierSource.contains("didReceive response: UNNotificationResponse"))
         XCTAssertTrue(notifierSource.contains("Task { @MainActor in"))
         XCTAssertTrue(notifierSource.contains("focusExistingTerminalWindow"))
+        XCTAssertTrue(notifierSource.contains("response.actionIdentifier == UNNotificationDefaultActionIdentifier"))
+        XCTAssertTrue(notifierSource.contains("completionHandler()"))
+        XCTAssertLessThan(
+            notifierSource.range(of: "focusExistingTerminalWindow")!.lowerBound,
+            notifierSource.range(of: "completionHandler()", options: .backwards)!.lowerBound
+        )
         XCTAssertTrue(notifierSource.contains("notification response identifier="))
         XCTAssertTrue(notifierSource.contains("UNNotificationRequest("))
         XCTAssertTrue(appDelegateSource.contains("@objc func focusExistingTerminalWindow()"))
@@ -1934,6 +1986,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(packageSource.contains("cp \"$ROOT_DIR/kurotty.png\" \"$APP_BUNDLE/Contents/Resources/kurotty.png\""))
         XCTAssertTrue(packageSource.contains("DMG_NAME=\"kurotty-$VERSION-macos-universal.dmg\""))
         XCTAssertTrue(packageSource.contains("DMG_LATEST_NAME=\"kurotty-macos-universal.dmg\""))
+        XCTAssertTrue(packageSource.contains("APPCAST_WORK_DIR=\"$WORK_DIR/appcast\""))
+        XCTAssertTrue(packageSource.contains("\"$DIST_DIR\"/kurotty-*-macos-universal.dmg"))
+        XCTAssertTrue(packageSource.contains("\"$DIST_DIR/appcast.xml\""))
+        XCTAssertTrue(packageSource.contains("cp \"$DMG_PATH\" \"$APPCAST_WORK_DIR/$DMG_NAME\""))
+        XCTAssertTrue(packageSource.contains("\"$SPARKLE_GENERATE_APPCAST\" \"$APPCAST_WORK_DIR\""))
+        XCTAssertTrue(packageSource.contains("cp \"$APPCAST_WORK_DIR/appcast.xml\" \"$DIST_DIR/appcast.xml\""))
         XCTAssertTrue(packageSource.contains("cp \"$DMG_PATH\" \"$DMG_LATEST_PATH\""))
         XCTAssertTrue(packageSource.contains("hdiutil create"))
         XCTAssertTrue(packageSource.contains("hdiutil attach"))
@@ -1946,8 +2004,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("xcrun stapler staple"))
         XCTAssertTrue(packageSource.contains("shasum -a 256 \"$DMG_NAME\" \"$DMG_LATEST_NAME\""))
         XCTAssertTrue(packageSource.contains("SHA256SUMS"))
+        XCTAssertLessThan(
+            try XCTUnwrap(packageSource.range(of: "if [[ \"$SPARKLE_CONFIGURED_UPDATES\" == \"1\" ]]")).lowerBound,
+            try XCTUnwrap(packageSource.range(of: "cp \"$DMG_PATH\" \"$DMG_LATEST_PATH\"")).lowerBound
+        )
         XCTAssertTrue(packageSource.contains("KUROTTY_KEEP_RELEASE_WORKDIR"))
-        XCTAssertTrue(packageSource.contains("rm -rf \"$WORK_DIR\"/swift-* \"$WORK_DIR\"/zig-* \"$ICONSET_DIR\" \"$DMG_ROOT\" \"$DMG_RW\""))
+        XCTAssertTrue(packageSource.contains("rm -rf \"$WORK_DIR\"/swift-* \"$WORK_DIR\"/zig-* \"$ICONSET_DIR\" \"$DMG_ROOT\" \"$DMG_RW\" \"$APPCAST_WORK_DIR\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
         XCTAssertTrue(readmeSource.contains("[Download](#download)"))
@@ -1971,6 +2033,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(releaseWorkflowSource.contains("./scripts/package-release.sh \"${VERSION#v}\""))
         XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-*-macos-universal.dmg"))
         XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-macos-universal.dmg"))
+        XCTAssertTrue(releaseWorkflowSource.contains("dist/appcast.xml"))
         XCTAssertTrue(releaseWorkflowSource.contains("softprops/action-gh-release"))
 
         XCTAssertTrue(agentsSource.contains("`VERSION` is the single source of truth"))

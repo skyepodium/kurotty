@@ -1,6 +1,15 @@
 import AppKit
 
 enum TerminalTextInputRouter {
+    private enum KeyCode {
+        static let qwertyLatinKeys: [UInt16: String] = [
+            0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
+            8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
+            16: "y", 17: "t", 30: "]", 32: "u", 33: "[", 34: "i", 35: "p",
+            37: "l", 38: "j", 40: "k", 45: "n", 46: "m",
+        ]
+    }
+
     @MainActor
     static func handleKeyDown(_ event: NSEvent, in view: NSView, hasMarkedText: Bool) -> Bool {
         guard shouldOfferToInputContext(event, hasMarkedText: hasMarkedText) else {
@@ -20,9 +29,29 @@ enum TerminalTextInputRouter {
         return true
     }
 
+    static func latinKeyEquivalent(for event: NSEvent) -> String? {
+        if let characters = event.charactersIgnoringModifiers?.lowercased(),
+           characters.count == 1,
+           characters.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value <= 0x7e }) {
+            return characters
+        }
+        return KeyCode.qwertyLatinKeys[event.keyCode]
+    }
+
     static func committedText(from string: Any) -> String {
         let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
         return (text as NSString).precomposedStringWithCanonicalMapping
+    }
+
+    static func commandShortcutControlText(for event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command),
+              flags.subtracting([.command]).isEmpty,
+              let character = latinKeyEquivalent(for: event)?.unicodeScalars.first
+        else {
+            return nil
+        }
+        return terminalControlText(forBaseScalarValue: character.value)
     }
 
     static func terminalControlText(for event: NSEvent) -> String? {
@@ -87,10 +116,7 @@ enum TerminalTextInputRouter {
     }
 
     private static func controlBaseScalarValue(forKeyCode keyCode: UInt16) -> UInt32? {
-        switch keyCode {
-        case 11: return 0x62
-        default: return nil
-        }
+        KeyCode.qwertyLatinKeys[keyCode]?.unicodeScalars.first?.value
     }
 
     static func logInsertText(_ text: String, replacementRange: NSRange) {

@@ -132,6 +132,58 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\u{2}")
     }
 
+    func testControlUUsesKeyCodeFallbackWhenInputSourceHidesCharacters() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .control,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 32
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\u{15}")
+    }
+
+    func testCommandUUsesTerminalControlFallbackUnderNonEnglishInputSource() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 32
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.latinKeyEquivalent(for: event), "u")
+        XCTAssertEqual(TerminalTextInputRouter.commandShortcutControlText(for: event), "\u{15}")
+    }
+
+    func testCommandShortcutFallbackDoesNotRunForOptionChords() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 32
+        ))
+
+        XCTAssertNil(TerminalTextInputRouter.commandShortcutControlText(for: event))
+    }
+
     func testControlKeyFallbackDoesNotRunForCommandOrOptionChords() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
@@ -149,7 +201,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertNil(TerminalTextInputRouter.terminalControlText(for: event))
     }
 
-    func testControlKeyFallbackDoesNotGuessNonPrefixLetters() throws {
+    func testControlCUsesKeyCodeFallbackWhenCharactersAreMissing() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -163,7 +215,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
             keyCode: 8
         ))
 
-        XCTAssertNil(TerminalTextInputRouter.terminalControlText(for: event))
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\u{3}")
     }
 
     private func terminalInputViewSource() throws -> String {

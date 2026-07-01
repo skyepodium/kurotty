@@ -34,7 +34,7 @@ enum TerminalCommandDispatcher {
         let hasOnlyCommandModifiers = flags.subtracting([.command, .shift]).isEmpty
         guard hasCommand,
               hasOnlyCommandModifiers,
-              let characters = event.charactersIgnoringModifiers?.lowercased()
+              let characters = TerminalTextInputRouter.latinKeyEquivalent(for: event)
         else {
             return false
         }

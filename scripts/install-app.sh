@@ -11,7 +11,7 @@ INSTALLED_APP="$INSTALL_DIR/${APP_NAME}.app"
 RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 ICONSET_DIR="$APP_BUNDLE/Contents/Resources/kurotty.iconset"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
-SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}"
 SIGN_IDENTITY="${KUROTTY_LOCAL_SIGN_IDENTITY:-${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
@@ -66,6 +66,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <string>$SPARKLE_FEED_URL</string>
   <key>SUPublicEDKey</key>
   <string>$SPARKLE_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUAutomaticallyUpdate</key>
+  <true/>
+  <key>SUAllowsAutomaticUpdates</key>
+  <true/>
 </dict>
 </plist>
 PLIST
