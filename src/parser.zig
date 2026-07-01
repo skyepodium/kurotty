@@ -15,6 +15,9 @@ pub const Event = union(enum) {
 };
 
 pub const Parser = struct {
+    pub const max_csi_sequence_bytes: usize = 256;
+    pub const max_string_sequence_bytes: usize = 4096;
+
     allocator: std.mem.Allocator,
     state: State = .normal,
     printable: std.ArrayList(u8) = .empty,
@@ -92,7 +95,16 @@ pub const Parser = struct {
                         self.control.clearRetainingCapacity();
                         self.state = .normal;
                     } else {
-                        try self.control.append(self.allocator, byte);
+                        switch (try self.appendBoundedControlByte(byte)) {
+                            .appended => {},
+                            .overflow => self.state = .csi_discard,
+                        }
+                    }
+                },
+                .csi_discard => {
+                    if (isCsiFinal(byte)) {
+                        self.control.clearRetainingCapacity();
+                        self.state = .normal;
                     }
                 },
                 .osc => switch (byte) {
@@ -102,7 +114,10 @@ pub const Parser = struct {
                         self.state = .normal;
                     },
                     0x1b => self.state = .osc_escape,
-                    else => try self.string.append(self.allocator, byte),
+                    else => switch (try self.appendBoundedStringByte(byte)) {
+                        .appended => {},
+                        .overflow => self.state = .osc_discard,
+                    },
                 },
                 .osc_escape => {
                     if (byte == '\\') {
@@ -110,9 +125,29 @@ pub const Parser = struct {
                         self.string.clearRetainingCapacity();
                         self.state = .normal;
                     } else {
-                        try self.string.append(self.allocator, 0x1b);
-                        try self.string.append(self.allocator, byte);
-                        self.state = .osc;
+                        switch (try self.appendBoundedStringByte(0x1b)) {
+                            .appended => switch (try self.appendBoundedStringByte(byte)) {
+                                .appended => self.state = .osc,
+                                .overflow => self.state = .osc_discard,
+                            },
+                            .overflow => self.state = .osc_discard,
+                        }
+                    }
+                },
+                .osc_discard => switch (byte) {
+                    0x07 => {
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    },
+                    0x1b => self.state = .osc_discard_escape,
+                    else => {},
+                },
+                .osc_discard_escape => {
+                    if (byte == '\\') {
+                        self.string.clearRetainingCapacity();
+                        self.state = .normal;
+                    } else {
+                        self.state = .osc_discard;
                     }
                 },
                 .string_control => switch (byte) {
@@ -158,6 +193,24 @@ pub const Parser = struct {
         try events.append(self.allocator, .{ .printable = .{ .bytes = owned } });
     }
 
+    fn appendBoundedControlByte(self: *Parser, byte: u8) !BoundedAppendResult {
+        if (self.control.items.len >= max_csi_sequence_bytes) {
+            self.control.clearRetainingCapacity();
+            return .overflow;
+        }
+        try self.control.append(self.allocator, byte);
+        return .appended;
+    }
+
+    fn appendBoundedStringByte(self: *Parser, byte: u8) !BoundedAppendResult {
+        if (self.string.items.len >= max_string_sequence_bytes) {
+            self.string.clearRetainingCapacity();
+            return .overflow;
+        }
+        try self.string.append(self.allocator, byte);
+        return .appended;
+    }
+
     fn appendCsi(self: *Parser, events: *std.ArrayList(Event), final: u8) !void {
         const raw = self.control.items;
         const private_prefix_len = privatePrefixLen(raw);
@@ -200,10 +253,18 @@ const State = enum {
     escape_designator,
     escape_dec_private,
     csi,
+    csi_discard,
     osc,
     osc_escape,
+    osc_discard,
+    osc_discard_escape,
     string_control,
     string_escape,
+};
+
+const BoundedAppendResult = enum {
+    appended,
+    overflow,
 };
 
 fn isCsiFinal(byte: u8) bool {

@@ -150,6 +150,49 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummaryUsesLatestCodexAnswerBlockInsteadOfSubmittedPrompt() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            Tip: Use /side to start a side conversation in a temporary fork
+
+            • You have 4 usage limit resets available. Run /usage to use one.
+
+            ⚠ failed to parse hooks config /Users/skyepodium/.codex/hooks.json
+              column 9
+
+            › 안녕하세요
+
+            • superpowers:using-superpowers 지침을 먼저 확인한 뒤, 간단히 응답
+
+            • Explored
+              └ Read SKILL.md (superpowers:using-superpowers skill)
+
+            • 안녕하세요. 무엇을 도와드릴까요?
+
+            ────────────────────────────────────────
+
+            › Summarize recent commits
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+    }
+
+    func testNotificationSummaryRemovesInlineCodexStatusFragments() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            • 안녕하세요. 무엇을 도와드릴까요?•Work55
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            • 안녕하세요. 무엇을 도와드릴까요? · Ready · Workspace
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+    }
+
     func testNotificationSummarySkipsUsageStatusFromOutputText() {
         XCTAssertNil(
             TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """

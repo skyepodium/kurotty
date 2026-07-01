@@ -1,13 +1,28 @@
 import Foundation
 
+enum TerminalSubmittedCommandSummary {
+    static func notificationBody(from submittedInputText: String) -> String? {
+        let summary = submittedInputText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        guard !summary.isEmpty else {
+            return nil
+        }
+        guard summary.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
+            return summary
+        }
+        return String(summary.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+    }
+}
+
 enum TerminalNotificationSummary {
     static func latestMeaningfulLine(fromVisibleLines lines: [String]) -> String? {
         for line in lines.reversed() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isMeaningfulLine(trimmed) else {
+            guard let meaningfulLine = meaningfulContentLine(from: line) else {
                 continue
             }
-            return trimmed
+            return meaningfulLine
         }
         return nil
     }
@@ -24,9 +39,8 @@ enum TerminalNotificationSummary {
         let lines = normalizedText.components(separatedBy: .newlines)
         var block = [String]()
         for line in lines.reversed() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isMeaningfulLine(trimmed) {
-                block.append(trimmed)
+            if let meaningfulLine = meaningfulContentLine(from: line) {
+                block.append(meaningfulLine)
                 continue
             }
             if !block.isEmpty {
@@ -38,6 +52,20 @@ enum TerminalNotificationSummary {
             return nil
         }
         return block.reversed().joined(separator: "\n")
+    }
+
+    private static func meaningfulContentLine(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isMeaningfulLine(trimmed) else {
+            return nil
+        }
+
+        let cleaned = removingInlineStatusFragment(from: trimmed)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isMeaningfulLine(cleaned) else {
+            return nil
+        }
+        return cleaned
     }
 
     private static func isMeaningfulLine(_ line: String) -> Bool {
@@ -60,6 +88,69 @@ enum TerminalNotificationSummary {
             return false
         }
         return true
+    }
+
+    private static func removingInlineStatusFragment(from line: String) -> String {
+        guard line.count > 1 else {
+            return line
+        }
+
+        var searchIndex = line.index(after: line.startIndex)
+        while searchIndex < line.endIndex {
+            guard let markerRange = line.range(
+                of: #"[·•]"#,
+                options: .regularExpression,
+                range: searchIndex..<line.endIndex
+            ) else {
+                return line
+            }
+
+            let suffix = String(line[markerRange.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if isInlineStatusFragment(suffix) {
+                return String(line[..<markerRange.lowerBound])
+            }
+            searchIndex = markerRange.upperBound
+        }
+
+        return line
+    }
+
+    private static func isInlineStatusFragment(_ suffix: String) -> Bool {
+        guard !suffix.isEmpty else {
+            return false
+        }
+
+        let firstSegment = suffix
+            .components(separatedBy: CharacterSet(charactersIn: "·•"))
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !firstSegment.isEmpty else {
+            return false
+        }
+
+        if firstSegment == "Ready"
+            || firstSegment == "Workspace"
+            || firstSegment == "No changes"
+            || firstSegment == "Clean"
+            || firstSegment == "Full Access"
+            || firstSegment == "never"
+            || firstSegment == "medium"
+            || firstSegment == "high"
+            || firstSegment == "low"
+            || firstSegment.hasPrefix("Context ") {
+            return true
+        }
+
+        if firstSegment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        if firstSegment.range(of: #"^Work(?:space)?[0-9]*$"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
     }
 
     private static func stripTerminalControls(from text: String) -> String {
