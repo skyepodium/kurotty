@@ -49,6 +49,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
+    private var pendingMarkedTextAnchor: TerminalCellPosition?
     private var keyboardSelectionInputStart: TerminalCellPosition?
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
@@ -283,8 +284,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         guard !text.isEmpty else { return }
         if bracketedPasteEnabled {
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[200~\(text)\u{1b}[201~")
         } else {
+            pendingMarkedTextAnchor = nil
             send(text)
         }
     }
@@ -434,6 +437,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
+        pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         updateRendererFrame()
     }
@@ -691,6 +695,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
+        recordPendingMarkedTextAnchor(afterCommitting: text)
         unmarkText()
         guard !text.isEmpty else { return }
         TerminalTextInputRouter.logPTYWrite(text, source: "insertText")
@@ -700,39 +705,55 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func doCommand(by selector: Selector) {
         switch selector {
         case #selector(insertNewline(_:)):
+            pendingMarkedTextAnchor = nil
             send("\r")
         case #selector(insertTab(_:)):
+            pendingMarkedTextAnchor = nil
             send("\t")
         case #selector(cancelOperation(_:)):
             resetMarkedTextForInputSourceChange()
             send("\u{1b}")
         case #selector(deleteBackward(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{7f}")
         case #selector(deleteForward(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[3~")
         case #selector(moveToBeginningOfLine(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[H")
         case #selector(moveToEndOfLine(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[F")
         case #selector(moveUp(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[A")
         case #selector(moveDown(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[B")
         case #selector(moveLeft(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[D")
         case #selector(moveRight(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[C")
         case #selector(moveUpAndModifySelection(_:)):
+            pendingMarkedTextAnchor = nil
             extendKeyboardSelection(rowDelta: -1, columnDelta: 0)
         case #selector(moveDownAndModifySelection(_:)):
+            pendingMarkedTextAnchor = nil
             extendKeyboardSelection(rowDelta: 1, columnDelta: 0)
         case #selector(moveRightAndModifySelection(_:)):
+            pendingMarkedTextAnchor = nil
             extendKeyboardSelection(rowDelta: 0, columnDelta: 1)
         case #selector(moveLeftAndModifySelection(_:)):
+            pendingMarkedTextAnchor = nil
             extendKeyboardSelection(rowDelta: 0, columnDelta: -1)
         case #selector(scrollPageUp(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[5~")
         case #selector(scrollPageDown(_:)):
+            pendingMarkedTextAnchor = nil
             send("\u{1b}[6~")
         default:
             break
@@ -745,7 +766,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
         if markedText.length == 0 {
-            markedTextAnchor = TerminalCellPosition(row: cursorRow, column: cursorColumn)
+            markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
+            pendingMarkedTextAnchor = nil
         }
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
@@ -761,6 +783,34 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markedTextAnchor = nil
         markDirty(row: cursorRow)
         updateRendererFrame()
+    }
+
+    private func recordPendingMarkedTextAnchor(afterCommitting text: String) {
+        guard !text.isEmpty else {
+            pendingMarkedTextAnchor = nil
+            return
+        }
+        let anchor = markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
+        pendingMarkedTextAnchor = advancedTerminalPosition(from: anchor, by: text)
+    }
+
+    private func advancedTerminalPosition(from position: TerminalCellPosition, by text: String) -> TerminalCellPosition {
+        var row = position.row
+        var column = position.column
+        let columns = max(1, terminalMetrics().size.columns)
+        for character in text {
+            let width = character.terminalColumnWidth
+            guard width > 0 else { continue }
+            if width == 2 && column == columns - 1 {
+                row += 1
+                column = 0
+            } else if column >= columns {
+                row += 1
+                column = 0
+            }
+            column += width
+        }
+        return TerminalCellPosition(row: row, column: min(column, columns - 1))
     }
 
     private func markMarkedTextDirty() {
@@ -833,6 +883,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard text.contains("\r") || text.contains("\n") else {
             return
         }
+        pendingMarkedTextAnchor = nil
         keyboardSelectionInputStart = nil
         submittedInputSequence &+= 1
         backgroundTaskInputSequence = submittedInputSequence
@@ -989,6 +1040,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
         }
         recordOutputForBackgroundTask(text)
+        pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
         if !shouldFollowOutput, appendedScrollbackCount > 0 {
