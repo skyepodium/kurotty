@@ -47,14 +47,32 @@ struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
         case osc133
     }
 
-    struct OptInScriptDescriptor: Equatable {
-        let shellName: String
-        let providesCommandText: Bool
+    enum Shell: Equatable {
+        case bash
+        case zsh
+        case fish
+    }
+
+    enum OptInCapability: Equatable {
+        case workingDirectoryTracking
+        case commandBoundaryTracking
+    }
+
+    enum InstallationMode: Equatable {
+        case manualSnippet
+    }
+
+    struct OptInSnippetDescriptor: Equatable {
+        let shell: Shell
+        let installationMode: InstallationMode
+        let capabilities: [OptInCapability]
+        let snippet: String
+        let isEnabledByDefault: Bool
         let requiresInstaller: Bool
     }
 
     let passiveOSCSequences: [PassiveOSCSequence]
-    let optInScriptDescriptors: [OptInScriptDescriptor]
+    let optInSnippetDescriptors: [OptInSnippetDescriptor]
     let requiresShellScriptInstallation: Bool
 }
 
@@ -144,10 +162,82 @@ struct TerminalShellIntegration: Equatable {
     var capabilityDescriptor: TerminalShellIntegrationCapabilityDescriptor {
         TerminalShellIntegrationCapabilityDescriptor(
             passiveOSCSequences: [.osc7, .osc133],
-            optInScriptDescriptors: [],
+            optInSnippetDescriptors: Self.optInSnippetDescriptors,
             requiresShellScriptInstallation: false
         )
     }
+
+    private static let workingDirectorySnippetCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = [
+        .workingDirectoryTracking,
+    ]
+
+    private static let commandBoundarySnippetCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = [
+        .workingDirectoryTracking,
+        .commandBoundaryTracking,
+    ]
+
+    private static let optInSnippetDescriptors: [TerminalShellIntegrationCapabilityDescriptor.OptInSnippetDescriptor] = [
+        TerminalShellIntegrationCapabilityDescriptor.OptInSnippetDescriptor(
+            shell: .bash,
+            installationMode: .manualSnippet,
+            capabilities: workingDirectorySnippetCapabilities,
+            snippet: """
+            __kurotty_urlencoded_pwd() {
+              local path="${PWD//%/%25}"
+              path="${path// /%20}"
+              path="${path//\\#/%23}"
+              path="${path//\\?/%3F}"
+              printf '%s' "$path"
+            }
+            __kurotty_osc7() { printf '\\033]7;file://localhost%s\\007' "$(__kurotty_urlencoded_pwd)"; }
+            PROMPT_COMMAND="__kurotty_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+            """,
+            isEnabledByDefault: false,
+            requiresInstaller: false
+        ),
+        TerminalShellIntegrationCapabilityDescriptor.OptInSnippetDescriptor(
+            shell: .zsh,
+            installationMode: .manualSnippet,
+            capabilities: commandBoundarySnippetCapabilities,
+            snippet: """
+            __kurotty_urlencoded_pwd() {
+              local path="${PWD//%/%25}"
+              path="${path// /%20}"
+              path="${path//\\#/%23}"
+              path="${path//\\?/%3F}"
+              printf '%s' "$path"
+            }
+            __kurotty_osc133() { printf '\\033]133;%s\\007' "$1"; }
+            __kurotty_osc7() { printf '\\033]7;file://localhost%s\\007' "$(__kurotty_urlencoded_pwd)"; }
+            __kurotty_precmd() { local status_code=$?; __kurotty_osc133 "D;$status_code"; __kurotty_osc7; __kurotty_osc133 A; }
+            __kurotty_preexec() { __kurotty_osc133 B; __kurotty_osc133 C; }
+            precmd_functions+=(__kurotty_precmd)
+            preexec_functions+=(__kurotty_preexec)
+            """,
+            isEnabledByDefault: false,
+            requiresInstaller: false
+        ),
+        TerminalShellIntegrationCapabilityDescriptor.OptInSnippetDescriptor(
+            shell: .fish,
+            installationMode: .manualSnippet,
+            capabilities: commandBoundarySnippetCapabilities,
+            snippet: """
+            function __kurotty_urlencoded_pwd
+              set -l path (string replace -a '%' '%25' -- $PWD)
+              set path (string replace -a ' ' '%20' -- $path)
+              set path (string replace -a '#' '%23' -- $path)
+              set path (string replace -a '?' '%3F' -- $path)
+              printf '%s' $path
+            end
+            function __kurotty_osc133; printf '\\033]133;%s\\007' $argv[1]; end
+            function __kurotty_osc7; printf '\\033]7;file://localhost%s\\007' (__kurotty_urlencoded_pwd); end
+            function __kurotty_prompt --on-event fish_prompt; set -l status_code $status; __kurotty_osc133 "D;$status_code"; __kurotty_osc7; __kurotty_osc133 A; end
+            function __kurotty_preexec --on-event fish_preexec; __kurotty_osc133 B; __kurotty_osc133 C; end
+            """,
+            isEnabledByDefault: false,
+            requiresInstaller: false
+        ),
+    ]
 
     init(
         currentWorkingDirectoryCandidate: String? = nil,

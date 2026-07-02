@@ -30,6 +30,34 @@ struct TerminalRawPtyLogMetadata: CustomStringConvertible {
     }
 }
 
+enum TerminalCoreStateSource: String {
+    case zigCore = "zig-core"
+    case swiftScaffold = "swift-scaffold"
+    case unknown = "unknown"
+}
+
+struct TerminalCoreCompatibilityDiagnostic: CustomStringConvertible {
+    let bridge: TerminalCoreStateSource
+    let pty: TerminalCoreStateSource
+    let parser: TerminalCoreStateSource
+    let screen: TerminalCoreStateSource
+    let render: TerminalCoreStateSource
+
+    var description: String {
+        [
+            "bridge=\(bridge.rawValue)",
+            "pty=\(pty.rawValue)",
+            "parser=\(parser.rawValue)",
+            "screen=\(screen.rawValue)",
+            "render=\(render.rawValue)",
+        ].joined(separator: " ")
+    }
+}
+
+protocol TerminalCoreCompatibilityDiagnosing {
+    var compatibilityDiagnostic: TerminalCoreCompatibilityDiagnostic { get }
+}
+
 enum TerminalScreenDiagnostics {
     static func occupiedCellCount(in cells: [TerminalScreenCell]) -> Int {
         cells.reduce(0) { count, cell in

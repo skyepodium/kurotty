@@ -105,6 +105,24 @@ final class AIAgentActionApprovalTests: XCTestCase {
             targetWorkspaceID: "workspace-7",
             cwd: "/Users/example/project",
             capability: "send-text",
+            requestedCapabilities: [
+                AIAgentActionCapabilityRequest(
+                    capability: "terminal.sendText",
+                    reference: AICommandContextReference(
+                        commandSpanID: 7,
+                        targetPaneID: "pane-1",
+                        targetWorkspaceID: "workspace-7"
+                    ),
+                    reason: "continue in selected pane"
+                ),
+            ],
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 7,
+                    targetPaneID: "pane-1",
+                    targetWorkspaceID: "workspace-7"
+                ),
+            ],
             persistenceScope: .session,
             contextSummary: "selected command span"
         )
@@ -126,6 +144,9 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertEqual(audit.metadata.targetWorkspaceID, "workspace-7")
         XCTAssertEqual(audit.metadata.cwd, "/Users/example/project")
         XCTAssertEqual(audit.metadata.capability, "send-text")
+        XCTAssertEqual(audit.metadata.requestedCapabilities.first?.capability, "terminal.sendText")
+        XCTAssertEqual(audit.metadata.requestedCapabilities.first?.reference?.commandSpanID, 7)
+        XCTAssertEqual(audit.metadata.contextReferences.first?.targetPaneID, "pane-1")
         XCTAssertEqual(audit.metadata.persistenceScope, .session)
         XCTAssertEqual(audit.metadata.contextSummary, "selected command span")
         XCTAssertFalse(audit.redactedPreview.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"))
@@ -250,5 +271,60 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertTrue(commandOutput.includesRawOutput)
         XCTAssertFalse(commandOutput.rawOutputApproved)
         XCTAssertTrue(commandOutput.explicitApprovalRequired)
+    }
+
+    func testAuditDescriptionRedactsSecretsInCapabilityAndContextMetadata() {
+        let metadata = AIAgentActionApprovalMetadata(
+            actor: "agent-token=actor-secret",
+            targetPaneID: "pane-token=pane-secret",
+            targetWorkspaceID: "workspace-api_key=workspace-secret",
+            cwd: "/tmp/password=cwd-secret",
+            capability: "terminal.sendText token=cap-secret",
+            requestedCapabilities: [
+                AIAgentActionCapabilityRequest(
+                    capability: "terminal.pasteText token=request-secret",
+                    reference: AICommandContextReference(
+                        commandSpanID: 44,
+                        targetPaneID: "pane-password=request-pane-secret",
+                        targetWorkspaceID: "workspace-token=request-workspace-secret"
+                    ),
+                    reason: "needs token=reason-secret"
+                ),
+            ],
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 45,
+                    targetPaneID: "pane-api_key=context-pane-secret",
+                    targetWorkspaceID: "workspace-password=context-workspace-secret"
+                ),
+            ],
+            contextSummary: "summary token=summary-secret"
+        )
+        let timestamp = Date(timeIntervalSince1970: 456)
+        let audit = AIAgentActionAuditRecord(
+            actionID: "send-secret",
+            metadata: metadata,
+            decision: .ask,
+            reason: "agent terminal text requires explicit approval",
+            redactedPreview: "echo ok",
+            timestamp: timestamp
+        )
+
+        let description = String(describing: audit)
+
+        XCTAssertFalse(description.contains("actor-secret"))
+        XCTAssertFalse(description.contains("pane-secret"))
+        XCTAssertFalse(description.contains("workspace-secret"))
+        XCTAssertFalse(description.contains("cwd-secret"))
+        XCTAssertFalse(description.contains("cap-secret"))
+        XCTAssertFalse(description.contains("request-secret"))
+        XCTAssertFalse(description.contains("request-pane-secret"))
+        XCTAssertFalse(description.contains("request-workspace-secret"))
+        XCTAssertFalse(description.contains("reason-secret"))
+        XCTAssertFalse(description.contains("context-pane-secret"))
+        XCTAssertFalse(description.contains("context-workspace-secret"))
+        XCTAssertFalse(description.contains("summary-secret"))
+        XCTAssertTrue(description.contains("targetPane=pane-token=[REDACTED_SECRET]"))
+        XCTAssertTrue(description.contains("capability=terminal.sendText token=[REDACTED_SECRET]"))
     }
 }

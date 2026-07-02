@@ -113,6 +113,8 @@ struct AICommandContextBridge {
         targetPaneID: String? = nil,
         targetWorkspaceID: String? = nil,
         capability: String = "terminal-action",
+        requestedCapabilities: [AIAgentActionCapabilityRequest]? = nil,
+        contextReferences: [AICommandContextReference] = [],
         persistenceScope: AIAgentActionApprovalMetadata.PersistenceScope = .oneTime,
         maxContextSummaryLength: Int = 320,
         includesRawOutput: Bool = false,
@@ -126,12 +128,26 @@ struct AICommandContextBridge {
             targetPaneID: sanitizedPaneID,
             targetWorkspaceID: sanitizedWorkspaceID
         )
+        let sanitizedCapability = sanitized(capability)
+        let sanitizedContextReferences = (contextReferences + defaultContextReferences(from: reference))
+            .map { sanitizedReference($0, targetPaneID: nil, targetWorkspaceID: nil) }
+        let sanitizedCapabilityRequests = requestedCapabilities.map { requests in
+            requests.map(sanitizedCapabilityRequest)
+        } ?? [
+            AIAgentActionCapabilityRequest(
+                capability: sanitizedCapability,
+                reference: reference,
+                reason: "explicit approval capability request"
+            ),
+        ]
         return AIAgentActionApprovalMetadata(
             actor: sanitized(actor),
             targetPaneID: sanitizedPaneID,
             targetWorkspaceID: sanitizedWorkspaceID,
             cwd: context.cwd.map { sanitized($0) },
-            capability: sanitized(capability),
+            capability: sanitizedCapability,
+            requestedCapabilities: sanitizedCapabilityRequests,
+            contextReferences: sanitizedContextReferences,
             persistenceScope: persistenceScope,
             contextSummary: sanitized(
                 metadataText(for: context, includesOutput: false),
@@ -224,6 +240,32 @@ struct AICommandContextBridge {
         return base.retargeted(
             targetPaneID: targetPaneID ?? base.targetPaneID.map { sanitized($0) },
             targetWorkspaceID: targetWorkspaceID ?? base.targetWorkspaceID.map { sanitized($0) }
+        )
+    }
+
+    private func defaultContextReferences(from reference: AICommandContextReference) -> [AICommandContextReference] {
+        guard reference.commandSpanID != nil
+                || reference.targetPaneID != nil
+                || reference.targetWorkspaceID != nil
+                || reference.promptBoundarySequence != nil
+                || reference.startBoundarySequence != nil
+                || reference.outputBoundarySequence != nil
+                || reference.endBoundarySequence != nil
+        else {
+            return []
+        }
+        return [reference]
+    }
+
+    private func sanitizedCapabilityRequest(
+        _ request: AIAgentActionCapabilityRequest
+    ) -> AIAgentActionCapabilityRequest {
+        AIAgentActionCapabilityRequest(
+            capability: sanitized(request.capability),
+            reference: request.reference.map {
+                sanitizedReference($0, targetPaneID: nil, targetWorkspaceID: nil)
+            },
+            reason: request.reason.map { sanitized($0) }
         )
     }
 
