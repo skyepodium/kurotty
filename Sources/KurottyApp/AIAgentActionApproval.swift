@@ -81,6 +81,7 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
     var capability: String
     var persistenceScope: PersistenceScope
     var contextSummary: String?
+    var commandOutput: AICommandOutputApprovalMetadata?
 
     init(
         actor: String = "ai-agent",
@@ -89,7 +90,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         cwd: String? = nil,
         capability: String = "terminal-action",
         persistenceScope: PersistenceScope = .oneTime,
-        contextSummary: String? = nil
+        contextSummary: String? = nil,
+        commandOutput: AICommandOutputApprovalMetadata? = nil
     ) {
         self.actor = actor
         self.targetPaneID = targetPaneID
@@ -98,6 +100,7 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         self.capability = capability
         self.persistenceScope = persistenceScope
         self.contextSummary = contextSummary
+        self.commandOutput = commandOutput
     }
 
     var description: String {
@@ -109,7 +112,122 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
             "capability=\(capability)",
             "persistence=\(persistenceScope)",
             "context=\(contextSummary ?? "unspecified")",
+            "commandOutput=\(commandOutput?.description ?? "unspecified")",
         ].joined(separator: " ")
+    }
+
+    func markingCommandOutputApproved() -> Self {
+        guard let commandOutput, commandOutput.includesRawOutput else {
+            return self
+        }
+
+        var metadata = self
+        metadata.commandOutput = commandOutput.markingApproved()
+        return metadata
+    }
+}
+
+struct AICommandContextReference: Equatable, CustomStringConvertible {
+    let commandSpanID: Int?
+    let targetPaneID: String?
+    let targetWorkspaceID: String?
+    let promptBoundarySequence: Int?
+    let startBoundarySequence: Int?
+    let outputBoundarySequence: Int?
+    let endBoundarySequence: Int?
+
+    init(
+        commandSpanID: Int? = nil,
+        targetPaneID: String? = nil,
+        targetWorkspaceID: String? = nil,
+        promptBoundarySequence: Int? = nil,
+        startBoundarySequence: Int? = nil,
+        outputBoundarySequence: Int? = nil,
+        endBoundarySequence: Int? = nil
+    ) {
+        self.commandSpanID = commandSpanID
+        self.targetPaneID = targetPaneID
+        self.targetWorkspaceID = targetWorkspaceID
+        self.promptBoundarySequence = promptBoundarySequence
+        self.startBoundarySequence = startBoundarySequence
+        self.outputBoundarySequence = outputBoundarySequence
+        self.endBoundarySequence = endBoundarySequence
+    }
+
+    init(span: TerminalCommandSpan) {
+        self.init(
+            commandSpanID: span.id,
+            promptBoundarySequence: span.promptBoundarySequence,
+            startBoundarySequence: span.startBoundarySequence,
+            outputBoundarySequence: span.outputBoundarySequence,
+            endBoundarySequence: span.endBoundarySequence
+        )
+    }
+
+    func retargeted(targetPaneID: String?, targetWorkspaceID: String?) -> Self {
+        Self(
+            commandSpanID: commandSpanID,
+            targetPaneID: targetPaneID,
+            targetWorkspaceID: targetWorkspaceID,
+            promptBoundarySequence: promptBoundarySequence,
+            startBoundarySequence: startBoundarySequence,
+            outputBoundarySequence: outputBoundarySequence,
+            endBoundarySequence: endBoundarySequence
+        )
+    }
+
+    var description: String {
+        [
+            "commandSpanID=\(commandSpanID.map(String.init) ?? "unknown")",
+            "targetPane=\(targetPaneID ?? "unknown")",
+            "targetWorkspace=\(targetWorkspaceID ?? "unknown")",
+            "promptBoundary=\(promptBoundarySequence.map(String.init) ?? "unknown")",
+            "startBoundary=\(startBoundarySequence.map(String.init) ?? "unknown")",
+            "outputBoundary=\(outputBoundarySequence.map(String.init) ?? "unknown")",
+            "endBoundary=\(endBoundarySequence.map(String.init) ?? "unknown")",
+        ].joined(separator: " ")
+    }
+}
+
+struct AICommandOutputApprovalMetadata: Equatable, CustomStringConvertible {
+    let reference: AICommandContextReference
+    let includesRawOutput: Bool
+    let rawOutputApproved: Bool
+    let secretRedactionEnabled: Bool
+    let explicitApprovalRequired: Bool
+
+    init(
+        reference: AICommandContextReference,
+        includesRawOutput: Bool,
+        rawOutputApproved: Bool,
+        secretRedactionEnabled: Bool,
+        explicitApprovalRequired: Bool
+    ) {
+        self.reference = reference
+        self.includesRawOutput = includesRawOutput
+        self.rawOutputApproved = rawOutputApproved
+        self.secretRedactionEnabled = secretRedactionEnabled
+        self.explicitApprovalRequired = explicitApprovalRequired
+    }
+
+    var description: String {
+        [
+            "reference=[\(reference)]",
+            "includesRawOutput=\(includesRawOutput)",
+            "rawOutputApproved=\(rawOutputApproved)",
+            "secretRedactionEnabled=\(secretRedactionEnabled)",
+            "explicitApprovalRequired=\(explicitApprovalRequired)",
+        ].joined(separator: " ")
+    }
+
+    func markingApproved() -> Self {
+        Self(
+            reference: reference,
+            includesRawOutput: includesRawOutput,
+            rawOutputApproved: true,
+            secretRedactionEnabled: secretRedactionEnabled,
+            explicitApprovalRequired: false
+        )
     }
 }
 
@@ -120,6 +238,7 @@ struct AIAgentActionApprovalResult: Equatable {
     let reason: String
     let redactedPreview: String
     let timestamp: Date
+    let approvesCommandOutputExport: Bool
 
     func auditRecord() -> AIAgentActionAuditRecord {
         AIAgentActionAuditRecord(
@@ -169,7 +288,8 @@ struct AIAgentActionApprovalEvaluator {
             decision: decisionAndReason.decision,
             reason: decisionAndReason.reason,
             redactedPreview: sanitizer.preview(for: action.rawPreviewText),
-            timestamp: now()
+            timestamp: now(),
+            approvesCommandOutputExport: approvesCommandOutputExport(for: action, decision: decisionAndReason.decision)
         )
     }
 
@@ -180,12 +300,28 @@ struct AIAgentActionApprovalEvaluator {
 
         return AIAgentActionApprovalResult(
             actionID: result.actionID,
-            metadata: result.metadata,
+            metadata: result.approvesCommandOutputExport
+                ? result.metadata.markingCommandOutputApproved()
+                : result.metadata,
             decision: .allow,
             reason: "approved: \(result.reason)",
             redactedPreview: result.redactedPreview,
-            timestamp: now()
+            timestamp: now(),
+            approvesCommandOutputExport: result.approvesCommandOutputExport
         )
+    }
+
+    private func approvesCommandOutputExport(
+        for action: AIAgentActionRequest,
+        decision: TerminalSecurityPolicy.Decision
+    ) -> Bool {
+        guard decision == .ask,
+              case let .exportContext(_, _, includesRawOutput, _, metadata) = action
+        else {
+            return false
+        }
+
+        return includesRawOutput && (metadata.commandOutput?.includesRawOutput == true)
     }
 
     private func decisionAndReason(

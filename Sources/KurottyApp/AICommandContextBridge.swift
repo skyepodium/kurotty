@@ -8,6 +8,7 @@ struct AICommandContextBridge {
         let exitCode: Int?
         let startedAt: Date?
         let endedAt: Date?
+        let reference: AICommandContextReference?
 
         init(
             command: String,
@@ -15,7 +16,8 @@ struct AICommandContextBridge {
             cwd: String? = nil,
             exitCode: Int? = nil,
             startedAt: Date? = nil,
-            endedAt: Date? = nil
+            endedAt: Date? = nil,
+            reference: AICommandContextReference? = nil
         ) {
             self.command = command
             self.output = output
@@ -23,6 +25,7 @@ struct AICommandContextBridge {
             self.exitCode = exitCode
             self.startedAt = startedAt
             self.endedAt = endedAt
+            self.reference = reference
         }
 
         init(
@@ -37,7 +40,8 @@ struct AICommandContextBridge {
                 cwd: span.cwd,
                 exitCode: span.exitCode,
                 startedAt: startedAt,
-                endedAt: endedAt
+                endedAt: endedAt,
+                reference: AICommandContextReference(span: span)
             )
         }
     }
@@ -110,18 +114,35 @@ struct AICommandContextBridge {
         targetWorkspaceID: String? = nil,
         capability: String = "terminal-action",
         persistenceScope: AIAgentActionApprovalMetadata.PersistenceScope = .oneTime,
-        maxContextSummaryLength: Int = 320
+        maxContextSummaryLength: Int = 320,
+        includesRawOutput: Bool = false,
+        rawOutputApproved: Bool = false,
+        secretRedactionEnabled: Bool = true
     ) -> AIAgentActionApprovalMetadata {
-        AIAgentActionApprovalMetadata(
+        let sanitizedPaneID = targetPaneID.map { sanitized($0) }
+        let sanitizedWorkspaceID = targetWorkspaceID.map { sanitized($0) }
+        let reference = sanitizedReference(
+            context.reference,
+            targetPaneID: sanitizedPaneID,
+            targetWorkspaceID: sanitizedWorkspaceID
+        )
+        return AIAgentActionApprovalMetadata(
             actor: sanitized(actor),
-            targetPaneID: targetPaneID.map { sanitized($0) },
-            targetWorkspaceID: targetWorkspaceID.map { sanitized($0) },
+            targetPaneID: sanitizedPaneID,
+            targetWorkspaceID: sanitizedWorkspaceID,
             cwd: context.cwd.map { sanitized($0) },
             capability: sanitized(capability),
             persistenceScope: persistenceScope,
             contextSummary: sanitized(
                 metadataText(for: context, includesOutput: false),
                 maxTextLength: maxContextSummaryLength
+            ),
+            commandOutput: AICommandOutputApprovalMetadata(
+                reference: reference,
+                includesRawOutput: includesRawOutput,
+                rawOutputApproved: rawOutputApproved,
+                secretRedactionEnabled: secretRedactionEnabled,
+                explicitApprovalRequired: includesRawOutput && !rawOutputApproved
             )
         )
     }
@@ -158,8 +179,52 @@ struct AICommandContextBridge {
         if let endedAt = context.endedAt {
             lines.append("endedAt: \(endedAt.formatted(.iso8601))")
         }
+        appendReferenceLines(context.reference, to: &lines)
 
         return lines.joined(separator: "\n")
+    }
+
+    private func appendReferenceLines(
+        _ reference: AICommandContextReference?,
+        to lines: inout [String]
+    ) {
+        guard let reference else {
+            return
+        }
+
+        if let commandSpanID = reference.commandSpanID {
+            lines.append("commandSpanID: \(commandSpanID)")
+        }
+        if let targetPaneID = reference.targetPaneID {
+            lines.append("targetPaneID: \(targetPaneID)")
+        }
+        if let targetWorkspaceID = reference.targetWorkspaceID {
+            lines.append("targetWorkspaceID: \(targetWorkspaceID)")
+        }
+        if let promptBoundarySequence = reference.promptBoundarySequence {
+            lines.append("promptBoundarySequence: \(promptBoundarySequence)")
+        }
+        if let startBoundarySequence = reference.startBoundarySequence {
+            lines.append("startBoundarySequence: \(startBoundarySequence)")
+        }
+        if let outputBoundarySequence = reference.outputBoundarySequence {
+            lines.append("outputBoundarySequence: \(outputBoundarySequence)")
+        }
+        if let endBoundarySequence = reference.endBoundarySequence {
+            lines.append("endBoundarySequence: \(endBoundarySequence)")
+        }
+    }
+
+    private func sanitizedReference(
+        _ reference: AICommandContextReference?,
+        targetPaneID: String?,
+        targetWorkspaceID: String?
+    ) -> AICommandContextReference {
+        let base = reference ?? AICommandContextReference()
+        return base.retargeted(
+            targetPaneID: targetPaneID ?? base.targetPaneID.map { sanitized($0) },
+            targetWorkspaceID: targetWorkspaceID ?? base.targetWorkspaceID.map { sanitized($0) }
+        )
     }
 
     private func auditNote(for options: Options) -> String {

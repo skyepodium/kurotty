@@ -165,6 +165,7 @@ Design rules:
 Responsibilities:
 
 - Correlate PTY reads, parser output, screen mutations, and renderer frames under stable trace IDs.
+- Present that correlation as a runtime timeline that can explain one visible frame from shell input through parser, screen, renderer, and AI-facing metadata.
 - Retain bounded diagnostics that summarize counts, kinds, byte counts, dirty regions, full redraws, and dropped events.
 - Keep observability metadata separate from raw terminal content.
 
@@ -172,7 +173,8 @@ Design rules:
 
 - `TerminalEventLedger` records event kind metadata only: PTY read byte counts, parser event categories, screen mutation counts, and render-frame counts.
 - Trace summaries may aggregate retained metadata by `TerminalEventTraceID`, but must not include raw PTY bytes, printable terminal text, pasted text, command output, secrets, paths, or environment values.
-- Live integration should attach trace IDs at boundary crossings instead of inventing separate logs for parser, screen, renderer, command, or AI workflows.
+- Live integration should attach trace IDs at boundary crossings instead of inventing separate logs for parser, screen, renderer, command, shell, or AI workflows.
+- The current runtime slice should wire the existing resize ledger, event ledger, render-frame metadata, shell command spans, and AI approval/context metadata into one inspectable timeline. It should not add another terminal model or persist raw output to make the timeline easier.
 - Bounded retention is part of the contract. Dropped-event counts are acceptable diagnostics; unbounded event retention is not.
 
 ### IME And Text Input
@@ -203,7 +205,10 @@ Design rules:
 - Start with passive OSC 7 and OSC 133 support before adding shell-specific opt-in scripts.
 - Command spans belong outside the screen model, but may reference scrollback ranges and screen snapshots.
 - `TerminalShellIntegration` owns OSC 7/OSC 133 command-span state. `TerminalCommandRegistry` owns user-visible app/window command identifiers and shortcuts. Keep those concepts separate.
+- Command replay support is represented as a metadata candidate that requires explicit user confirmation; shell integration must not automatically execute or persist replayed commands.
+- Search metadata is an ephemeral UI/search projection. Runtime timeline and audit surfaces should reference command span IDs and boundary coordinates rather than retaining command text unless a separate feature policy explicitly permits that retention.
 - AI command context should use `AICommandContextBridge.CommandContext` or `TerminalCommandSpan` data and include raw output only after policy approval.
+- Runtime timeline entries may reference shell command span identifiers, cwd metadata, exit status, and prompt/output range coordinates. They must not duplicate command text or output text unless an explicit feature policy has approved that retention.
 - Raw terminal output, pasted text, environment variables, and command history are sensitive. Persist them only for explicit user-requested features with redaction and retention limits.
 - Shell integration must degrade cleanly for remote shells, unsupported shells, and users who decline scripts.
 
@@ -221,6 +226,7 @@ Design rules:
 
 - AI tooling must consume redacted context bundles and dispatch explicit commands. It must not directly mutate screen buffers, PTY state, renderer state, settings, scrollback storage, or PTY process state.
 - The agent panel may reference terminal ranges, command spans, panes, and workspace objects by stable identifiers. It should not copy raw output into long-lived storage unless the user enabled that retention mode.
+- The runtime timeline may record AI context snapshot IDs, approval action IDs, decisions, and redacted previews. It must not make AI approval a hidden side channel around `AIAgentActionApprovalEvaluator` or `TerminalSecurityPolicy`.
 - Approval UI must show the target pane, working directory when known, command or text to be sent, context being shared, and whether the action is one-time or remembered.
 - Default policy is observe-redacted, ask-before-act. Any persistent permission needs a visible revocation path in preferences.
 - Redacted context export may be allowed by policy. Raw terminal output export requires redaction and explicit approval. Agent-sent terminal text always requires explicit approval before it reaches the session.

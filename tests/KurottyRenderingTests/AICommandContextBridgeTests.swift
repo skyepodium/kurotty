@@ -120,6 +120,34 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertTrue(snapshot.events.first?.text.contains("exitCode: 127") == true)
     }
 
+    func testCommandSpanSnapshotCarriesStableReferenceWithoutRawOutput() {
+        let span = TerminalCommandSpan(
+            id: 42,
+            cwd: "/repo",
+            startBoundarySequence: 10,
+            endBoundarySequence: 14,
+            exitCode: 0,
+            promptBoundarySequence: 9,
+            outputBoundarySequence: 12,
+            commandText: "swift test"
+        )
+
+        let snapshot = AICommandContextBridge().snapshot(
+            for: .init(span: span, output: "raw output should stay referenced only"),
+            maxEvents: 4,
+            maxTextLength: 1_000
+        )
+
+        let eventText = snapshot.events.first?.text ?? ""
+        XCTAssertTrue(eventText.contains("commandSpanID: 42"))
+        XCTAssertTrue(eventText.contains("promptBoundarySequence: 9"))
+        XCTAssertTrue(eventText.contains("startBoundarySequence: 10"))
+        XCTAssertTrue(eventText.contains("outputBoundarySequence: 12"))
+        XCTAssertTrue(eventText.contains("endBoundarySequence: 14"))
+        XCTAssertTrue(eventText.contains("rawOutput: omitted"))
+        XCTAssertFalse(String(describing: snapshot).contains("raw output should stay referenced only"))
+    }
+
     func testApprovalMetadataCarriesTargetAndRedactedContextSummary() {
         let rawToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
         let bridge = AICommandContextBridge()
@@ -152,6 +180,40 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertFalse(String(describing: metadata).contains(rawToken))
         XCTAssertFalse(String(describing: metadata).contains("cwd-secret"))
         XCTAssertFalse(String(describing: metadata).contains("raw output should not be summarized"))
+    }
+
+    func testApprovalMetadataCarriesCommandOutputReferenceAndPolicy() throws {
+        let span = TerminalCommandSpan(
+            id: 7,
+            cwd: "/repo",
+            startBoundarySequence: 20,
+            endBoundarySequence: 24,
+            exitCode: 1,
+            promptBoundarySequence: 19,
+            outputBoundarySequence: 22,
+            commandText: "swift test"
+        )
+
+        let metadata = AICommandContextBridge().approvalMetadata(
+            for: .init(span: span, output: "raw failure output"),
+            targetPaneID: "pane-token=secret",
+            targetWorkspaceID: "workspace-1",
+            includesRawOutput: true,
+            rawOutputApproved: false,
+            secretRedactionEnabled: true
+        )
+
+        let commandOutput = try XCTUnwrap(metadata.commandOutput)
+        XCTAssertEqual(commandOutput.reference.commandSpanID, 7)
+        XCTAssertEqual(commandOutput.reference.targetPaneID, "pane-token=[REDACTED_SECRET]")
+        XCTAssertEqual(commandOutput.reference.targetWorkspaceID, "workspace-1")
+        XCTAssertEqual(commandOutput.reference.outputBoundarySequence, 22)
+        XCTAssertTrue(commandOutput.includesRawOutput)
+        XCTAssertFalse(commandOutput.rawOutputApproved)
+        XCTAssertTrue(commandOutput.secretRedactionEnabled)
+        XCTAssertTrue(commandOutput.explicitApprovalRequired)
+        XCTAssertFalse(String(describing: metadata).contains("raw failure output"))
+        XCTAssertFalse(String(describing: metadata).contains("pane-token=secret"))
     }
 
     func testApprovalMetadataBoundsContextSummary() {

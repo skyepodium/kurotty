@@ -18,6 +18,14 @@ public struct TerminalFrame: Sendable {
     public let cellSize: TerminalFrameSize
     public let padding: TerminalFramePoint
 
+    public var damageMetadata: TerminalFrameDamageMetadata {
+        TerminalFrameDamageMetadata(
+            isFullDamage: isFullDamage,
+            dirtyRows: dirtyRows,
+            dirtyRects: dirtyRects
+        )
+    }
+
     public init(
         cells: [TerminalCell],
         backgrounds: [TerminalBackground],
@@ -151,6 +159,166 @@ public struct TerminalFrameRect: Equatable, Sendable {
         self.y = y
         self.width = width
         self.height = height
+    }
+
+    public func stablePixelBounds(
+        scale: Double,
+        clippingMargin: Double = 0,
+        clipTo displaySize: TerminalFrameSize? = nil
+    ) -> TerminalFramePixelRect? {
+        guard isStableDamageRect,
+              scale.isFinite,
+              scale > 0,
+              clippingMargin.isFinite,
+              clippingMargin >= 0
+        else {
+            return nil
+        }
+
+        var minX = ((x - clippingMargin) * scale).rounded(.down)
+        var minY = ((y - clippingMargin) * scale).rounded(.down)
+        var maxX = ((x + width + clippingMargin) * scale).rounded(.up)
+        var maxY = ((y + height + clippingMargin) * scale).rounded(.up)
+
+        if let displaySize {
+            guard displaySize.width.isFinite,
+                  displaySize.height.isFinite,
+                  displaySize.width > 0,
+                  displaySize.height > 0
+            else {
+                return nil
+            }
+            minX = max(0, minX)
+            minY = max(0, minY)
+            maxX = min((displaySize.width * scale).rounded(.up), maxX)
+            maxY = min((displaySize.height * scale).rounded(.up), maxY)
+        }
+
+        let pixelWidth = maxX - minX
+        let pixelHeight = maxY - minY
+        guard pixelWidth > 0,
+              pixelHeight > 0,
+              minX >= Double(Int.min),
+              minY >= Double(Int.min),
+              minX <= Double(Int.max),
+              minY <= Double(Int.max),
+              pixelWidth <= Double(Int.max),
+              pixelHeight <= Double(Int.max)
+        else {
+            return nil
+        }
+
+        return TerminalFramePixelRect(
+            x: Int(minX),
+            y: Int(minY),
+            width: Int(pixelWidth),
+            height: Int(pixelHeight)
+        )
+    }
+
+    public var isStableDamageRect: Bool {
+        x.isFinite &&
+            y.isFinite &&
+            width.isFinite &&
+            height.isFinite &&
+            width > 0 &&
+            height > 0
+    }
+}
+
+public struct TerminalFramePixelRect: Equatable, Sendable {
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+
+    public init(x: Int, y: Int, width: Int, height: Int) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct TerminalFrameDamageMetadata: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case none
+        case fullRedraw
+        case rowDamage
+        case rectDamage
+    }
+
+    public let kind: Kind
+    public let dirtyRowCount: Int
+    public let dirtyRectCount: Int
+    public let dirtyRects: [TerminalFrameRect]
+
+    public init(
+        isFullDamage: Bool,
+        dirtyRows: [Int],
+        dirtyRects: [TerminalFrameRect]
+    ) {
+        self.kind = Self.kind(
+            isFullDamage: isFullDamage,
+            dirtyRows: dirtyRows,
+            dirtyRects: dirtyRects
+        )
+        self.dirtyRowCount = dirtyRows.count
+        self.dirtyRectCount = dirtyRects.count
+        self.dirtyRects = dirtyRects
+    }
+
+    public func canResolveStablePixelBounds(
+        scale: Double,
+        clippingMargin: Double = 0,
+        clipTo displaySize: TerminalFrameSize? = nil
+    ) -> Bool {
+        !dirtyRects.isEmpty &&
+            dirtyRects.allSatisfy {
+                $0.stablePixelBounds(
+                    scale: scale,
+                    clippingMargin: clippingMargin,
+                    clipTo: displaySize
+                ) != nil
+            }
+    }
+
+    public func stablePixelBounds(
+        scale: Double,
+        clippingMargin: Double = 0,
+        clipTo displaySize: TerminalFrameSize? = nil
+    ) -> [TerminalFramePixelRect]? {
+        guard !dirtyRects.isEmpty else { return nil }
+        var pixelRects: [TerminalFramePixelRect] = []
+        pixelRects.reserveCapacity(dirtyRects.count)
+        for rect in dirtyRects {
+            guard let pixelRect = rect.stablePixelBounds(
+                scale: scale,
+                clippingMargin: clippingMargin,
+                clipTo: displaySize
+            ) else {
+                return nil
+            }
+            pixelRects.append(pixelRect)
+        }
+        return pixelRects
+    }
+
+    private static func kind(
+        isFullDamage: Bool,
+        dirtyRows: [Int],
+        dirtyRects: [TerminalFrameRect]
+    ) -> Kind {
+        if isFullDamage {
+            return .fullRedraw
+        }
+        if !dirtyRows.isEmpty {
+            return .rowDamage
+        }
+        if !dirtyRects.isEmpty {
+            return .rectDamage
+        }
+        return .none
     }
 }
 

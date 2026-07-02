@@ -11,6 +11,109 @@ struct TerminalCommandSpan: Equatable, Identifiable {
     var commandText: String?
 }
 
+struct TerminalCommandOutputRange: Equatable {
+    let startBoundarySequence: Int
+    let endBoundarySequence: Int
+}
+
+struct TerminalCommandFoldCandidate: Equatable {
+    let spanID: TerminalCommandSpan.ID
+    let outputRange: TerminalCommandOutputRange
+}
+
+struct TerminalCommandReplayCandidate: Equatable {
+    let spanID: TerminalCommandSpan.ID
+    let commandText: String
+    let cwd: String?
+    let exitCode: Int?
+    let requiresExplicitUserConfirmation: Bool
+}
+
+struct TerminalCommandSearchMetadata: Equatable {
+    let spanID: TerminalCommandSpan.ID
+    let cwd: String?
+    let exitCode: Int?
+    let commandText: String?
+    let startBoundarySequence: Int
+    let endBoundarySequence: Int?
+    let outputRange: TerminalCommandOutputRange?
+    let isFoldable: Bool
+    let isReplayable: Bool
+}
+
+struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
+    enum PassiveOSCSequence: Equatable {
+        case osc7
+        case osc133
+    }
+
+    struct OptInScriptDescriptor: Equatable {
+        let shellName: String
+        let providesCommandText: Bool
+        let requiresInstaller: Bool
+    }
+
+    let passiveOSCSequences: [PassiveOSCSequence]
+    let optInScriptDescriptors: [OptInScriptDescriptor]
+    let requiresShellScriptInstallation: Bool
+}
+
+extension TerminalCommandSpan {
+    var outputRange: TerminalCommandOutputRange? {
+        guard let outputBoundarySequence,
+              let endBoundarySequence,
+              outputBoundarySequence < endBoundarySequence
+        else {
+            return nil
+        }
+
+        return TerminalCommandOutputRange(
+            startBoundarySequence: outputBoundarySequence,
+            endBoundarySequence: endBoundarySequence
+        )
+    }
+
+    var foldCandidate: TerminalCommandFoldCandidate? {
+        guard let outputRange else {
+            return nil
+        }
+
+        return TerminalCommandFoldCandidate(spanID: id, outputRange: outputRange)
+    }
+
+    var replayCandidate: TerminalCommandReplayCandidate? {
+        guard let commandText = commandText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !commandText.isEmpty,
+              endBoundarySequence != nil
+        else {
+            return nil
+        }
+
+        return TerminalCommandReplayCandidate(
+            spanID: id,
+            commandText: commandText,
+            cwd: cwd,
+            exitCode: exitCode,
+            requiresExplicitUserConfirmation: true
+        )
+    }
+
+    var searchMetadata: TerminalCommandSearchMetadata {
+        let outputRange = outputRange
+        return TerminalCommandSearchMetadata(
+            spanID: id,
+            cwd: cwd,
+            exitCode: exitCode,
+            commandText: commandText,
+            startBoundarySequence: startBoundarySequence,
+            endBoundarySequence: endBoundarySequence,
+            outputRange: outputRange,
+            isFoldable: outputRange != nil,
+            isReplayable: replayCandidate != nil
+        )
+    }
+}
+
 struct TerminalShellIntegration: Equatable {
     enum Boundary: Equatable {
         case promptStart
@@ -37,6 +140,14 @@ struct TerminalShellIntegration: Equatable {
     private var lastPromptBoundarySequence: Int?
     private var nextCommandSpanID: Int
     private var recentCommandSpanLimit: Int
+
+    var capabilityDescriptor: TerminalShellIntegrationCapabilityDescriptor {
+        TerminalShellIntegrationCapabilityDescriptor(
+            passiveOSCSequences: [.osc7, .osc133],
+            optInScriptDescriptors: [],
+            requiresShellScriptInstallation: false
+        )
+    }
 
     init(
         currentWorkingDirectoryCandidate: String? = nil,
