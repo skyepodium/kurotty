@@ -84,6 +84,23 @@ struct TerminalCommand: Equatable {
     let category: TerminalCommandCategory
     let shortcut: TerminalCommandShortcut?
     let action: TerminalWindowCommandAction
+    let searchTokens: [String]
+
+    init(
+        id: TerminalWindowCommandID,
+        title: String,
+        category: TerminalCommandCategory,
+        shortcut: TerminalCommandShortcut?,
+        action: TerminalWindowCommandAction,
+        searchTokens: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.category = category
+        self.shortcut = shortcut
+        self.action = action
+        self.searchTokens = searchTokens
+    }
 }
 
 struct TerminalCommandRegistry {
@@ -105,70 +122,80 @@ struct TerminalCommandRegistry {
             title: "New Tab",
             category: .tabs,
             shortcut: TerminalCommandShortcut(keyEquivalent: "t", modifiers: .command),
-            action: .newTab
+            action: .newTab,
+            searchTokens: ["create tab", "open tab", "open another tab", "new window", "browser tab"]
         ),
         TerminalCommand(
             id: .splitVertically,
             title: "Split Vertically",
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "d", modifiers: .command),
-            action: .splitVertically
+            action: .splitVertically,
+            searchTokens: ["vertical split", "split right", "side by side", "two columns"]
         ),
         TerminalCommand(
             id: .splitHorizontally,
             title: "Split Horizontally",
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "d", modifiers: [.command, .shift]),
-            action: .splitHorizontally
+            action: .splitHorizontally,
+            searchTokens: ["horizontal split", "split down", "stacked panes", "two rows"]
         ),
         TerminalCommand(
             id: .closeCurrentPane,
             title: "Close Pane",
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "w", modifiers: .command, allowedExtraModifiers: .shift),
-            action: .closeCurrentPane
+            action: .closeCurrentPane,
+            searchTokens: ["close current pane", "close tab", "close window", "remove pane"]
         ),
         TerminalCommand(
             id: .focusPaneLeft,
             title: "Focus Pane Left",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
-            action: .focusPane(.left)
+            action: .focusPane(.left),
+            searchTokens: ["move left", "pane left", "go left", "previous pane"]
         ),
         TerminalCommand(
             id: .focusPaneRight,
             title: "Focus Pane Right",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 124, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
-            action: .focusPane(.right)
+            action: .focusPane(.right),
+            searchTokens: ["move right", "pane right", "go right", "next pane"]
         ),
         TerminalCommand(
             id: .focusPaneDown,
             title: "Focus Pane Down",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 125, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
-            action: .focusPane(.down)
+            action: .focusPane(.down),
+            searchTokens: ["move down", "pane down", "go down"]
         ),
         TerminalCommand(
             id: .focusPaneUp,
             title: "Focus Pane Up",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 126, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
-            action: .focusPane(.up)
+            action: .focusPane(.up),
+            searchTokens: ["move up", "pane up", "go up"]
         ),
         TerminalCommand(
             id: .selectPreviousTab,
             title: "Previous Tab",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyEquivalent: "[", modifiers: [.command, .shift]),
-            action: .selectPreviousTab
+            action: .selectPreviousTab,
+            searchTokens: ["previous window", "tab previous", "back tab"]
         ),
         TerminalCommand(
             id: .selectNextTab,
             title: "Next Tab",
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyEquivalent: "]", modifiers: [.command, .shift]),
-            action: .selectNextTab
+            action: .selectNextTab,
+            searchTokens: ["next window", "tab next", "forward tab"]
         ),
     ]
 }

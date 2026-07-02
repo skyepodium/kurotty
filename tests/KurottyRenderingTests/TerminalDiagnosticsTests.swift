@@ -238,6 +238,59 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(metadata.description.contains("746F6B656E"))
     }
 
+    func testCoreCompatibilityDiagnosticDescribesStateSourcesWithoutTerminalContent() {
+        let diagnostic = TerminalCoreCompatibilityDiagnostic(
+            bridge: .zigCore,
+            pty: .swiftScaffold,
+            parser: .swiftScaffold,
+            screen: .swiftScaffold,
+            render: .swiftScaffold
+        )
+
+        XCTAssertEqual(diagnostic.bridge, .zigCore)
+        XCTAssertEqual(diagnostic.screen, .swiftScaffold)
+        XCTAssertEqual(diagnostic.render, .swiftScaffold)
+        XCTAssertTrue(diagnostic.description.contains("bridge=zig-core"))
+        XCTAssertTrue(diagnostic.description.contains("pty=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("parser=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("screen=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("render=swift-scaffold"))
+        XCTAssertFalse(diagnostic.description.contains("token=secret"))
+        XCTAssertFalse(diagnostic.description.contains("terminal text"))
+    }
+
+    func testCoreBridgeReportsSwiftScaffoldDiagnosticWhenZigCoreIsUnavailable() {
+        let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+
+        XCTAssertEqual(bridge.compatibilityDiagnostic.bridge, .swiftScaffold)
+        XCTAssertEqual(bridge.compatibilityDiagnostic.screen, .swiftScaffold)
+        XCTAssertEqual(bridge.compatibilityDiagnostic.render, .swiftScaffold)
+        XCTAssertTrue(bridge.compatibilityDiagnostic.description.contains("bridge=swift-scaffold"))
+        XCTAssertTrue(bridge.compatibilityDiagnostic.description.contains("screen=swift-scaffold"))
+    }
+
+    func testTerminalCoreFactoryExposesCompatibilityDiagnosticForTypeErasedCore() {
+        let core: any TerminalCore = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = TerminalCoreFactory.compatibilityDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.bridge, .swiftScaffold)
+        XCTAssertEqual(diagnostic.pty, .swiftScaffold)
+        XCTAssertEqual(diagnostic.parser, .swiftScaffold)
+        XCTAssertEqual(diagnostic.screen, .swiftScaffold)
+        XCTAssertEqual(diagnostic.render, .swiftScaffold)
+    }
+
+    func testTerminalCoreFactoryReportsUnknownForNonDiagnosingCore() {
+        let core: any TerminalCore = NonDiagnosingTerminalCore()
+        let diagnostic = TerminalCoreFactory.compatibilityDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.bridge, .unknown)
+        XCTAssertEqual(diagnostic.pty, .unknown)
+        XCTAssertEqual(diagnostic.parser, .unknown)
+        XCTAssertEqual(diagnostic.screen, .unknown)
+        XCTAssertEqual(diagnostic.render, .unknown)
+    }
+
     func testResizeTraceClampsRequestedDimensionsToPtyWinsizeRange() {
         let trace = TerminalResizeTrace(
             requestedColumns: 0,
@@ -343,6 +396,18 @@ final class TerminalDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(TerminalScreenDiagnostics.occupiedCellCount(in: cells), 6)
     }
+}
+
+private final class NonDiagnosingTerminalCore: TerminalCore {
+    func feed(_ text: String) {}
+    func recordKeyEvent() {}
+    func recordFramePresented() {}
+    func beginFrame(visibleCells: UInt32) -> UInt32 { visibleCells }
+    func endFrame() {}
+    func lastLatencyMicros() -> UInt64 { 0 }
+    func resize(cols: UInt32, rows: UInt32) {}
+    func cell(row: UInt32, col: UInt32) -> UInt8 { 0 }
+    func copyRow(_ row: UInt32, into buffer: inout [UInt8]) -> Int { 0 }
 }
 
 private func terminalTextInputRouterSource() throws -> String {

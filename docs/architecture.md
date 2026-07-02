@@ -39,18 +39,19 @@ The runtime foundation is an integration surface, not a second terminal model. I
 
 These boundaries are intentionally metadata-first. When live integration is added, app code should wire existing session, screen, renderer, and security services into these contracts instead of introducing parallel histories, raw-output logs, or AI-specific shortcuts around terminal ownership.
 
-## Current Runtime Timeline Slice
+## Current Core Render Shell UI Slice
 
-The branch `feature/runtime-timeline-render-shell-integration` should make runtime metadata easier to follow across existing surfaces. It is not a rewrite of terminal ownership.
+The branch `feature/core-render-shell-ui-next-slice` should advance the next integration layer without marking the branch complete before merge. It builds on the runtime timeline foundations from PR #46 and PR #47. It is not a rewrite of terminal ownership and should not introduce a second screen model, raw-output log, or hidden AI control path.
 
 | Slice | Direction | Focused verification |
 | --- | --- | --- |
-| Timeline | Connect resize, PTY read, parser, screen mutation, render frame, shell command span, and AI approval/context metadata through stable trace IDs. Keep every event metadata-only and bounded. | `swift test --filter TerminalEventLedgerTests` and `swift test --filter TerminalResizeLedgerTests` |
-| Render | Keep `TerminalRenderFrame` as the renderer contract. Use dirty-region, scissor, glyph-bound, and pixel-probe evidence before changing screen semantics. | `swift test --filter TerminalPixelProbeTests` and `swift test --filter GlyphRenderingRegressionTests` |
-| Shell | Treat OSC 7/OSC 133 command spans as app-layer metadata that can be referenced by search, workspace restore, and AI context. Do not use command spans as a second parser or screen model. | `swift test --filter TerminalOSCDispatcherTests`, `swift test --filter TerminalShellIntegrationTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
-| AI | Feed redacted command and pane context into approval-gated actions. Record approval metadata and redacted previews, not raw terminal output or hidden direct PTY mutations. | `swift test --filter AIContextLayerTests`, `swift test --filter AICommandContextBridgeTests`, and `swift test --filter AIAgentActionApprovalTests` |
+| Source-of-truth diagnostics | Label whether diagnostic state comes from the Swift scaffold, Zig core, PTY boundary, parser boundary, screen mutation summary, or renderer frame. Use that evidence to make divergence visible before removing the Swift scaffold path. | `swift test --filter TerminalEventLedgerTests`, `swift test --filter TerminalResizeLedgerTests`, and `zig build test` |
+| Render coalescing and damage | Keep `TerminalRenderFrame` as the renderer contract. Move toward dirty-region, scissor, and frame-coalescing evidence in the live path before claiming render performance wins. Full redraw remains a correctness fallback. | `swift test --filter TerminalPixelProbeTests` and `swift test --filter GlyphRenderingRegressionTests` |
+| Shell opt-in metadata | Keep passive OSC 7/OSC 133 command spans separate from opt-in shell capability/session evidence. A declarative capability descriptor is not proof that a shell script is installed for the current session. | `swift test --filter TerminalOSCDispatcherTests`, `swift test --filter TerminalShellIntegrationTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
+| Command UX | Route command palette, search/copy/fold/replay candidates, shell command-span actions, and automation through the app command registry. Replay candidates require explicit confirmation. | `swift test --filter TerminalCommandRegistryTests`, `swift test --filter TerminalCommandPaletteTests`, `swift test --filter CommandPaletteWindowControllerTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
+| AI agent action API | Feed redacted command and pane context into approval-gated action requests. Record approval metadata and redacted previews, not raw terminal output or hidden direct PTY mutations. | `swift test --filter AIContextLayerTests`, `swift test --filter AICommandContextBridgeTests`, and `swift test --filter AIAgentActionApprovalTests` |
 
-Shell capability descriptors in this slice are declarative defaults, not session-derived proof that a shell has installed opt-in integration. UI, audit, and AI surfaces should treat them as baseline support metadata until a later runtime detector records per-session evidence.
+Shell capability descriptors in this slice are declarative defaults, not session-derived proof that a shell has installed opt-in integration. UI, audit, and AI surfaces should treat them as baseline support metadata until runtime detection records per-session evidence.
 
 ## Metal Renderer
 

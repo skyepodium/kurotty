@@ -79,6 +79,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
     var targetWorkspaceID: String?
     var cwd: String?
     var capability: String
+    var requestedCapabilities: [AIAgentActionCapabilityRequest]
+    var contextReferences: [AICommandContextReference]
     var persistenceScope: PersistenceScope
     var contextSummary: String?
     var commandOutput: AICommandOutputApprovalMetadata?
@@ -89,6 +91,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         targetWorkspaceID: String? = nil,
         cwd: String? = nil,
         capability: String = "terminal-action",
+        requestedCapabilities: [AIAgentActionCapabilityRequest] = [],
+        contextReferences: [AICommandContextReference] = [],
         persistenceScope: PersistenceScope = .oneTime,
         contextSummary: String? = nil,
         commandOutput: AICommandOutputApprovalMetadata? = nil
@@ -98,6 +102,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         self.targetWorkspaceID = targetWorkspaceID
         self.cwd = cwd
         self.capability = capability
+        self.requestedCapabilities = requestedCapabilities
+        self.contextReferences = contextReferences
         self.persistenceScope = persistenceScope
         self.contextSummary = contextSummary
         self.commandOutput = commandOutput
@@ -110,10 +116,12 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
             "targetWorkspace=\(targetWorkspaceID ?? "unknown")",
             "cwd=\(cwd ?? "unknown")",
             "capability=\(capability)",
+            "requestedCapabilities=\(requestedCapabilities.isEmpty ? "unspecified" : requestedCapabilities.map(\.description).joined(separator: ","))",
+            "contextReferences=\(contextReferences.isEmpty ? "unspecified" : contextReferences.map(\.description).joined(separator: ","))",
             "persistence=\(persistenceScope)",
             "context=\(contextSummary ?? "unspecified")",
             "commandOutput=\(commandOutput?.description ?? "unspecified")",
-        ].joined(separator: " ")
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 
     func markingCommandOutputApproved() -> Self {
@@ -124,6 +132,30 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         var metadata = self
         metadata.commandOutput = commandOutput.markingApproved()
         return metadata
+    }
+}
+
+struct AIAgentActionCapabilityRequest: Equatable, CustomStringConvertible {
+    let capability: String
+    let reference: AICommandContextReference?
+    let reason: String?
+
+    init(
+        capability: String,
+        reference: AICommandContextReference? = nil,
+        reason: String? = nil
+    ) {
+        self.capability = capability
+        self.reference = reference
+        self.reason = reason
+    }
+
+    var description: String {
+        [
+            "capability=\(capability)",
+            "reference=[\(reference?.description ?? "unspecified")]",
+            "reason=\(reason ?? "unspecified")",
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 }
 
@@ -185,7 +217,7 @@ struct AICommandContextReference: Equatable, CustomStringConvertible {
             "startBoundary=\(startBoundarySequence.map(String.init) ?? "unknown")",
             "outputBoundary=\(outputBoundarySequence.map(String.init) ?? "unknown")",
             "endBoundary=\(endBoundarySequence.map(String.init) ?? "unknown")",
-        ].joined(separator: " ")
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 }
 
@@ -229,6 +261,10 @@ struct AICommandOutputApprovalMetadata: Equatable, CustomStringConvertible {
             explicitApprovalRequired: false
         )
     }
+}
+
+private func aiApprovalRedacted(_ text: String) -> String {
+    AIContextRedactor().redacted(text)
 }
 
 struct AIAgentActionApprovalResult: Equatable {

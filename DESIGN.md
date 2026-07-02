@@ -95,6 +95,7 @@ Design rules:
 - Keep shell, input, preferences, settings, rendering host, and core bridge in separate types.
 - Use early returns for missing pasteboard text, invalid view sizes, unavailable dylibs, unavailable Metal resources, and unsupported command selectors.
 - Never expand AppKit-owned terminal protocol semantics without documenting why the temporary scaffold is still needed.
+- Until Zig becomes the only screen source of truth, diagnostics should label whether state came from the Swift scaffold, Zig core, PTY boundary, parser boundary, or renderer frame contract.
 
 ### Zig Core
 
@@ -174,7 +175,7 @@ Design rules:
 - `TerminalEventLedger` records event kind metadata only: PTY read byte counts, parser event categories, screen mutation counts, and render-frame counts.
 - Trace summaries may aggregate retained metadata by `TerminalEventTraceID`, but must not include raw PTY bytes, printable terminal text, pasted text, command output, secrets, paths, or environment values.
 - Live integration should attach trace IDs at boundary crossings instead of inventing separate logs for parser, screen, renderer, command, shell, or AI workflows.
-- The current runtime slice should wire the existing resize ledger, event ledger, render-frame metadata, shell command spans, and AI approval/context metadata into one inspectable timeline. It should not add another terminal model or persist raw output to make the timeline easier.
+- The current core/render/shell/UI slice should use the existing timeline foundation to expose source-of-truth diagnostics, render damage/coalescing evidence, shell opt-in metadata, command UX events, and AI action metadata. It should not add another terminal model or persist raw output to make diagnostics easier.
 - Bounded retention is part of the contract. Dropped-event counts are acceptable diagnostics; unbounded event retention is not.
 
 ### IME And Text Input
@@ -209,6 +210,7 @@ Design rules:
 - Search metadata is an ephemeral UI/search projection. Runtime timeline and audit surfaces should reference command span IDs and boundary coordinates rather than retaining command text unless a separate feature policy explicitly permits that retention.
 - AI command context should use `AICommandContextBridge.CommandContext` or `TerminalCommandSpan` data and include raw output only after policy approval.
 - Runtime timeline entries may reference shell command span identifiers, cwd metadata, exit status, and prompt/output range coordinates. They must not duplicate command text or output text unless an explicit feature policy has approved that retention.
+- Passive OSC metadata and opt-in shell integration metadata must be distinguishable. A capability descriptor is baseline support; per-session evidence is required before UI, audit, or AI surfaces claim an opt-in shell script is installed.
 - Raw terminal output, pasted text, environment variables, and command history are sensitive. Persist them only for explicit user-requested features with redaction and retention limits.
 - Shell integration must degrade cleanly for remote shells, unsupported shells, and users who decline scripts.
 
@@ -230,6 +232,7 @@ Design rules:
 - Approval UI must show the target pane, working directory when known, command or text to be sent, context being shared, and whether the action is one-time or remembered.
 - Default policy is observe-redacted, ask-before-act. Any persistent permission needs a visible revocation path in preferences.
 - Redacted context export may be allowed by policy. Raw terminal output export requires redaction and explicit approval. Agent-sent terminal text always requires explicit approval before it reaches the session.
+- Agent actions should move through an app-layer request, approval, dispatch, and audit API. The API may target command registry actions or approved terminal text sends, but it must not expose direct mutation hooks for screen buffers, renderer state, PTY process state, or settings storage.
 - Agent status belongs in pane chrome, status surfaces, or the agent panel. Do not decorate terminal output cells to imply AI ownership.
 
 ### Workspace, Tabs, And Splits
@@ -245,6 +248,7 @@ Design rules:
 - Model tabs and splits as a durable tree with stable pane identifiers, focus, titles, profile metadata, cwd, and restore policy.
 - Session restore should rebuild layout first. Process resume, agent resume, and command replay are separate opt-in steps.
 - Focus movement, pane resize, search, copy mode, quick terminal, and command palette actions should be command-dispatchable so UI, shortcuts, and automation share one action surface.
+- Command-span UX should reuse the app command registry for search, copy, fold, replay-candidate, and AI-reference actions. Replay remains an approval-gated candidate, not an automatic shell integration behavior.
 - Browser-like tab behavior should be implemented at the app layer. Terminal escape sequences may update pane titles or badges through policy, but must not restructure tabs, splits, or workspaces.
 - Split layout changes should emit metadata useful for debugging resize, focus, and renderer issues without logging terminal contents.
 
