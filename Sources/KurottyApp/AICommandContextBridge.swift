@@ -131,6 +131,7 @@ struct AICommandContextBridge {
         let sanitizedCapability = sanitized(capability)
         let sanitizedContextReferences = (contextReferences + defaultContextReferences(from: reference))
             .map { sanitizedReference($0, targetPaneID: nil, targetWorkspaceID: nil) }
+            .deduplicatedInOrder()
         let sanitizedCapabilityRequests = requestedCapabilities.map { requests in
             requests.map(sanitizedCapabilityRequest)
         } ?? [
@@ -280,5 +281,16 @@ struct AICommandContextBridge {
         var eventLog = AIContextEventLog(maxEvents: 1, maxTextLength: maxTextLength)
         eventLog.record(source: "ai-approval-metadata", text: text)
         return eventLog.events.first?.text ?? ""
+    }
+}
+
+private extension Array where Element == AICommandContextReference {
+    func deduplicatedInOrder() -> [AICommandContextReference] {
+        reduce(into: []) { references, reference in
+            guard !references.contains(reference) else {
+                return
+            }
+            references.append(reference)
+        }
     }
 }

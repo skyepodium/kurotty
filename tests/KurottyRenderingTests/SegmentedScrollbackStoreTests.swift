@@ -123,4 +123,47 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertFalse(diagnosticsDescription.contains("normal output"))
         XCTAssertFalse(diagnosticsDescription.contains("another secret"))
     }
+
+    func testRetainedRowSummaryTracksAbsoluteCoordinatesWithoutRowText() {
+        var store = SegmentedScrollbackStore<String>(rowLimit: 3, segmentSize: 2)
+
+        store.append(contentsOf: ["secret token", "normal output", "another secret", "tail"])
+
+        let summary = store.retainedRowSummary
+        XCTAssertEqual(summary, .init(firstRetainedRowIndex: 1, retainedRowCount: 3, droppedRowCount: 1))
+        XCTAssertEqual(summary.lastRetainedRowIndex, 3)
+        XCTAssertEqual(summary.nextRowIndex, 4)
+        XCTAssertEqual(store.visibleRowIndex(forAbsoluteRowIndex: 1), 0)
+        XCTAssertEqual(store.visibleRowIndex(forAbsoluteRowIndex: 3), 2)
+        XCTAssertNil(store.visibleRowIndex(forAbsoluteRowIndex: 0))
+        XCTAssertNil(store.visibleRowIndex(forAbsoluteRowIndex: 4))
+        XCTAssertEqual(store.absoluteRowIndex(forVisibleRowIndex: 0), 1)
+        XCTAssertEqual(store.absoluteRowIndex(forVisibleRowIndex: 2), 3)
+        XCTAssertNil(store.absoluteRowIndex(forVisibleRowIndex: -1))
+        XCTAssertNil(store.absoluteRowIndex(forVisibleRowIndex: 3))
+        XCTAssertFalse(String(describing: summary).contains("secret"))
+        XCTAssertFalse(String(describing: store.diagnostics).contains("normal output"))
+    }
+
+    func testMillionLineAppendKeepsRetainedStorageWithinPressureCeiling() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 1_000_000, segmentSize: 1_024)
+
+        store.append(contentsOf: Array(0..<1_000_050))
+
+        XCTAssertEqual(store.count, 1_000_000)
+        XCTAssertEqual(store.retainedRowSummary, .init(
+            firstRetainedRowIndex: 50,
+            retainedRowCount: 1_000_000,
+            droppedRowCount: 50
+        ))
+        XCTAssertEqual(store.row(at: 0), 50)
+        XCTAssertEqual(store.row(at: 999_999), 1_000_049)
+        XCTAssertLessThanOrEqual(store.diagnostics.segmentCount, store.diagnostics.maximumRetainedSegmentCount)
+        XCTAssertLessThanOrEqual(
+            store.diagnostics.retainedStorageRowCount,
+            store.diagnostics.maximumRetainedStorageRowCount
+        )
+        XCTAssertEqual(store.visibleRowIndex(forAbsoluteRowIndex: 50), 0)
+        XCTAssertEqual(store.visibleRowIndex(forAbsoluteRowIndex: 1_000_049), 999_999)
+    }
 }

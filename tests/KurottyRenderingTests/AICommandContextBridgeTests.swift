@@ -224,6 +224,41 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertFalse(String(describing: metadata).contains("pane-token=secret"))
     }
 
+    func testApprovalMetadataDeduplicatesCallerAndDefaultContextReferences() {
+        let span = TerminalCommandSpan(
+            id: 12,
+            cwd: "/repo",
+            startBoundarySequence: 30,
+            endBoundarySequence: 34,
+            exitCode: 0,
+            promptBoundarySequence: 29,
+            outputBoundarySequence: 32,
+            commandText: "swift test"
+        )
+
+        let metadata = AICommandContextBridge().approvalMetadata(
+            for: .init(span: span),
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 12,
+                    targetPaneID: "pane-1",
+                    targetWorkspaceID: "workspace-7",
+                    promptBoundarySequence: 29,
+                    startBoundarySequence: 30,
+                    outputBoundarySequence: 32,
+                    endBoundarySequence: 34
+                ),
+            ]
+        )
+
+        XCTAssertEqual(metadata.contextReferences.count, 1)
+        XCTAssertEqual(metadata.contextReferences.first?.commandSpanID, 12)
+        XCTAssertEqual(metadata.contextReferences.first?.targetPaneID, "pane-1")
+        XCTAssertEqual(metadata.contextReferences.first?.targetWorkspaceID, "workspace-7")
+    }
+
     func testApprovalMetadataBoundsContextSummary() {
         let bridge = AICommandContextBridge()
 

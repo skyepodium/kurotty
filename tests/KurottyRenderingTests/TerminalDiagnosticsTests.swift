@@ -259,6 +259,40 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(diagnostic.description.contains("terminal text"))
     }
 
+    func testTraceCorrelationReportRequiresOrderedPipelineStages() {
+        let traceID = TerminalEventTraceID("diagnostic-pipeline")
+        let completeSummary = TerminalEventLedger.TraceSummary(
+            traceID: traceID,
+            eventCount: 4,
+            kindCounts: [
+                .ptyRead: 1,
+                .parserEvent: 1,
+                .screenMutation: 1,
+                .renderFrame: 1,
+            ],
+            ptyReadByteCount: 5,
+            parserEventByteCount: 5,
+            screenMutationCount: 1,
+            renderFrameCount: 1,
+            dirtyRegionCount: 2,
+            fullRedrawCount: 0,
+            firstSequence: 0,
+            lastSequence: 3,
+            droppedEventCount: 0
+        )
+        let outOfOrder = TerminalTraceCorrelationReport(
+            eventSummary: completeSummary,
+            stageSequence: [.ptyRead, .screenMutation, .parserEvent, .renderFrame]
+        )
+
+        XCTAssertFalse(outOfOrder.hasCompleteRenderPath)
+        XCTAssertEqual(
+            outOfOrder.description,
+            "trace=diagnostic-pipeline path=ptyRead>screenMutation>parserEvent>renderFrame complete=false resize=unavailable issues=0 ptyBytes=5 parserBytes=5 screenMutations=1 renderFrames=1 dirtyRegions=2 fullRedraws=0 droppedEvents=0"
+        )
+        XCTAssertFalse(outOfOrder.description.contains("token=secret"))
+    }
+
     func testCoreBridgeReportsSwiftScaffoldDiagnosticWhenZigCoreIsUnavailable() {
         let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
 

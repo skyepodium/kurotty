@@ -4,54 +4,107 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
     public let source: TerminalGlyphSourceCluster
     public let terminalCellWidth: Int
     public let fallbackFont: TerminalGlyphFallbackFont
+    public let fallbackChain: [TerminalGlyphFallbackFont]
     public let glyphs: [TerminalGlyph]
     public let advance: TerminalGlyphAdvance
     public let bounds: TerminalGlyphBounds
     public let atlasKey: TerminalGlyphAtlasKey
+    public let shaping: TerminalGlyphShapingDiagnostics
+    public let atlas: TerminalGlyphAtlasMetadata
+    public let clipping: TerminalGlyphClippingMetrics
     public let diagnosticFlags: Set<TerminalGlyphDiagnosticFlag>
 
     public init(
         source: TerminalGlyphSourceCluster,
         terminalCellWidth: Int,
         fallbackFont: TerminalGlyphFallbackFont,
+        fallbackChain: [TerminalGlyphFallbackFont]? = nil,
         glyphs: [TerminalGlyph],
         advance: TerminalGlyphAdvance,
         bounds: TerminalGlyphBounds,
         atlasKey: TerminalGlyphAtlasKey,
+        shaping: TerminalGlyphShapingDiagnostics = .unshapedDiagnostic,
+        atlas: TerminalGlyphAtlasMetadata = .unassigned,
+        clipping: TerminalGlyphClippingMetrics = .zero,
         diagnosticFlags: Set<TerminalGlyphDiagnosticFlag>
     ) {
         self.source = source
         self.terminalCellWidth = terminalCellWidth
         self.fallbackFont = fallbackFont
+        self.fallbackChain = fallbackChain ?? [fallbackFont]
         self.glyphs = glyphs
         self.advance = advance
         self.bounds = bounds
         self.atlasKey = atlasKey
+        self.shaping = shaping
+        self.atlas = atlas
+        self.clipping = clipping
         self.diagnosticFlags = diagnosticFlags
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case source
+        case terminalCellWidth
+        case fallbackFont
+        case fallbackChain
+        case glyphs
+        case advance
+        case bounds
+        case atlasKey
+        case shaping
+        case atlas
+        case clipping
+        case diagnosticFlags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(TerminalGlyphSourceCluster.self, forKey: .source)
+        terminalCellWidth = try container.decode(Int.self, forKey: .terminalCellWidth)
+        fallbackFont = try container.decode(TerminalGlyphFallbackFont.self, forKey: .fallbackFont)
+        fallbackChain = try container.decodeIfPresent([TerminalGlyphFallbackFont].self, forKey: .fallbackChain) ?? [fallbackFont]
+        glyphs = try container.decode([TerminalGlyph].self, forKey: .glyphs)
+        advance = try container.decode(TerminalGlyphAdvance.self, forKey: .advance)
+        bounds = try container.decode(TerminalGlyphBounds.self, forKey: .bounds)
+        atlasKey = try container.decode(TerminalGlyphAtlasKey.self, forKey: .atlasKey)
+        shaping = try container.decodeIfPresent(TerminalGlyphShapingDiagnostics.self, forKey: .shaping) ?? .unshapedDiagnostic
+        atlas = try container.decodeIfPresent(TerminalGlyphAtlasMetadata.self, forKey: .atlas) ?? .unassigned
+        clipping = try container.decodeIfPresent(TerminalGlyphClippingMetrics.self, forKey: .clipping) ?? .zero
+        diagnosticFlags = try container.decode(Set<TerminalGlyphDiagnosticFlag>.self, forKey: .diagnosticFlags)
     }
 
     public static func diagnosticModel(
         sourceText: String,
         sourceRange: TerminalGlyphSourceRange,
         fallbackFont: TerminalGlyphFallbackFont,
+        fallbackChain: [TerminalGlyphFallbackFont]? = nil,
         glyphs: [TerminalGlyph],
         advance: TerminalGlyphAdvance,
         bounds: TerminalGlyphBounds,
         atlasKey: TerminalGlyphAtlasKey,
+        shaping: TerminalGlyphShapingDiagnostics = .unshapedDiagnostic,
+        atlas: TerminalGlyphAtlasMetadata = .unassigned,
+        clipping: TerminalGlyphClippingMetrics? = nil,
         diagnosticFlags explicitDiagnosticFlags: Set<TerminalGlyphDiagnosticFlag> = []
     ) -> TerminalGlyphRun {
         let source = TerminalGlyphSourceCluster(text: sourceText, range: sourceRange)
         let width = sourceText.terminalColumnWidth
+        let clipping = clipping ?? .unclipped(inkBounds: bounds, cellBounds: bounds)
         let inferredDiagnosticFlags = TerminalGlyphDiagnosticFlag.flags(for: sourceText, terminalCellWidth: width)
+            .union(TerminalGlyphDiagnosticFlag.flags(for: clipping))
 
         return TerminalGlyphRun(
             source: source,
             terminalCellWidth: width,
             fallbackFont: fallbackFont,
+            fallbackChain: fallbackChain,
             glyphs: glyphs,
             advance: advance,
             bounds: bounds,
             atlasKey: atlasKey,
+            shaping: shaping,
+            atlas: atlas,
+            clipping: clipping,
             diagnosticFlags: inferredDiagnosticFlags.union(explicitDiagnosticFlags)
         )
     }
@@ -252,6 +305,33 @@ public struct TerminalGlyphBounds: Codable, Equatable, Sendable {
     }
 }
 
+public struct TerminalGlyphShapingDiagnostics: Codable, Equatable, Sendable {
+    public let engine: Engine
+    public let status: Status
+
+    public init(engine: Engine, status: Status) {
+        self.engine = engine
+        self.status = status
+    }
+
+    public static let unshapedDiagnostic = TerminalGlyphShapingDiagnostics(engine: .diagnostic, status: .unshaped)
+
+    public enum Engine: String, Codable, Equatable, Sendable {
+        case diagnostic
+        case platformShaper
+        case harfbuzz
+        case unknown
+    }
+
+    public enum Status: String, Codable, Equatable, Sendable {
+        case unshaped
+        case shaped
+        case substituted
+        case fallbackResolved
+        case missingGlyph
+    }
+}
+
 public struct TerminalGlyphAtlasKey: Codable, Equatable, Hashable, Sendable {
     public let value: String
     public let fontIdentifier: String?
@@ -330,6 +410,107 @@ public struct TerminalGlyphAtlasKey: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct TerminalGlyphAtlasMetadata: Codable, Equatable, Sendable {
+    public let ownership: Ownership
+    public let slot: TerminalGlyphAtlasSlotMetadata?
+
+    public init(ownership: Ownership, slot: TerminalGlyphAtlasSlotMetadata? = nil) {
+        self.ownership = ownership
+        self.slot = slot
+    }
+
+    public static let unassigned = TerminalGlyphAtlasMetadata(ownership: .unassigned)
+
+    public enum Ownership: String, Codable, Equatable, Sendable {
+        case unassigned
+        case glyphCache
+        case sharedFontAtlas
+    }
+}
+
+public struct TerminalGlyphAtlasSlotMetadata: Codable, Equatable, Sendable {
+    public let index: Int
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+    public let generation: Int?
+
+    public init(index: Int, x: Int, y: Int, width: Int, height: Int, generation: Int? = nil) {
+        self.index = index
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.generation = generation
+    }
+}
+
+public struct TerminalGlyphClippingMetrics: Codable, Equatable, Sendable {
+    public let inkBounds: TerminalGlyphBounds
+    public let cellBounds: TerminalGlyphBounds
+    public let overhang: TerminalGlyphOverhang
+    public let clippedEdges: Set<TerminalGlyphClippedEdge>
+
+    public init(
+        inkBounds: TerminalGlyphBounds,
+        cellBounds: TerminalGlyphBounds,
+        overhang: TerminalGlyphOverhang,
+        clippedEdges: Set<TerminalGlyphClippedEdge>
+    ) {
+        self.inkBounds = inkBounds
+        self.cellBounds = cellBounds
+        self.overhang = overhang
+        self.clippedEdges = clippedEdges
+    }
+
+    public static let zero = TerminalGlyphClippingMetrics(
+        inkBounds: TerminalGlyphBounds(x: 0, y: 0, width: 0, height: 0),
+        cellBounds: TerminalGlyphBounds(x: 0, y: 0, width: 0, height: 0),
+        overhang: .zero,
+        clippedEdges: []
+    )
+
+    public static func unclipped(
+        inkBounds: TerminalGlyphBounds,
+        cellBounds: TerminalGlyphBounds
+    ) -> TerminalGlyphClippingMetrics {
+        TerminalGlyphClippingMetrics(
+            inkBounds: inkBounds,
+            cellBounds: cellBounds,
+            overhang: .zero,
+            clippedEdges: []
+        )
+    }
+}
+
+public struct TerminalGlyphOverhang: Codable, Equatable, Sendable {
+    public let left: Double
+    public let right: Double
+    public let top: Double
+    public let bottom: Double
+
+    public init(left: Double, right: Double, top: Double, bottom: Double) {
+        self.left = left
+        self.right = right
+        self.top = top
+        self.bottom = bottom
+    }
+
+    public static let zero = TerminalGlyphOverhang(left: 0, right: 0, top: 0, bottom: 0)
+
+    fileprivate var isZero: Bool {
+        left == 0 && right == 0 && top == 0 && bottom == 0
+    }
+}
+
+public enum TerminalGlyphClippedEdge: String, Codable, Equatable, Hashable, Sendable {
+    case left
+    case right
+    case top
+    case bottom
+}
+
 public enum TerminalGlyphDiagnosticFlag: String, Codable, Equatable, Hashable, Sendable {
     case containsCombiningMarks
     case containsZeroWidthJoiner
@@ -360,5 +541,9 @@ public enum TerminalGlyphDiagnosticFlag: String, Codable, Equatable, Hashable, S
         }
 
         return flags
+    }
+
+    fileprivate static func flags(for clipping: TerminalGlyphClippingMetrics) -> Set<TerminalGlyphDiagnosticFlag> {
+        clipping.clippedEdges.isEmpty && clipping.overhang.isZero ? [] : [.clippedInkBounds]
     }
 }

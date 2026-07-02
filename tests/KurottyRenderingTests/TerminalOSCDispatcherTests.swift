@@ -72,6 +72,7 @@ final class TerminalOSCDispatcherTests: XCTestCase {
 
         XCTAssertEqual(event, .shellIntegration(.promptStart))
         XCTAssertEqual(dispatcher.shellIntegration.currentBoundary, .promptStart)
+        XCTAssertEqual(dispatcher.shellIntegration.sessionEvidence.observedPassiveOSCSequences, [.osc133])
     }
 
     func testUnknownOSCIsIgnored() {

@@ -280,6 +280,18 @@ struct TerminalEventLedger: CustomStringConvertible {
         makeSummary(traceID: traceID, events: events(for: traceID))
     }
 
+    func traceCorrelationReport(
+        for traceID: TerminalEventTraceID,
+        resizeSnapshot: TerminalResizeCycleSnapshot? = nil
+    ) -> TerminalTraceCorrelationReport {
+        let traceEvents = events(for: traceID)
+        return TerminalTraceCorrelationReport(
+            eventSummary: makeSummary(traceID: traceID, events: traceEvents),
+            stageSequence: traceEvents.map(\.kind),
+            resizeSnapshot: resizeSnapshot
+        )
+    }
+
     func conciseDescription(for traceID: TerminalEventTraceID) -> String {
         let traceEvents = events(for: traceID)
         let eventSummary = traceEvents

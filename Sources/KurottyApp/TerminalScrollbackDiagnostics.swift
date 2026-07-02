@@ -11,6 +11,9 @@ struct TerminalScrollbackDiagnosticsSummary: Equatable, CustomStringConvertible 
     let capacity: Int
     let retainedRowCount: Int
     let retainedStorageRowCount: Int
+    let firstRetainedRowIndex: Int
+    let lastRetainedRowIndex: Int?
+    let nextRowIndex: Int
     let droppedRowCount: Int
     let compactionCount: Int
     let pressureLevel: BoundedScrollbackRows.PressureLevel
@@ -20,6 +23,9 @@ struct TerminalScrollbackDiagnosticsSummary: Equatable, CustomStringConvertible 
         capacity = diagnostics.limit
         retainedRowCount = diagnostics.visibleRowCount
         retainedStorageRowCount = diagnostics.retainedStorageRowCount
+        firstRetainedRowIndex = diagnostics.retainedRowSummary.firstRetainedRowIndex
+        lastRetainedRowIndex = diagnostics.retainedRowSummary.lastRetainedRowIndex
+        nextRowIndex = diagnostics.retainedRowSummary.nextRowIndex
         droppedRowCount = diagnostics.droppedRowCount
         compactionCount = diagnostics.compactionCount
         pressureLevel = diagnostics.pressureLevel
@@ -34,6 +40,9 @@ struct TerminalScrollbackDiagnosticsSummary: Equatable, CustomStringConvertible 
             "capacity=\(capacity)",
             "retainedRows=\(retainedRowCount)",
             "retainedStorageRows=\(retainedStorageRowCount)",
+            "firstRetainedRow=\(firstRetainedRowIndex)",
+            "lastRetainedRow=\(lastRetainedRowIndex.map(String.init) ?? "none")",
+            "nextRow=\(nextRowIndex)",
             "droppedRows=\(droppedRowCount)",
             "compactions=\(compactionCount)",
             "pressure=\(pressureLevel)",

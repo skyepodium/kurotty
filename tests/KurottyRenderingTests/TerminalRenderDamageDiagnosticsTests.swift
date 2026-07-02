@@ -15,9 +15,11 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.redrawDecision.description, "full")
         XCTAssertEqual(diagnostics.schedulingPolicy.description, "full-redraw-fallback")
+        XCTAssertEqual(diagnostics.coalescingFallbackReason.description, "full-damage-frame")
         XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 0, width: 80, height: 40)])
         XCTAssertEqual(diagnostics.stablePixelBounds, [])
+        XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
     }
 
     func testPartialDamageCanBeMarkedAsDisplayCadenceCoalescingCandidateWhenPixelBoundsAreStable() {
@@ -31,9 +33,11 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.redrawDecision.description, "partial")
         XCTAssertEqual(diagnostics.schedulingPolicy.description, "display-cadence-coalescing-candidate")
+        XCTAssertEqual(diagnostics.coalescingFallbackReason.description, "none")
         XCTAssertTrue(diagnostics.canCoalesceAtDisplayCadence)
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 20, width: 40, height: 20)])
         XCTAssertEqual(diagnostics.stablePixelBounds, [TerminalFramePixelRect(x: 0, y: 40, width: 80, height: 40)])
+        XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
     }
 
     func testPartialDamageFallsBackToImmediatePolicyWhenPixelBoundsAreUnstable() {
@@ -50,8 +54,45 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.redrawDecision.description, "partial")
         XCTAssertEqual(diagnostics.schedulingPolicy.description, "immediate-partial-redraw")
+        XCTAssertEqual(diagnostics.coalescingFallbackReason.description, "unstable-pixel-bounds")
         XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
         XCTAssertEqual(diagnostics.stablePixelBounds, [])
+        XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
+    }
+
+    func testPartialDamageReportsScissorDisabledAsCoalescingFallbackReason() {
+        let diagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(dirtyRects: [rowRect(1)], isFullDamage: false),
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 40),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: true
+        )
+
+        XCTAssertEqual(diagnostics.redrawDecision.description, "partial")
+        XCTAssertEqual(diagnostics.schedulingPolicy.description, "immediate-partial-redraw")
+        XCTAssertEqual(diagnostics.coalescingFallbackReason.description, "scissor-disabled")
+        XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
+        XCTAssertEqual(diagnostics.stablePixelBounds, [TerminalFramePixelRect(x: 0, y: 40, width: 80, height: 40)])
+        XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
+    }
+
+    func testDiagnosticFullRedrawReportsForcedFallbackWithoutEnablingPartialRepaint() {
+        let diagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(dirtyRects: [rowRect(1)], isFullDamage: false),
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 40),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: true,
+            scissorDisabled: false
+        )
+
+        XCTAssertEqual(diagnostics.redrawDecision.description, "full")
+        XCTAssertEqual(diagnostics.schedulingPolicy.description, "full-redraw-fallback")
+        XCTAssertEqual(diagnostics.coalescingFallbackReason.description, "diagnostic-full-redraw")
+        XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
+        XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 0, width: 80, height: 40)])
+        XCTAssertEqual(diagnostics.stablePixelBounds, [])
+        XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
     }
 
     private func makeFrame(
