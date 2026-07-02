@@ -46,6 +46,56 @@ struct TerminalRenderingDiagnostics {
     let linearGlyphSamplingEnabled: Bool
 }
 
+struct TerminalRenderDamageDiagnostics {
+    enum RedrawDecision: CustomStringConvertible {
+        case full
+        case partial
+
+        var description: String {
+            switch self {
+            case .full:
+                "full"
+            case .partial:
+                "partial"
+            }
+        }
+    }
+
+    let redrawDecision: RedrawDecision
+    let dirtyRectCount: Int
+    let scissorDisabled: Bool
+    let submittedDisplayRects: [CGRect]
+
+    static let empty = TerminalRenderDamageDiagnostics(
+        redrawDecision: .full,
+        dirtyRectCount: 0,
+        scissorDisabled: false,
+        submittedDisplayRects: []
+    )
+
+    static func make(
+        frame: TerminalFrame,
+        bounds: CGRect,
+        diagnosticFullRedrawEnabled: Bool,
+        scissorDisabled: Bool
+    ) -> TerminalRenderDamageDiagnostics {
+        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
+            return TerminalRenderDamageDiagnostics(
+                redrawDecision: .full,
+                dirtyRectCount: frame.dirtyRects.count,
+                scissorDisabled: scissorDisabled,
+                submittedDisplayRects: [bounds]
+            )
+        }
+        return TerminalRenderDamageDiagnostics(
+            redrawDecision: .partial,
+            dirtyRectCount: frame.dirtyRects.count,
+            scissorDisabled: scissorDisabled,
+            submittedDisplayRects: frame.dirtyRects.map(\.cgRect)
+        )
+    }
+}
+
 final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
@@ -144,6 +194,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var lastDamageDiagnostics = TerminalRenderDamageDiagnostics.empty
 
     override var isOpaque: Bool {
         true
@@ -223,12 +274,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
-        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
-            setNeedsDisplay(bounds)
-        } else {
-            for rect in frame.dirtyRects {
-                setNeedsDisplay(rect.cgRect)
-            }
+        let damageDiagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: frame,
+            bounds: bounds,
+            diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled,
+            scissorDisabled: DebugOptions.noScissor
+        )
+        lastDamageDiagnostics = damageDiagnostics
+        let submittedDisplayRects = damageDiagnostics.submittedDisplayRects
+        for rect in submittedDisplayRects {
+            setNeedsDisplay(rect)
         }
     }
 
@@ -404,6 +459,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
     }
 
+    var damageDiagnostics: TerminalRenderDamageDiagnostics {
+        lastDamageDiagnostics
+    }
+
     var lastFrameDirtyRowsForDiagnostics: [Int] {
         terminalFrame.dirtyRows
     }
@@ -414,6 +473,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
 
     var lastFrameDamageWasFullForDiagnostics: Bool {
         terminalFrame.isFullDamage
+    }
+
+    var lastSubmittedDisplayRectsForDiagnostics: [CGRect] {
+        lastDamageDiagnostics.submittedDisplayRects
+    }
+
+    var lastFrameScissorWasDisabledForDiagnostics: Bool {
+        lastDamageDiagnostics.scissorDisabled
     }
 
     private var atlasInstanceCount: Int {
@@ -447,10 +514,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard diagnosticRenderingLogEnabled else { return }
         let colorAttachment = descriptor.colorAttachments[0]
         NSLog(
-            "Kurotty render frame: index=%llu fullRedraw=%@ dirtyRects=%d drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ dirtyRects=%d submittedDisplayRects=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
             renderFrameIndex,
             diagnosticFullRedrawEnabled ? "yes" : "no",
-            terminalFrame.dirtyRects.count,
+            damageDiagnostics.redrawDecision.description,
+            damageDiagnostics.dirtyRectCount,
+            damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
+            damageDiagnostics.scissorDisabled ? "yes" : "no",
             NSStringFromSize(drawableSize),
             NSStringFromSize(drawableSize),
             "\(colorAttachment?.loadAction ?? .dontCare)",
@@ -481,12 +551,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         if DebugOptions.dirtyRects || DebugOptions.cursorCell {
             NSLog(
-                "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ cursorCell=(%d,%d) noScissor=%@",
+                "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ submittedDisplayRects=%@ cursorCell=(%d,%d) noScissor=%@",
                 terminalFrame.dirtyRows.map(String.init).joined(separator: ","),
                 terminalFrame.dirtyRects.map { NSStringFromRect($0.cgRect) }.joined(separator: " | "),
+                damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
                 terminalFrame.cursorRow,
                 terminalFrame.cursorColumn,
-                DebugOptions.noScissor ? "yes" : "no"
+                damageDiagnostics.scissorDisabled ? "yes" : "no"
             )
         }
     }

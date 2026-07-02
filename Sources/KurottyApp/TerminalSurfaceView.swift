@@ -41,6 +41,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var oscBuffer = ""
     private var terminalTitle = "-zsh"
     private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    private var shellIntegration = TerminalShellIntegration(
+        currentWorkingDirectoryCandidate: FileManager.default.homeDirectoryForCurrentUser.path
+    )
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
@@ -1829,12 +1832,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
+        let shellIntegrationEvent = shellIntegration.consumeOsc(command)
+
         switch code {
         case "0", "1", "2":
             terminalTitle = payload
             publishTitle()
         case "7":
-            updateWorkingDirectory(fromOsc7: payload)
+            if case let .workingDirectoryChanged(path) = shellIntegrationEvent {
+                currentWorkingDirectory = path
+            }
             publishTitle()
         case "9":
             notifyItermOsc9(payload)
@@ -1859,15 +1866,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             break
         }
-    }
-
-    private func updateWorkingDirectory(fromOsc7 payload: String) {
-        guard let url = URL(string: payload),
-              url.isFileURL
-        else {
-            return
-        }
-        currentWorkingDirectory = url.path
     }
 
     private func publishTitle() {
