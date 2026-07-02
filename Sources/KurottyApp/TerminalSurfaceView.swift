@@ -14,6 +14,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
+    private let securityPolicy = TerminalSecurityPolicy.default
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
@@ -1383,6 +1384,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
         guard let url = URL(string: link.urlString) else { return }
+        guard securityPolicy.linkOpenDecision(for: url) == .ask else { return }
         let alert = NSAlert()
         alert.messageText = "Open Link?"
         alert.informativeText = link.urlString

@@ -542,3 +542,39 @@ test "renderer damage lifecycle reuses retained storage across frames" {
         try std.testing.expectEqual(@as(u32, 0), clean.draw_calls);
     }
 }
+
+test "pty dimensions accept valid terminal cell sizes" {
+    const dims = try core.PtyDimensions.init(120, 40);
+
+    try std.testing.expectEqual(@as(u16, 120), dims.cols);
+    try std.testing.expectEqual(@as(u16, 40), dims.rows);
+}
+
+test "pty dimensions reject zero and winsize overflow" {
+    try std.testing.expectError(error.InvalidDimensions, core.PtyDimensions.init(0, 24));
+    try std.testing.expectError(error.InvalidDimensions, core.PtyDimensions.init(80, 0));
+    try std.testing.expectError(error.DimensionOverflow, core.PtyDimensions.init(65_536, 24));
+    try std.testing.expectError(error.DimensionOverflow, core.PtyDimensions.init(80, 65_536));
+}
+
+test "pty size diagnostic reports renderer mismatch deltas" {
+    const pty = try core.PtyDimensions.init(100, 30);
+    const renderer = try core.PtyDimensions.init(96, 32);
+
+    const diagnostic = core.PtySizeDiagnostic.compare(pty, renderer);
+
+    try std.testing.expectEqual(core.PtySizeStatus.mismatch, diagnostic.status);
+    try std.testing.expect(!diagnostic.matches());
+    try std.testing.expectEqual(@as(i32, -4), diagnostic.cols_delta);
+    try std.testing.expectEqual(@as(i32, 2), diagnostic.rows_delta);
+}
+
+test "pty resize request construction validates requested dimensions" {
+    const request = try core.PtyResizeRequest.init(132, 43, .renderer, 7);
+
+    try std.testing.expectEqual(@as(u64, 7), request.sequence);
+    try std.testing.expectEqual(core.PtyResizeSource.renderer, request.source);
+    try std.testing.expectEqual(@as(u16, 132), request.dimensions.cols);
+    try std.testing.expectEqual(@as(u16, 43), request.dimensions.rows);
+    try std.testing.expectError(error.InvalidDimensions, core.PtyResizeRequest.init(0, 43, .renderer, 8));
+}
