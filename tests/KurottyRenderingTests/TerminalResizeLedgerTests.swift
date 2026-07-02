@@ -211,6 +211,31 @@ final class TerminalResizeLedgerTests: XCTestCase {
         ])
     }
 
+    func testSourceOfTruthSummaryReportsValidationMetadataOnly() {
+        let snapshot = makeSnapshot(
+            traceID: "resize-secret",
+            source: "view-measurement",
+            screenColumns: 119,
+            screenRows: 40
+        )
+
+        let summary = TerminalResizeSourceOfTruthSummary(snapshot: snapshot)
+
+        XCTAssertEqual(summary.source, "view-measurement")
+        XCTAssertEqual(summary.derivedGrid, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(summary.ptyWinsize, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(summary.screenSize, TerminalResizeGridSize(columns: 119, rows: 40))
+        XCTAssertEqual(summary.rendererGrid, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertFalse(summary.isValid)
+        XCTAssertEqual(summary.issueCount, 1)
+        XCTAssertEqual(
+            summary.description,
+            "source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 valid=false issueCount=1"
+        )
+        XCTAssertFalse(summary.description.contains("secret"))
+        XCTAssertFalse(summary.description.contains("/Users/"))
+    }
+
     private func makeSnapshot(
         traceID: String? = nil,
         source: String? = nil,

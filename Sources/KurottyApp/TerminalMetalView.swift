@@ -78,13 +78,41 @@ struct TerminalRenderDamageDiagnostics {
         }
     }
 
+    enum CoalescingFallbackReason: CustomStringConvertible {
+        case none
+        case diagnosticFullRedraw
+        case fullDamageFrame
+        case emptyDirtyRects
+        case scissorDisabled
+        case unstablePixelBounds
+
+        var description: String {
+            switch self {
+            case .none:
+                "none"
+            case .diagnosticFullRedraw:
+                "diagnostic-full-redraw"
+            case .fullDamageFrame:
+                "full-damage-frame"
+            case .emptyDirtyRects:
+                "empty-dirty-rects"
+            case .scissorDisabled:
+                "scissor-disabled"
+            case .unstablePixelBounds:
+                "unstable-pixel-bounds"
+            }
+        }
+    }
+
     let redrawDecision: RedrawDecision
     let schedulingPolicy: SchedulingPolicy
     let dirtyRectCount: Int
     let scissorDisabled: Bool
     let submittedDisplayRects: [CGRect]
     let canCoalesceAtDisplayCadence: Bool
+    let coalescingFallbackReason: CoalescingFallbackReason
     let stablePixelBounds: [TerminalFramePixelRect]
+    let stablePixelBoundCount: Int
 
     static let empty = TerminalRenderDamageDiagnostics(
         redrawDecision: .full,
@@ -93,7 +121,9 @@ struct TerminalRenderDamageDiagnostics {
         scissorDisabled: false,
         submittedDisplayRects: [],
         canCoalesceAtDisplayCadence: false,
-        stablePixelBounds: []
+        coalescingFallbackReason: .emptyDirtyRects,
+        stablePixelBounds: [],
+        stablePixelBoundCount: 0
     )
 
     static func make(
@@ -104,6 +134,14 @@ struct TerminalRenderDamageDiagnostics {
         scissorDisabled: Bool
     ) -> TerminalRenderDamageDiagnostics {
         if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
+            let fallbackReason: CoalescingFallbackReason
+            if diagnosticFullRedrawEnabled {
+                fallbackReason = .diagnosticFullRedraw
+            } else if frame.isFullDamage {
+                fallbackReason = .fullDamageFrame
+            } else {
+                fallbackReason = .emptyDirtyRects
+            }
             return TerminalRenderDamageDiagnostics(
                 redrawDecision: .full,
                 schedulingPolicy: .fullRedrawFallback,
@@ -111,15 +149,28 @@ struct TerminalRenderDamageDiagnostics {
                 scissorDisabled: scissorDisabled,
                 submittedDisplayRects: [bounds],
                 canCoalesceAtDisplayCadence: false,
-                stablePixelBounds: []
+                coalescingFallbackReason: fallbackReason,
+                stablePixelBounds: [],
+                stablePixelBoundCount: 0
             )
         }
         let displaySize = TerminalFrameSize(width: Double(bounds.width), height: Double(bounds.height))
-        let stablePixelBounds = frame.damageMetadata.stablePixelBounds(
+        let pixelBoundsReport = frame.damageMetadata.stablePixelBoundsReport(
             scale: Double(backingScale),
             clipTo: displaySize
-        ) ?? []
-        let canCoalesceAtDisplayCadence = !scissorDisabled && stablePixelBounds.count == frame.dirtyRects.count
+        )
+        let stablePixelBounds = pixelBoundsReport.pixelBounds
+        let canCoalesceAtDisplayCadence = !scissorDisabled &&
+            pixelBoundsReport.fallbackReason == nil &&
+            stablePixelBounds.count == frame.dirtyRects.count
+        let fallbackReason: CoalescingFallbackReason
+        if canCoalesceAtDisplayCadence {
+            fallbackReason = .none
+        } else if scissorDisabled {
+            fallbackReason = .scissorDisabled
+        } else {
+            fallbackReason = .unstablePixelBounds
+        }
         return TerminalRenderDamageDiagnostics(
             redrawDecision: .partial,
             schedulingPolicy: canCoalesceAtDisplayCadence ? .displayCadenceCoalescingCandidate : .immediatePartialRedraw,
@@ -127,7 +178,9 @@ struct TerminalRenderDamageDiagnostics {
             scissorDisabled: scissorDisabled,
             submittedDisplayRects: frame.dirtyRects.map(\.cgRect),
             canCoalesceAtDisplayCadence: canCoalesceAtDisplayCadence,
-            stablePixelBounds: stablePixelBounds
+            coalescingFallbackReason: fallbackReason,
+            stablePixelBounds: stablePixelBounds,
+            stablePixelBoundCount: pixelBoundsReport.stablePixelBoundCount
         )
     }
 }
@@ -529,6 +582,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         lastDamageDiagnostics.canCoalesceAtDisplayCadence
     }
 
+    var lastFrameCoalescingFallbackReasonForDiagnostics: String {
+        lastDamageDiagnostics.coalescingFallbackReason.description
+    }
+
+    var lastFrameStablePixelBoundCountForDiagnostics: Int {
+        lastDamageDiagnostics.stablePixelBoundCount
+    }
+
     private var atlasInstanceCount: Int {
         guard let atlasInstanceBuffer else { return 0 }
         return atlasInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
@@ -560,14 +621,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard diagnosticRenderingLogEnabled else { return }
         let colorAttachment = descriptor.colorAttachments[0]
         NSLog(
-            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ dirtyRects=%d submittedDisplayRects=%@ stablePixelBounds=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ coalescingFallbackReason=%@ dirtyRects=%d submittedDisplayRects=%@ stablePixelBoundCount=%d stablePixelBounds=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
             renderFrameIndex,
             diagnosticFullRedrawEnabled ? "yes" : "no",
             damageDiagnostics.redrawDecision.description,
             damageDiagnostics.schedulingPolicy.description,
             damageDiagnostics.canCoalesceAtDisplayCadence ? "yes" : "no",
+            damageDiagnostics.coalescingFallbackReason.description,
             damageDiagnostics.dirtyRectCount,
             damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
+            damageDiagnostics.stablePixelBoundCount,
             damageDiagnostics.stablePixelBounds.map { "{x:\($0.x),y:\($0.y),w:\($0.width),h:\($0.height)}" }.joined(separator: " | "),
             damageDiagnostics.scissorDisabled ? "yes" : "no",
             NSStringFromSize(drawableSize),

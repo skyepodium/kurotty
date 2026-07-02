@@ -134,16 +134,19 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let foldCandidate = try XCTUnwrap(span.foldCandidate)
         XCTAssertEqual(foldCandidate.spanID, span.id)
+        XCTAssertEqual(foldCandidate.reference, span.reference)
         XCTAssertEqual(foldCandidate.outputRange, outputRange)
 
         let replayCandidate = try XCTUnwrap(span.replayCandidate)
         XCTAssertEqual(replayCandidate.spanID, span.id)
+        XCTAssertEqual(replayCandidate.reference, span.reference)
         XCTAssertEqual(replayCandidate.commandText, "swift test --filter TerminalShellIntegrationTests")
         XCTAssertEqual(replayCandidate.cwd, "/Users/skye/project")
         XCTAssertTrue(replayCandidate.requiresExplicitUserConfirmation)
 
         let searchMetadata = span.searchMetadata
         XCTAssertEqual(searchMetadata.spanID, span.id)
+        XCTAssertEqual(searchMetadata.reference, span.reference)
         XCTAssertEqual(searchMetadata.cwd, "/Users/skye/project")
         XCTAssertEqual(searchMetadata.exitCode, 0)
         XCTAssertEqual(searchMetadata.commandText, "swift test --filter TerminalShellIntegrationTests")
@@ -167,6 +170,28 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertFalse(integration.capabilityDescriptor.requiresShellScriptInstallation)
         XCTAssertEqual(integration.capabilityDescriptor.passiveOSCSequences, [.osc7, .osc133])
         XCTAssertFalse(integration.capabilityDescriptor.optInSnippetDescriptors.contains { $0.isEnabledByDefault })
+        XCTAssertEqual(integration.sessionEvidence, TerminalShellIntegrationSessionEvidence())
+    }
+
+    func testSessionEvidenceRecordsObservedOptInSignalsSeparatelyFromDescriptors() {
+        var integration = TerminalShellIntegration()
+
+        _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
+        XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7])
+        XCTAssertEqual(integration.sessionEvidence.observedOptInCapabilities, [.workingDirectoryTracking])
+        XCTAssertTrue(integration.capabilityDescriptor.optInSnippetDescriptors.allSatisfy { !$0.isEnabledByDefault })
+
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;0")
+
+        XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7, .osc133])
+        XCTAssertEqual(
+            integration.sessionEvidence.observedOptInCapabilities,
+            [.workingDirectoryTracking, .commandBoundaryTracking]
+        )
+        XCTAssertEqual(integration.sessionEvidence.completedCommandSpanReferences.first?.spanID, 1)
     }
 
     func testOptInShellIntegrationSnippetDescriptorsCoverSupportedShellsWithoutInstaller() {

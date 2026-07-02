@@ -78,6 +78,44 @@ final class TerminalRenderFrameDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testStableDamagePixelBoundsDiagnosticsReportFallbackReasons() {
+        let emptyReport = makeFrame(
+            dirtyRows: [],
+            dirtyRects: [],
+            isFullDamage: false
+        )
+        .damageMetadata.stablePixelBoundsReport(scale: 2)
+
+        XCTAssertEqual(emptyReport.pixelBounds, [])
+        XCTAssertEqual(emptyReport.stablePixelBoundCount, 0)
+        XCTAssertEqual(emptyReport.fallbackReason?.description, "no-dirty-rects")
+
+        let unstableReport = makeFrame(
+            dirtyRows: [],
+            dirtyRects: [TerminalFrameRect(x: 0, y: 0, width: 0, height: 4)],
+            isFullDamage: false
+        )
+        .damageMetadata.stablePixelBoundsReport(scale: 2)
+
+        XCTAssertEqual(unstableReport.pixelBounds, [])
+        XCTAssertEqual(unstableReport.stablePixelBoundCount, 0)
+        XCTAssertEqual(unstableReport.fallbackReason?.description, "unstable-dirty-rect")
+
+        let outsideReport = makeFrame(
+            dirtyRows: [],
+            dirtyRects: [TerminalFrameRect(x: 100, y: 100, width: 4, height: 4)],
+            isFullDamage: false
+        )
+        .damageMetadata.stablePixelBoundsReport(
+            scale: 2,
+            clipTo: TerminalFrameSize(width: 20, height: 20)
+        )
+
+        XCTAssertEqual(outsideReport.pixelBounds, [])
+        XCTAssertEqual(outsideReport.stablePixelBoundCount, 0)
+        XCTAssertEqual(outsideReport.fallbackReason?.description, "outside-display-bounds")
+    }
+
     private func makeFrame(
         dirtyRows: [Int],
         dirtyRects: [TerminalFrameRect],

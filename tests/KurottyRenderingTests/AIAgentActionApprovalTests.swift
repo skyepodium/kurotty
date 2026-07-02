@@ -3,6 +3,194 @@ import XCTest
 @testable import KurottyApp
 
 final class AIAgentActionApprovalTests: XCTestCase {
+    func testActionRequestExposesStableBackendDispatchKind() throws {
+        XCTAssertEqual(AIAgentActionRequest.sendText(id: "send", text: "echo ok").kind, .sendText)
+        XCTAssertEqual(AIAgentActionRequest.pasteText(id: "paste", text: "echo ok").kind, .pasteText)
+        XCTAssertEqual(
+            AIAgentActionRequest.exportContext(id: "export", rawContext: "context", includesRawOutput: false).kind,
+            .exportContext
+        )
+        XCTAssertEqual(
+            AIAgentActionRequest.openFileURL(
+                id: "file",
+                url: URL(fileURLWithPath: "/tmp/report.txt")
+            ).kind,
+            .openFileURL
+        )
+    }
+
+    func testDispatcherDoesNotInvokeBackendHandlerUntilAskResultIsApproved() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let action = AIAgentActionRequest.sendText(id: "send", text: "echo ok")
+
+        let pending = dispatcher.dispatch(action)
+        XCTAssertEqual(pending.status, .requiresApproval)
+        XCTAssertEqual(pending.audit.decision, .ask)
+        XCTAssertEqual(pending.approval.actionKind, .sendText)
+        XCTAssertTrue(sentText.isEmpty)
+
+        let approved = dispatcher.dispatch(action, approval: dispatcher.approve(pending.approval))
+        XCTAssertEqual(approved.status, .dispatched)
+        XCTAssertEqual(approved.audit.decision, .allow)
+        XCTAssertEqual(sentText, ["echo ok"])
+    }
+
+    func testDispatcherRejectsMismatchedApprovalWithoutInvokingBackendHandler() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "first", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.sendText(id: "second", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result does not match action request")
+        XCTAssertTrue(sentText.isEmpty)
+    }
+
+    func testDispatcherRejectsMismatchedApprovalKindWithoutInvokingBackendHandler() {
+        var pastedText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(pasteText: { text, _, _ in pastedText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "shared", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.pasteText(id: "shared", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result kind does not match action request")
+        XCTAssertTrue(pastedText.isEmpty)
+    }
+
+    func testDispatcherRejectsSameKindChangedPayloadWithoutInvokingBackendHandler() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "shared", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.sendText(id: "shared", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result fingerprint does not match action request")
+        XCTAssertTrue(sentText.isEmpty)
+    }
+
+    func testDispatcherRejectsChangedRawExportContextWithoutInvokingBackendHandler() {
+        var exportedContexts: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(exportContext: { context, _ in exportedContexts.append(context) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.exportContext(
+                    id: "export",
+                    rawContext: "raw command output: first",
+                    includesRawOutput: true,
+                    secretRedactionEnabled: true
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.exportContext(
+                id: "export",
+                rawContext: "raw command output: second",
+                includesRawOutput: true,
+                secretRedactionEnabled: true
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result fingerprint does not match action request")
+        XCTAssertTrue(exportedContexts.isEmpty)
+    }
+
+    func testDispatcherRejectsChangedRawExportSecurityFlagsWithoutInvokingBackendHandler() {
+        var exportedContexts: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(exportContext: { context, _ in exportedContexts.append(context) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.exportContext(
+                    id: "export-flags",
+                    rawContext: "raw command output",
+                    includesRawOutput: true,
+                    secretRedactionEnabled: true
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.exportContext(
+                id: "export-flags",
+                rawContext: "raw command output",
+                includesRawOutput: true,
+                secretRedactionEnabled: false
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "current action request is denied by policy")
+        XCTAssertTrue(exportedContexts.isEmpty)
+    }
+
+    func testDispatcherRejectsUnsafeURLDespiteSameKindApproval() throws {
+        var openedURLs: [URL] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(openFileURL: { url, _ in openedURLs.append(url) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.openFileURL(
+                    id: "url",
+                    url: URL(fileURLWithPath: "/tmp/report.txt")
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.openFileURL(
+                id: "url",
+                url: try XCTUnwrap(URL(string: "ssh://example.com/repo"))
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "current action request is denied by policy")
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
     func testDefaultPolicyAllowsRedactedContextExportAsksForAgentTextAndDeniesUnsafeURL() throws {
         let evaluator = AIAgentActionApprovalEvaluator()
 

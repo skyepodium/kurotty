@@ -11,6 +11,12 @@ struct TerminalCommandSpan: Equatable, Identifiable {
     var commandText: String?
 }
 
+struct TerminalCommandSpanReference: Equatable {
+    let spanID: TerminalCommandSpan.ID
+    let startBoundarySequence: Int
+    let endBoundarySequence: Int?
+}
+
 struct TerminalCommandOutputRange: Equatable {
     let startBoundarySequence: Int
     let endBoundarySequence: Int
@@ -18,11 +24,13 @@ struct TerminalCommandOutputRange: Equatable {
 
 struct TerminalCommandFoldCandidate: Equatable {
     let spanID: TerminalCommandSpan.ID
+    let reference: TerminalCommandSpanReference
     let outputRange: TerminalCommandOutputRange
 }
 
 struct TerminalCommandReplayCandidate: Equatable {
     let spanID: TerminalCommandSpan.ID
+    let reference: TerminalCommandSpanReference
     let commandText: String
     let cwd: String?
     let exitCode: Int?
@@ -31,6 +39,7 @@ struct TerminalCommandReplayCandidate: Equatable {
 
 struct TerminalCommandSearchMetadata: Equatable {
     let spanID: TerminalCommandSpan.ID
+    let reference: TerminalCommandSpanReference
     let cwd: String?
     let exitCode: Int?
     let commandText: String?
@@ -42,7 +51,7 @@ struct TerminalCommandSearchMetadata: Equatable {
 }
 
 struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
-    enum PassiveOSCSequence: Equatable {
+    enum PassiveOSCSequence: Equatable, Hashable {
         case osc7
         case osc133
     }
@@ -53,7 +62,7 @@ struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
         case fish
     }
 
-    enum OptInCapability: Equatable {
+    enum OptInCapability: Equatable, Hashable {
         case workingDirectoryTracking
         case commandBoundaryTracking
     }
@@ -76,7 +85,59 @@ struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
     let requiresShellScriptInstallation: Bool
 }
 
+struct TerminalShellIntegrationSessionEvidence: Equatable {
+    private(set) var observedPassiveOSCSequences: [TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence]
+    private(set) var observedOptInCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability]
+    private(set) var completedCommandSpanReferences: [TerminalCommandSpanReference]
+
+    init(
+        observedPassiveOSCSequences: [TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence] = [],
+        observedOptInCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = [],
+        completedCommandSpanReferences: [TerminalCommandSpanReference] = []
+    ) {
+        self.observedPassiveOSCSequences = []
+        self.observedOptInCapabilities = []
+        self.completedCommandSpanReferences = completedCommandSpanReferences
+        for sequence in observedPassiveOSCSequences {
+            recordObservedPassiveOSCSequence(sequence)
+        }
+        for capability in observedOptInCapabilities {
+            recordObservedOptInCapability(capability)
+        }
+    }
+
+    mutating func recordObservedPassiveOSCSequence(
+        _ sequence: TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence
+    ) {
+        appendIfMissing(sequence, to: &observedPassiveOSCSequences)
+    }
+
+    mutating func recordObservedOptInCapability(
+        _ capability: TerminalShellIntegrationCapabilityDescriptor.OptInCapability
+    ) {
+        appendIfMissing(capability, to: &observedOptInCapabilities)
+    }
+
+    mutating func replaceCompletedCommandSpanReferences(_ references: [TerminalCommandSpanReference]) {
+        completedCommandSpanReferences = references
+    }
+
+    private func appendIfMissing<T: Equatable>(_ value: T, to values: inout [T]) {
+        if !values.contains(value) {
+            values.append(value)
+        }
+    }
+}
+
 extension TerminalCommandSpan {
+    var reference: TerminalCommandSpanReference {
+        TerminalCommandSpanReference(
+            spanID: id,
+            startBoundarySequence: startBoundarySequence,
+            endBoundarySequence: endBoundarySequence
+        )
+    }
+
     var outputRange: TerminalCommandOutputRange? {
         guard let outputBoundarySequence,
               let endBoundarySequence,
@@ -96,7 +157,7 @@ extension TerminalCommandSpan {
             return nil
         }
 
-        return TerminalCommandFoldCandidate(spanID: id, outputRange: outputRange)
+        return TerminalCommandFoldCandidate(spanID: id, reference: reference, outputRange: outputRange)
     }
 
     var replayCandidate: TerminalCommandReplayCandidate? {
@@ -109,6 +170,7 @@ extension TerminalCommandSpan {
 
         return TerminalCommandReplayCandidate(
             spanID: id,
+            reference: reference,
             commandText: commandText,
             cwd: cwd,
             exitCode: exitCode,
@@ -120,6 +182,7 @@ extension TerminalCommandSpan {
         let outputRange = outputRange
         return TerminalCommandSearchMetadata(
             spanID: id,
+            reference: reference,
             cwd: cwd,
             exitCode: exitCode,
             commandText: commandText,
@@ -154,6 +217,7 @@ struct TerminalShellIntegration: Equatable {
     private(set) var lastExitCode: Int?
     private(set) var activeCommandSpan: TerminalCommandSpan?
     private(set) var recentCommandSpans: [TerminalCommandSpan]
+    private(set) var sessionEvidence: TerminalShellIntegrationSessionEvidence
     private(set) var boundarySequence: Int
     private var lastPromptBoundarySequence: Int?
     private var nextCommandSpanID: Int
@@ -246,6 +310,7 @@ struct TerminalShellIntegration: Equatable {
         lastExitCode: Int? = nil,
         activeCommandSpan: TerminalCommandSpan? = nil,
         recentCommandSpans: [TerminalCommandSpan] = [],
+        sessionEvidence: TerminalShellIntegrationSessionEvidence = TerminalShellIntegrationSessionEvidence(),
         boundarySequence: Int = 0,
         lastPromptBoundarySequence: Int? = nil,
         nextCommandSpanID: Int = 1,
@@ -257,6 +322,7 @@ struct TerminalShellIntegration: Equatable {
         self.lastExitCode = lastExitCode
         self.activeCommandSpan = activeCommandSpan
         self.recentCommandSpans = Array(recentCommandSpans.suffix(max(0, recentCommandSpanLimit)))
+        self.sessionEvidence = sessionEvidence
         self.boundarySequence = boundarySequence
         self.lastPromptBoundarySequence = lastPromptBoundarySequence
         self.nextCommandSpanID = nextCommandSpanID
@@ -305,6 +371,8 @@ struct TerminalShellIntegration: Equatable {
         }
 
         currentWorkingDirectoryCandidate = url.path
+        sessionEvidence.recordObservedPassiveOSCSequence(.osc7)
+        sessionEvidence.recordObservedOptInCapability(.workingDirectoryTracking)
         return .workingDirectoryChanged(url.path)
     }
 
@@ -323,6 +391,7 @@ struct TerminalShellIntegration: Equatable {
 
         switch subcommand {
         case "A":
+            recordObservedOSC133CommandBoundary()
             boundarySequence += 1
             currentBoundary = .promptStart
             isCommandActive = false
@@ -330,6 +399,7 @@ struct TerminalShellIntegration: Equatable {
             lastPromptBoundarySequence = boundarySequence
             return .promptStart
         case "B":
+            recordObservedOSC133CommandBoundary()
             boundarySequence += 1
             currentBoundary = .commandStart
             isCommandActive = true
@@ -342,11 +412,13 @@ struct TerminalShellIntegration: Equatable {
             nextCommandSpanID += 1
             return .commandStart
         case "C":
+            recordObservedOSC133CommandBoundary()
             boundarySequence += 1
             currentBoundary = .outputStart
             activeCommandSpan?.outputBoundarySequence = boundarySequence
             return .outputStart
         case "D":
+            recordObservedOSC133CommandBoundary()
             boundarySequence += 1
             let exitCode = parts.dropFirst().lazy.compactMap { Int($0) }.first
             currentBoundary = .commandEnd
@@ -356,12 +428,18 @@ struct TerminalShellIntegration: Equatable {
             activeCommandSpan?.exitCode = exitCode
             if let completedSpan = activeCommandSpan {
                 appendRecentCommandSpan(completedSpan)
+                sessionEvidence.replaceCompletedCommandSpanReferences(recentCommandSpans.map(\.reference))
             }
             activeCommandSpan = nil
             return .commandEnd(exitCode: exitCode)
         default:
             return nil
         }
+    }
+
+    private mutating func recordObservedOSC133CommandBoundary() {
+        sessionEvidence.recordObservedPassiveOSCSequence(.osc133)
+        sessionEvidence.recordObservedOptInCapability(.commandBoundaryTracking)
     }
 
     private mutating func appendRecentCommandSpan(_ span: TerminalCommandSpan) {

@@ -33,6 +33,10 @@ final class TerminalGlyphRunTests: XCTestCase {
             sourceText: "한",
             sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1),
             fallbackFont: .primary(name: "Menlo", identifier: "menlo-regular"),
+            fallbackChain: [
+                .primary(name: "Menlo", identifier: "menlo-regular", requestedPresentation: .cjk),
+                .systemCascade(name: "Apple SD Gothic Neo", identifier: "apple-sd-gothic-neo", requestedPresentation: .cjk),
+            ],
             glyphs: [
                 TerminalGlyph(
                     glyphID: 4001,
@@ -44,7 +48,18 @@ final class TerminalGlyphRunTests: XCTestCase {
             ],
             advance: TerminalGlyphAdvance(x: 18, y: 0),
             bounds: TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16),
-            atlasKey: TerminalGlyphAtlasKey(value: "Menlo/hangul/15/1x")
+            atlasKey: TerminalGlyphAtlasKey(value: "Menlo/hangul/15/1x"),
+            shaping: TerminalGlyphShapingDiagnostics(engine: .diagnostic, status: .shaped),
+            atlas: TerminalGlyphAtlasMetadata(
+                ownership: .glyphCache,
+                slot: TerminalGlyphAtlasSlotMetadata(index: 12, x: 72, y: 24, width: 18, height: 18, generation: 3)
+            ),
+            clipping: TerminalGlyphClippingMetrics(
+                inkBounds: TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16),
+                cellBounds: TerminalGlyphBounds(x: 0, y: -4, width: 18, height: 18),
+                overhang: TerminalGlyphOverhang(left: 0, right: 0, top: 0, bottom: 0),
+                clippedEdges: []
+            )
         )
         let emoji = TerminalGlyphRun.diagnosticModel(
             sourceText: "🧑‍💻",
@@ -62,6 +77,13 @@ final class TerminalGlyphRunTests: XCTestCase {
         XCTAssertEqual(korean.glyphs.first?.advance, TerminalGlyphAdvance(x: 18, y: 0))
         XCTAssertEqual(korean.glyphs.first?.bounds, TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16))
         XCTAssertTrue(korean.diagnosticFlags.contains(.wideCluster))
+        XCTAssertEqual(korean.shaping.engine, .diagnostic)
+        XCTAssertEqual(korean.shaping.status, .shaped)
+        XCTAssertEqual(korean.fallbackChain.map(\.identifier), ["menlo-regular", "apple-sd-gothic-neo"])
+        XCTAssertEqual(korean.atlas.ownership, .glyphCache)
+        XCTAssertEqual(korean.atlas.slot?.index, 12)
+        XCTAssertEqual(korean.clipping.overhang, TerminalGlyphOverhang(left: 0, right: 0, top: 0, bottom: 0))
+        XCTAssertEqual(korean.clipping.clippedEdges, [])
         XCTAssertEqual(emoji.terminalCellWidth, 2)
         XCTAssertEqual(emoji.source.graphemeClusters, [
             TerminalGlyphSourceGraphemeCluster(
@@ -107,12 +129,22 @@ final class TerminalGlyphRunTests: XCTestCase {
             advance: TerminalGlyphAdvance(x: 18, y: 0),
             bounds: TerminalGlyphBounds(x: 0, y: -2, width: 17, height: 13),
             atlasKey: TerminalGlyphAtlasKey(value: "FiraCode/fi-ligature/15/2c"),
+            shaping: TerminalGlyphShapingDiagnostics(engine: .diagnostic, status: .substituted),
+            clipping: TerminalGlyphClippingMetrics(
+                inkBounds: TerminalGlyphBounds(x: -1, y: -2, width: 20, height: 13),
+                cellBounds: TerminalGlyphBounds(x: 0, y: -2, width: 18, height: 14),
+                overhang: TerminalGlyphOverhang(left: 1, right: 1, top: 0, bottom: 0),
+                clippedEdges: [.left, .right]
+            ),
             diagnosticFlags: [.ligatureCluster]
         )
 
         XCTAssertEqual(run.source.graphemeClusterCount, 2)
         XCTAssertEqual(run.glyphs.count, 1)
         XCTAssertEqual(run.terminalCellWidth, 2)
+        XCTAssertEqual(run.shaping.status, .substituted)
+        XCTAssertEqual(run.clipping.clippedEdges, [.left, .right])
+        XCTAssertTrue(run.diagnosticFlags.contains(.clippedInkBounds))
         XCTAssertTrue(run.diagnosticFlags.contains(.ligatureCluster))
     }
 
@@ -142,5 +174,58 @@ final class TerminalGlyphRunTests: XCTestCase {
         XCTAssertEqual(cjkKey.pointSizePixels, 18)
         XCTAssertEqual(cjkKey.scale, 2)
         XCTAssertTrue(cjkKey.value.contains("menlo-regular/cjk/U+D55C/4001/18px/2x"))
+    }
+
+    func testDiagnosticContractDefaultsDoNotLeakRendererOwnership() throws {
+        let run = TerminalGlyphRun.diagnosticModel(
+            sourceText: "a",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1),
+            fallbackFont: .primary(name: "Menlo", identifier: "menlo-regular"),
+            glyphs: [TerminalGlyph(glyphID: 65, sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1))],
+            advance: TerminalGlyphAdvance(x: 9, y: 0),
+            bounds: TerminalGlyphBounds(x: 0, y: -2, width: 8, height: 12),
+            atlasKey: TerminalGlyphAtlasKey(value: "Menlo/a/15/1x")
+        )
+
+        XCTAssertEqual(run.shaping, .unshapedDiagnostic)
+        XCTAssertEqual(run.fallbackChain, [run.fallbackFont])
+        XCTAssertEqual(run.atlas.ownership, .unassigned)
+        XCTAssertNil(run.atlas.slot)
+        XCTAssertEqual(run.clipping.overhang, .zero)
+        XCTAssertEqual(run.clipping.clippedEdges, [])
+
+        let json = String(data: try JSONEncoder().encode(run), encoding: .utf8) ?? ""
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("renderer"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("metal"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("appkit"))
+        XCTAssertFalse(json.localizedCaseInsensitiveContains("coretext"))
+
+        let decoded = try JSONDecoder().decode(TerminalGlyphRun.self, from: Data("""
+        {
+          "source": {
+            "text": "a",
+            "range": { "utf16Location": 0, "utf16Length": 1 },
+            "graphemeClusterCount": 1,
+            "unicodeScalarValues": [97]
+          },
+          "terminalCellWidth": 1,
+          "fallbackFont": {
+            "decision": "primary",
+            "name": "Menlo",
+            "identifier": "menlo-regular",
+            "requestedPresentation": "unspecified"
+          },
+          "glyphs": [],
+          "advance": { "x": 9, "y": 0 },
+          "bounds": { "x": 0, "y": -2, "width": 8, "height": 12 },
+          "atlasKey": { "value": "Menlo/a/15/1x" },
+          "diagnosticFlags": []
+        }
+        """.utf8))
+
+        XCTAssertEqual(decoded.shaping, .unshapedDiagnostic)
+        XCTAssertEqual(decoded.fallbackChain, [decoded.fallbackFont])
+        XCTAssertEqual(decoded.atlas.ownership, .unassigned)
+        XCTAssertEqual(decoded.clipping.overhang, .zero)
     }
 }
