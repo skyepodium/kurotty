@@ -108,6 +108,58 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertNil(span.commandText)
     }
 
+    func testCompletedCommandSpanExposesFoldReplayAndSearchMetadataWithoutOutput() throws {
+        var integration = TerminalShellIntegration()
+
+        completeCommand(
+            cwd: "/Users/skye/project",
+            commandText: "swift test --filter TerminalShellIntegrationTests",
+            exitCode: 0,
+            in: &integration
+        )
+
+        let span = try XCTUnwrap(integration.recentCommandSpans.first)
+        let outputRange = try XCTUnwrap(span.outputRange)
+        XCTAssertEqual(outputRange.startBoundarySequence, 3)
+        XCTAssertEqual(outputRange.endBoundarySequence, 4)
+
+        let foldCandidate = try XCTUnwrap(span.foldCandidate)
+        XCTAssertEqual(foldCandidate.spanID, span.id)
+        XCTAssertEqual(foldCandidate.outputRange, outputRange)
+
+        let replayCandidate = try XCTUnwrap(span.replayCandidate)
+        XCTAssertEqual(replayCandidate.spanID, span.id)
+        XCTAssertEqual(replayCandidate.commandText, "swift test --filter TerminalShellIntegrationTests")
+        XCTAssertEqual(replayCandidate.cwd, "/Users/skye/project")
+        XCTAssertTrue(replayCandidate.requiresExplicitUserConfirmation)
+
+        let searchMetadata = span.searchMetadata
+        XCTAssertEqual(searchMetadata.spanID, span.id)
+        XCTAssertEqual(searchMetadata.cwd, "/Users/skye/project")
+        XCTAssertEqual(searchMetadata.exitCode, 0)
+        XCTAssertEqual(searchMetadata.commandText, "swift test --filter TerminalShellIntegrationTests")
+        XCTAssertTrue(searchMetadata.isFoldable)
+        XCTAssertTrue(searchMetadata.isReplayable)
+    }
+
+    func testReplayCandidateRequiresNonEmptyCompletedCommandText() throws {
+        var integration = TerminalShellIntegration()
+
+        completeCommand(commandText: "   ", exitCode: 0, in: &integration)
+
+        let span = try XCTUnwrap(integration.recentCommandSpans.first)
+        XCTAssertNil(span.replayCandidate)
+        XCTAssertFalse(span.searchMetadata.isReplayable)
+    }
+
+    func testDefaultShellIntegrationPolicyIsPassiveAndDoesNotRequireScriptInstallation() {
+        let integration = TerminalShellIntegration()
+
+        XCTAssertFalse(integration.capabilityDescriptor.requiresShellScriptInstallation)
+        XCTAssertEqual(integration.capabilityDescriptor.passiveOSCSequences, [.osc7, .osc133])
+        XCTAssertTrue(integration.capabilityDescriptor.optInScriptDescriptors.isEmpty)
+    }
+
     func testRecentCommandHistoryIsBounded() {
         var integration = TerminalShellIntegration(recentCommandSpanLimit: 2)
 

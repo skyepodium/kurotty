@@ -144,4 +144,101 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertFalse(ledger.summary(for: traceID).description.contains("BEL"))
         XCTAssertEqual(Set(ledger.traceSummariesByTraceID.keys), [traceID, otherTraceID])
     }
+
+    func testRuntimeBatchCorrelatesLiveBoundaryMetadataUnderStableTraceID() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("runtime-42")
+        var batch = TerminalRuntimeEventBatch(traceID: traceID)
+
+        batch.recordPtyRead(byteCount: 14)
+        batch.recordParserEvent(.escapeSequence(kind: "CSI", byteCount: 5))
+        batch.recordScreenMutation(.writeCells(cellCount: 9))
+        batch.recordRenderFrame(.init(frameIndex: 6, dirtyRegionCount: 2, fullRedraw: false))
+
+        let summary = batch.commit(to: &ledger)
+
+        XCTAssertEqual(batch.recordedEvents.map(\.traceID), [traceID, traceID, traceID, traceID])
+        XCTAssertEqual(ledger.events.map(\.traceID), [traceID, traceID, traceID, traceID])
+        XCTAssertEqual(ledger.events.map(\.kind), [.ptyRead, .parserEvent, .screenMutation, .renderFrame])
+        XCTAssertEqual(summary.traceID, traceID)
+        XCTAssertEqual(summary.eventCount, 4)
+        XCTAssertEqual(summary.ptyReadByteCount, 14)
+        XCTAssertEqual(summary.parserEventByteCount, 5)
+        XCTAssertEqual(summary.screenMutationCount, 1)
+        XCTAssertEqual(summary.renderFrameCount, 1)
+        XCTAssertEqual(summary.dirtyRegionCount, 2)
+    }
+
+    func testRuntimeBatchSummaryIsMetadataOnlyAndDoesNotRequireRawPayload() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("metadata-only")
+        let secretBytes = Data("secret-token".utf8)
+        var batch = TerminalRuntimeEventBatch(traceID: traceID)
+
+        batch.recordPtyRead(metadata: TerminalRawPtyLogMetadata(data: secretBytes))
+        batch.recordParserEvent(.printable(byteCount: secretBytes.count))
+        batch.recordScreenMutation(.writeCells(cellCount: 12))
+        batch.recordRenderFrame(.init(frameIndex: 8, dirtyRegionCount: 1, fullRedraw: true))
+
+        let batchSummary = batch.summary
+        let committedSummary = batch.commit(to: &ledger)
+        let batchText = [
+            batch.description,
+            batchSummary.description,
+            committedSummary.description,
+            ledger.conciseDescription(for: traceID),
+        ].joined(separator: "\n")
+
+        XCTAssertEqual(batchSummary.traceID, traceID)
+        XCTAssertEqual(batchSummary.eventCount, 4)
+        XCTAssertEqual(batchSummary.ptyReadByteCount, secretBytes.count)
+        XCTAssertEqual(batchSummary.parserEventByteCount, secretBytes.count)
+        XCTAssertEqual(batchSummary.fullRedrawCount, 1)
+        XCTAssertFalse(batchText.contains("secret-token"))
+        XCTAssertTrue(batchText.contains("ptyBytes=12"))
+        XCTAssertTrue(batchText.contains("parserBytes=12"))
+    }
+
+    func testRuntimeBatchRetentionIsBoundedBeforeCommit() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("bounded-runtime-batch")
+        var batch = TerminalRuntimeEventBatch(traceID: traceID, capacity: 3)
+
+        batch.recordPtyRead(byteCount: 1)
+        batch.recordParserEvent(.printable(byteCount: 2))
+        batch.recordScreenMutation(.writeCells(cellCount: 3))
+        batch.recordRenderFrame(.init(frameIndex: 4, dirtyRegionCount: 5, fullRedraw: false))
+
+        XCTAssertEqual(batch.capacity, 3)
+        XCTAssertEqual(batch.droppedEventCount, 1)
+        XCTAssertEqual(batch.recordedEvents.map(\.payload.kind), [.parserEvent, .screenMutation, .renderFrame])
+        XCTAssertEqual(batch.summary.eventCount, 3)
+        XCTAssertEqual(batch.summary.droppedEventCount, 1)
+
+        let committedSummary = batch.commit(to: &ledger)
+
+        XCTAssertEqual(ledger.events.map(\.kind), [.parserEvent, .screenMutation, .renderFrame])
+        XCTAssertEqual(committedSummary.eventCount, 3)
+        XCTAssertEqual(committedSummary.droppedEventCount, 0)
+    }
+
+    func testRuntimeBatchZeroCapacityDropsAllEventsBeforeCommit() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("zero-runtime-batch")
+        var batch = TerminalRuntimeEventBatch(traceID: traceID, capacity: 0)
+
+        batch.recordPtyRead(byteCount: 1)
+        batch.recordParserEvent(.printable(byteCount: 2))
+
+        XCTAssertTrue(batch.recordedEvents.isEmpty)
+        XCTAssertEqual(batch.droppedEventCount, 2)
+        XCTAssertEqual(batch.summary.eventCount, 0)
+        XCTAssertEqual(batch.summary.droppedEventCount, 2)
+
+        let committedSummary = batch.commit(to: &ledger)
+
+        XCTAssertTrue(ledger.events.isEmpty)
+        XCTAssertEqual(committedSummary.eventCount, 0)
+        XCTAssertEqual(committedSummary.droppedEventCount, 0)
+    }
 }
