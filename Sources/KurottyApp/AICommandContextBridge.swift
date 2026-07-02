@@ -103,6 +103,29 @@ struct AICommandContextBridge {
         return appendSnapshot(for: context, to: &eventLog, options: options)
     }
 
+    func approvalMetadata(
+        for context: CommandContext,
+        actor: String = "ai-agent",
+        targetPaneID: String? = nil,
+        targetWorkspaceID: String? = nil,
+        capability: String = "terminal-action",
+        persistenceScope: AIAgentActionApprovalMetadata.PersistenceScope = .oneTime,
+        maxContextSummaryLength: Int = 320
+    ) -> AIAgentActionApprovalMetadata {
+        AIAgentActionApprovalMetadata(
+            actor: sanitized(actor),
+            targetPaneID: targetPaneID.map { sanitized($0) },
+            targetWorkspaceID: targetWorkspaceID.map { sanitized($0) },
+            cwd: context.cwd.map { sanitized($0) },
+            capability: sanitized(capability),
+            persistenceScope: persistenceScope,
+            contextSummary: sanitized(
+                metadataText(for: context, includesOutput: false),
+                maxTextLength: maxContextSummaryLength
+            )
+        )
+    }
+
     private func outputText(for context: CommandContext, options: Options) -> String {
         guard shouldIncludeOutput(context, options: options), let output = context.output else {
             return ""
@@ -144,5 +167,11 @@ struct AICommandContextBridge {
             ? "raw output requested; \(options.rawOutputApproved ? "approved" : "approval required"); redacted"
             : "raw output omitted by default"
         return "\(options.auditNote); \(rawOutputNote)"
+    }
+
+    private func sanitized(_ text: String, maxTextLength: Int = 512) -> String {
+        var eventLog = AIContextEventLog(maxEvents: 1, maxTextLength: maxTextLength)
+        eventLog.record(source: "ai-approval-metadata", text: text)
+        return eventLog.events.first?.text ?? ""
     }
 }

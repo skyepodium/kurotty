@@ -89,18 +89,22 @@ struct SegmentedScrollbackStore<Row> {
 
     func row(at index: Int) -> Row? {
         guard index >= 0, index < visibleRowCount else { return nil }
+        guard let firstSegment = segments.first else { return nil }
 
-        var remainingIndex = index
-        for segmentIndex in segments.indices {
-            let startIndex = segmentIndex == segments.startIndex ? firstSegmentStartIndex : 0
-            let visibleCountInSegment = segments[segmentIndex].count - startIndex
-            if remainingIndex < visibleCountInSegment {
-                return segments[segmentIndex][startIndex + remainingIndex]
-            }
-            remainingIndex -= visibleCountInSegment
+        let firstVisibleCount = firstSegment.count - firstSegmentStartIndex
+        if index < firstVisibleCount {
+            return firstSegment[firstSegmentStartIndex + index]
         }
 
-        return nil
+        let remainingIndex = index - firstVisibleCount
+        let segmentOffset = 1 + remainingIndex / segmentSize
+        let rowOffset = remainingIndex % segmentSize
+        guard segmentOffset < segments.count,
+              rowOffset < segments[segmentOffset].count
+        else {
+            return nil
+        }
+        return segments[segmentOffset][rowOffset]
     }
 
     private var retainedStorageRowCount: Int {

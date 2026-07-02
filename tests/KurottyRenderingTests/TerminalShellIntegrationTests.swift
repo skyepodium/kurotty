@@ -143,6 +143,19 @@ final class TerminalShellIntegrationTests: XCTestCase {
         )
     }
 
+    func testRecentCommandHistoryNavigatorNavigatesCompletedSpans() throws {
+        var integration = TerminalShellIntegration()
+
+        completeCommand(commandText: "first", exitCode: 0, in: &integration)
+        completeCommand(commandText: "second", exitCode: 1, in: &integration)
+
+        let latest = try XCTUnwrap(integration.recentCommandHistoryNavigator().latest())
+        let previous = try XCTUnwrap(integration.recentCommandHistoryNavigator().previous(from: latest.id))
+
+        XCTAssertEqual(latest.commandText, "second")
+        XCTAssertEqual(previous.commandText, "first")
+    }
+
     private func completeCommand(
         cwd: String? = nil,
         commandText: String? = nil,

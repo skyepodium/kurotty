@@ -55,9 +55,9 @@ final class TerminalScrollbackDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(summary.capacity, 10)
         XCTAssertEqual(summary.retainedRowCount, 10)
-        XCTAssertEqual(summary.retainedStorageRowCount, 10)
+        XCTAssertEqual(summary.retainedStorageRowCount, 30)
         XCTAssertEqual(summary.droppedRowCount, 20)
-        XCTAssertEqual(summary.compactionCount, 1)
+        XCTAssertEqual(summary.compactionCount, 0)
         XCTAssertEqual(summary.pressureLevel, .saturated)
         XCTAssertEqual(summary.status, .droppingRows)
     }

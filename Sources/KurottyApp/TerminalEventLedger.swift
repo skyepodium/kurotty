@@ -17,7 +17,7 @@ struct TerminalEventTraceID: Hashable, ExpressibleByStringLiteral, CustomStringC
 }
 
 struct TerminalEventLedger: CustomStringConvertible {
-    enum EventKind: String, Equatable, CustomStringConvertible {
+    enum EventKind: String, CaseIterable, Equatable, CustomStringConvertible {
         case ptyRead
         case parserEvent
         case screenMutation
@@ -33,6 +33,19 @@ struct TerminalEventLedger: CustomStringConvertible {
         case control(kind: String, byteCount: Int)
         case escapeSequence(kind: String, byteCount: Int)
         case osc(command: String, byteCount: Int)
+
+        var byteCount: Int {
+            switch self {
+            case let .printable(byteCount):
+                return byteCount
+            case let .control(_, byteCount):
+                return byteCount
+            case let .escapeSequence(_, byteCount):
+                return byteCount
+            case let .osc(_, byteCount):
+                return byteCount
+            }
+        }
 
         var description: String {
             switch self {
@@ -78,6 +91,27 @@ struct TerminalEventLedger: CustomStringConvertible {
         }
     }
 
+    struct RecordedEvent: Equatable {
+        let traceID: TerminalEventTraceID
+        let payload: Payload
+
+        static func ptyRead(traceID: TerminalEventTraceID, byteCount: Int) -> RecordedEvent {
+            RecordedEvent(traceID: traceID, payload: .ptyRead(byteCount: byteCount))
+        }
+
+        static func parserEvent(traceID: TerminalEventTraceID, event: ParserEvent) -> RecordedEvent {
+            RecordedEvent(traceID: traceID, payload: .parserEvent(event))
+        }
+
+        static func screenMutation(traceID: TerminalEventTraceID, mutation: ScreenMutation) -> RecordedEvent {
+            RecordedEvent(traceID: traceID, payload: .screenMutation(mutation))
+        }
+
+        static func renderFrame(traceID: TerminalEventTraceID, frame: RenderFrame) -> RecordedEvent {
+            RecordedEvent(traceID: traceID, payload: .renderFrame(frame))
+        }
+    }
+
     struct Event: Equatable, CustomStringConvertible {
         let sequence: Int
         let traceID: TerminalEventTraceID
@@ -89,6 +123,42 @@ struct TerminalEventLedger: CustomStringConvertible {
 
         var description: String {
             "#\(sequence) \(kind) \(payload)"
+        }
+    }
+
+    struct TraceSummary: Equatable, CustomStringConvertible {
+        let traceID: TerminalEventTraceID
+        let eventCount: Int
+        let kindCounts: [EventKind: Int]
+        let ptyReadByteCount: Int
+        let parserEventByteCount: Int
+        let screenMutationCount: Int
+        let renderFrameCount: Int
+        let dirtyRegionCount: Int
+        let fullRedrawCount: Int
+        let firstSequence: Int?
+        let lastSequence: Int?
+        let droppedEventCount: Int
+
+        var description: String {
+            let kindSummary = EventKind.allCases
+                .map { "\($0)=\(kindCounts[$0, default: 0])" }
+                .joined(separator: " ")
+
+            return [
+                "trace=\(traceID)",
+                "events=\(eventCount)",
+                kindSummary,
+                "ptyBytes=\(ptyReadByteCount)",
+                "parserBytes=\(parserEventByteCount)",
+                "screenMutations=\(screenMutationCount)",
+                "renderFrames=\(renderFrameCount)",
+                "dirtyRegions=\(dirtyRegionCount)",
+                "fullRedraws=\(fullRedrawCount)",
+                "firstSequence=\(firstSequence.map(String.init) ?? "nil")",
+                "lastSequence=\(lastSequence.map(String.init) ?? "nil")",
+                "droppedEvents=\(droppedEventCount)",
+            ].joined(separator: " ")
         }
     }
 
@@ -147,6 +217,7 @@ struct TerminalEventLedger: CustomStringConvertible {
     private(set) var events: [Event] = []
     private var nextSequence = 0
     private var droppedEventCount = 0
+    private var droppedEventCountsByTraceID: [TerminalEventTraceID: Int] = [:]
 
     init(capacity: Int) {
         self.capacity = max(0, capacity)
@@ -164,6 +235,12 @@ struct TerminalEventLedger: CustomStringConvertible {
 
     var eventsByTraceID: [TerminalEventTraceID: [Event]] {
         Dictionary(grouping: events, by: \.traceID)
+    }
+
+    var traceSummariesByTraceID: [TerminalEventTraceID: TraceSummary] {
+        eventsByTraceID.mapValues { traceEvents in
+            makeSummary(traceID: traceEvents[0].traceID, events: traceEvents)
+        }
     }
 
     var description: String {
@@ -190,8 +267,17 @@ struct TerminalEventLedger: CustomStringConvertible {
         append(traceID: traceID, payload: .renderFrame(frame))
     }
 
+    @discardableResult
+    mutating func recordBatch(_ recordedEvents: [RecordedEvent]) -> [Event] {
+        recordedEvents.map { append(traceID: $0.traceID, payload: $0.payload) }
+    }
+
     func events(for traceID: TerminalEventTraceID) -> [Event] {
         events.filter { $0.traceID == traceID }
+    }
+
+    func summary(for traceID: TerminalEventTraceID) -> TraceSummary {
+        makeSummary(traceID: traceID, events: events(for: traceID))
     }
 
     func conciseDescription(for traceID: TerminalEventTraceID) -> String {
@@ -204,20 +290,73 @@ struct TerminalEventLedger: CustomStringConvertible {
         return eventSummary.isEmpty ? prefix : "\(prefix) \(eventSummary)"
     }
 
-    private mutating func append(traceID: TerminalEventTraceID, payload: Payload) {
+    private func makeSummary(traceID: TerminalEventTraceID, events traceEvents: [Event]) -> TraceSummary {
+        let kindCounts = Dictionary(grouping: traceEvents, by: \.kind)
+            .mapValues(\.count)
+
+        let ptyReadByteCount = traceEvents.reduce(0) { count, event in
+            guard case let .ptyRead(byteCount) = event.payload else {
+                return count
+            }
+            return count + byteCount
+        }
+
+        let parserEventByteCount = traceEvents.reduce(0) { count, event in
+            guard case let .parserEvent(parserEvent) = event.payload else {
+                return count
+            }
+            return count + parserEvent.byteCount
+        }
+
+        let renderFrames = traceEvents.compactMap { event -> RenderFrame? in
+            guard case let .renderFrame(frame) = event.payload else {
+                return nil
+            }
+            return frame
+        }
+
+        return TraceSummary(
+            traceID: traceID,
+            eventCount: traceEvents.count,
+            kindCounts: kindCounts,
+            ptyReadByteCount: ptyReadByteCount,
+            parserEventByteCount: parserEventByteCount,
+            screenMutationCount: kindCounts[.screenMutation, default: 0],
+            renderFrameCount: renderFrames.count,
+            dirtyRegionCount: renderFrames.reduce(0) { $0 + $1.dirtyRegionCount },
+            fullRedrawCount: renderFrames.filter(\.fullRedraw).count,
+            firstSequence: traceEvents.first?.sequence,
+            lastSequence: traceEvents.last?.sequence,
+            droppedEventCount: droppedEventCountsByTraceID[traceID, default: 0]
+        )
+    }
+
+    @discardableResult
+    private mutating func append(traceID: TerminalEventTraceID, payload: Payload) -> Event {
         let event = Event(sequence: nextSequence, traceID: traceID, payload: payload)
         nextSequence += 1
 
         guard capacity > 0 else {
             droppedEventCount += 1
-            return
+            droppedEventCountsByTraceID[traceID, default: 0] += 1
+            return event
         }
 
         events.append(event)
 
         if events.count > capacity {
-            events.removeFirst(events.count - capacity)
+            let overflowCount = events.count - capacity
+            recordDroppedEvents(events.prefix(overflowCount))
+            events.removeFirst(overflowCount)
             droppedEventCount = nextSequence - events.count
+        }
+
+        return event
+    }
+
+    private mutating func recordDroppedEvents(_ droppedEvents: ArraySlice<Event>) {
+        for event in droppedEvents {
+            droppedEventCountsByTraceID[event.traceID, default: 0] += 1
         }
     }
 }
