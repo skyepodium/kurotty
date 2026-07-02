@@ -1,5 +1,16 @@
 import Foundation
 
+enum AIAgentActionKind: String, Equatable, CustomStringConvertible {
+    case sendText
+    case pasteText
+    case exportContext
+    case openFileURL
+
+    var description: String {
+        rawValue
+    }
+}
+
 enum AIAgentActionRequest: Equatable, CustomStringConvertible {
     case sendText(id: String, text: String, metadata: AIAgentActionApprovalMetadata = .init())
     case pasteText(
@@ -37,6 +48,19 @@ enum AIAgentActionRequest: Equatable, CustomStringConvertible {
         }
     }
 
+    var kind: AIAgentActionKind {
+        switch self {
+        case .sendText:
+            return .sendText
+        case .pasteText:
+            return .pasteText
+        case .exportContext:
+            return .exportContext
+        case .openFileURL:
+            return .openFileURL
+        }
+    }
+
     var description: String {
         let preview = AIAgentActionApprovalSanitizer().preview(for: rawPreviewText)
         switch self {
@@ -51,6 +75,40 @@ enum AIAgentActionRequest: Equatable, CustomStringConvertible {
         }
     }
 
+    var approvalFingerprint: AIAgentActionApprovalFingerprint {
+        switch self {
+        case let .sendText(_, text, metadata):
+            return AIAgentActionApprovalFingerprint(
+                kind: .sendText,
+                payload: .sendText(textLength: text.count, text: text),
+                metadata: metadata
+            )
+        case let .pasteText(_, text, origin, metadata):
+            return AIAgentActionApprovalFingerprint(
+                kind: .pasteText,
+                payload: .pasteText(textLength: text.count, origin: origin, text: text),
+                metadata: metadata
+            )
+        case let .exportContext(_, rawContext, includesRawOutput, secretRedactionEnabled, metadata):
+            return AIAgentActionApprovalFingerprint(
+                kind: .exportContext,
+                payload: .exportContext(
+                    rawContextLength: rawContext.count,
+                    rawContext: rawContext,
+                    includesRawOutput: includesRawOutput,
+                    secretRedactionEnabled: secretRedactionEnabled
+                ),
+                metadata: metadata
+            )
+        case let .openFileURL(_, url, metadata):
+            return AIAgentActionApprovalFingerprint(
+                kind: .openFileURL,
+                payload: .openFileURL(absoluteString: url.absoluteString),
+                metadata: metadata
+            )
+        }
+    }
+
     fileprivate var rawPreviewText: String {
         switch self {
         case let .sendText(_, text, _),
@@ -60,6 +118,41 @@ enum AIAgentActionRequest: Equatable, CustomStringConvertible {
         case let .openFileURL(_, url, _):
             return url.absoluteString
         }
+    }
+}
+
+struct AIAgentActionApprovalFingerprint: Equatable, CustomStringConvertible {
+    enum Payload: Equatable, CustomStringConvertible {
+        case sendText(textLength: Int, text: String)
+        case pasteText(textLength: Int, origin: TerminalSecurityPolicy.Origin, text: String)
+        case exportContext(
+            rawContextLength: Int,
+            rawContext: String,
+            includesRawOutput: Bool,
+            secretRedactionEnabled: Bool
+        )
+        case openFileURL(absoluteString: String)
+
+        var description: String {
+            switch self {
+            case let .sendText(textLength, _):
+                return "sendText(textLength: \(textLength))"
+            case let .pasteText(textLength, origin, _):
+                return "pasteText(textLength: \(textLength), origin: \(origin))"
+            case let .exportContext(rawContextLength, _, includesRawOutput, secretRedactionEnabled):
+                return "exportContext(rawContextLength: \(rawContextLength), includesRawOutput: \(includesRawOutput), secretRedactionEnabled: \(secretRedactionEnabled))"
+            case let .openFileURL(absoluteString):
+                return "openFileURL(urlLength: \(absoluteString.count))"
+            }
+        }
+    }
+
+    let kind: AIAgentActionKind
+    let payload: Payload
+    let metadata: AIAgentActionApprovalMetadata
+
+    var description: String {
+        "AIAgentActionApprovalFingerprint(kind: \(kind), payload: \(payload), metadata: \(metadata))"
     }
 }
 
@@ -79,6 +172,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
     var targetWorkspaceID: String?
     var cwd: String?
     var capability: String
+    var requestedCapabilities: [AIAgentActionCapabilityRequest]
+    var contextReferences: [AICommandContextReference]
     var persistenceScope: PersistenceScope
     var contextSummary: String?
     var commandOutput: AICommandOutputApprovalMetadata?
@@ -89,6 +184,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         targetWorkspaceID: String? = nil,
         cwd: String? = nil,
         capability: String = "terminal-action",
+        requestedCapabilities: [AIAgentActionCapabilityRequest] = [],
+        contextReferences: [AICommandContextReference] = [],
         persistenceScope: PersistenceScope = .oneTime,
         contextSummary: String? = nil,
         commandOutput: AICommandOutputApprovalMetadata? = nil
@@ -98,6 +195,8 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         self.targetWorkspaceID = targetWorkspaceID
         self.cwd = cwd
         self.capability = capability
+        self.requestedCapabilities = requestedCapabilities
+        self.contextReferences = contextReferences
         self.persistenceScope = persistenceScope
         self.contextSummary = contextSummary
         self.commandOutput = commandOutput
@@ -110,10 +209,12 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
             "targetWorkspace=\(targetWorkspaceID ?? "unknown")",
             "cwd=\(cwd ?? "unknown")",
             "capability=\(capability)",
+            "requestedCapabilities=\(requestedCapabilities.isEmpty ? "unspecified" : requestedCapabilities.map(\.description).joined(separator: ","))",
+            "contextReferences=\(contextReferences.isEmpty ? "unspecified" : contextReferences.map(\.description).joined(separator: ","))",
             "persistence=\(persistenceScope)",
             "context=\(contextSummary ?? "unspecified")",
             "commandOutput=\(commandOutput?.description ?? "unspecified")",
-        ].joined(separator: " ")
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 
     func markingCommandOutputApproved() -> Self {
@@ -124,6 +225,30 @@ struct AIAgentActionApprovalMetadata: Equatable, CustomStringConvertible {
         var metadata = self
         metadata.commandOutput = commandOutput.markingApproved()
         return metadata
+    }
+}
+
+struct AIAgentActionCapabilityRequest: Equatable, CustomStringConvertible {
+    let capability: String
+    let reference: AICommandContextReference?
+    let reason: String?
+
+    init(
+        capability: String,
+        reference: AICommandContextReference? = nil,
+        reason: String? = nil
+    ) {
+        self.capability = capability
+        self.reference = reference
+        self.reason = reason
+    }
+
+    var description: String {
+        [
+            "capability=\(capability)",
+            "reference=[\(reference?.description ?? "unspecified")]",
+            "reason=\(reason ?? "unspecified")",
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 }
 
@@ -185,7 +310,7 @@ struct AICommandContextReference: Equatable, CustomStringConvertible {
             "startBoundary=\(startBoundarySequence.map(String.init) ?? "unknown")",
             "outputBoundary=\(outputBoundarySequence.map(String.init) ?? "unknown")",
             "endBoundary=\(endBoundarySequence.map(String.init) ?? "unknown")",
-        ].joined(separator: " ")
+        ].map(aiApprovalRedacted).joined(separator: " ")
     }
 }
 
@@ -231,8 +356,14 @@ struct AICommandOutputApprovalMetadata: Equatable, CustomStringConvertible {
     }
 }
 
+private func aiApprovalRedacted(_ text: String) -> String {
+    AIContextRedactor().redacted(text)
+}
+
 struct AIAgentActionApprovalResult: Equatable {
     let actionID: String
+    let actionKind: AIAgentActionKind
+    let actionFingerprint: AIAgentActionApprovalFingerprint
     let metadata: AIAgentActionApprovalMetadata
     let decision: TerminalSecurityPolicy.Decision
     let reason: String
@@ -265,6 +396,191 @@ struct AIAgentActionAuditRecord: Equatable, CustomStringConvertible {
     }
 }
 
+struct AIAgentActionDispatchHandlers {
+    var sendText: (String, AIAgentActionApprovalMetadata) -> Void
+    var pasteText: (String, TerminalSecurityPolicy.Origin, AIAgentActionApprovalMetadata) -> Void
+    var exportContext: (String, AIAgentActionApprovalMetadata) -> Void
+    var openFileURL: (URL, AIAgentActionApprovalMetadata) -> Void
+
+    init(
+        sendText: @escaping (String, AIAgentActionApprovalMetadata) -> Void = { _, _ in },
+        pasteText: @escaping (String, TerminalSecurityPolicy.Origin, AIAgentActionApprovalMetadata) -> Void = { _, _, _ in },
+        exportContext: @escaping (String, AIAgentActionApprovalMetadata) -> Void = { _, _ in },
+        openFileURL: @escaping (URL, AIAgentActionApprovalMetadata) -> Void = { _, _ in }
+    ) {
+        self.sendText = sendText
+        self.pasteText = pasteText
+        self.exportContext = exportContext
+        self.openFileURL = openFileURL
+    }
+}
+
+struct AIAgentActionDispatchResult: Equatable {
+    enum Status: String, Equatable, CustomStringConvertible {
+        case dispatched
+        case requiresApproval
+        case denied
+
+        var description: String {
+            rawValue
+        }
+    }
+
+    let actionID: String
+    let kind: AIAgentActionKind
+    let status: Status
+    let approval: AIAgentActionApprovalResult
+
+    var audit: AIAgentActionAuditRecord {
+        approval.auditRecord()
+    }
+
+    var reason: String {
+        approval.reason
+    }
+}
+
+struct AIAgentActionDispatcher {
+    private let evaluator: AIAgentActionApprovalEvaluator
+    private let handlers: AIAgentActionDispatchHandlers
+
+    init(
+        evaluator: AIAgentActionApprovalEvaluator = AIAgentActionApprovalEvaluator(),
+        handlers: AIAgentActionDispatchHandlers = AIAgentActionDispatchHandlers()
+    ) {
+        self.evaluator = evaluator
+        self.handlers = handlers
+    }
+
+    func approve(_ approval: AIAgentActionApprovalResult) -> AIAgentActionApprovalResult {
+        evaluator.approve(approval)
+    }
+
+    func dispatch(
+        _ action: AIAgentActionRequest,
+        approval suppliedApproval: AIAgentActionApprovalResult? = nil
+    ) -> AIAgentActionDispatchResult {
+        let evaluated = evaluator.evaluate(action)
+
+        if let suppliedApproval {
+            return dispatchApproved(action, evaluated: evaluated, approval: suppliedApproval)
+        }
+
+        switch evaluated.decision {
+        case .allow:
+            invokeHandler(for: action, metadata: evaluated.metadata)
+            return result(for: action, status: .dispatched, approval: evaluated)
+        case .ask:
+            return result(for: action, status: .requiresApproval, approval: evaluated)
+        case .deny:
+            return result(for: action, status: .denied, approval: evaluated)
+        }
+    }
+
+    private func dispatchApproved(
+        _ action: AIAgentActionRequest,
+        evaluated: AIAgentActionApprovalResult,
+        approval: AIAgentActionApprovalResult
+    ) -> AIAgentActionDispatchResult {
+        guard evaluated.decision != .deny else {
+            return result(
+                for: action,
+                status: .denied,
+                approval: denial(
+                    for: evaluated,
+                    reason: "current action request is denied by policy"
+                )
+            )
+        }
+        guard approval.actionID == action.id else {
+            return result(
+                for: action,
+                status: .denied,
+                approval: denial(
+                    for: evaluated,
+                    reason: "approval result does not match action request"
+                )
+            )
+        }
+        guard approval.actionKind == action.kind else {
+            return result(
+                for: action,
+                status: .denied,
+                approval: denial(
+                    for: evaluated,
+                    reason: "approval result kind does not match action request"
+                )
+            )
+        }
+        guard approval.actionFingerprint == action.approvalFingerprint else {
+            return result(
+                for: action,
+                status: .denied,
+                approval: denial(
+                    for: evaluated,
+                    reason: "approval result fingerprint does not match action request"
+                )
+            )
+        }
+        guard approval.decision == .allow else {
+            return result(
+                for: action,
+                status: .requiresApproval,
+                approval: evaluated
+            )
+        }
+
+        invokeHandler(for: action, metadata: approval.metadata)
+        return result(for: action, status: .dispatched, approval: approval)
+    }
+
+    private func invokeHandler(
+        for action: AIAgentActionRequest,
+        metadata: AIAgentActionApprovalMetadata
+    ) {
+        switch action {
+        case let .sendText(_, text, _):
+            handlers.sendText(text, metadata)
+        case let .pasteText(_, text, origin, _):
+            handlers.pasteText(text, origin, metadata)
+        case let .exportContext(_, rawContext, _, _, _):
+            handlers.exportContext(rawContext, metadata)
+        case let .openFileURL(_, url, _):
+            handlers.openFileURL(url, metadata)
+        }
+    }
+
+    private func result(
+        for action: AIAgentActionRequest,
+        status: AIAgentActionDispatchResult.Status,
+        approval: AIAgentActionApprovalResult
+    ) -> AIAgentActionDispatchResult {
+        AIAgentActionDispatchResult(
+            actionID: action.id,
+            kind: action.kind,
+            status: status,
+            approval: approval
+        )
+    }
+
+    private func denial(
+        for approval: AIAgentActionApprovalResult,
+        reason: String
+    ) -> AIAgentActionApprovalResult {
+        AIAgentActionApprovalResult(
+            actionID: approval.actionID,
+            actionKind: approval.actionKind,
+            actionFingerprint: approval.actionFingerprint,
+            metadata: approval.metadata,
+            decision: .deny,
+            reason: reason,
+            redactedPreview: approval.redactedPreview,
+            timestamp: approval.timestamp,
+            approvesCommandOutputExport: false
+        )
+    }
+}
+
 struct AIAgentActionApprovalEvaluator {
     private let securityPolicy: TerminalSecurityPolicy
     private let sanitizer: AIAgentActionApprovalSanitizer
@@ -284,6 +600,8 @@ struct AIAgentActionApprovalEvaluator {
         let decisionAndReason = decisionAndReason(for: action)
         return AIAgentActionApprovalResult(
             actionID: action.id,
+            actionKind: action.kind,
+            actionFingerprint: action.approvalFingerprint,
             metadata: action.metadata,
             decision: decisionAndReason.decision,
             reason: decisionAndReason.reason,
@@ -300,6 +618,8 @@ struct AIAgentActionApprovalEvaluator {
 
         return AIAgentActionApprovalResult(
             actionID: result.actionID,
+            actionKind: result.actionKind,
+            actionFingerprint: result.actionFingerprint,
             metadata: result.approvesCommandOutputExport
                 ? result.metadata.markingCommandOutputApproved()
                 : result.metadata,

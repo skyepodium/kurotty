@@ -8,6 +8,29 @@ struct BoundedScrollbackRows {
         let droppedRowCount: Int
         let compactionCount: Int
         let pressureLevel: PressureLevel
+        let retainedRowSummary: SegmentedScrollbackStore<[TerminalScreenCell]>.RetainedRowSummary
+
+        init(
+            limit: Int,
+            visibleRowCount: Int,
+            retainedStorageRowCount: Int,
+            droppedRowCount: Int,
+            compactionCount: Int,
+            pressureLevel: PressureLevel,
+            retainedRowSummary: SegmentedScrollbackStore<[TerminalScreenCell]>.RetainedRowSummary = .init(
+                firstRetainedRowIndex: 0,
+                retainedRowCount: 0,
+                droppedRowCount: 0
+            )
+        ) {
+            self.limit = limit
+            self.visibleRowCount = visibleRowCount
+            self.retainedStorageRowCount = retainedStorageRowCount
+            self.droppedRowCount = droppedRowCount
+            self.compactionCount = compactionCount
+            self.pressureLevel = pressureLevel
+            self.retainedRowSummary = retainedRowSummary
+        }
     }
 
     enum PressureLevel: Equatable {
@@ -34,6 +57,9 @@ struct BoundedScrollbackRows {
 
     var diagnostics: Diagnostics {
         let storageDiagnostics = storage.diagnostics
+        let retainedRowSummary = retainedRowSummary(
+            storageDiagnostics: storageDiagnostics
+        )
         return Diagnostics(
             limit: storageDiagnostics.rowLimit,
             visibleRowCount: storageDiagnostics.visibleRowCount,
@@ -43,8 +69,13 @@ struct BoundedScrollbackRows {
             pressureLevel: pressureLevel(
                 visibleCount: storageDiagnostics.visibleRowCount,
                 limit: storageDiagnostics.rowLimit
-            )
+            ),
+            retainedRowSummary: retainedRowSummary
         )
+    }
+
+    var retainedRowSummary: SegmentedScrollbackStore<[TerminalScreenCell]>.RetainedRowSummary {
+        retainedRowSummary(storageDiagnostics: storage.diagnostics)
     }
 
     @discardableResult
@@ -61,6 +92,20 @@ struct BoundedScrollbackRows {
 
     func row(at index: Int) -> [TerminalScreenCell]? {
         storage.row(at: index)
+    }
+
+    func absoluteRowIndex(forVisibleRowIndex visibleRowIndex: Int) -> Int? {
+        guard visibleRowIndex >= 0, visibleRowIndex < storage.count else {
+            return nil
+        }
+        return retainedRowSummary.firstRetainedRowIndex + visibleRowIndex
+    }
+
+    func visibleRowIndex(forAbsoluteRowIndex absoluteRowIndex: Int) -> Int? {
+        guard retainedRowSummary.contains(absoluteRowIndex: absoluteRowIndex) else {
+            return nil
+        }
+        return absoluteRowIndex - retainedRowSummary.firstRetainedRowIndex
     }
 
     mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
@@ -112,6 +157,17 @@ struct BoundedScrollbackRows {
             return .elevated
         }
         return .low
+    }
+
+    private func retainedRowSummary(
+        storageDiagnostics: SegmentedScrollbackStore<[TerminalScreenCell]>.Diagnostics
+    ) -> SegmentedScrollbackStore<[TerminalScreenCell]>.RetainedRowSummary {
+        let droppedRowCount = droppedRowCountBaseline + storageDiagnostics.droppedRowCount
+        return .init(
+            firstRetainedRowIndex: droppedRowCount,
+            retainedRowCount: storageDiagnostics.visibleRowCount,
+            droppedRowCount: droppedRowCount
+        )
     }
 
     private static func makeStorage(rowLimit: Int) -> SegmentedScrollbackStore<[TerminalScreenCell]> {

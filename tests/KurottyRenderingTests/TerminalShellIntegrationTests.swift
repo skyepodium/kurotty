@@ -11,6 +11,15 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/Users/skye/Project One")
     }
 
+    func testOsc7FileUrlDecodesReservedPathCharactersEmittedBySnippets() {
+        var integration = TerminalShellIntegration()
+
+        let event = integration.consumeOsc("7;file://localhost/tmp/a%23b%3Fc%25d%20e")
+
+        XCTAssertEqual(event, .workingDirectoryChanged("/tmp/a#b?c%d e"))
+        XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/tmp/a#b?c%d e")
+    }
+
     func testOsc7RejectsInvalidAndNonFileUrlsWithoutMutation() {
         var integration = TerminalShellIntegration(currentWorkingDirectoryCandidate: "/before")
 
@@ -125,16 +134,19 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let foldCandidate = try XCTUnwrap(span.foldCandidate)
         XCTAssertEqual(foldCandidate.spanID, span.id)
+        XCTAssertEqual(foldCandidate.reference, span.reference)
         XCTAssertEqual(foldCandidate.outputRange, outputRange)
 
         let replayCandidate = try XCTUnwrap(span.replayCandidate)
         XCTAssertEqual(replayCandidate.spanID, span.id)
+        XCTAssertEqual(replayCandidate.reference, span.reference)
         XCTAssertEqual(replayCandidate.commandText, "swift test --filter TerminalShellIntegrationTests")
         XCTAssertEqual(replayCandidate.cwd, "/Users/skye/project")
         XCTAssertTrue(replayCandidate.requiresExplicitUserConfirmation)
 
         let searchMetadata = span.searchMetadata
         XCTAssertEqual(searchMetadata.spanID, span.id)
+        XCTAssertEqual(searchMetadata.reference, span.reference)
         XCTAssertEqual(searchMetadata.cwd, "/Users/skye/project")
         XCTAssertEqual(searchMetadata.exitCode, 0)
         XCTAssertEqual(searchMetadata.commandText, "swift test --filter TerminalShellIntegrationTests")
@@ -157,7 +169,58 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         XCTAssertFalse(integration.capabilityDescriptor.requiresShellScriptInstallation)
         XCTAssertEqual(integration.capabilityDescriptor.passiveOSCSequences, [.osc7, .osc133])
-        XCTAssertTrue(integration.capabilityDescriptor.optInScriptDescriptors.isEmpty)
+        XCTAssertFalse(integration.capabilityDescriptor.optInSnippetDescriptors.contains { $0.isEnabledByDefault })
+        XCTAssertEqual(integration.sessionEvidence, TerminalShellIntegrationSessionEvidence())
+    }
+
+    func testSessionEvidenceRecordsObservedOptInSignalsSeparatelyFromDescriptors() {
+        var integration = TerminalShellIntegration()
+
+        _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
+        XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7])
+        XCTAssertEqual(integration.sessionEvidence.observedOptInCapabilities, [.workingDirectoryTracking])
+        XCTAssertTrue(integration.capabilityDescriptor.optInSnippetDescriptors.allSatisfy { !$0.isEnabledByDefault })
+
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;0")
+
+        XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7, .osc133])
+        XCTAssertEqual(
+            integration.sessionEvidence.observedOptInCapabilities,
+            [.workingDirectoryTracking, .commandBoundaryTracking]
+        )
+        XCTAssertEqual(integration.sessionEvidence.completedCommandSpanReferences.first?.spanID, 1)
+    }
+
+    func testOptInShellIntegrationSnippetDescriptorsCoverSupportedShellsWithoutInstaller() {
+        let descriptor = TerminalShellIntegration().capabilityDescriptor
+
+        XCTAssertEqual(
+            descriptor.optInSnippetDescriptors.map(\.shell),
+            [.bash, .zsh, .fish]
+        )
+
+        for snippetDescriptor in descriptor.optInSnippetDescriptors {
+            XCTAssertEqual(snippetDescriptor.installationMode, .manualSnippet)
+            XCTAssertFalse(snippetDescriptor.requiresInstaller)
+            XCTAssertFalse(snippetDescriptor.isEnabledByDefault)
+            XCTAssertTrue(snippetDescriptor.snippet.contains("]7;file://localhost"))
+            XCTAssertTrue(snippetDescriptor.snippet.contains("%25"))
+            XCTAssertTrue(snippetDescriptor.snippet.contains("%23"))
+            XCTAssertTrue(snippetDescriptor.snippet.contains("%3F"))
+            XCTAssertFalse(snippetDescriptor.snippet.localizedCaseInsensitiveContains("output"))
+        }
+
+        let snippetsByShell = Dictionary(uniqueKeysWithValues: descriptor.optInSnippetDescriptors.map { ($0.shell, $0) })
+        XCTAssertEqual(snippetsByShell[.bash]?.capabilities, [.workingDirectoryTracking])
+        XCTAssertFalse(snippetsByShell[.bash]?.snippet.contains("trap '__kurotty_preexec' DEBUG") == true)
+        XCTAssertFalse(snippetsByShell[.bash]?.snippet.contains("]133;") == true)
+        XCTAssertEqual(snippetsByShell[.zsh]?.capabilities, [.workingDirectoryTracking, .commandBoundaryTracking])
+        XCTAssertTrue(snippetsByShell[.zsh]?.snippet.contains("]133;") == true)
+        XCTAssertEqual(snippetsByShell[.fish]?.capabilities, [.workingDirectoryTracking, .commandBoundaryTracking])
+        XCTAssertTrue(snippetsByShell[.fish]?.snippet.contains("]133;") == true)
     }
 
     func testRecentCommandHistoryIsBounded() {

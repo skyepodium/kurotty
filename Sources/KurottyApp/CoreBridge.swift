@@ -25,16 +25,35 @@ private enum CoreLibraryPath {
     static let swiftPMDebugDevelopmentPath = ".build/debug/\(dylibFilename)"
 }
 
-final class CoreBridge: TerminalCore, @unchecked Sendable {
-    private let symbols = CoreSymbols.load()
+final class CoreBridge: TerminalCore, TerminalCoreCompatibilityDiagnosing, @unchecked Sendable {
+    private let symbols: CoreSymbols?
     private var handle: TerminalHandle?
     private var columns: UInt32
     private var rows: UInt32
 
     init(cols: UInt32, rows: UInt32) {
+        self.symbols = CoreSymbols.load()
         columns = max(1, cols)
         self.rows = max(1, rows)
         handle = symbols?.create(cols, rows)
+    }
+
+    init(cols: UInt32, rows: UInt32, loadSymbols: Bool) {
+        self.symbols = loadSymbols ? CoreSymbols.load() : nil
+        columns = max(1, cols)
+        self.rows = max(1, rows)
+        handle = symbols?.create(cols, rows)
+    }
+
+    var compatibilityDiagnostic: TerminalCoreCompatibilityDiagnostic {
+        let bridgeSource: TerminalCoreStateSource = handle == nil ? .swiftScaffold : .zigCore
+        return TerminalCoreCompatibilityDiagnostic(
+            bridge: bridgeSource,
+            pty: .swiftScaffold,
+            parser: .swiftScaffold,
+            screen: .swiftScaffold,
+            render: .swiftScaffold
+        )
     }
 
     deinit {

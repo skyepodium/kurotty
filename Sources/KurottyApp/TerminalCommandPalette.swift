@@ -22,7 +22,7 @@ struct TerminalCommandPalette {
                 category: command.category,
                 categoryTitle: command.category.paletteTitle,
                 shortcutLabel: command.shortcut?.paletteDisplayLabel,
-                aliases: command.paletteAliases
+                aliases: command.searchTokens
             )
         }
     }
@@ -100,39 +100,6 @@ private extension TerminalCommandPaletteEntry {
             return 8
         }
         return nil
-    }
-}
-
-private extension TerminalWindowCommandID {
-    var paletteAliases: [String] {
-        switch self {
-        case .newTab:
-            return ["create tab", "open tab"]
-        case .splitVertically:
-            return ["vertical split", "split right"]
-        case .splitHorizontally:
-            return ["horizontal split", "split down"]
-        case .closeCurrentPane:
-            return ["close current pane", "close tab"]
-        case .focusPaneLeft:
-            return ["move left", "pane left"]
-        case .focusPaneRight:
-            return ["move right", "pane right"]
-        case .focusPaneUp:
-            return ["move up", "pane up"]
-        case .focusPaneDown:
-            return ["move down", "pane down"]
-        case .selectNextTab:
-            return ["next window", "tab next"]
-        case .selectPreviousTab:
-            return ["previous window", "tab previous"]
-        }
-    }
-}
-
-private extension TerminalCommand {
-    var paletteAliases: [String] {
-        id.paletteAliases
     }
 }
 

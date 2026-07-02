@@ -41,19 +41,22 @@ Run these from the repository root when changing the runtime integration surface
 
 These commands prove the foundation contracts. They do not prove full live AppKit integration, installed-app behavior, or screenshot correctness unless paired with the manual checks below.
 
-## Current Runtime Slice Commands
+## Current Non-UI Runtime Slice Commands
 
-Use this smaller set for the runtime timeline, render evidence, shell metadata, and AI approval/context branch:
+Use this smaller set for `feature/non-ui-runtime-next-slice` changes. Run only the rows affected by the code or documentation change, then run the documentation whitespace check for docs edits.
 
 | Slice | Commands |
 | --- | --- |
-| Runtime timeline and resize correlation | `swift test --filter TerminalEventLedgerTests`<br>`swift test --filter TerminalResizeLedgerTests` |
-| Render frame clipping and snapshot evidence | `swift test --filter TerminalPixelProbeTests`<br>`swift test --filter GlyphRenderingRegressionTests` |
-| Shell OSC and command-span metadata | `swift test --filter TerminalOSCDispatcherTests`<br>`swift test --filter TerminalShellIntegrationTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
-| AI redaction, context bridge, and action approval | `swift test --filter AIContextLayerTests`<br>`swift test --filter AICommandContextBridgeTests`<br>`swift test --filter AIAgentActionApprovalTests` |
+| Source-of-truth diagnostics | `swift test --filter TerminalEventLedgerTests`<br>`swift test --filter TerminalResizeLedgerTests`<br>`zig build test` |
+| Render coalescing and damage evidence | `swift test --filter TerminalPixelProbeTests`<br>`swift test --filter GlyphRenderingRegressionTests` |
+| Shell opt-in metadata | `swift test --filter TerminalOSCDispatcherTests`<br>`swift test --filter TerminalShellIntegrationTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
+| Command UX | `swift test --filter TerminalCommandRegistryTests`<br>`swift test --filter TerminalCommandPaletteTests`<br>`swift test --filter CommandPaletteWindowControllerTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
+| AI agent action API | `swift build`<br>`swift test --filter AIContextLayerTests`<br>`swift test --filter AICommandContextBridgeTests`<br>`swift test --filter AIAgentActionApprovalTests` |
 | Documentation-only changes | `git diff --check -- docs/architecture.md docs/testing.md DESIGN.md` |
 
 Run `swift build` before the filtered Swift tests when source files changed. For documentation-only edits, run the documentation whitespace check first, then run the filtered Swift commands when the Swift test target compiles. A compile failure is a branch verification blocker, not a documentation pass.
+
+The AI agent action API tests cover non-UI backend contracts only: stable request kind metadata, approval-gated handler dispatch, action-ID matching for supplied approvals, context-reference de-duplication, command-output approval state, and audit/redaction guarantees. They do not create dialogs or validate presentation behavior.
 
 ## Manual Rendering Checks
 

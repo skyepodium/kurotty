@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import KurottyCore
 @testable import KurottyApp
 
 final class TerminalEventLedgerTests: XCTestCase {
@@ -240,5 +241,65 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertTrue(ledger.events.isEmpty)
         XCTAssertEqual(committedSummary.eventCount, 0)
         XCTAssertEqual(committedSummary.droppedEventCount, 0)
+    }
+
+    func testTraceCorrelationReportConnectsPipelineStagesWithoutPayloadText() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("pipeline")
+        let secretBytes = Data("token=secret".utf8)
+
+        ledger.recordPtyRead(traceID: traceID, data: secretBytes)
+        ledger.recordParserEvent(traceID: traceID, event: .printable(byteCount: secretBytes.count))
+        ledger.recordScreenMutation(traceID: traceID, mutation: .writeCells(cellCount: 12))
+        ledger.recordRenderFrame(traceID: traceID, frame: .init(frameIndex: 2, dirtyRegionCount: 1, fullRedraw: false))
+
+        let report = ledger.traceCorrelationReport(for: traceID)
+
+        XCTAssertEqual(report.traceID, traceID)
+        XCTAssertEqual(report.stageSequence, [.ptyRead, .parserEvent, .screenMutation, .renderFrame])
+        XCTAssertTrue(report.hasCompleteRenderPath)
+        XCTAssertEqual(report.resizeSourceOfTruth, nil)
+        XCTAssertEqual(
+            report.description,
+            "trace=pipeline path=ptyRead>parserEvent>screenMutation>renderFrame complete=true resize=unavailable issues=0 ptyBytes=12 parserBytes=12 screenMutations=1 renderFrames=1 dirtyRegions=1 fullRedraws=0 droppedEvents=0"
+        )
+        XCTAssertFalse(report.description.contains("token=secret"))
+    }
+
+    func testTraceCorrelationReportCarriesResizeValidationSummary() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("resize-pipeline")
+        ledger.recordBatch([
+            .ptyRead(traceID: traceID, byteCount: 4),
+            .parserEvent(traceID: traceID, event: .escapeSequence(kind: "CSI", byteCount: 4)),
+            .screenMutation(traceID: traceID, mutation: .resize(columns: 120, rows: 40)),
+            .renderFrame(traceID: traceID, frame: .init(frameIndex: 3, dirtyRegionCount: 2, fullRedraw: true)),
+        ])
+        let resize = TerminalResizeCycleSnapshot(
+            traceID: "resize-pipeline",
+            source: "view-measurement",
+            viewportSize: TerminalFrameSize(width: 1080, height: 720),
+            cellSize: TerminalFrameSize(width: 9, height: 18),
+            ptyColumns: 120,
+            ptyRows: 40,
+            screenColumns: 119,
+            screenRows: 40,
+            rendererColumns: 120,
+            rendererRows: 40
+        )
+
+        let report = ledger.traceCorrelationReport(for: traceID, resizeSnapshot: resize)
+
+        XCTAssertEqual(report.resizeSourceOfTruth?.source, "view-measurement")
+        XCTAssertEqual(report.resizeSourceOfTruth?.derivedGrid, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(report.resizeSourceOfTruth?.issueCount, 1)
+        XCTAssertEqual(report.resizeValidationIssues, [
+            .screenMismatch(
+                expected: TerminalResizeGridSize(columns: 120, rows: 40),
+                actual: TerminalResizeGridSize(columns: 119, rows: 40)
+            ),
+        ])
+        XCTAssertTrue(report.description.contains("resize=source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 valid=false issueCount=1"))
+        XCTAssertFalse(report.description.contains("CSI"))
     }
 }

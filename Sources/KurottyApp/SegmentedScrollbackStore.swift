@@ -1,4 +1,33 @@
 struct SegmentedScrollbackStore<Row> {
+    struct RetainedRowSummary: Equatable, CustomStringConvertible {
+        let firstRetainedRowIndex: Int
+        let retainedRowCount: Int
+        let droppedRowCount: Int
+
+        var lastRetainedRowIndex: Int? {
+            guard retainedRowCount > 0 else { return nil }
+            return firstRetainedRowIndex + retainedRowCount - 1
+        }
+
+        var nextRowIndex: Int {
+            firstRetainedRowIndex + retainedRowCount
+        }
+
+        func contains(absoluteRowIndex: Int) -> Bool {
+            absoluteRowIndex >= firstRetainedRowIndex && absoluteRowIndex < nextRowIndex
+        }
+
+        var description: String {
+            [
+                "firstRetainedRow=\(firstRetainedRowIndex)",
+                "lastRetainedRow=\(lastRetainedRowIndex.map(String.init) ?? "none")",
+                "retainedRows=\(retainedRowCount)",
+                "droppedRows=\(droppedRowCount)",
+                "nextRow=\(nextRowIndex)",
+            ].joined(separator: " ")
+        }
+    }
+
     struct Diagnostics: Equatable, CustomStringConvertible {
         let rowLimit: Int
         let segmentSize: Int
@@ -10,6 +39,7 @@ struct SegmentedScrollbackStore<Row> {
         let compactionCount: Int
         let maximumRetainedSegmentCount: Int
         let maximumRetainedStorageRowCount: Int
+        let retainedRowSummary: RetainedRowSummary
 
         var description: String {
             [
@@ -23,6 +53,7 @@ struct SegmentedScrollbackStore<Row> {
                 "compactions=\(compactionCount)",
                 "maxRetainedSegments=\(maximumRetainedSegmentCount)",
                 "maxRetainedStorageRows=\(maximumRetainedStorageRowCount)",
+                "retainedRange=\(retainedRowSummary)",
             ].joined(separator: " ")
         }
     }
@@ -60,7 +91,16 @@ struct SegmentedScrollbackStore<Row> {
             trimCount: trimCount,
             compactionCount: compactionCount,
             maximumRetainedSegmentCount: maximumRetainedSegmentCount,
-            maximumRetainedStorageRowCount: maximumRetainedStorageRowCount
+            maximumRetainedStorageRowCount: maximumRetainedStorageRowCount,
+            retainedRowSummary: retainedRowSummary
+        )
+    }
+
+    var retainedRowSummary: RetainedRowSummary {
+        RetainedRowSummary(
+            firstRetainedRowIndex: droppedRowCount,
+            retainedRowCount: visibleRowCount,
+            droppedRowCount: droppedRowCount
         )
     }
 
@@ -105,6 +145,20 @@ struct SegmentedScrollbackStore<Row> {
             return nil
         }
         return segments[segmentOffset][rowOffset]
+    }
+
+    func absoluteRowIndex(forVisibleRowIndex visibleRowIndex: Int) -> Int? {
+        guard visibleRowIndex >= 0, visibleRowIndex < visibleRowCount else {
+            return nil
+        }
+        return droppedRowCount + visibleRowIndex
+    }
+
+    func visibleRowIndex(forAbsoluteRowIndex absoluteRowIndex: Int) -> Int? {
+        guard retainedRowSummary.contains(absoluteRowIndex: absoluteRowIndex) else {
+            return nil
+        }
+        return absoluteRowIndex - droppedRowCount
     }
 
     private var retainedStorageRowCount: Int {

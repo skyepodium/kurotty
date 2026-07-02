@@ -172,6 +172,9 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertEqual(metadata.targetWorkspaceID, "workspace-7")
         XCTAssertEqual(metadata.cwd, "/tmp/api_key=[REDACTED_SECRET]")
         XCTAssertEqual(metadata.capability, "send-text")
+        XCTAssertEqual(metadata.requestedCapabilities.count, 1)
+        XCTAssertEqual(metadata.requestedCapabilities.first?.capability, "send-text")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reason, "explicit approval capability request")
         XCTAssertEqual(metadata.persistenceScope, .session)
         XCTAssertTrue(metadata.contextSummary?.contains("command: deploy token=[REDACTED_SECRET]") == true)
         XCTAssertTrue(metadata.contextSummary?.contains("cwd: /tmp/api_key=[REDACTED_SECRET]") == true)
@@ -208,12 +211,52 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertEqual(commandOutput.reference.targetPaneID, "pane-token=[REDACTED_SECRET]")
         XCTAssertEqual(commandOutput.reference.targetWorkspaceID, "workspace-1")
         XCTAssertEqual(commandOutput.reference.outputBoundarySequence, 22)
+        XCTAssertEqual(metadata.contextReferences.map(\.commandSpanID), [7])
+        XCTAssertEqual(metadata.contextReferences.first?.targetPaneID, "pane-token=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.capability, "terminal-action")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reference?.commandSpanID, 7)
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reference?.targetPaneID, "pane-token=[REDACTED_SECRET]")
         XCTAssertTrue(commandOutput.includesRawOutput)
         XCTAssertFalse(commandOutput.rawOutputApproved)
         XCTAssertTrue(commandOutput.secretRedactionEnabled)
         XCTAssertTrue(commandOutput.explicitApprovalRequired)
         XCTAssertFalse(String(describing: metadata).contains("raw failure output"))
         XCTAssertFalse(String(describing: metadata).contains("pane-token=secret"))
+    }
+
+    func testApprovalMetadataDeduplicatesCallerAndDefaultContextReferences() {
+        let span = TerminalCommandSpan(
+            id: 12,
+            cwd: "/repo",
+            startBoundarySequence: 30,
+            endBoundarySequence: 34,
+            exitCode: 0,
+            promptBoundarySequence: 29,
+            outputBoundarySequence: 32,
+            commandText: "swift test"
+        )
+
+        let metadata = AICommandContextBridge().approvalMetadata(
+            for: .init(span: span),
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 12,
+                    targetPaneID: "pane-1",
+                    targetWorkspaceID: "workspace-7",
+                    promptBoundarySequence: 29,
+                    startBoundarySequence: 30,
+                    outputBoundarySequence: 32,
+                    endBoundarySequence: 34
+                ),
+            ]
+        )
+
+        XCTAssertEqual(metadata.contextReferences.count, 1)
+        XCTAssertEqual(metadata.contextReferences.first?.commandSpanID, 12)
+        XCTAssertEqual(metadata.contextReferences.first?.targetPaneID, "pane-1")
+        XCTAssertEqual(metadata.contextReferences.first?.targetWorkspaceID, "workspace-7")
     }
 
     func testApprovalMetadataBoundsContextSummary() {
@@ -225,5 +268,46 @@ final class AICommandContextBridgeTests: XCTestCase {
         )
 
         XCTAssertLessThanOrEqual(metadata.contextSummary?.count ?? 0, 48)
+    }
+
+    func testApprovalMetadataSanitizesCustomCapabilitiesAndContextReferences() {
+        let bridge = AICommandContextBridge()
+
+        let metadata = bridge.approvalMetadata(
+            for: .init(command: "git status", cwd: "/repo", exitCode: 0),
+            capability: "workspace.inspect",
+            requestedCapabilities: [
+                AIAgentActionCapabilityRequest(
+                    capability: "terminal.sendText token=cap-secret",
+                    reference: AICommandContextReference(
+                        commandSpanID: 99,
+                        targetPaneID: "pane-api_key=pane-secret",
+                        targetWorkspaceID: "workspace-password=workspace-secret"
+                    ),
+                    reason: "send text after reviewing token=reason-secret"
+                ),
+            ],
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 98,
+                    targetPaneID: "pane-token=ref-secret",
+                    targetWorkspaceID: "workspace-2"
+                ),
+            ]
+        )
+
+        XCTAssertEqual(metadata.capability, "workspace.inspect")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.capability, "terminal.sendText token=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reference?.commandSpanID, 99)
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reference?.targetPaneID, "pane-api_key=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reference?.targetWorkspaceID, "workspace-password=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.requestedCapabilities.first?.reason, "send text after reviewing token=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.contextReferences.first?.commandSpanID, 98)
+        XCTAssertEqual(metadata.contextReferences.first?.targetPaneID, "pane-token=[REDACTED_SECRET]")
+        XCTAssertFalse(String(describing: metadata).contains("cap-secret"))
+        XCTAssertFalse(String(describing: metadata).contains("pane-secret"))
+        XCTAssertFalse(String(describing: metadata).contains("workspace-secret"))
+        XCTAssertFalse(String(describing: metadata).contains("reason-secret"))
+        XCTAssertFalse(String(describing: metadata).contains("ref-secret"))
     }
 }

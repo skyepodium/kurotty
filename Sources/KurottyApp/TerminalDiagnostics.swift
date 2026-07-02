@@ -30,6 +30,96 @@ struct TerminalRawPtyLogMetadata: CustomStringConvertible {
     }
 }
 
+enum TerminalCoreStateSource: String {
+    case zigCore = "zig-core"
+    case swiftScaffold = "swift-scaffold"
+    case unknown = "unknown"
+}
+
+struct TerminalCoreCompatibilityDiagnostic: CustomStringConvertible {
+    let bridge: TerminalCoreStateSource
+    let pty: TerminalCoreStateSource
+    let parser: TerminalCoreStateSource
+    let screen: TerminalCoreStateSource
+    let render: TerminalCoreStateSource
+
+    var description: String {
+        [
+            "bridge=\(bridge.rawValue)",
+            "pty=\(pty.rawValue)",
+            "parser=\(parser.rawValue)",
+            "screen=\(screen.rawValue)",
+            "render=\(render.rawValue)",
+        ].joined(separator: " ")
+    }
+}
+
+protocol TerminalCoreCompatibilityDiagnosing {
+    var compatibilityDiagnostic: TerminalCoreCompatibilityDiagnostic { get }
+}
+
+struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
+    let traceID: TerminalEventTraceID
+    let eventSummary: TerminalEventLedger.TraceSummary
+    let stageSequence: [TerminalEventLedger.EventKind]
+    let resizeSourceOfTruth: TerminalResizeSourceOfTruthSummary?
+    let resizeValidationIssues: [TerminalResizeLedgerIssue]
+
+    init(
+        eventSummary: TerminalEventLedger.TraceSummary,
+        stageSequence: [TerminalEventLedger.EventKind],
+        resizeSnapshot: TerminalResizeCycleSnapshot? = nil
+    ) {
+        traceID = eventSummary.traceID
+        self.eventSummary = eventSummary
+        self.stageSequence = stageSequence
+        if let resizeSnapshot {
+            resizeSourceOfTruth = TerminalResizeSourceOfTruthSummary(snapshot: resizeSnapshot)
+            resizeValidationIssues = resizeSnapshot.validationReport.issues
+        } else {
+            resizeSourceOfTruth = nil
+            resizeValidationIssues = []
+        }
+    }
+
+    var hasCompleteRenderPath: Bool {
+        containsOrderedStages([
+            .ptyRead,
+            .parserEvent,
+            .screenMutation,
+            .renderFrame,
+        ])
+    }
+
+    var description: String {
+        [
+            "trace=\(traceID)",
+            "path=\(stageSequence.map(\.description).joined(separator: ">"))",
+            "complete=\(hasCompleteRenderPath)",
+            "resize=\(resizeSourceOfTruth?.description ?? "unavailable")",
+            "issues=\(resizeValidationIssues.count)",
+            "ptyBytes=\(eventSummary.ptyReadByteCount)",
+            "parserBytes=\(eventSummary.parserEventByteCount)",
+            "screenMutations=\(eventSummary.screenMutationCount)",
+            "renderFrames=\(eventSummary.renderFrameCount)",
+            "dirtyRegions=\(eventSummary.dirtyRegionCount)",
+            "fullRedraws=\(eventSummary.fullRedrawCount)",
+            "droppedEvents=\(eventSummary.droppedEventCount)",
+        ].joined(separator: " ")
+    }
+
+    private func containsOrderedStages(_ expectedStages: [TerminalEventLedger.EventKind]) -> Bool {
+        var searchStart = stageSequence.startIndex
+        for expectedStage in expectedStages {
+            guard let matchIndex = stageSequence[searchStart...].firstIndex(of: expectedStage) else {
+                return false
+            }
+            searchStart = stageSequence.index(after: matchIndex)
+        }
+        return true
+    }
+}
+
 enum TerminalScreenDiagnostics {
     static func occupiedCellCount(in cells: [TerminalScreenCell]) -> Int {
         cells.reduce(0) { count, cell in

@@ -3,6 +3,194 @@ import XCTest
 @testable import KurottyApp
 
 final class AIAgentActionApprovalTests: XCTestCase {
+    func testActionRequestExposesStableBackendDispatchKind() throws {
+        XCTAssertEqual(AIAgentActionRequest.sendText(id: "send", text: "echo ok").kind, .sendText)
+        XCTAssertEqual(AIAgentActionRequest.pasteText(id: "paste", text: "echo ok").kind, .pasteText)
+        XCTAssertEqual(
+            AIAgentActionRequest.exportContext(id: "export", rawContext: "context", includesRawOutput: false).kind,
+            .exportContext
+        )
+        XCTAssertEqual(
+            AIAgentActionRequest.openFileURL(
+                id: "file",
+                url: URL(fileURLWithPath: "/tmp/report.txt")
+            ).kind,
+            .openFileURL
+        )
+    }
+
+    func testDispatcherDoesNotInvokeBackendHandlerUntilAskResultIsApproved() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let action = AIAgentActionRequest.sendText(id: "send", text: "echo ok")
+
+        let pending = dispatcher.dispatch(action)
+        XCTAssertEqual(pending.status, .requiresApproval)
+        XCTAssertEqual(pending.audit.decision, .ask)
+        XCTAssertEqual(pending.approval.actionKind, .sendText)
+        XCTAssertTrue(sentText.isEmpty)
+
+        let approved = dispatcher.dispatch(action, approval: dispatcher.approve(pending.approval))
+        XCTAssertEqual(approved.status, .dispatched)
+        XCTAssertEqual(approved.audit.decision, .allow)
+        XCTAssertEqual(sentText, ["echo ok"])
+    }
+
+    func testDispatcherRejectsMismatchedApprovalWithoutInvokingBackendHandler() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "first", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.sendText(id: "second", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result does not match action request")
+        XCTAssertTrue(sentText.isEmpty)
+    }
+
+    func testDispatcherRejectsMismatchedApprovalKindWithoutInvokingBackendHandler() {
+        var pastedText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(pasteText: { text, _, _ in pastedText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "shared", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.pasteText(id: "shared", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result kind does not match action request")
+        XCTAssertTrue(pastedText.isEmpty)
+    }
+
+    func testDispatcherRejectsSameKindChangedPayloadWithoutInvokingBackendHandler() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(AIAgentActionRequest.sendText(id: "shared", text: "echo first")).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.sendText(id: "shared", text: "echo second"),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result fingerprint does not match action request")
+        XCTAssertTrue(sentText.isEmpty)
+    }
+
+    func testDispatcherRejectsChangedRawExportContextWithoutInvokingBackendHandler() {
+        var exportedContexts: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(exportContext: { context, _ in exportedContexts.append(context) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.exportContext(
+                    id: "export",
+                    rawContext: "raw command output: first",
+                    includesRawOutput: true,
+                    secretRedactionEnabled: true
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.exportContext(
+                id: "export",
+                rawContext: "raw command output: second",
+                includesRawOutput: true,
+                secretRedactionEnabled: true
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result fingerprint does not match action request")
+        XCTAssertTrue(exportedContexts.isEmpty)
+    }
+
+    func testDispatcherRejectsChangedRawExportSecurityFlagsWithoutInvokingBackendHandler() {
+        var exportedContexts: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(exportContext: { context, _ in exportedContexts.append(context) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.exportContext(
+                    id: "export-flags",
+                    rawContext: "raw command output",
+                    includesRawOutput: true,
+                    secretRedactionEnabled: true
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.exportContext(
+                id: "export-flags",
+                rawContext: "raw command output",
+                includesRawOutput: true,
+                secretRedactionEnabled: false
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "current action request is denied by policy")
+        XCTAssertTrue(exportedContexts.isEmpty)
+    }
+
+    func testDispatcherRejectsUnsafeURLDespiteSameKindApproval() throws {
+        var openedURLs: [URL] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(openFileURL: { url, _ in openedURLs.append(url) })
+        )
+        let approval = dispatcher.approve(
+            dispatcher.dispatch(
+                AIAgentActionRequest.openFileURL(
+                    id: "url",
+                    url: URL(fileURLWithPath: "/tmp/report.txt")
+                )
+            ).approval
+        )
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.openFileURL(
+                id: "url",
+                url: try XCTUnwrap(URL(string: "ssh://example.com/repo"))
+            ),
+            approval: approval
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "current action request is denied by policy")
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
     func testDefaultPolicyAllowsRedactedContextExportAsksForAgentTextAndDeniesUnsafeURL() throws {
         let evaluator = AIAgentActionApprovalEvaluator()
 
@@ -105,6 +293,24 @@ final class AIAgentActionApprovalTests: XCTestCase {
             targetWorkspaceID: "workspace-7",
             cwd: "/Users/example/project",
             capability: "send-text",
+            requestedCapabilities: [
+                AIAgentActionCapabilityRequest(
+                    capability: "terminal.sendText",
+                    reference: AICommandContextReference(
+                        commandSpanID: 7,
+                        targetPaneID: "pane-1",
+                        targetWorkspaceID: "workspace-7"
+                    ),
+                    reason: "continue in selected pane"
+                ),
+            ],
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 7,
+                    targetPaneID: "pane-1",
+                    targetWorkspaceID: "workspace-7"
+                ),
+            ],
             persistenceScope: .session,
             contextSummary: "selected command span"
         )
@@ -126,6 +332,9 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertEqual(audit.metadata.targetWorkspaceID, "workspace-7")
         XCTAssertEqual(audit.metadata.cwd, "/Users/example/project")
         XCTAssertEqual(audit.metadata.capability, "send-text")
+        XCTAssertEqual(audit.metadata.requestedCapabilities.first?.capability, "terminal.sendText")
+        XCTAssertEqual(audit.metadata.requestedCapabilities.first?.reference?.commandSpanID, 7)
+        XCTAssertEqual(audit.metadata.contextReferences.first?.targetPaneID, "pane-1")
         XCTAssertEqual(audit.metadata.persistenceScope, .session)
         XCTAssertEqual(audit.metadata.contextSummary, "selected command span")
         XCTAssertFalse(audit.redactedPreview.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"))
@@ -250,5 +459,60 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertTrue(commandOutput.includesRawOutput)
         XCTAssertFalse(commandOutput.rawOutputApproved)
         XCTAssertTrue(commandOutput.explicitApprovalRequired)
+    }
+
+    func testAuditDescriptionRedactsSecretsInCapabilityAndContextMetadata() {
+        let metadata = AIAgentActionApprovalMetadata(
+            actor: "agent-token=actor-secret",
+            targetPaneID: "pane-token=pane-secret",
+            targetWorkspaceID: "workspace-api_key=workspace-secret",
+            cwd: "/tmp/password=cwd-secret",
+            capability: "terminal.sendText token=cap-secret",
+            requestedCapabilities: [
+                AIAgentActionCapabilityRequest(
+                    capability: "terminal.pasteText token=request-secret",
+                    reference: AICommandContextReference(
+                        commandSpanID: 44,
+                        targetPaneID: "pane-password=request-pane-secret",
+                        targetWorkspaceID: "workspace-token=request-workspace-secret"
+                    ),
+                    reason: "needs token=reason-secret"
+                ),
+            ],
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 45,
+                    targetPaneID: "pane-api_key=context-pane-secret",
+                    targetWorkspaceID: "workspace-password=context-workspace-secret"
+                ),
+            ],
+            contextSummary: "summary token=summary-secret"
+        )
+        let timestamp = Date(timeIntervalSince1970: 456)
+        let audit = AIAgentActionAuditRecord(
+            actionID: "send-secret",
+            metadata: metadata,
+            decision: .ask,
+            reason: "agent terminal text requires explicit approval",
+            redactedPreview: "echo ok",
+            timestamp: timestamp
+        )
+
+        let description = String(describing: audit)
+
+        XCTAssertFalse(description.contains("actor-secret"))
+        XCTAssertFalse(description.contains("pane-secret"))
+        XCTAssertFalse(description.contains("workspace-secret"))
+        XCTAssertFalse(description.contains("cwd-secret"))
+        XCTAssertFalse(description.contains("cap-secret"))
+        XCTAssertFalse(description.contains("request-secret"))
+        XCTAssertFalse(description.contains("request-pane-secret"))
+        XCTAssertFalse(description.contains("request-workspace-secret"))
+        XCTAssertFalse(description.contains("reason-secret"))
+        XCTAssertFalse(description.contains("context-pane-secret"))
+        XCTAssertFalse(description.contains("context-workspace-secret"))
+        XCTAssertFalse(description.contains("summary-secret"))
+        XCTAssertTrue(description.contains("targetPane=pane-token=[REDACTED_SECRET]"))
+        XCTAssertTrue(description.contains("capability=terminal.sendText token=[REDACTED_SECRET]"))
     }
 }

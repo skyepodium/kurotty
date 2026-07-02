@@ -16,7 +16,12 @@ final class BoundedScrollbackRowsTests: XCTestCase {
             retainedStorageRowCount: 5,
             droppedRowCount: 2,
             compactionCount: 0,
-            pressureLevel: .saturated
+            pressureLevel: .saturated,
+            retainedRowSummary: .init(
+                firstRetainedRowIndex: 2,
+                retainedRowCount: 3,
+                droppedRowCount: 2
+            )
         ))
         XCTAssertEqual(rows.row(at: 0)?.first?.character, " ")
     }
@@ -50,7 +55,12 @@ final class BoundedScrollbackRowsTests: XCTestCase {
             retainedStorageRowCount: 0,
             droppedRowCount: 3,
             compactionCount: 1,
-            pressureLevel: .empty
+            pressureLevel: .empty,
+            retainedRowSummary: .init(
+                firstRetainedRowIndex: 3,
+                retainedRowCount: 0,
+                droppedRowCount: 3
+            )
         ))
     }
 
@@ -67,6 +77,29 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         ]], limit: 10)
 
         XCTAssertFalse(String(describing: rows.diagnostics).contains("secret"))
+    }
+
+    func testRetainedRowSummaryProvidesCopySafeCoordinatesWithoutRawText() {
+        var rows = BoundedScrollbackRows()
+
+        rows.append(contentsOf: makeRows(["secret token", "normal output", "another secret", "tail"]), limit: 3)
+
+        XCTAssertEqual(rows.retainedRowSummary, .init(
+            firstRetainedRowIndex: 1,
+            retainedRowCount: 3,
+            droppedRowCount: 1
+        ))
+        XCTAssertEqual(rows.diagnostics.retainedRowSummary, rows.retainedRowSummary)
+        XCTAssertEqual(rows.visibleRowIndex(forAbsoluteRowIndex: 1), 0)
+        XCTAssertEqual(rows.visibleRowIndex(forAbsoluteRowIndex: 3), 2)
+        XCTAssertNil(rows.visibleRowIndex(forAbsoluteRowIndex: 0))
+        XCTAssertNil(rows.visibleRowIndex(forAbsoluteRowIndex: 4))
+        XCTAssertEqual(rows.absoluteRowIndex(forVisibleRowIndex: 0), 1)
+        XCTAssertEqual(rows.absoluteRowIndex(forVisibleRowIndex: 2), 3)
+        XCTAssertNil(rows.absoluteRowIndex(forVisibleRowIndex: -1))
+        XCTAssertNil(rows.absoluteRowIndex(forVisibleRowIndex: 3))
+        XCTAssertFalse(String(describing: rows.retainedRowSummary).contains("secret"))
+        XCTAssertFalse(String(describing: rows.diagnostics).contains("normal output"))
     }
 
     func testRemappingStylesAndColorsDoesNotChangeDiagnostics() {

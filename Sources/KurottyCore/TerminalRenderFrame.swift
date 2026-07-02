@@ -240,6 +240,52 @@ public struct TerminalFramePixelRect: Equatable, Sendable {
     }
 }
 
+public enum TerminalFrameStablePixelBoundsFallbackReason: Equatable, Sendable, CustomStringConvertible {
+    case noDirtyRects
+    case invalidScale
+    case invalidClippingMargin
+    case invalidDisplaySize
+    case unstableDirtyRect
+    case outsideDisplayBounds
+    case integerOverflow
+
+    public var description: String {
+        switch self {
+        case .noDirtyRects:
+            "no-dirty-rects"
+        case .invalidScale:
+            "invalid-scale"
+        case .invalidClippingMargin:
+            "invalid-clipping-margin"
+        case .invalidDisplaySize:
+            "invalid-display-size"
+        case .unstableDirtyRect:
+            "unstable-dirty-rect"
+        case .outsideDisplayBounds:
+            "outside-display-bounds"
+        case .integerOverflow:
+            "integer-overflow"
+        }
+    }
+}
+
+public struct TerminalFrameStablePixelBoundsReport: Equatable, Sendable {
+    public let pixelBounds: [TerminalFramePixelRect]
+    public let fallbackReason: TerminalFrameStablePixelBoundsFallbackReason?
+
+    public var stablePixelBoundCount: Int {
+        pixelBounds.count
+    }
+
+    public init(
+        pixelBounds: [TerminalFramePixelRect],
+        fallbackReason: TerminalFrameStablePixelBoundsFallbackReason?
+    ) {
+        self.pixelBounds = pixelBounds
+        self.fallbackReason = fallbackReason
+    }
+}
+
 public struct TerminalFrameDamageMetadata: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case none
@@ -288,20 +334,80 @@ public struct TerminalFrameDamageMetadata: Equatable, Sendable {
         clippingMargin: Double = 0,
         clipTo displaySize: TerminalFrameSize? = nil
     ) -> [TerminalFramePixelRect]? {
-        guard !dirtyRects.isEmpty else { return nil }
+        let report = stablePixelBoundsReport(
+            scale: scale,
+            clippingMargin: clippingMargin,
+            clipTo: displaySize
+        )
+        guard report.fallbackReason == nil else { return nil }
+        return report.pixelBounds
+    }
+
+    public func stablePixelBoundsReport(
+        scale: Double,
+        clippingMargin: Double = 0,
+        clipTo displaySize: TerminalFrameSize? = nil
+    ) -> TerminalFrameStablePixelBoundsReport {
+        guard !dirtyRects.isEmpty else {
+            return TerminalFrameStablePixelBoundsReport(
+                pixelBounds: [],
+                fallbackReason: .noDirtyRects
+            )
+        }
+        guard scale.isFinite, scale > 0 else {
+            return TerminalFrameStablePixelBoundsReport(
+                pixelBounds: [],
+                fallbackReason: .invalidScale
+            )
+        }
+        guard clippingMargin.isFinite, clippingMargin >= 0 else {
+            return TerminalFrameStablePixelBoundsReport(
+                pixelBounds: [],
+                fallbackReason: .invalidClippingMargin
+            )
+        }
+        if let displaySize {
+            guard displaySize.width.isFinite,
+                  displaySize.height.isFinite,
+                  displaySize.width > 0,
+                  displaySize.height > 0
+            else {
+                return TerminalFrameStablePixelBoundsReport(
+                    pixelBounds: [],
+                    fallbackReason: .invalidDisplaySize
+                )
+            }
+        }
+
         var pixelRects: [TerminalFramePixelRect] = []
         pixelRects.reserveCapacity(dirtyRects.count)
         for rect in dirtyRects {
+            guard rect.isStableDamageRect else {
+                return TerminalFrameStablePixelBoundsReport(
+                    pixelBounds: [],
+                    fallbackReason: .unstableDirtyRect
+                )
+            }
             guard let pixelRect = rect.stablePixelBounds(
                 scale: scale,
                 clippingMargin: clippingMargin,
                 clipTo: displaySize
             ) else {
-                return nil
+                return TerminalFrameStablePixelBoundsReport(
+                    pixelBounds: [],
+                    fallbackReason: rect.isOutsideDisplayBounds(
+                        scale: scale,
+                        clippingMargin: clippingMargin,
+                        clipTo: displaySize
+                    ) ? .outsideDisplayBounds : .integerOverflow
+                )
             }
             pixelRects.append(pixelRect)
         }
-        return pixelRects
+        return TerminalFrameStablePixelBoundsReport(
+            pixelBounds: pixelRects,
+            fallbackReason: nil
+        )
     }
 
     private static func kind(
@@ -319,6 +425,27 @@ public struct TerminalFrameDamageMetadata: Equatable, Sendable {
             return .rectDamage
         }
         return .none
+    }
+}
+
+private extension TerminalFrameRect {
+    func isOutsideDisplayBounds(
+        scale: Double,
+        clippingMargin: Double,
+        clipTo displaySize: TerminalFrameSize?
+    ) -> Bool {
+        guard let displaySize else { return false }
+        let minX = max(0, ((x - clippingMargin) * scale).rounded(.down))
+        let minY = max(0, ((y - clippingMargin) * scale).rounded(.down))
+        let maxX = min(
+            (displaySize.width * scale).rounded(.up),
+            ((x + width + clippingMargin) * scale).rounded(.up)
+        )
+        let maxY = min(
+            (displaySize.height * scale).rounded(.up),
+            ((y + height + clippingMargin) * scale).rounded(.up)
+        )
+        return maxX - minX <= 0 || maxY - minY <= 0
     }
 }
 

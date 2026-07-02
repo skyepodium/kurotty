@@ -41,6 +41,26 @@ final class TerminalCommandPaletteTests: XCTestCase {
         XCTAssertTrue(paneIDs.contains(.closeCurrentPane))
     }
 
+    func testSearchMatchesCommonNonDeveloperActionPhrases() {
+        let palette = TerminalCommandPalette()
+
+        XCTAssertEqual(palette.results(for: "open another tab").first?.command.id, .newTab)
+        XCTAssertEqual(palette.results(for: "side by side").first?.command.id, .splitVertically)
+        XCTAssertEqual(palette.results(for: "stacked panes").first?.command.id, .splitHorizontally)
+        XCTAssertEqual(palette.results(for: "close window").first?.command.id, .closeCurrentPane)
+        XCTAssertEqual(palette.results(for: "forward tab").first?.command.id, .selectNextTab)
+        XCTAssertEqual(palette.results(for: "back tab").first?.command.id, .selectPreviousTab)
+    }
+
+    func testCommandSearchTokensAreExposedOnPaletteEntries() {
+        let palette = TerminalCommandPalette()
+        let entriesByID = Dictionary(uniqueKeysWithValues: palette.entries.map { ($0.command.id, $0) })
+
+        XCTAssertTrue(entriesByID[.newTab]?.aliases.contains("open another tab") == true)
+        XCTAssertTrue(entriesByID[.splitVertically]?.aliases.contains("side by side") == true)
+        XCTAssertTrue(entriesByID[.closeCurrentPane]?.aliases.contains("close window") == true)
+    }
+
     func testCategoryFilteringAppliesToEmptyAndNonEmptyQueries() {
         let palette = TerminalCommandPalette()
 

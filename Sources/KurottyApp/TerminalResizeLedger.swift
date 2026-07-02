@@ -183,6 +183,39 @@ struct TerminalResizeLedgerReport: Equatable, CustomStringConvertible {
     }
 }
 
+struct TerminalResizeSourceOfTruthSummary: Equatable, CustomStringConvertible {
+    let source: String?
+    let derivedGrid: TerminalResizeGridSize
+    let ptyWinsize: TerminalResizeGridSize
+    let screenSize: TerminalResizeGridSize
+    let rendererGrid: TerminalResizeGridSize
+    let isValid: Bool
+    let issueCount: Int
+
+    init(snapshot: TerminalResizeCycleSnapshot) {
+        source = snapshot.source
+        derivedGrid = snapshot.derivedGrid
+        ptyWinsize = snapshot.ptyWinsize
+        screenSize = snapshot.screenSize
+        rendererGrid = snapshot.renderer.gridSize
+        let report = snapshot.validationReport
+        isValid = report.isValid
+        issueCount = report.issues.count
+    }
+
+    var description: String {
+        [
+            "source=\(source ?? "unknown")",
+            "derived=\(derivedGrid)",
+            "pty=\(ptyWinsize)",
+            "screen=\(screenSize)",
+            "renderer=\(rendererGrid)",
+            "valid=\(isValid)",
+            "issueCount=\(issueCount)",
+        ].joined(separator: " ")
+    }
+}
+
 enum TerminalResizeLedgerIssue: Equatable, CustomStringConvertible {
     case ptyMismatch(expected: TerminalResizeGridSize, actual: TerminalResizeGridSize)
     case screenMismatch(expected: TerminalResizeGridSize, actual: TerminalResizeGridSize)
