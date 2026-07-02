@@ -195,6 +195,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var fontCellMetrics: FontCellMetrics = .empty
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
     private var lastDamageDiagnostics = TerminalRenderDamageDiagnostics.empty
+    private var lastPixelProbeDiagnostics: [TerminalPixelProbe] = []
 
     override var isOpaque: Bool {
         true
@@ -463,6 +464,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         lastDamageDiagnostics
     }
 
+    var pixelProbeDiagnostics: [TerminalPixelProbe] {
+        lastPixelProbeDiagnostics
+    }
+
     var lastFrameDirtyRowsForDiagnostics: [Int] {
         terminalFrame.dirtyRows
     }
@@ -647,10 +652,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         resetAtlasIfCellMetricsChanged()
         var instances: [GlyphInstance] = []
         var glyphDebugRects: [CGRect] = []
+        var pixelProbes: [TerminalPixelProbe] = []
         instances.reserveCapacity(terminalFrame.cells.count + terminalFrame.markedText.count)
         for cell in terminalFrame.cells {
             guard !isCellCoveredByMarkedText(cell) else { continue }
-            appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, debugRects: &glyphDebugRects, color: cell.foreground)
+            appendGlyphInstance(
+                character: cell.character,
+                column: cell.column,
+                row: cell.row,
+                into: &instances,
+                debugRects: &glyphDebugRects,
+                pixelProbes: &pixelProbes,
+                color: cell.foreground
+            )
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = terminalFrame.markedTextColumn
@@ -662,6 +676,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                     row: terminalFrame.cursorRow,
                     into: &instances,
                     debugRects: &glyphDebugRects,
+                    pixelProbes: &pixelProbes,
                     color: markedTextColor(for: character, utf16Offset: utf16Offset)
                 )
                 column += character.terminalColumnWidth
@@ -754,6 +769,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
         updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)
         rebuildDebugOverlayBuffer(glyphDebugRects: glyphDebugRects)
+        lastPixelProbeDiagnostics = pixelProbes
 
         var uniforms = TerminalUniforms(
             viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
@@ -878,12 +894,33 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         row: Int,
         into instances: inout [GlyphInstance],
         debugRects: inout [CGRect],
+        pixelProbes: inout [TerminalPixelProbe],
         color: SIMD4<Float> = SIMD4<Float>(0.92, 0.92, 0.92, 1)
     ) {
         guard row >= 0, row < terminalFrame.visibleRows else { return }
         let entry = glyphEntry(for: character)
         let cellOrigin = physicalPixelCellOrigin(column: column, row: row)
         let pixelSize = entry.pixelSize
+        let glyphRect = CGRect(
+            x: CGFloat(cellOrigin.x + entry.bearingXPixels),
+            y: CGFloat(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels),
+            width: CGFloat(pixelSize.width),
+            height: CGFloat(pixelSize.height)
+        )
+        let cellRect = CGRect(
+            x: CGFloat(cellOrigin.x),
+            y: CGFloat(cellOrigin.y),
+            width: CGFloat(entry.cellWidthPixels),
+            height: CGFloat(entry.cellHeightPixels)
+        )
+        let dirtyRect = diagnosticDirtyRectPixels(for: cellRect.union(glyphRect))
+        pixelProbes.append(TerminalPixelProbe.make(
+            cellRect: cellRect,
+            glyphRect: glyphRect,
+            dirtyRect: dirtyRect,
+            scissorRect: DebugOptions.noScissor ? nil : dirtyRect,
+            backingScale: backingScale
+        ))
         if diagnosticGlyphQuadOverlayEnabled {
             let origin = physicalPixelsToPoints(CGPoint(
                 x: CGFloat(cellOrigin.x + entry.bearingXPixels),
@@ -898,6 +935,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             uvSize: entry.uvSize,
             color: color
         ))
+    }
+
+    private func diagnosticDirtyRectPixels(for probeRect: CGRect) -> CGRect? {
+        let dirtyRects = terminalFrame.dirtyRects.map { physicalPixelRect($0.cgRect) }
+        if terminalFrame.isFullDamage || dirtyRects.isEmpty {
+            return physicalPixelRect(bounds)
+        }
+        return dirtyRects.first { $0.intersects(probeRect) }
     }
 
     private func solidInstance(
@@ -1556,6 +1601,24 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             diagnostics.pixelSnappingEnabled ? "on" : "off",
             diagnostics.linearGlyphSamplingEnabled ? "on" : "off"
         )
+        if let probe = lastPixelProbeDiagnostics.first(where: { $0.reasonCode != .contained }) ?? lastPixelProbeDiagnostics.first {
+            NSLog(
+                "Kurotty pixel probe: reason=%@ cellPx=%@ glyphPx=%@ dirtyPx=%@ scissorPx=%@ scale=%0.2f flags=(glyphCell:%@ glyphDirty:%@ glyphScissor:%@ cellDirty:%@ cellScissor:%@ fractional:%@ emptyGlyph:%@)",
+                probe.summary,
+                NSStringFromRect(probe.cellRect),
+                NSStringFromRect(probe.glyphRect),
+                probe.dirtyRect.map { NSStringFromRect($0) } ?? "nil",
+                probe.scissorRect.map { NSStringFromRect($0) } ?? "nil",
+                probe.backingScale,
+                probe.clippingFlags.glyphExceedsCellBounds ? "yes" : "no",
+                probe.clippingFlags.glyphExceedsDirtyRect ? "yes" : "no",
+                probe.clippingFlags.glyphExceedsScissorRect ? "yes" : "no",
+                probe.clippingFlags.cellExceedsDirtyRect ? "yes" : "no",
+                probe.clippingFlags.cellExceedsScissorRect ? "yes" : "no",
+                probe.clippingFlags.fractionalPixelEdges ? "yes" : "no",
+                probe.clippingFlags.emptyGlyphRect ? "yes" : "no"
+            )
+        }
     }
 
     private func uploadAtlas(region: MTLRegion? = nil) {

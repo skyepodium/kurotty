@@ -487,11 +487,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(unsupportedSource.contains("import Darwin"))
     }
 
-    func testZigCorePublicModuleDoesNotExposePlatformPtyAdapter() throws {
+    func testZigCorePublicModuleOnlyExposesPurePtyBoundaryTypes() throws {
         let coreSource = try zigCoreSource()
 
-        XCTAssertFalse(coreSource.contains("@import(\"pty.zig\")"))
-        XCTAssertFalse(coreSource.contains("pub const Pty"))
+        XCTAssertTrue(coreSource.contains("pub const PtyDimensions = @import(\"pty.zig\").PtyDimensions"))
+        XCTAssertTrue(coreSource.contains("pub const PtyResizeRequest = @import(\"pty.zig\").PtyResizeRequest"))
+        XCTAssertTrue(coreSource.contains("pub const PtySizeDiagnostic = @import(\"pty.zig\").PtySizeDiagnostic"))
+        XCTAssertFalse(coreSource.contains("pub const Pty ="))
         XCTAssertFalse(coreSource.contains("pub const PtyConfig"))
     }
 
@@ -1522,21 +1524,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testFocusedTerminalDispatchesWindowShortcutsBeforePtyInput() throws {
         let dispatcherSource = try terminalCommandDispatcherSource()
+        let registrySource = try terminalCommandRegistrySource()
         XCTAssertTrue(dispatcherSource.contains("enum TerminalPaneFocusDirection"))
         XCTAssertTrue(dispatcherSource.contains("case left"))
         XCTAssertTrue(dispatcherSource.contains("case right"))
         XCTAssertTrue(dispatcherSource.contains("case up"))
         XCTAssertTrue(dispatcherSource.contains("case down"))
-        XCTAssertTrue(dispatcherSource.contains("flags.subtracting([.command, .option, .numericPad, .function]).isEmpty"))
-        XCTAssertTrue(dispatcherSource.contains("paneFocusDirection(forKeyCode: event.keyCode)"))
-        XCTAssertTrue(dispatcherSource.contains("static let leftArrow: UInt16 = 123"))
-        XCTAssertTrue(dispatcherSource.contains("static let rightArrow: UInt16 = 124"))
-        XCTAssertTrue(dispatcherSource.contains("static let downArrow: UInt16 = 125"))
-        XCTAssertTrue(dispatcherSource.contains("static let upArrow: UInt16 = 126"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.leftArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.rightArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.downArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.upArrow:"))
+        XCTAssertTrue(dispatcherSource.contains("windowCommand(for: event)"))
+        XCTAssertTrue(dispatcherSource.contains("TerminalCommandRegistry = .default"))
+        XCTAssertTrue(registrySource.contains("enum TerminalWindowCommandID"))
+        XCTAssertTrue(registrySource.contains("case newTab = \"window.newTab\""))
+        XCTAssertTrue(registrySource.contains("case focusPaneLeft = \"window.focusPane.left\""))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"t\", modifiers: .command)"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: .command)"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: [.command, .shift])"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras)"))
         XCTAssertTrue(dispatcherSource.contains("controller.focusPane(direction)"))
         XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
@@ -1663,12 +1665,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()
         let routerSource = try terminalTextInputRouterSource()
-        let dispatcherSource = try terminalCommandDispatcherSource()
+        let registrySource = try terminalCommandRegistrySource()
 
         XCTAssertTrue(routerSource.contains("static func latinKeyEquivalent(for event: NSEvent) -> String?"))
         XCTAssertTrue(routerSource.contains("static func commandShortcutControlText(for event: NSEvent) -> String?"))
         XCTAssertTrue(routerSource.contains("32: \"u\""))
-        XCTAssertTrue(dispatcherSource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
+        XCTAssertTrue(registrySource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
 
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
@@ -2759,6 +2761,12 @@ private func terminalPaneViewSource() throws -> String {
 private func terminalCommandDispatcherSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalCommandDispatcher.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalCommandRegistrySource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalCommandRegistry.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
