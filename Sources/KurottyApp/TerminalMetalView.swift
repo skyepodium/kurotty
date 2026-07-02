@@ -133,6 +133,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var lastGlyphUVOrigin = SIMD2<Float>.zero
     private var lastGlyphUVSize = SIMD2<Float>.zero
     private var lastGlyphDrawOffsetPoints = SIMD2<Float>.zero
+    private var lastAtlasBufferSignature: Int?
+    private var lastFontCellMetricsInput: FontCellMetricsInput?
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -213,7 +215,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         terminalFrame = frame
         rebuildFontCellMetrics()
         synchronizeBackingScaleAndDrawableSize()
-        rebuildAtlasBuffers()
+        let shouldRebuildAtlasBuffers = atlasBuffersNeedRebuild(for: frame)
+        if shouldRebuildAtlasBuffers {
+            rebuildAtlasBuffers()
+        }
         logRenderingDiagnosticsIfNeeded()
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
@@ -684,6 +689,116 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
         )
         updateSharedBuffer(&uniformsBuffer, with: &uniforms)
+        lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)
+    }
+
+    private func atlasBuffersNeedRebuild(for frame: TerminalFrame) -> Bool {
+        let nextSignature = makeAtlasBufferSignature(for: frame)
+        return nextSignature != lastAtlasBufferSignature
+    }
+
+    private func makeAtlasBufferSignature(for frame: TerminalFrame) -> Int {
+        var hasher = Hasher()
+        hasher.combine(frame.cells.count)
+        for cell in frame.cells {
+            hasher.combine(cell.character)
+            hasher.combine(cell.column)
+            hasher.combine(cell.row)
+            combineColor(cell.foreground, into: &hasher)
+            combineColor(cell.background, into: &hasher)
+        }
+        hasher.combine(frame.backgrounds.count)
+        for background in frame.backgrounds {
+            hasher.combine(background.column)
+            hasher.combine(background.row)
+            combineColor(background.color, into: &hasher)
+        }
+        hasher.combine(frame.decorations.count)
+        for decoration in frame.decorations {
+            hasher.combine(decoration.column)
+            hasher.combine(decoration.row)
+            hasher.combine(decoration.width)
+            combineDecorationKind(decoration.kind, into: &hasher)
+            combineColor(decoration.color, into: &hasher)
+        }
+        combineColor(frame.defaultForeground, into: &hasher)
+        combineColor(frame.defaultBackground, into: &hasher)
+        frame.dirtyRows.forEach { hasher.combine($0) }
+        for rect in frame.dirtyRects {
+            hasher.combine(rect.x)
+            hasher.combine(rect.y)
+            hasher.combine(rect.width)
+            hasher.combine(rect.height)
+        }
+        hasher.combine(frame.isFullDamage)
+        hasher.combine(frame.cursorColumn)
+        hasher.combine(frame.cursorRow)
+        hasher.combine(frame.cursorBlinkOn)
+        combineColor(cursorColor, into: &hasher)
+        hasher.combine(frame.markedTextColumn)
+        hasher.combine(frame.markedText)
+        hasher.combine(frame.markedTextSelectedRange.location)
+        hasher.combine(frame.markedTextSelectedRange.length)
+        hasher.combine(frame.columns)
+        hasher.combine(frame.visibleRows)
+        hasher.combine(frame.cellSize.width)
+        hasher.combine(frame.cellSize.height)
+        hasher.combine(frame.padding.x)
+        hasher.combine(frame.padding.y)
+        hasher.combine(bounds.size.width)
+        hasher.combine(bounds.size.height)
+        hasher.combine(backingScale)
+        hasher.combine(drawableSize.width)
+        hasher.combine(drawableSize.height)
+        combineFontCellMetrics(fontCellMetrics, into: &hasher)
+        hasher.combine(diagnosticPixelSnappingEnabled)
+        hasher.combine(diagnosticLinearGlyphSamplingEnabled)
+        hasher.combine(diagnosticCellBoundaryOverlayEnabled)
+        hasher.combine(diagnosticBaselineOverlayEnabled)
+        hasher.combine(diagnosticGlyphQuadOverlayEnabled)
+        return hasher.finalize()
+    }
+
+    private func combineColor(_ color: SIMD4<Float>, into hasher: inout Hasher) {
+        hasher.combine(color.x)
+        hasher.combine(color.y)
+        hasher.combine(color.z)
+        hasher.combine(color.w)
+    }
+
+    private func combineDecorationKind(_ kind: TerminalDecoration.Kind, into hasher: inout Hasher) {
+        switch kind {
+        case .underline:
+            hasher.combine(0)
+        case .strikethrough:
+            hasher.combine(1)
+        case let .boxDrawing(left, right, up, down):
+            hasher.combine(2)
+            hasher.combine(left)
+            hasher.combine(right)
+            hasher.combine(up)
+            hasher.combine(down)
+        case let .blockElement(x, y, width, height):
+            hasher.combine(3)
+            hasher.combine(x)
+            hasher.combine(y)
+            hasher.combine(width)
+            hasher.combine(height)
+        }
+    }
+
+    private func combineFontCellMetrics(_ metrics: FontCellMetrics, into hasher: inout Hasher) {
+        hasher.combine(metrics.fixedCellWidth)
+        hasher.combine(metrics.fixedCellHeight)
+        hasher.combine(metrics.ascenderPixels)
+        hasher.combine(metrics.descenderPixels)
+        hasher.combine(metrics.leadingPixels)
+        hasher.combine(metrics.baselineOffsetPixels)
+        hasher.combine(metrics.underlinePositionPixels)
+        hasher.combine(metrics.underlineThicknessPixels)
+        hasher.combine(metrics.cursorHeightPixels)
+        hasher.combine(metrics.cellWidthPixels)
+        hasher.combine(metrics.cellHeightPixels)
     }
 
     private func appendGlyphInstance(
@@ -1195,6 +1310,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         // Display transfers can change both AppKit point scale and Metal drawable
         // pixels. Rebuild dependent buffers immediately so the next frame cannot use
         // a Retina atlas or viewport on a 1x external monitor.
+        rebuildFontCellMetrics()
         rebuildVertexBuffer()
         rebuildAtlasBuffers()
         if diagnosticCPUFallbackEnabled {
@@ -1338,6 +1454,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private func rebuildFontCellMetrics() {
+        let input = FontCellMetricsInput(
+            fontName: font.fontName,
+            pointSize: font.pointSize,
+            cellSize: terminalFrame.cellSize,
+            backingScale: backingScale
+        )
+        guard input != lastFontCellMetricsInput else { return }
+        lastFontCellMetricsInput = input
         fontCellMetrics = FontCellMetrics(font: font, cellSize: terminalFrame.cellSize.cgSize, scale: backingScale)
     }
 
@@ -1654,6 +1778,13 @@ private struct PixelSize {
 private struct PixelPoint {
     let x: Int
     let y: Int
+}
+
+private struct FontCellMetricsInput: Equatable {
+    let fontName: String
+    let pointSize: CGFloat
+    let cellSize: TerminalFrameSize
+    let backingScale: CGFloat
 }
 
 private struct FontCellMetrics {

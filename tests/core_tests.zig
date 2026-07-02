@@ -261,6 +261,40 @@ test "parser keeps OSC open when ESC is not a string terminator" {
     try std.testing.expectEqualStrings("done", second[1].printable.bytes);
 }
 
+test "parser bounds oversized CSI buffers and resynchronizes at the final byte" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const oversized_digits = "1" ** (core.Parser.max_csi_sequence_bytes + 1);
+    const first = try parser.feed("\x1b[" ++ oversized_digits);
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+    try std.testing.expectEqual(@as(usize, 0), parser.control.items.len);
+
+    const second = try parser.feed("mok");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
+}
+
+test "parser bounds oversized OSC buffers and resynchronizes at string terminator" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const oversized_title = "x" ** (core.Parser.max_string_sequence_bytes + 1);
+    const first = try parser.feed("\x1b]0;" ++ oversized_title);
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+    try std.testing.expectEqual(@as(usize, 0), parser.string.items.len);
+
+    const second = try parser.feed("\x1b\\ok");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
+}
+
 test "grid applies printable text, cursor movement, and erase in display" {
     var grid = try core.Grid.init(std.testing.allocator, 4, 3);
     defer grid.deinit();

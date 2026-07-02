@@ -84,6 +84,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertFalse(storeBody.contains(".write(to:"))
         XCTAssertTrue(source.contains("struct AppSettingsPersistence"))
         XCTAssertTrue(persistenceBody.contains("DispatchQueue"))
+        XCTAssertFalse(persistenceBody.contains("queue.sync"))
+        XCTAssertTrue(persistenceBody.contains("queue.async"))
+        XCTAssertTrue(persistenceBody.contains("DispatchSemaphore"))
     }
 
     func testSettingsNormalizationIsSeparatedFromMainActorStore() throws {
