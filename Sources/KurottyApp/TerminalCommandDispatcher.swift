@@ -16,7 +16,7 @@ enum TerminalCommandDispatcher {
             return false
         }
 
-        execute(command.action, on: controller)
+        execute(command, on: controller)
         return true
     }
 
@@ -25,8 +25,8 @@ enum TerminalCommandDispatcher {
     }
 
     @MainActor
-    private static func execute(_ action: TerminalWindowCommandAction, on controller: TerminalWindowController) {
-        switch action {
+    static func execute(_ command: TerminalCommand, on controller: TerminalWindowController) {
+        switch command.action {
         case .newTab:
             controller.newTab()
         case .splitVertically:

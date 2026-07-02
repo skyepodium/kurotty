@@ -39,6 +39,13 @@ enum MainMenu {
         let nextTab = NSMenuItem(title: "Next Tab", action: #selector(AppDelegate.selectNextTab), keyEquivalent: "]")
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(nextTab)
+        fileMenu.addItem(.separator())
+        let commandPalette = NSMenuItem(title: "Command Palette...", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: "P")
+        commandPalette.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(commandPalette)
+        let saveWorkspace = NSMenuItem(title: "Save Workspace Snapshot", action: #selector(AppDelegate.saveWorkspaceSnapshot), keyEquivalent: "s")
+        saveWorkspace.keyEquivalentModifierMask = [.command, .option]
+        fileMenu.addItem(saveWorkspace)
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 

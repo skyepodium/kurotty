@@ -1511,8 +1511,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("case \"0\", \"1\", \"2\":"))
         XCTAssertTrue(surfaceSource.contains("case \"7\":"))
         XCTAssertTrue(surfaceSource.contains("private var shellIntegration = TerminalShellIntegration("))
-        XCTAssertTrue(surfaceSource.contains("let shellIntegrationEvent = shellIntegration.consumeOsc(command)"))
-        XCTAssertTrue(surfaceSource.contains("if case let .workingDirectoryChanged(path) = shellIntegrationEvent"))
+        XCTAssertTrue(surfaceSource.contains("private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event"))
+        XCTAssertTrue(surfaceSource.contains("TerminalOSCDispatcher("))
+        XCTAssertTrue(surfaceSource.contains("TerminalOSC52Policy(policy: securityPolicy)"))
+        XCTAssertTrue(surfaceSource.contains("shellIntegration = dispatcher.shellIntegration"))
+        XCTAssertTrue(surfaceSource.contains("if case let .shellIntegration(.workingDirectoryChanged(path)) = integrationEvent"))
         XCTAssertTrue(surfaceSource.contains("currentWorkingDirectory = path"))
         XCTAssertTrue(surfaceSource.contains("publishTitle()"))
         XCTAssertTrue(surfaceSource.contains("displayTitle()"))
@@ -1520,6 +1523,27 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("var terminalSurface: TerminalSurfaceView"))
         XCTAssertTrue(splitSource.contains("var primaryTerminalSurface: TerminalSurfaceView?"))
         XCTAssertTrue(splitSource.contains("func containsTerminalSurface(_ surface: TerminalSurfaceView) -> Bool"))
+    }
+
+    func testLayoutOnlyWorkspaceSnapshotDoesNotPersistRuntimeTitles() throws {
+        let windowSource = try terminalWindowControllerSource()
+        let paneSource = try terminalPaneViewSource()
+        let workspaceDescriptorSource = try XCTUnwrap(
+            windowSource.range(
+                of: "private func layoutOnlyTabDescriptors()"
+            ).flatMap { start in
+                windowSource.range(of: "private func tabID", range: start.upperBound..<windowSource.endIndex).map { end in
+                    String(windowSource[start.lowerBound..<end.lowerBound])
+                }
+            }
+        )
+
+        XCTAssertTrue(windowSource.contains("func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor"))
+        XCTAssertTrue(windowSource.contains("title: nil"))
+        XCTAssertFalse(windowSource.contains("title: window?.title"))
+        XCTAssertFalse(workspaceDescriptorSource.contains("title: item.label"))
+        XCTAssertTrue(paneSource.contains("func layoutOnlyDescriptor(id: String) -> WorkspaceSnapshotCoordinator.PaneDescriptor"))
+        XCTAssertFalse(paneSource.contains("title: displayTitle"))
     }
 
     func testFocusedTerminalDispatchesWindowShortcutsBeforePtyInput() throws {

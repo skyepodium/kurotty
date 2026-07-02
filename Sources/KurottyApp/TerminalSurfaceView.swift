@@ -1834,14 +1834,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
-        let shellIntegrationEvent = shellIntegration.consumeOsc(command)
+        let integrationEvent = dispatchTerminalIntegrationOsc(command)
 
         switch code {
         case "0", "1", "2":
             terminalTitle = payload
             publishTitle()
         case "7":
-            if case let .workingDirectoryChanged(path) = shellIntegrationEvent {
+            if case let .shellIntegration(.workingDirectoryChanged(path)) = integrationEvent {
                 currentWorkingDirectory = path
             }
             publishTitle()
@@ -1850,6 +1850,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             break
         }
+    }
+
+    private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
+        var dispatcher = TerminalOSCDispatcher(
+            osc52Policy: TerminalOSC52Policy(policy: securityPolicy),
+            shellIntegration: shellIntegration
+        )
+        let event = dispatcher.dispatch(command, origin: .unknown)
+        shellIntegration = dispatcher.shellIntegration
+        return event
     }
 
     private func notifyItermOsc9(_ payload: String) {
