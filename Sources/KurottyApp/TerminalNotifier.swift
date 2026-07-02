@@ -27,6 +27,10 @@ final class TerminalNotifier: NSObject {
     func requestAuthorization() {
         guard !didRequestAuthorization, let center else { return }
         didRequestAuthorization = true
+        Self.requestAuthorizationCallbacks(on: center)
+    }
+
+    private nonisolated static func requestAuthorizationCallbacks(on center: UNUserNotificationCenter) {
         center.getNotificationSettings { settings in
             terminalNotificationLogger.info("settings before request authorization=\(settings.authorizationStatus.rawValue, privacy: .public) alert=\(settings.alertSetting.rawValue, privacy: .public) sound=\(settings.soundSetting.rawValue, privacy: .public)")
         }
@@ -94,6 +98,10 @@ final class TerminalNotifier: NSObject {
             trigger: nil
         )
         terminalNotificationLogger.info("enqueue identifier=\(request.identifier, privacy: .public) metadata=\(metadata.description, privacy: .public)")
+        Self.enqueue(request, on: center)
+    }
+
+    private nonisolated static func enqueue(_ request: UNNotificationRequest, on center: UNUserNotificationCenter) {
         center.add(request) { error in
             if let error {
                 terminalNotificationLogger.error("delivery failed error=\(error.localizedDescription, privacy: .public)")
