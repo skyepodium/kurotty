@@ -56,3 +56,40 @@ struct TerminalResizeTrace: CustomStringConvertible {
         return String(format: "%0.2fx%0.2f", size.width, size.height)
     }
 }
+
+extension TerminalResizeCycleSnapshot {
+    init?(
+        trace: TerminalResizeTrace,
+        traceID: String? = nil,
+        source: String? = nil,
+        timestamp: TimeInterval? = nil,
+        screenColumns: Int,
+        screenRows: Int,
+        rendererColumns: Int,
+        rendererRows: Int,
+        rendererDrawableSize: TerminalFrameSize? = nil,
+        rendererFrameSize: TerminalFrameSize? = nil
+    ) {
+        guard let viewSize = trace.viewSize,
+              let cellSize = trace.cellSize
+        else {
+            return nil
+        }
+
+        self.init(
+            traceID: traceID,
+            source: source,
+            timestamp: timestamp,
+            viewportSize: viewSize,
+            cellSize: cellSize,
+            ptyColumns: trace.clampedColumns,
+            ptyRows: trace.clampedRows,
+            screenColumns: screenColumns,
+            screenRows: screenRows,
+            rendererColumns: rendererColumns,
+            rendererRows: rendererRows,
+            rendererDrawableSize: rendererDrawableSize,
+            rendererFrameSize: rendererFrameSize
+        )
+    }
+}

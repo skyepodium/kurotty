@@ -119,6 +119,98 @@ final class TerminalResizeLedgerTests: XCTestCase {
         XCTAssertFalse(snapshot.description.contains("/Users/"))
     }
 
+    func testTraceAdapterBuildsLedgerSnapshotFromExistingResizeDiagnostics() throws {
+        let trace = TerminalResizeTrace(
+            requestedColumns: 120,
+            requestedRows: 40,
+            cellSize: TerminalFrameSize(width: 9, height: 18),
+            viewSize: TerminalFrameSize(width: 1080, height: 720),
+            ioctlResult: 0,
+            ioctlErrno: nil,
+            didSendSIGWINCH: true
+        )
+
+        let snapshot = try XCTUnwrap(TerminalResizeCycleSnapshot(
+            trace: trace,
+            traceID: "resize-token",
+            source: "pty",
+            timestamp: 1.25,
+            screenColumns: 120,
+            screenRows: 40,
+            rendererColumns: 119,
+            rendererRows: 40,
+            rendererDrawableSize: TerminalFrameSize(width: 1080, height: 720),
+            rendererFrameSize: TerminalFrameSize(width: 1080, height: 720)
+        ))
+
+        XCTAssertEqual(snapshot.derivedGrid, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(snapshot.ptyWinsize, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(snapshot.screenSize, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(snapshot.renderer.gridSize, TerminalResizeGridSize(columns: 119, rows: 40))
+        XCTAssertEqual(snapshot.validationReport.issues, [
+            .rendererMismatch(
+                expected: TerminalResizeGridSize(columns: 120, rows: 40),
+                actual: TerminalResizeGridSize(columns: 119, rows: 40)
+            ),
+        ])
+        XCTAssertEqual(
+            snapshot.description,
+            "trace=resize-token source=pty timestamp=1.250 view=1080.00x720.00 cell=9.00x18.00 derived=120x40 pty=120x40 screen=120x40 renderer=119x40 drawable=1080.00x720.00 frame=1080.00x720.00 issues=1"
+        )
+        XCTAssertFalse(snapshot.description.contains("requested="))
+        XCTAssertFalse(snapshot.description.contains("token=secret"))
+        XCTAssertFalse(snapshot.description.contains("/Users/"))
+    }
+
+    func testTraceAdapterReturnsNilWhenTraceDoesNotCarryMeasurements() {
+        let trace = TerminalResizeTrace(
+            requestedColumns: 120,
+            requestedRows: 40,
+            cellSize: nil,
+            viewSize: nil,
+            ioctlResult: 0,
+            ioctlErrno: nil,
+            didSendSIGWINCH: true
+        )
+
+        XCTAssertNil(TerminalResizeCycleSnapshot(
+            trace: trace,
+            screenColumns: 120,
+            screenRows: 40,
+            rendererColumns: 120,
+            rendererRows: 40
+        ))
+    }
+
+    func testTraceAdapterPreservesWinsizeAndNonFiniteLedgerClamps() throws {
+        let trace = TerminalResizeTrace(
+            requestedColumns: 0,
+            requestedRows: 70_000,
+            cellSize: TerminalFrameSize(width: .nan, height: .infinity),
+            viewSize: TerminalFrameSize(width: .nan, height: .infinity),
+            ioctlResult: -1,
+            ioctlErrno: 25,
+            didSendSIGWINCH: false
+        )
+
+        let snapshot = try XCTUnwrap(TerminalResizeCycleSnapshot(
+            trace: trace,
+            screenColumns: 1,
+            screenRows: 1,
+            rendererColumns: 1,
+            rendererRows: 1
+        ))
+
+        XCTAssertEqual(snapshot.derivedGrid, TerminalResizeGridSize(columns: 1, rows: 1))
+        XCTAssertEqual(snapshot.ptyWinsize, TerminalResizeGridSize(columns: 1, rows: Int(UInt16.max)))
+        XCTAssertEqual(snapshot.validationReport.issues, [
+            .ptyMismatch(
+                expected: TerminalResizeGridSize(columns: 1, rows: 1),
+                actual: TerminalResizeGridSize(columns: 1, rows: Int(UInt16.max))
+            ),
+        ])
+    }
+
     private func makeSnapshot(
         traceID: String? = nil,
         source: String? = nil,

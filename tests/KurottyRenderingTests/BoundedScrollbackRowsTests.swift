@@ -13,14 +13,15 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertEqual(rows.diagnostics, .init(
             limit: 3,
             visibleRowCount: 3,
-            retainedStorageRowCount: 3,
+            retainedStorageRowCount: 5,
             droppedRowCount: 2,
-            compactionCount: 1,
+            compactionCount: 0,
             pressureLevel: .saturated
         ))
+        XCTAssertEqual(rows.row(at: 0)?.first?.character, " ")
     }
 
-    func testDiagnosticsTrackCompactionAfterDrops() {
+    func testDiagnosticsTrackSegmentedStorageAfterDrops() {
         var rows = BoundedScrollbackRows()
 
         rows.append(contentsOf: makeRows(count: 8), limit: 10)
@@ -29,9 +30,9 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertEqual(rows.count, 4)
         XCTAssertEqual(rows.diagnostics.limit, 4)
         XCTAssertEqual(rows.diagnostics.visibleRowCount, 4)
-        XCTAssertEqual(rows.diagnostics.retainedStorageRowCount, 4)
+        XCTAssertEqual(rows.diagnostics.retainedStorageRowCount, 8)
         XCTAssertEqual(rows.diagnostics.droppedRowCount, 4)
-        XCTAssertEqual(rows.diagnostics.compactionCount, 1)
+        XCTAssertEqual(rows.diagnostics.compactionCount, 0)
         XCTAssertEqual(rows.diagnostics.pressureLevel, .saturated)
     }
 
@@ -106,6 +107,43 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertEqual(rows.row(at: 1)?.first?.style.foreground, SIMD4<Float>(0.7, 0.1, 0.2, 1))
     }
 
+    func testRemappingMaterializesBeforeAppendingNewRows() {
+        let previousDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.1, 0.2, 0.3, 1),
+            background: SIMD4<Float>(0.0, 0.0, 0.0, 1)
+        )
+        let nextDefaultStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.8, 0.7, 0.6, 1),
+            background: SIMD4<Float>(0.1, 0.1, 0.1, 1)
+        )
+        let laterStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(0.2, 0.4, 0.6, 1),
+            background: SIMD4<Float>(0.0, 0.0, 0.0, 1)
+        )
+        var rows = BoundedScrollbackRows()
+        rows.append(contentsOf: [[TerminalScreenCell(style: previousDefaultStyle)]], limit: 4)
+
+        rows.remapStyle(from: previousDefaultStyle, to: nextDefaultStyle)
+        rows.append(contentsOf: [[TerminalScreenCell(style: laterStyle)]], limit: 4)
+
+        XCTAssertEqual(rows.row(at: 0)?.first?.style, nextDefaultStyle)
+        XCTAssertEqual(rows.row(at: 1)?.first?.style, laterStyle)
+    }
+
+    func testAppendAtLimitReportsNewVisibleRowsAndDropsOldestRows() {
+        var rows = BoundedScrollbackRows()
+        rows.append(contentsOf: makeRows(["one", "two", "three"]), limit: 3)
+
+        let visibleAppendCount = rows.append(contentsOf: makeRows(["four"]), limit: 3)
+
+        XCTAssertEqual(visibleAppendCount, 1)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows.row(at: 0)?.first?.character, "t")
+        XCTAssertEqual(rows.row(at: 2)?.first?.character, "f")
+        XCTAssertEqual(rows.diagnostics.droppedRowCount, 1)
+        XCTAssertGreaterThanOrEqual(rows.diagnostics.retainedStorageRowCount, rows.diagnostics.visibleRowCount)
+    }
+
     func testPressureLevelThresholds() {
         var rows = BoundedScrollbackRows()
 
@@ -127,5 +165,13 @@ final class BoundedScrollbackRowsTests: XCTestCase {
 
     private func makeRows(count: Int) -> [[TerminalScreenCell]] {
         (0..<count).map { _ in [TerminalScreenCell()] }
+    }
+
+    private func makeRows(_ textRows: [String]) -> [[TerminalScreenCell]] {
+        textRows.map { text in
+            text.map { character in
+                TerminalScreenCell(character: character)
+            }
+        }
     }
 }

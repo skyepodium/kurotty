@@ -119,4 +119,49 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertEqual(snapshot.exitCode, 127)
         XCTAssertTrue(snapshot.events.first?.text.contains("exitCode: 127") == true)
     }
+
+    func testApprovalMetadataCarriesTargetAndRedactedContextSummary() {
+        let rawToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+        let bridge = AICommandContextBridge()
+        let context = AICommandContextBridge.CommandContext(
+            command: "deploy token=\(rawToken)",
+            output: "raw output should not be summarized",
+            cwd: "/tmp/api_key=cwd-secret",
+            exitCode: 0
+        )
+
+        let metadata = bridge.approvalMetadata(
+            for: context,
+            actor: "planner-agent",
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            capability: "send-text",
+            persistenceScope: .session
+        )
+
+        XCTAssertEqual(metadata.actor, "planner-agent")
+        XCTAssertEqual(metadata.targetPaneID, "pane-1")
+        XCTAssertEqual(metadata.targetWorkspaceID, "workspace-7")
+        XCTAssertEqual(metadata.cwd, "/tmp/api_key=[REDACTED_SECRET]")
+        XCTAssertEqual(metadata.capability, "send-text")
+        XCTAssertEqual(metadata.persistenceScope, .session)
+        XCTAssertTrue(metadata.contextSummary?.contains("command: deploy token=[REDACTED_SECRET]") == true)
+        XCTAssertTrue(metadata.contextSummary?.contains("cwd: /tmp/api_key=[REDACTED_SECRET]") == true)
+        XCTAssertTrue(metadata.contextSummary?.contains("exitCode: 0") == true)
+        XCTAssertTrue(metadata.contextSummary?.contains("rawOutput: omitted") == true)
+        XCTAssertFalse(String(describing: metadata).contains(rawToken))
+        XCTAssertFalse(String(describing: metadata).contains("cwd-secret"))
+        XCTAssertFalse(String(describing: metadata).contains("raw output should not be summarized"))
+    }
+
+    func testApprovalMetadataBoundsContextSummary() {
+        let bridge = AICommandContextBridge()
+
+        let metadata = bridge.approvalMetadata(
+            for: .init(command: String(repeating: "x", count: 400), cwd: "/repo"),
+            maxContextSummaryLength: 48
+        )
+
+        XCTAssertLessThanOrEqual(metadata.contextSummary?.count ?? 0, 48)
+    }
 }

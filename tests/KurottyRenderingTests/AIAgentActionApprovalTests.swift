@@ -131,4 +131,40 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertFalse(audit.redactedPreview.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"))
         XCTAssertFalse(String(describing: audit).contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"))
     }
+
+    func testCommandContextApprovalMetadataKeepsAgentTextExplicitlyApproved() {
+        let metadata = AICommandContextBridge().approvalMetadata(
+            for: .init(
+                command: "swift test",
+                cwd: "/Users/example/project",
+                exitCode: 0
+            ),
+            actor: "planner-agent",
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            capability: "send-text"
+        )
+        let evaluator = AIAgentActionApprovalEvaluator(maxPreviewLength: 80)
+        let result = evaluator.evaluate(
+            .sendText(
+                id: "send-from-context",
+                text: "make changes",
+                metadata: metadata
+            )
+        )
+
+        XCTAssertEqual(result.decision, .ask)
+        XCTAssertEqual(result.reason, "agent terminal text requires explicit approval")
+        XCTAssertEqual(result.metadata.actor, "planner-agent")
+        XCTAssertEqual(result.metadata.targetPaneID, "pane-1")
+        XCTAssertEqual(result.metadata.targetWorkspaceID, "workspace-7")
+        XCTAssertEqual(result.metadata.cwd, "/Users/example/project")
+        XCTAssertEqual(result.metadata.capability, "send-text")
+        XCTAssertTrue(result.metadata.contextSummary?.contains("command: swift test") == true)
+
+        let approved = evaluator.approve(result)
+        XCTAssertEqual(approved.decision, .allow)
+        XCTAssertEqual(approved.reason, "approved: agent terminal text requires explicit approval")
+        XCTAssertEqual(approved.metadata, metadata)
+    }
 }

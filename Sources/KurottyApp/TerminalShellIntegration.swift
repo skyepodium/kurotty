@@ -88,21 +88,11 @@ struct TerminalShellIntegration: Equatable {
         exitCode: Int? = nil,
         text: String? = nil
     ) -> [TerminalCommandSpan] {
-        recentCommandSpans.filter { span in
-            if let cwd, span.cwd != cwd {
-                return false
-            }
-            if let exitCode, span.exitCode != exitCode {
-                return false
-            }
-            if let text {
-                guard let commandText = span.commandText else {
-                    return false
-                }
-                return commandText.localizedCaseInsensitiveContains(text)
-            }
-            return true
-        }
+        recentCommandHistoryNavigator().search(cwd: cwd, exitCode: exitCode, text: text)
+    }
+
+    func recentCommandHistoryNavigator() -> TerminalCommandHistoryNavigator {
+        TerminalCommandHistoryNavigator(spans: recentCommandSpans)
     }
 
     private mutating func consumeOsc7(_ payload: String) -> Event? {

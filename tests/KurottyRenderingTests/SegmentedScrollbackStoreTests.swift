@@ -39,6 +39,24 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertEqual((0..<3).map { store.row(at: $0) }, [2, 3, 4].map(Optional.some))
     }
 
+    func testRepeatedAppendAtLimitKeepsCapacityAndTracksDrops() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 3, segmentSize: 2)
+        store.append(contentsOf: [1, 2, 3])
+
+        XCTAssertEqual(store.append(contentsOf: [4, 5]), 2)
+
+        XCTAssertEqual(store.count, 3)
+        XCTAssertEqual((0..<3).map { store.row(at: $0) }, [3, 4, 5].map(Optional.some))
+        XCTAssertEqual(store.diagnostics.visibleRowCount, 3)
+        XCTAssertEqual(store.diagnostics.droppedRowCount, 2)
+        XCTAssertEqual(store.diagnostics.trimCount, 1)
+        XCTAssertLessThanOrEqual(store.diagnostics.segmentCount, store.diagnostics.maximumRetainedSegmentCount)
+        XCTAssertLessThanOrEqual(
+            store.diagnostics.retainedStorageRowCount,
+            store.diagnostics.maximumRetainedStorageRowCount
+        )
+    }
+
     func testExplicitTrimUpdatesLimitAndDroppedCount() {
         var store = SegmentedScrollbackStore<Int>(rowLimit: 10, segmentSize: 4)
         store.append(contentsOf: Array(0..<6))
@@ -81,6 +99,18 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
             store.diagnostics.retainedStorageRowCount,
             store.diagnostics.maximumRetainedStorageRowCount
         )
+    }
+
+    func testTailLookupAfterManySegmentDropsPreservesVisibleIndexes() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 1_000, segmentSize: 8)
+
+        store.append(contentsOf: Array(0..<20_000))
+
+        XCTAssertEqual(store.count, 1_000)
+        XCTAssertEqual(store.row(at: 0), 19_000)
+        XCTAssertEqual(store.row(at: 499), 19_499)
+        XCTAssertEqual(store.row(at: 999), 19_999)
+        XCTAssertLessThanOrEqual(store.diagnostics.segmentCount, store.diagnostics.maximumRetainedSegmentCount)
     }
 
     func testDiagnosticsDoNotExposeRowText() {

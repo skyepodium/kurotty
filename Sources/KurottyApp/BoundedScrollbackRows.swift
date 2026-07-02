@@ -18,84 +18,84 @@ struct BoundedScrollbackRows {
         case saturated
     }
 
-    private var storage: [[TerminalScreenCell]] = []
-    private var startIndex = 0
-    private var lastLimit = 0
-    private var droppedRowCount = 0
-    private var compactionCount = 0
+    private static let segmentSize = 1_024
+
+    private var storage = Self.makeStorage(rowLimit: 0)
+    private var droppedRowCountBaseline = 0
+    private var compactionCountBaseline = 0
 
     var count: Int {
-        storage.count - startIndex
+        storage.count
     }
 
     var isEmpty: Bool {
-        count == 0
+        storage.isEmpty
     }
 
     var diagnostics: Diagnostics {
-        Diagnostics(
-            limit: lastLimit,
-            visibleRowCount: count,
-            retainedStorageRowCount: storage.count,
-            droppedRowCount: droppedRowCount,
-            compactionCount: compactionCount,
-            pressureLevel: pressureLevel(visibleCount: count, limit: lastLimit)
+        let storageDiagnostics = storage.diagnostics
+        return Diagnostics(
+            limit: storageDiagnostics.rowLimit,
+            visibleRowCount: storageDiagnostics.visibleRowCount,
+            retainedStorageRowCount: storageDiagnostics.retainedStorageRowCount,
+            droppedRowCount: droppedRowCountBaseline + storageDiagnostics.droppedRowCount,
+            compactionCount: compactionCountBaseline + storageDiagnostics.compactionCount,
+            pressureLevel: pressureLevel(
+                visibleCount: storageDiagnostics.visibleRowCount,
+                limit: storageDiagnostics.rowLimit
+            )
         )
     }
 
     @discardableResult
     mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int {
         guard !newRows.isEmpty else { return 0 }
-        storage.append(contentsOf: newRows)
-        let previousCount = count - newRows.count
-        _ = trim(to: limit)
-        return max(0, count - max(0, previousCount))
+        _ = storage.trim(to: limit)
+        return storage.append(contentsOf: newRows)
     }
 
     @discardableResult
     mutating func trim(to limit: Int) -> Bool {
-        let boundedLimit = max(0, limit)
-        lastLimit = boundedLimit
-        let rowsToDrop = count - boundedLimit
-        guard rowsToDrop > 0 else {
-            compactStorageIfNeeded()
-            return false
-        }
-
-        startIndex += rowsToDrop
-        droppedRowCount += rowsToDrop
-        compactStorageIfNeeded()
-        return true
+        storage.trim(to: limit)
     }
 
     func row(at index: Int) -> [TerminalScreenCell]? {
-        guard index >= 0, index < count else { return nil }
-        return storage[startIndex + index]
+        storage.row(at: index)
     }
 
     mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
         guard previousStyle != nextStyle else { return }
-        for rowIndex in startIndex..<storage.count {
-            for columnIndex in storage[rowIndex].indices where storage[rowIndex][columnIndex].style == previousStyle {
-                storage[rowIndex][columnIndex].style = nextStyle
+        remapRows { row in
+            for columnIndex in row.indices where row[columnIndex].style == previousStyle {
+                row[columnIndex].style = nextStyle
             }
         }
     }
 
     mutating func remapColors(_ colorMap: TerminalStyleColorMap) {
-        for rowIndex in startIndex..<storage.count {
-            for columnIndex in storage[rowIndex].indices {
-                storage[rowIndex][columnIndex].style = storage[rowIndex][columnIndex].style.remappingColors(colorMap)
+        remapRows { row in
+            for columnIndex in row.indices {
+                row[columnIndex].style = row[columnIndex].style.remappingColors(colorMap)
             }
         }
     }
 
     private mutating func compactStorageIfNeeded() {
-        guard startIndex > 0 else { return }
-        guard startIndex >= storage.count / 2 || startIndex == storage.count else { return }
-        storage.removeSubrange(0..<startIndex)
-        startIndex = 0
-        compactionCount += 1
+        _ = storage.trim(to: storage.diagnostics.rowLimit)
+    }
+
+    private mutating func remapRows(_ transform: (inout [TerminalScreenCell]) -> Void) {
+        let previousDiagnostics = storage.diagnostics
+        let remappedRows = (0..<storage.count).compactMap { index -> [TerminalScreenCell]? in
+            guard var row = storage.row(at: index) else { return nil }
+            transform(&row)
+            return row
+        }
+
+        droppedRowCountBaseline += previousDiagnostics.droppedRowCount
+        compactionCountBaseline += previousDiagnostics.compactionCount
+        storage = Self.makeStorage(rowLimit: previousDiagnostics.rowLimit)
+        _ = storage.append(contentsOf: remappedRows)
     }
 
     private func pressureLevel(visibleCount: Int, limit: Int) -> PressureLevel {
@@ -112,5 +112,9 @@ struct BoundedScrollbackRows {
             return .elevated
         }
         return .low
+    }
+
+    private static func makeStorage(rowLimit: Int) -> SegmentedScrollbackStore<[TerminalScreenCell]> {
+        SegmentedScrollbackStore(rowLimit: rowLimit, segmentSize: segmentSize)
     }
 }

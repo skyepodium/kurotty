@@ -150,13 +150,30 @@ Responsibilities:
 - Keep the measured viewport, derived terminal grid size, PTY winsize, screen size, and renderer drawable size synchronized through one resize cycle.
 - Coalesce redundant resize events without hiding the final size from the PTY or renderer.
 - Make resize mismatches diagnosable from metadata logs without recording terminal contents.
+- Use `TerminalResizeTrace` and `TerminalResizeCycleSnapshot` as the bridge between resize diagnostics and future live resize observability.
 
 Design rules:
 
 - A resize cycle follows this order: measure viewport pixels, derive rows and columns from cell metrics, apply PTY winsize, resize the screen model, invalidate renderer frame state.
 - Each cycle should have a trace record with old and new pixel size, cell size, rows, columns, PTY result, screen result, renderer drawable size, and timestamp.
+- Resize diagnostics compare derived grid, PTY winsize, screen size, and renderer size. They report mismatches; they must not mutate layout, screen state, PTY state, or renderer state by themselves.
 - Renderer clipping bugs should be debugged with cell rects, glyph bounds, dirty rects, scissor rects, and atlas slot metadata before changing terminal model semantics.
 - Full redraw paths are allowed as correctness fallbacks, but they are scaffold debt until damage and clipping evidence proves narrower redraws.
+
+### Runtime Event Observability
+
+Responsibilities:
+
+- Correlate PTY reads, parser output, screen mutations, and renderer frames under stable trace IDs.
+- Retain bounded diagnostics that summarize counts, kinds, byte counts, dirty regions, full redraws, and dropped events.
+- Keep observability metadata separate from raw terminal content.
+
+Design rules:
+
+- `TerminalEventLedger` records event kind metadata only: PTY read byte counts, parser event categories, screen mutation counts, and render-frame counts.
+- Trace summaries may aggregate retained metadata by `TerminalEventTraceID`, but must not include raw PTY bytes, printable terminal text, pasted text, command output, secrets, paths, or environment values.
+- Live integration should attach trace IDs at boundary crossings instead of inventing separate logs for parser, screen, renderer, command, or AI workflows.
+- Bounded retention is part of the contract. Dropped-event counts are acceptable diagnostics; unbounded event retention is not.
 
 ### IME And Text Input
 
@@ -179,11 +196,14 @@ Responsibilities:
 - Detect command lifecycle, cwd, prompt/output ranges, exit code, and duration without requiring a shell script for basic behavior.
 - Keep terminal core behavior correct when shell integration is disabled, unavailable, remote, or partially supported.
 - Provide command spans that search, copy mode, workspace restore, and AI context can reference without owning terminal cells.
+- Keep command history navigation and AI context export based on command-span metadata, not scraped screen rows.
 
 Design rules:
 
 - Start with passive OSC 7 and OSC 133 support before adding shell-specific opt-in scripts.
 - Command spans belong outside the screen model, but may reference scrollback ranges and screen snapshots.
+- `TerminalShellIntegration` owns OSC 7/OSC 133 command-span state. `TerminalCommandRegistry` owns user-visible app/window command identifiers and shortcuts. Keep those concepts separate.
+- AI command context should use `AICommandContextBridge.CommandContext` or `TerminalCommandSpan` data and include raw output only after policy approval.
 - Raw terminal output, pasted text, environment variables, and command history are sensitive. Persist them only for explicit user-requested features with redaction and retention limits.
 - Shell integration must degrade cleanly for remote shells, unsupported shells, and users who decline scripts.
 
@@ -195,6 +215,7 @@ Responsibilities:
 - Provide a visible agent panel or side surface that is separate from the terminal viewport and terminal core.
 - Let users approve AI actions that can send text, paste commands, run commands, read sensitive context, or persist output.
 - Keep terminal core behavior correct when AI features are disabled.
+- Produce audit records that identify actor, target pane or workspace, cwd when known, requested capability, persistence scope, decision, reason, and redacted preview.
 
 Design rules:
 
@@ -202,6 +223,7 @@ Design rules:
 - The agent panel may reference terminal ranges, command spans, panes, and workspace objects by stable identifiers. It should not copy raw output into long-lived storage unless the user enabled that retention mode.
 - Approval UI must show the target pane, working directory when known, command or text to be sent, context being shared, and whether the action is one-time or remembered.
 - Default policy is observe-redacted, ask-before-act. Any persistent permission needs a visible revocation path in preferences.
+- Redacted context export may be allowed by policy. Raw terminal output export requires redaction and explicit approval. Agent-sent terminal text always requires explicit approval before it reaches the session.
 - Agent status belongs in pane chrome, status surfaces, or the agent panel. Do not decorate terminal output cells to imply AI ownership.
 
 ### Workspace, Tabs, And Splits
