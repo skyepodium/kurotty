@@ -17,6 +17,9 @@ final class TerminalGlyphRunTests: XCTestCase {
 
         XCTAssertEqual(run.source.text, "e\u{301}")
         XCTAssertEqual(run.source.range, TerminalGlyphSourceRange(utf16Location: 4, utf16Length: 2))
+        XCTAssertEqual(run.source.graphemeClusters.map(\.text), ["e\u{301}"])
+        XCTAssertEqual(run.source.graphemeClusters.first?.range, TerminalGlyphSourceRange(utf16Location: 4, utf16Length: 2))
+        XCTAssertEqual(run.source.graphemeClusters.first?.terminalCellWidth, 1)
         XCTAssertEqual(run.terminalCellWidth, 1)
         XCTAssertTrue(run.diagnosticFlags.contains(.containsCombiningMarks))
         XCTAssertFalse(run.diagnosticFlags.contains(.wideCluster))
@@ -30,7 +33,15 @@ final class TerminalGlyphRunTests: XCTestCase {
             sourceText: "한",
             sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1),
             fallbackFont: .primary(name: "Menlo", identifier: "menlo-regular"),
-            glyphs: [TerminalGlyph(glyphID: 4001, sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1))],
+            glyphs: [
+                TerminalGlyph(
+                    glyphID: 4001,
+                    sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1),
+                    terminalCellWidth: 2,
+                    advance: TerminalGlyphAdvance(x: 18, y: 0),
+                    bounds: TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16)
+                ),
+            ],
             advance: TerminalGlyphAdvance(x: 18, y: 0),
             bounds: TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16),
             atlasKey: TerminalGlyphAtlasKey(value: "Menlo/hangul/15/1x")
@@ -46,8 +57,20 @@ final class TerminalGlyphRunTests: XCTestCase {
         )
 
         XCTAssertEqual(korean.terminalCellWidth, 2)
+        XCTAssertEqual(korean.source.graphemeClusters.first?.terminalCellWidth, 2)
+        XCTAssertEqual(korean.glyphs.first?.terminalCellWidth, 2)
+        XCTAssertEqual(korean.glyphs.first?.advance, TerminalGlyphAdvance(x: 18, y: 0))
+        XCTAssertEqual(korean.glyphs.first?.bounds, TerminalGlyphBounds(x: 0, y: -3, width: 17, height: 16))
         XCTAssertTrue(korean.diagnosticFlags.contains(.wideCluster))
         XCTAssertEqual(emoji.terminalCellWidth, 2)
+        XCTAssertEqual(emoji.source.graphemeClusters, [
+            TerminalGlyphSourceGraphemeCluster(
+                text: "🧑‍💻",
+                range: TerminalGlyphSourceRange(utf16Location: 1, utf16Length: 5),
+                terminalCellWidth: 2,
+                unicodeScalarValues: [0x1f9d1, 0x200d, 0x1f4bb]
+            ),
+        ])
         XCTAssertTrue(emoji.diagnosticFlags.contains(.wideCluster))
         XCTAssertTrue(emoji.diagnosticFlags.contains(.containsZeroWidthJoiner))
         XCTAssertEqual(emoji.fallbackFont.requestedPresentation, .emoji)
@@ -91,5 +114,33 @@ final class TerminalGlyphRunTests: XCTestCase {
         XCTAssertEqual(run.glyphs.count, 1)
         XCTAssertEqual(run.terminalCellWidth, 2)
         XCTAssertTrue(run.diagnosticFlags.contains(.ligatureCluster))
+    }
+
+    func testAtlasKeyCanSeparateFontPresentationSourceGlyphAndScaleIdentity() {
+        let cjkKey = TerminalGlyphAtlasKey.separated(
+            fontIdentifier: "menlo-regular",
+            presentation: .cjk,
+            sourceFingerprint: "U+D55C",
+            glyphIDs: [4001],
+            pointSizePixels: 18,
+            scale: 2
+        )
+        let emojiKey = TerminalGlyphAtlasKey.separated(
+            fontIdentifier: "apple-color-emoji",
+            presentation: .emoji,
+            sourceFingerprint: "U+1F9D1-U+200D-U+1F4BB",
+            glyphIDs: [90210],
+            pointSizePixels: 18,
+            scale: 2
+        )
+
+        XCTAssertNotEqual(cjkKey, emojiKey)
+        XCTAssertEqual(cjkKey.fontIdentifier, "menlo-regular")
+        XCTAssertEqual(cjkKey.presentation, .cjk)
+        XCTAssertEqual(cjkKey.sourceFingerprint, "U+D55C")
+        XCTAssertEqual(cjkKey.glyphIDs, [4001])
+        XCTAssertEqual(cjkKey.pointSizePixels, 18)
+        XCTAssertEqual(cjkKey.scale, 2)
+        XCTAssertTrue(cjkKey.value.contains("menlo-regular/cjk/U+D55C/4001/18px/2x"))
     }
 }

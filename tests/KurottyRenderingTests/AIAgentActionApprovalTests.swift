@@ -167,4 +167,88 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertEqual(approved.reason, "approved: agent terminal text requires explicit approval")
         XCTAssertEqual(approved.metadata, metadata)
     }
+
+    func testCommandOutputExportApprovalCarriesReferenceAndRedactsRawPreview() throws {
+        let rawToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+        let span = TerminalCommandSpan(
+            id: 11,
+            cwd: "/repo",
+            startBoundarySequence: 30,
+            endBoundarySequence: 34,
+            exitCode: 0,
+            promptBoundarySequence: 29,
+            outputBoundarySequence: 32,
+            commandText: "cat report"
+        )
+        let metadata = AICommandContextBridge().approvalMetadata(
+            for: .init(span: span, output: "token=\(rawToken)"),
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            capability: "command-output-export",
+            includesRawOutput: true,
+            rawOutputApproved: false,
+            secretRedactionEnabled: true
+        )
+        let evaluator = AIAgentActionApprovalEvaluator(maxPreviewLength: 120)
+
+        let result = evaluator.evaluate(
+            .exportContext(
+                id: "export-command-output",
+                rawContext: "token=\(rawToken)",
+                includesRawOutput: true,
+                secretRedactionEnabled: true,
+                metadata: metadata
+            )
+        )
+
+        let commandOutput = try XCTUnwrap(result.metadata.commandOutput)
+        XCTAssertEqual(result.decision, .ask)
+        XCTAssertEqual(result.reason, "raw context export requires explicit approval")
+        XCTAssertEqual(commandOutput.reference.commandSpanID, 11)
+        XCTAssertEqual(commandOutput.reference.targetPaneID, "pane-1")
+        XCTAssertEqual(commandOutput.reference.targetWorkspaceID, "workspace-7")
+        XCTAssertTrue(commandOutput.includesRawOutput)
+        XCTAssertFalse(commandOutput.rawOutputApproved)
+        XCTAssertTrue(commandOutput.secretRedactionEnabled)
+        XCTAssertTrue(commandOutput.explicitApprovalRequired)
+        XCTAssertTrue(result.redactedPreview.contains("token=[REDACTED_SECRET]"))
+        XCTAssertFalse(String(describing: result.auditRecord()).contains(rawToken))
+
+        let approved = evaluator.approve(result)
+        let approvedCommandOutput = try XCTUnwrap(approved.metadata.commandOutput)
+        XCTAssertEqual(approved.decision, .allow)
+        XCTAssertTrue(approvedCommandOutput.rawOutputApproved)
+        XCTAssertFalse(approvedCommandOutput.explicitApprovalRequired)
+        XCTAssertFalse(String(describing: approved.auditRecord()).contains(rawToken))
+    }
+
+    func testApprovingUnrelatedAskDoesNotApproveCommandOutputExportMetadata() throws {
+        let metadata = AIAgentActionApprovalMetadata(
+            capability: "send-text",
+            commandOutput: AICommandOutputApprovalMetadata(
+                reference: AICommandContextReference(commandSpanID: 42),
+                includesRawOutput: true,
+                rawOutputApproved: false,
+                secretRedactionEnabled: true,
+                explicitApprovalRequired: true
+            )
+        )
+        let evaluator = AIAgentActionApprovalEvaluator(maxPreviewLength: 80)
+
+        let result = evaluator.evaluate(
+            .sendText(
+                id: "send-with-command-output-reference",
+                text: "echo ok",
+                metadata: metadata
+            )
+        )
+        let approved = evaluator.approve(result)
+
+        let commandOutput = try XCTUnwrap(approved.metadata.commandOutput)
+        XCTAssertEqual(result.decision, .ask)
+        XCTAssertEqual(approved.decision, .allow)
+        XCTAssertTrue(commandOutput.includesRawOutput)
+        XCTAssertFalse(commandOutput.rawOutputApproved)
+        XCTAssertTrue(commandOutput.explicitApprovalRequired)
+    }
 }

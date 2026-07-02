@@ -360,3 +360,100 @@ struct TerminalEventLedger: CustomStringConvertible {
         }
     }
 }
+
+struct TerminalRuntimeEventBatch: CustomStringConvertible {
+    let traceID: TerminalEventTraceID
+    let capacity: Int
+    private(set) var recordedEvents: [TerminalEventLedger.RecordedEvent] = []
+    private(set) var droppedEventCount = 0
+
+    init(traceID: TerminalEventTraceID, capacity: Int = 1_024) {
+        self.traceID = traceID
+        self.capacity = max(0, capacity)
+    }
+
+    var summary: TerminalEventLedger.TraceSummary {
+        let kindCounts = Dictionary(grouping: recordedEvents, by: \.payload.kind)
+            .mapValues(\.count)
+
+        let ptyReadByteCount = recordedEvents.reduce(0) { count, event in
+            guard case let .ptyRead(byteCount) = event.payload else {
+                return count
+            }
+            return count + byteCount
+        }
+
+        let parserEventByteCount = recordedEvents.reduce(0) { count, event in
+            guard case let .parserEvent(parserEvent) = event.payload else {
+                return count
+            }
+            return count + parserEvent.byteCount
+        }
+
+        let renderFrames = recordedEvents.compactMap { event -> TerminalEventLedger.RenderFrame? in
+            guard case let .renderFrame(frame) = event.payload else {
+                return nil
+            }
+            return frame
+        }
+
+        return TerminalEventLedger.TraceSummary(
+            traceID: traceID,
+            eventCount: recordedEvents.count,
+            kindCounts: kindCounts,
+            ptyReadByteCount: ptyReadByteCount,
+            parserEventByteCount: parserEventByteCount,
+            screenMutationCount: kindCounts[.screenMutation, default: 0],
+            renderFrameCount: renderFrames.count,
+            dirtyRegionCount: renderFrames.reduce(0) { $0 + $1.dirtyRegionCount },
+            fullRedrawCount: renderFrames.filter(\.fullRedraw).count,
+            firstSequence: nil,
+            lastSequence: nil,
+            droppedEventCount: droppedEventCount
+        )
+    }
+
+    var description: String {
+        summary.description
+    }
+
+    mutating func recordPtyRead(metadata: TerminalRawPtyLogMetadata) {
+        recordPtyRead(byteCount: metadata.byteCount)
+    }
+
+    mutating func recordPtyRead(byteCount: Int) {
+        append(.ptyRead(traceID: traceID, byteCount: byteCount))
+    }
+
+    mutating func recordParserEvent(_ event: TerminalEventLedger.ParserEvent) {
+        append(.parserEvent(traceID: traceID, event: event))
+    }
+
+    mutating func recordScreenMutation(_ mutation: TerminalEventLedger.ScreenMutation) {
+        append(.screenMutation(traceID: traceID, mutation: mutation))
+    }
+
+    mutating func recordRenderFrame(_ frame: TerminalEventLedger.RenderFrame) {
+        append(.renderFrame(traceID: traceID, frame: frame))
+    }
+
+    @discardableResult
+    func commit(to ledger: inout TerminalEventLedger) -> TerminalEventLedger.TraceSummary {
+        ledger.recordBatch(recordedEvents)
+        return ledger.summary(for: traceID)
+    }
+
+    private mutating func append(_ event: TerminalEventLedger.RecordedEvent) {
+        guard capacity > 0 else {
+            droppedEventCount += 1
+            return
+        }
+
+        recordedEvents.append(event)
+        let overflow = recordedEvents.count - capacity
+        if overflow > 0 {
+            droppedEventCount += overflow
+            recordedEvents.removeFirst(overflow)
+        }
+    }
+}

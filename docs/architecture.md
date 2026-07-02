@@ -39,6 +39,19 @@ The runtime foundation is an integration surface, not a second terminal model. I
 
 These boundaries are intentionally metadata-first. When live integration is added, app code should wire existing session, screen, renderer, and security services into these contracts instead of introducing parallel histories, raw-output logs, or AI-specific shortcuts around terminal ownership.
 
+## Current Runtime Timeline Slice
+
+The branch `feature/runtime-timeline-render-shell-integration` should make runtime metadata easier to follow across existing surfaces. It is not a rewrite of terminal ownership.
+
+| Slice | Direction | Focused verification |
+| --- | --- | --- |
+| Timeline | Connect resize, PTY read, parser, screen mutation, render frame, shell command span, and AI approval/context metadata through stable trace IDs. Keep every event metadata-only and bounded. | `swift test --filter TerminalEventLedgerTests` and `swift test --filter TerminalResizeLedgerTests` |
+| Render | Keep `TerminalRenderFrame` as the renderer contract. Use dirty-region, scissor, glyph-bound, and pixel-probe evidence before changing screen semantics. | `swift test --filter TerminalPixelProbeTests` and `swift test --filter GlyphRenderingRegressionTests` |
+| Shell | Treat OSC 7/OSC 133 command spans as app-layer metadata that can be referenced by search, workspace restore, and AI context. Do not use command spans as a second parser or screen model. | `swift test --filter TerminalOSCDispatcherTests`, `swift test --filter TerminalShellIntegrationTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
+| AI | Feed redacted command and pane context into approval-gated actions. Record approval metadata and redacted previews, not raw terminal output or hidden direct PTY mutations. | `swift test --filter AIContextLayerTests`, `swift test --filter AICommandContextBridgeTests`, and `swift test --filter AIAgentActionApprovalTests` |
+
+Shell capability descriptors in this slice are declarative defaults, not session-derived proof that a shell has installed opt-in integration. UI, audit, and AI surfaces should treat them as baseline support metadata until a later runtime detector records per-session evidence.
+
 ## Metal Renderer
 
 `TerminalRenderFrame` defines the renderer-facing frame contract without AppKit, Metal, `CGRect`, `CGSize`, or `NSRange` types. `TerminalMetalView` adapts that contract to `MTKView`, CoreText glyph rasterization, Metal buffers, dirty-rect invalidation, and presentation callbacks.
