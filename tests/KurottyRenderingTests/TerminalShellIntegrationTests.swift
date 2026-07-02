@@ -30,6 +30,7 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(event, .promptStart)
         XCTAssertEqual(integration.currentBoundary, .promptStart)
         XCTAssertFalse(integration.isCommandActive)
+        XCTAssertNil(integration.activeCommandSpan)
     }
 
     func testOsc133CommandStartMarksCommandActive() {
@@ -83,5 +84,78 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertNil(integration.consumeOsc("133;Z;payload"))
 
         XCTAssertEqual(integration, snapshot)
+    }
+
+    func testOsc133LifecycleProducesCompletedCommandSpanWithCwd() throws {
+        var integration = TerminalShellIntegration()
+
+        _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        let activeSpan = try XCTUnwrap(integration.activeCommandSpan)
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;7")
+
+        XCTAssertNil(integration.activeCommandSpan)
+        let span = try XCTUnwrap(integration.recentCommandSpans.first)
+        XCTAssertEqual(span.id, activeSpan.id)
+        XCTAssertEqual(span.cwd, "/Users/skye/project")
+        XCTAssertEqual(span.startBoundarySequence, 2)
+        XCTAssertEqual(span.promptBoundarySequence, 1)
+        XCTAssertEqual(span.outputBoundarySequence, 3)
+        XCTAssertEqual(span.endBoundarySequence, 4)
+        XCTAssertEqual(span.exitCode, 7)
+        XCTAssertNil(span.commandText)
+    }
+
+    func testRecentCommandHistoryIsBounded() {
+        var integration = TerminalShellIntegration(recentCommandSpanLimit: 2)
+
+        completeCommand(exitCode: 0, in: &integration)
+        completeCommand(exitCode: 1, in: &integration)
+        completeCommand(exitCode: 2, in: &integration)
+
+        XCTAssertEqual(integration.recentCommandSpans.map(\.exitCode), [1, 2])
+    }
+
+    func testCommandSpanSearchFiltersByCwdExitCodeAndTextWhenPresent() {
+        var integration = TerminalShellIntegration()
+
+        completeCommand(cwd: "/repo/a", commandText: "swift test", exitCode: 0, in: &integration)
+        completeCommand(cwd: "/repo/b", commandText: "swift build", exitCode: 1, in: &integration)
+        completeCommand(cwd: "/repo/a", commandText: nil, exitCode: 1, in: &integration)
+
+        XCTAssertEqual(
+            integration.searchRecentCommandSpans(cwd: "/repo/a").map(\.commandText),
+            ["swift test", nil]
+        )
+        XCTAssertEqual(
+            integration.searchRecentCommandSpans(exitCode: 1).map(\.cwd),
+            ["/repo/b", "/repo/a"]
+        )
+        XCTAssertEqual(
+            integration.searchRecentCommandSpans(text: "BUILD").map(\.cwd),
+            ["/repo/b"]
+        )
+        XCTAssertEqual(
+            integration.searchRecentCommandSpans(cwd: "/repo/a", exitCode: 1, text: "swift").count,
+            0
+        )
+    }
+
+    private func completeCommand(
+        cwd: String? = nil,
+        commandText: String? = nil,
+        exitCode: Int,
+        in integration: inout TerminalShellIntegration
+    ) {
+        if let cwd {
+            _ = integration.consumeOsc("7;file://localhost\(cwd)")
+        }
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        integration.setActiveCommandText(commandText)
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;\(exitCode)")
     }
 }
