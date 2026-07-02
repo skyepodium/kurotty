@@ -796,7 +796,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
-        XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect.cgRect)"))
+        XCTAssertTrue(metalSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
+        XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
         XCTAssertFalse(metalSource.contains("private struct InputLineLayout"))
         XCTAssertFalse(metalSource.contains("inputLineBackgroundInstanceBuffer"))
@@ -824,6 +825,28 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)"))
         XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, style: currentStyle)"))
         XCTAssertFalse(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
+    }
+
+    func testTerminalMetalViewExposesDamageInvalidationDiagnostics() throws {
+        let metalSource = try terminalMetalViewSource()
+        let updateSource = try functionBody(named: "update", in: metalSource)
+        let logSource = try functionBody(named: "logFrameStartIfNeeded", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("struct TerminalRenderDamageDiagnostics"))
+        XCTAssertTrue(metalSource.contains("let redrawDecision: RedrawDecision"))
+        XCTAssertTrue(metalSource.contains("let dirtyRectCount: Int"))
+        XCTAssertTrue(metalSource.contains("let scissorDisabled: Bool"))
+        XCTAssertTrue(metalSource.contains("let submittedDisplayRects: [CGRect]"))
+        XCTAssertTrue(metalSource.contains("var damageDiagnostics: TerminalRenderDamageDiagnostics"))
+        XCTAssertTrue(metalSource.contains("var lastSubmittedDisplayRectsForDiagnostics: [CGRect]"))
+        XCTAssertTrue(metalSource.contains("var lastFrameScissorWasDisabledForDiagnostics: Bool"))
+        XCTAssertTrue(updateSource.contains("TerminalRenderDamageDiagnostics.make("))
+        XCTAssertTrue(updateSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
+        XCTAssertTrue(updateSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)"))
+        XCTAssertTrue(logSource.contains("redrawDecision=%@"))
+        XCTAssertTrue(logSource.contains("submittedDisplayRects=%@"))
+        XCTAssertTrue(logSource.contains("damageDiagnostics.dirtyRectCount"))
+        XCTAssertTrue(logSource.contains("damageDiagnostics.scissorDisabled ? \"yes\" : \"no\""))
     }
 
     func testPtyOutputIsCoalescedBeforeRenderingToAvoidTransientClearedRows() throws {
@@ -905,7 +928,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
         XCTAssertTrue(surfaceSource.contains("renderer.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
-        XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect.cgRect)\n            }\n        }"))
+        XCTAssertTrue(metalSource.contains("TerminalRenderDamageDiagnostics.make("))
+        XCTAssertTrue(metalSource.contains("submittedDisplayRects: [bounds]"))
+        XCTAssertTrue(metalSource.contains("submittedDisplayRects: frame.dirtyRects.map(\\.cgRect)"))
+        XCTAssertTrue(metalSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
         XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
     }
@@ -1482,10 +1508,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("override func becomeFirstResponder() -> Bool"))
         XCTAssertTrue(surfaceSource.contains("case \"0\", \"1\", \"2\":"))
         XCTAssertTrue(surfaceSource.contains("case \"7\":"))
-        XCTAssertTrue(surfaceSource.contains("updateWorkingDirectory(fromOsc7: payload)"))
+        XCTAssertTrue(surfaceSource.contains("private var shellIntegration = TerminalShellIntegration("))
+        XCTAssertTrue(surfaceSource.contains("let shellIntegrationEvent = shellIntegration.consumeOsc(command)"))
+        XCTAssertTrue(surfaceSource.contains("if case let .workingDirectoryChanged(path) = shellIntegrationEvent"))
+        XCTAssertTrue(surfaceSource.contains("currentWorkingDirectory = path"))
         XCTAssertTrue(surfaceSource.contains("publishTitle()"))
         XCTAssertTrue(surfaceSource.contains("displayTitle()"))
-        XCTAssertTrue(surfaceSource.contains("URL(string: payload)"))
 
         XCTAssertTrue(paneSource.contains("var terminalSurface: TerminalSurfaceView"))
         XCTAssertTrue(splitSource.contains("var primaryTerminalSurface: TerminalSurfaceView?"))

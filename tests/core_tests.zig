@@ -295,6 +295,74 @@ test "parser bounds oversized OSC buffers and resynchronizes at string terminato
     try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
 }
 
+test "screen mutation recorder captures parser intent without mutating grid" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("hi\x1b[2J!");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 4, .height = 2 });
+    defer recorder.deinit();
+
+    var grid = try core.Grid.init(std.testing.allocator, 4, 2);
+    defer grid.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 3), recorder.items().len);
+    try std.testing.expectEqualStrings("hi", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 0), recorder.items()[0].printable.row);
+    try std.testing.expectEqual(@as(usize, 0), recorder.items()[0].printable.col);
+    try std.testing.expectEqual(@as(usize, 2), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 2), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(u8, 'J'), recorder.items()[1].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{2}, recorder.items()[1].csi.params);
+    try std.testing.expectEqualStrings("!", recorder.items()[2].printable.bytes);
+    try std.testing.expectEqualStrings("    ", grid.rowText(0));
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorRow());
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorCol());
+}
+
+test "screen mutation recorder bounds printable cells for wide-ish row writes" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("AＢC");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 3, .height = 1 });
+    defer recorder.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.items().len);
+    try std.testing.expectEqualStrings("AＢ", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 3), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 4), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(usize, 3), recorder.cursorCol());
+    try std.testing.expect(recorder.items()[0].printable.cell_count <= recorder.widthCells());
+}
+
+test "screen mutation recorder does not split wide printable across final cell" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("A界");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 2, .height = 1 });
+    defer recorder.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.items().len);
+    try std.testing.expectEqualStrings("A", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 1), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 3), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(usize, 1), recorder.cursorCol());
+}
+
 test "grid applies printable text, cursor movement, and erase in display" {
     var grid = try core.Grid.init(std.testing.allocator, 4, 3);
     defer grid.deinit();

@@ -81,15 +81,38 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
 
     func resize(columns: Int, rows: Int) {
         guard master >= 0 else { return }
+        let trace = TerminalResizeTrace(
+            requestedColumns: columns,
+            requestedRows: rows,
+            cellSize: nil,
+            viewSize: nil,
+            ioctlResult: 0,
+            ioctlErrno: nil,
+            didSendSIGWINCH: false
+        )
         var size = winsize(
-            ws_row: UInt16(max(1, rows)),
-            ws_col: UInt16(max(1, columns)),
+            ws_row: UInt16(trace.clampedRows),
+            ws_col: UInt16(trace.clampedColumns),
             ws_xpixel: 0,
             ws_ypixel: 0
         )
-        _ = ioctl(master, TIOCSWINSZ, &size)
+        let ioctlResult = ioctl(master, TIOCSWINSZ, &size)
+        let ioctlErrno = ioctlResult == -1 ? errno : nil
+        var didSendSIGWINCH = false
         if childPid > 0 {
-            kill(childPid, SIGWINCH)
+            didSendSIGWINCH = kill(childPid, SIGWINCH) == 0
+        }
+        if DebugOptions.ptyLog {
+            let completedTrace = TerminalResizeTrace(
+                requestedColumns: columns,
+                requestedRows: rows,
+                cellSize: nil,
+                viewSize: nil,
+                ioctlResult: Int32(ioctlResult),
+                ioctlErrno: ioctlErrno,
+                didSendSIGWINCH: didSendSIGWINCH
+            )
+            NSLog("Kurotty PTY resize: %@", completedTrace.description)
         }
     }
 
