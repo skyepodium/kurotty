@@ -150,6 +150,49 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummaryUsesLatestCodexAnswerBlockInsteadOfSubmittedPrompt() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            Tip: Use /side to start a side conversation in a temporary fork
+
+            • You have 4 usage limit resets available. Run /usage to use one.
+
+            ⚠ failed to parse hooks config /Users/skyepodium/.codex/hooks.json
+              column 9
+
+            › 안녕하세요
+
+            • superpowers:using-superpowers 지침을 먼저 확인한 뒤, 간단히 응답
+
+            • Explored
+              └ Read SKILL.md (superpowers:using-superpowers skill)
+
+            • 안녕하세요. 무엇을 도와드릴까요?
+
+            ────────────────────────────────────────
+
+            › Summarize recent commits
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+    }
+
+    func testNotificationSummaryRemovesInlineCodexStatusFragments() {
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            • 안녕하세요. 무엇을 도와드릴까요?•Work55
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+
+        XCTAssertEqual(
+            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
+            • 안녕하세요. 무엇을 도와드릴까요? · Ready · Workspace
+            """),
+            "• 안녕하세요. 무엇을 도와드릴까요?"
+        )
+    }
+
     func testNotificationSummarySkipsUsageStatusFromOutputText() {
         XCTAssertNil(
             TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
@@ -193,6 +236,62 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(metadata.byteCount, data.count)
         XCTAssertFalse(metadata.description.contains("token=secret"))
         XCTAssertFalse(metadata.description.contains("746F6B656E"))
+    }
+
+    func testResizeTraceClampsRequestedDimensionsToPtyWinsizeRange() {
+        let trace = TerminalResizeTrace(
+            requestedColumns: 0,
+            requestedRows: 70_000,
+            cellSize: nil,
+            viewSize: nil,
+            ioctlResult: 0,
+            ioctlErrno: nil,
+            didSendSIGWINCH: true
+        )
+
+        XCTAssertEqual(trace.requestedColumns, 0)
+        XCTAssertEqual(trace.requestedRows, 70_000)
+        XCTAssertEqual(trace.clampedColumns, 1)
+        XCTAssertEqual(trace.clampedRows, Int(UInt16.max))
+        XCTAssertTrue(trace.description.contains("requested=0x70000"))
+        XCTAssertTrue(trace.description.contains("clamped=1x65535"))
+        XCTAssertTrue(trace.description.contains("sigwinch=sent"))
+    }
+
+    func testResizeTraceFormatsOptionalViewAndIoctlMetadataOnly() {
+        let trace = TerminalResizeTrace(
+            requestedColumns: 120,
+            requestedRows: 40,
+            cellSize: TerminalFrameSize(width: 9.25, height: 18.5),
+            viewSize: TerminalFrameSize(width: 1110.0, height: 740.0),
+            ioctlResult: -1,
+            ioctlErrno: 25,
+            didSendSIGWINCH: false
+        )
+
+        XCTAssertEqual(trace.clampedColumns, 120)
+        XCTAssertEqual(trace.clampedRows, 40)
+        XCTAssertTrue(trace.description.contains("requested=120x40"))
+        XCTAssertTrue(trace.description.contains("clamped=120x40"))
+        XCTAssertTrue(trace.description.contains("cell=9.25x18.50"))
+        XCTAssertTrue(trace.description.contains("view=1110.00x740.00"))
+        XCTAssertTrue(trace.description.contains("ioctl=-1 errno=25"))
+        XCTAssertTrue(trace.description.contains("sigwinch=not-sent"))
+        XCTAssertFalse(trace.description.contains("token="))
+        XCTAssertFalse(trace.description.contains("/Users/"))
+    }
+
+    func testDarwinResizeLogsTraceMetadataWhenPtyLoggingIsEnabled() throws {
+        let source = try shellSessionSource()
+
+        XCTAssertTrue(source.contains("TerminalResizeTrace("))
+        XCTAssertTrue(source.contains("UInt16(trace.clampedRows)"))
+        XCTAssertTrue(source.contains("UInt16(trace.clampedColumns)"))
+        XCTAssertTrue(source.contains("ioctlResult == -1 ? errno : nil"))
+        XCTAssertTrue(source.contains("if DebugOptions.ptyLog"))
+        XCTAssertTrue(source.contains("Kurotty PTY resize"))
+        XCTAssertFalse(source.contains("UInt16(max(1, rows))"))
+        XCTAssertFalse(source.contains("UInt16(max(1, columns))"))
     }
 
     func testStyleRunSummaryReportsRangesWithoutCellText() {
@@ -258,6 +357,14 @@ private func terminalSurfaceViewSource() throws -> String {
     try String(
         contentsOf: sourceRoot()
             .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift"),
+        encoding: .utf8
+    )
+}
+
+private func shellSessionSource() throws -> String {
+    try String(
+        contentsOf: sourceRoot()
+            .appendingPathComponent("Sources/KurottyApp/ShellSession.swift"),
         encoding: .utf8
     )
 }

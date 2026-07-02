@@ -1,0 +1,120 @@
+import KurottyCore
+
+struct BoundedScrollbackRows {
+    struct Diagnostics: Equatable {
+        let limit: Int
+        let visibleRowCount: Int
+        let retainedStorageRowCount: Int
+        let droppedRowCount: Int
+        let compactionCount: Int
+        let pressureLevel: PressureLevel
+    }
+
+    enum PressureLevel: Equatable {
+        case empty
+        case low
+        case elevated
+        case high
+        case saturated
+    }
+
+    private static let segmentSize = 1_024
+
+    private var storage = Self.makeStorage(rowLimit: 0)
+    private var droppedRowCountBaseline = 0
+    private var compactionCountBaseline = 0
+
+    var count: Int {
+        storage.count
+    }
+
+    var isEmpty: Bool {
+        storage.isEmpty
+    }
+
+    var diagnostics: Diagnostics {
+        let storageDiagnostics = storage.diagnostics
+        return Diagnostics(
+            limit: storageDiagnostics.rowLimit,
+            visibleRowCount: storageDiagnostics.visibleRowCount,
+            retainedStorageRowCount: storageDiagnostics.retainedStorageRowCount,
+            droppedRowCount: droppedRowCountBaseline + storageDiagnostics.droppedRowCount,
+            compactionCount: compactionCountBaseline + storageDiagnostics.compactionCount,
+            pressureLevel: pressureLevel(
+                visibleCount: storageDiagnostics.visibleRowCount,
+                limit: storageDiagnostics.rowLimit
+            )
+        )
+    }
+
+    @discardableResult
+    mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int {
+        guard !newRows.isEmpty else { return 0 }
+        _ = storage.trim(to: limit)
+        return storage.append(contentsOf: newRows)
+    }
+
+    @discardableResult
+    mutating func trim(to limit: Int) -> Bool {
+        storage.trim(to: limit)
+    }
+
+    func row(at index: Int) -> [TerminalScreenCell]? {
+        storage.row(at: index)
+    }
+
+    mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
+        guard previousStyle != nextStyle else { return }
+        remapRows { row in
+            for columnIndex in row.indices where row[columnIndex].style == previousStyle {
+                row[columnIndex].style = nextStyle
+            }
+        }
+    }
+
+    mutating func remapColors(_ colorMap: TerminalStyleColorMap) {
+        remapRows { row in
+            for columnIndex in row.indices {
+                row[columnIndex].style = row[columnIndex].style.remappingColors(colorMap)
+            }
+        }
+    }
+
+    private mutating func compactStorageIfNeeded() {
+        _ = storage.trim(to: storage.diagnostics.rowLimit)
+    }
+
+    private mutating func remapRows(_ transform: (inout [TerminalScreenCell]) -> Void) {
+        let previousDiagnostics = storage.diagnostics
+        let remappedRows = (0..<storage.count).compactMap { index -> [TerminalScreenCell]? in
+            guard var row = storage.row(at: index) else { return nil }
+            transform(&row)
+            return row
+        }
+
+        droppedRowCountBaseline += previousDiagnostics.droppedRowCount
+        compactionCountBaseline += previousDiagnostics.compactionCount
+        storage = Self.makeStorage(rowLimit: previousDiagnostics.rowLimit)
+        _ = storage.append(contentsOf: remappedRows)
+    }
+
+    private func pressureLevel(visibleCount: Int, limit: Int) -> PressureLevel {
+        guard limit > 0 else { return .empty }
+        guard visibleCount > 0 else { return .empty }
+        if visibleCount >= limit {
+            return .saturated
+        }
+        let ratio = Double(visibleCount) / Double(limit)
+        if ratio >= 0.8 {
+            return .high
+        }
+        if ratio >= 0.5 {
+            return .elevated
+        }
+        return .low
+    }
+
+    private static func makeStorage(rowLimit: Int) -> SegmentedScrollbackStore<[TerminalScreenCell]> {
+        SegmentedScrollbackStore(rowLimit: rowLimit, segmentSize: segmentSize)
+    }
+}

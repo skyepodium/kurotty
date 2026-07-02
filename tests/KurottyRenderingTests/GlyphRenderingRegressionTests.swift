@@ -262,6 +262,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("private struct FontCellMetrics"))
         XCTAssertTrue(source.contains("private var fontCellMetrics: FontCellMetrics"))
+        XCTAssertTrue(source.contains("private var lastFontCellMetricsInput: FontCellMetricsInput?"))
+        XCTAssertTrue(source.contains("guard input != lastFontCellMetricsInput else { return }"))
         XCTAssertTrue(source.contains("let baselineOffsetPixels: Int"))
         XCTAssertTrue(source.contains("let cellWidthPixels: Int"))
         XCTAssertTrue(source.contains("let cellHeightPixels: Int"))
@@ -485,11 +487,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(unsupportedSource.contains("import Darwin"))
     }
 
-    func testZigCorePublicModuleDoesNotExposePlatformPtyAdapter() throws {
+    func testZigCorePublicModuleOnlyExposesPurePtyBoundaryTypes() throws {
         let coreSource = try zigCoreSource()
 
-        XCTAssertFalse(coreSource.contains("@import(\"pty.zig\")"))
-        XCTAssertFalse(coreSource.contains("pub const Pty"))
+        XCTAssertTrue(coreSource.contains("pub const PtyDimensions = @import(\"pty.zig\").PtyDimensions"))
+        XCTAssertTrue(coreSource.contains("pub const PtyResizeRequest = @import(\"pty.zig\").PtyResizeRequest"))
+        XCTAssertTrue(coreSource.contains("pub const PtySizeDiagnostic = @import(\"pty.zig\").PtySizeDiagnostic"))
+        XCTAssertFalse(coreSource.contains("pub const Pty ="))
         XCTAssertFalse(coreSource.contains("pub const PtyConfig"))
     }
 
@@ -580,6 +584,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("var column = terminalFrame.markedTextColumn"))
         XCTAssertTrue(surfaceSource.contains("private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow)"))
+        XCTAssertTrue(surfaceSource.contains("let contentRow = scrollbackRows.count + anchor.row"))
+        XCTAssertTrue(surfaceSource.contains("row: contentRow - visibleStartRow"))
         XCTAssertTrue(surfaceSource.contains("let displayCursorColumn = markedTextPosition?.column ?? cursorColumn"))
         XCTAssertTrue(surfaceSource.contains("markedTextColumn: displayCursorColumn"))
         XCTAssertTrue(surfaceSource.contains("cursorColumn: min(displayCursorColumn + markedText.string.terminalColumnWidth"))
@@ -792,7 +798,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
         XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
-        XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect.cgRect)"))
+        XCTAssertTrue(metalSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
+        XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
         XCTAssertFalse(metalSource.contains("private struct InputLineLayout"))
         XCTAssertFalse(metalSource.contains("inputLineBackgroundInstanceBuffer"))
@@ -820,6 +827,28 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)"))
         XCTAssertTrue(surfaceSource.contains("screen.clear(row: cursorRow, style: currentStyle)"))
         XCTAssertFalse(surfaceSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
+    }
+
+    func testTerminalMetalViewExposesDamageInvalidationDiagnostics() throws {
+        let metalSource = try terminalMetalViewSource()
+        let updateSource = try functionBody(named: "update", in: metalSource)
+        let logSource = try functionBody(named: "logFrameStartIfNeeded", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("struct TerminalRenderDamageDiagnostics"))
+        XCTAssertTrue(metalSource.contains("let redrawDecision: RedrawDecision"))
+        XCTAssertTrue(metalSource.contains("let dirtyRectCount: Int"))
+        XCTAssertTrue(metalSource.contains("let scissorDisabled: Bool"))
+        XCTAssertTrue(metalSource.contains("let submittedDisplayRects: [CGRect]"))
+        XCTAssertTrue(metalSource.contains("var damageDiagnostics: TerminalRenderDamageDiagnostics"))
+        XCTAssertTrue(metalSource.contains("var lastSubmittedDisplayRectsForDiagnostics: [CGRect]"))
+        XCTAssertTrue(metalSource.contains("var lastFrameScissorWasDisabledForDiagnostics: Bool"))
+        XCTAssertTrue(updateSource.contains("TerminalRenderDamageDiagnostics.make("))
+        XCTAssertTrue(updateSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
+        XCTAssertTrue(updateSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)"))
+        XCTAssertTrue(logSource.contains("redrawDecision=%@"))
+        XCTAssertTrue(logSource.contains("submittedDisplayRects=%@"))
+        XCTAssertTrue(logSource.contains("damageDiagnostics.dirtyRectCount"))
+        XCTAssertTrue(logSource.contains("damageDiagnostics.scissorDisabled ? \"yes\" : \"no\""))
     }
 
     func testPtyOutputIsCoalescedBeforeRenderingToAvoidTransientClearedRows() throws {
@@ -901,7 +930,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let noScissor = flag(\"--debug-no-scissor\", env: \"KUROTTY_DEBUG_NO_SCISSOR\")"))
         XCTAssertTrue(surfaceSource.contains("renderer.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
-        XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {\n            setNeedsDisplay(bounds)\n        } else {\n            for rect in frame.dirtyRects {\n                setNeedsDisplay(rect.cgRect)\n            }\n        }"))
+        XCTAssertTrue(metalSource.contains("TerminalRenderDamageDiagnostics.make("))
+        XCTAssertTrue(metalSource.contains("submittedDisplayRects: [bounds]"))
+        XCTAssertTrue(metalSource.contains("submittedDisplayRects: frame.dirtyRects.map(\\.cgRect)"))
+        XCTAssertTrue(metalSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
         XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
     }
@@ -918,6 +950,33 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)"))
         XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&uniformsBuffer, with: &uniforms)"))
         XCTAssertFalse(atlasBufferSource.contains("makeBuffer(bytes:"))
+    }
+
+    func testMetalViewSkipsAtlasBufferRebuildWhenRenderInputsAreUnchanged() throws {
+        let metalSource = try terminalMetalViewSource()
+        let updateSource = try functionBody(named: "update", in: metalSource)
+        let dirtySource = try functionBody(named: "atlasBuffersNeedRebuild", in: metalSource)
+        let signatureSource = try functionBody(named: "makeAtlasBufferSignature", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("private var lastAtlasBufferSignature: Int?"))
+        XCTAssertTrue(updateSource.contains("let shouldRebuildAtlasBuffers = atlasBuffersNeedRebuild(for: frame)"))
+        XCTAssertTrue(updateSource.contains("if shouldRebuildAtlasBuffers {\n            rebuildAtlasBuffers()\n        }"))
+        XCTAssertFalse(updateSource.contains("synchronizeBackingScaleAndDrawableSize()\n        rebuildAtlasBuffers()"))
+        XCTAssertTrue(dirtySource.contains("let nextSignature = makeAtlasBufferSignature(for: frame)"))
+        XCTAssertTrue(dirtySource.contains("return nextSignature != lastAtlasBufferSignature"))
+        XCTAssertFalse(dirtySource.contains("lastAtlasBufferSignature = nextSignature"))
+        XCTAssertTrue(metalSource.contains("lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorColumn)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorRow)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorBlinkOn)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedTextColumn)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedText)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedTextSelectedRange.location)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(backingScale)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(drawableSize.width)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(diagnosticPixelSnappingEnabled)"))
+        XCTAssertTrue(signatureSource.contains("hasher.combine(diagnosticLinearGlyphSamplingEnabled)"))
+        XCTAssertTrue(signatureSource.contains("return hasher.finalize()"))
     }
 
     func testScrollRegionIsTrackedForTuiStatusAndInputRows() throws {
@@ -1014,7 +1073,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion"))
         XCTAssertTrue(source.contains("let maxOffset = maxScrollbackOffset()"))
         XCTAssertTrue(source.contains("private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int"))
-        XCTAssertTrue(source.contains("return max(0, allRowsForSelection().count - visibleCount)"))
+        XCTAssertTrue(source.contains("return max(0, contentRowCount - visibleCount)"))
         XCTAssertTrue(coordinatorSource.contains("let contentRows = visibleRows + maxScrollbackOffset"))
         XCTAssertTrue(coordinatorSource.contains("let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)"))
         XCTAssertTrue(coordinatorSource.contains("let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight"))
@@ -1073,14 +1132,19 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     }
 
     func testScrollbackTrimmingUsesBoundedRowStore() throws {
-        let source = try terminalSurfaceViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+        let boundedScrollbackSource = try boundedScrollbackRowsSource()
 
-        XCTAssertTrue(source.contains("private struct BoundedScrollbackRows"))
-        XCTAssertTrue(source.contains("mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int"))
-        XCTAssertTrue(source.contains("private mutating func compactStorageIfNeeded()"))
-        XCTAssertTrue(source.contains("scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)"))
-        XCTAssertFalse(source.contains("Array(scrollbackRows.dropFirst"))
-        XCTAssertFalse(source.contains("scrollbackRows.removeFirst"))
+        XCTAssertTrue(surfaceSource.contains("private var scrollbackRows = BoundedScrollbackRows()"))
+        XCTAssertTrue(surfaceSource.contains("scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)"))
+        XCTAssertTrue(boundedScrollbackSource.contains("struct BoundedScrollbackRows"))
+        XCTAssertTrue(boundedScrollbackSource.contains("mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int"))
+        XCTAssertTrue(boundedScrollbackSource.contains("func row(at index: Int) -> [TerminalScreenCell]?"))
+        XCTAssertTrue(boundedScrollbackSource.contains("private mutating func compactStorageIfNeeded()"))
+        XCTAssertFalse(surfaceSource.contains("scrollbackRows.rows + screen.cells"))
+        XCTAssertFalse(boundedScrollbackSource.contains("Array(scrollbackRows.dropFirst"))
+        XCTAssertFalse(boundedScrollbackSource.contains("scrollbackRows.removeFirst"))
+        XCTAssertFalse(boundedScrollbackSource.contains("var rows: [[TerminalScreenCell]] {"))
     }
 
     func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
@@ -1146,6 +1210,28 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
         XCTAssertTrue(shellSource.contains("readBuffer.withUnsafeMutableBytes"))
         XCTAssertFalse(shellSource.contains("while true {\n            var buffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
+    }
+
+    func testShellSessionEnqueuesPTYWritesOffCallerThread() throws {
+        let shellSource = try shellSessionSource()
+
+        XCTAssertTrue(shellSource.contains("private var pendingInput = Data()"))
+        XCTAssertTrue(shellSource.contains("private var pendingInputStartIndex = 0"))
+        XCTAssertTrue(shellSource.contains("private var pendingOutputStartIndex = 0"))
+        XCTAssertTrue(shellSource.contains("private var isInputDrainScheduled = false"))
+        XCTAssertTrue(shellSource.contains("private func enqueueInput(_ data: Data)"))
+        XCTAssertTrue(shellSource.contains("private func drainInput()"))
+        XCTAssertTrue(shellSource.contains("private func writeInputChunk(_ fd: Int32) -> Bool"))
+        XCTAssertTrue(shellSource.contains("private func compactPendingInputIfNeeded()"))
+        XCTAssertTrue(shellSource.contains("private func compactPendingOutputIfNeeded()"))
+        XCTAssertTrue(shellSource.contains("readQueue.async { [weak self] in"))
+        XCTAssertTrue(shellSource.contains("self?.enqueueInput(data)"))
+        XCTAssertTrue(shellSource.contains("scheduleOutputDrain()"))
+        XCTAssertTrue(shellSource.contains("readQueue.asyncAfter(deadline: .now() + .microseconds(Int(AppConstants.Shell.ptyWriteRetryDelayMicros)))"))
+        XCTAssertFalse(shellSource.contains("Darwin.write(master"))
+        XCTAssertFalse(shellSource.contains("usleep(AppConstants.Shell.ptyWriteRetryDelayMicros)"))
+        XCTAssertFalse(shellSource.contains("pendingInput.removeFirst"))
+        XCTAssertFalse(shellSource.contains("pendingOutput.removeFirst"))
     }
 
     func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
@@ -1424,33 +1510,59 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("override func becomeFirstResponder() -> Bool"))
         XCTAssertTrue(surfaceSource.contains("case \"0\", \"1\", \"2\":"))
         XCTAssertTrue(surfaceSource.contains("case \"7\":"))
-        XCTAssertTrue(surfaceSource.contains("updateWorkingDirectory(fromOsc7: payload)"))
+        XCTAssertTrue(surfaceSource.contains("private var shellIntegration = TerminalShellIntegration("))
+        XCTAssertTrue(surfaceSource.contains("private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event"))
+        XCTAssertTrue(surfaceSource.contains("TerminalOSCDispatcher("))
+        XCTAssertTrue(surfaceSource.contains("TerminalOSC52Policy(policy: securityPolicy)"))
+        XCTAssertTrue(surfaceSource.contains("shellIntegration = dispatcher.shellIntegration"))
+        XCTAssertTrue(surfaceSource.contains("if case let .shellIntegration(.workingDirectoryChanged(path)) = integrationEvent"))
+        XCTAssertTrue(surfaceSource.contains("currentWorkingDirectory = path"))
         XCTAssertTrue(surfaceSource.contains("publishTitle()"))
         XCTAssertTrue(surfaceSource.contains("displayTitle()"))
-        XCTAssertTrue(surfaceSource.contains("URL(string: payload)"))
 
         XCTAssertTrue(paneSource.contains("var terminalSurface: TerminalSurfaceView"))
         XCTAssertTrue(splitSource.contains("var primaryTerminalSurface: TerminalSurfaceView?"))
         XCTAssertTrue(splitSource.contains("func containsTerminalSurface(_ surface: TerminalSurfaceView) -> Bool"))
     }
 
+    func testLayoutOnlyWorkspaceSnapshotDoesNotPersistRuntimeTitles() throws {
+        let windowSource = try terminalWindowControllerSource()
+        let paneSource = try terminalPaneViewSource()
+        let workspaceDescriptorSource = try XCTUnwrap(
+            windowSource.range(
+                of: "private func layoutOnlyTabDescriptors()"
+            ).flatMap { start in
+                windowSource.range(of: "private func tabID", range: start.upperBound..<windowSource.endIndex).map { end in
+                    String(windowSource[start.lowerBound..<end.lowerBound])
+                }
+            }
+        )
+
+        XCTAssertTrue(windowSource.contains("func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor"))
+        XCTAssertTrue(windowSource.contains("title: nil"))
+        XCTAssertFalse(windowSource.contains("title: window?.title"))
+        XCTAssertFalse(workspaceDescriptorSource.contains("title: item.label"))
+        XCTAssertTrue(paneSource.contains("func layoutOnlyDescriptor(id: String) -> WorkspaceSnapshotCoordinator.PaneDescriptor"))
+        XCTAssertFalse(paneSource.contains("title: displayTitle"))
+    }
+
     func testFocusedTerminalDispatchesWindowShortcutsBeforePtyInput() throws {
         let dispatcherSource = try terminalCommandDispatcherSource()
+        let registrySource = try terminalCommandRegistrySource()
         XCTAssertTrue(dispatcherSource.contains("enum TerminalPaneFocusDirection"))
         XCTAssertTrue(dispatcherSource.contains("case left"))
         XCTAssertTrue(dispatcherSource.contains("case right"))
         XCTAssertTrue(dispatcherSource.contains("case up"))
         XCTAssertTrue(dispatcherSource.contains("case down"))
-        XCTAssertTrue(dispatcherSource.contains("flags.subtracting([.command, .option, .numericPad, .function]).isEmpty"))
-        XCTAssertTrue(dispatcherSource.contains("paneFocusDirection(forKeyCode: event.keyCode)"))
-        XCTAssertTrue(dispatcherSource.contains("static let leftArrow: UInt16 = 123"))
-        XCTAssertTrue(dispatcherSource.contains("static let rightArrow: UInt16 = 124"))
-        XCTAssertTrue(dispatcherSource.contains("static let downArrow: UInt16 = 125"))
-        XCTAssertTrue(dispatcherSource.contains("static let upArrow: UInt16 = 126"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.leftArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.rightArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.downArrow:"))
-        XCTAssertTrue(dispatcherSource.contains("case KeyCode.upArrow:"))
+        XCTAssertTrue(dispatcherSource.contains("windowCommand(for: event)"))
+        XCTAssertTrue(dispatcherSource.contains("TerminalCommandRegistry = .default"))
+        XCTAssertTrue(registrySource.contains("enum TerminalWindowCommandID"))
+        XCTAssertTrue(registrySource.contains("case newTab = \"window.newTab\""))
+        XCTAssertTrue(registrySource.contains("case focusPaneLeft = \"window.focusPane.left\""))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"t\", modifiers: .command)"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: .command)"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: [.command, .shift])"))
+        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras)"))
         XCTAssertTrue(dispatcherSource.contains("controller.focusPane(direction)"))
         XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
@@ -1577,12 +1689,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()
         let routerSource = try terminalTextInputRouterSource()
-        let dispatcherSource = try terminalCommandDispatcherSource()
+        let registrySource = try terminalCommandRegistrySource()
 
         XCTAssertTrue(routerSource.contains("static func latinKeyEquivalent(for event: NSEvent) -> String?"))
         XCTAssertTrue(routerSource.contains("static func commandShortcutControlText(for event: NSEvent) -> String?"))
         XCTAssertTrue(routerSource.contains("32: \"u\""))
-        XCTAssertTrue(dispatcherSource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
+        XCTAssertTrue(registrySource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
 
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
@@ -1844,13 +1956,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private let notifier = TerminalNotifier.shared"))
         XCTAssertTrue(surfaceSource.contains("private var backgroundTaskInputSequence: Int?"))
         XCTAssertTrue(surfaceSource.contains("private var backgroundTaskHasOutput = false"))
+        XCTAssertTrue(surfaceSource.contains("private var pendingSubmittedInputText = \"\""))
+        XCTAssertTrue(surfaceSource.contains("private var backgroundTaskDescription: String?"))
         XCTAssertTrue(surfaceSource.contains("private var backgroundTaskOutputText = \"\""))
         XCTAssertFalse(surfaceSource.contains("backgroundTaskLatestOutputSummary"))
         XCTAssertFalse(surfaceSource.contains("private var exposeBackgroundTaskOutputSummary"))
         XCTAssertTrue(surfaceSource.contains("private var backgroundTaskNotificationWorkItem: DispatchWorkItem?"))
         XCTAssertTrue(surfaceSource.contains("private func send(_ text: String, recordsUserActivity: Bool = true)"))
         XCTAssertTrue(surfaceSource.contains("recordUserInput(text)"))
-        XCTAssertTrue(surfaceSource.contains("guard text.contains(\"\\r\") || text.contains(\"\\n\") else"))
+        XCTAssertTrue(surfaceSource.contains("recordSubmittedInputText(text)"))
+        XCTAssertTrue(surfaceSource.contains("submitBackgroundTaskDescriptionIfNeeded()"))
         XCTAssertTrue(surfaceSource.contains("recordOutputForBackgroundTask(text)"))
         XCTAssertTrue(surfaceSource.contains("private func appendBackgroundTaskOutputText(_ text: String)"))
         XCTAssertTrue(surfaceSource.contains("AppConstants.Notifications.backgroundTaskOutputCaptureMaxCharacters"))
@@ -1868,7 +1983,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self"))
         XCTAssertTrue(surfaceSource.contains("private func backgroundTaskNotificationBody(outputText: String) -> String"))
         XCTAssertTrue(surfaceSource.contains("TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText)"))
-        XCTAssertTrue(surfaceSource.contains("AppConstants.Notifications.backgroundTaskFinishedBody"))
+        XCTAssertTrue(surfaceSource.contains("backgroundTaskDescription ?? AppConstants.Notifications.backgroundTaskFinishedBody"))
+        XCTAssertTrue(surfaceSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText)"))
         XCTAssertFalse(surfaceSource.contains("guard exposeBackgroundTaskOutputSummary"))
         XCTAssertFalse(surfaceSource.contains("backgroundTaskNotificationBody(summary:"))
         XCTAssertTrue(surfaceSource.contains("notifier.notifyBackgroundTaskCompleted(body: body)"))
@@ -1943,6 +2059,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskIdentifierPrefix = \"dev.kurotty.terminal.background-task\""))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskSummaryMaxCharacters"))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskFinishedBody = \"Task finished.\""))
+        XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskOutputCaptureMaxCharacters"))
+        XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskInputCaptureMaxCharacters"))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskIdleSeconds: TimeInterval"))
         XCTAssertFalse(try appConstantsSource().contains("shellExitIdentifierPrefix"))
         XCTAssertFalse(try appConstantsSource().contains("shellExitSuccessBody"))
@@ -2046,14 +2164,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(readmeSource.contains("[Download](#download)"))
         XCTAssertTrue(readmeSource.contains("## Download"))
         XCTAssertTrue(readmeSource.contains("https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg"))
-        XCTAssertTrue(readmeSource.contains("https://github.com/skyepodium/kurotty/releases/latest/download/SHA256SUMS"))
         XCTAssertTrue(readmeSource.contains("kurotty-macos-universal.dmg"))
-        XCTAssertTrue(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
-        XCTAssertTrue(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
+        XCTAssertTrue(readmeSource.contains("curl -fL -o kurotty-macos-universal.dmg"))
         XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh"))
         XCTAssertTrue(readmeSource.contains("Intel and Apple Silicon Macs"))
-        XCTAssertTrue(readmeSource.contains("Universal DMG"))
-        XCTAssertTrue(readmeSource.contains("git tag \"v$(cat VERSION)\""))
+        XCTAssertFalse(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
+        XCTAssertFalse(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
+        XCTAssertFalse(readmeSource.contains("git tag \"v$(cat VERSION)\""))
         XCTAssertFalse(readmeSource.contains(releaseVersion))
 
         XCTAssertTrue(releaseWorkflowSource.contains("on:"))
@@ -2424,6 +2541,12 @@ private func terminalSurfaceViewSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func boundedScrollbackRowsSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/BoundedScrollbackRows.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func terminalModelSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalModel.swift")
@@ -2662,6 +2785,12 @@ private func terminalPaneViewSource() throws -> String {
 private func terminalCommandDispatcherSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalCommandDispatcher.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalCommandRegistrySource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalCommandRegistry.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

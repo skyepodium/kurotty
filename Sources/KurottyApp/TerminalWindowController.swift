@@ -98,6 +98,22 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.sendTextToActivePane(text)
     }
 
+    func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
+        let windowID = window?.identifier?.rawValue ?? "window-main"
+        return WorkspaceSnapshotCoordinator.WorkspaceDescriptor(
+            windows: [
+                WorkspaceSnapshotCoordinator.WindowDescriptor(
+                    id: windowID,
+                    title: nil,
+                    frame: windowFrameSnapshot,
+                    tabs: layoutOnlyTabDescriptors(),
+                    activeTabID: selectedTabID
+                ),
+            ],
+            activeWindowID: windowID
+        )
+    }
+
     func closeCurrentTab() {
         guard let item = tabView.selectedTabViewItem else {
             return
@@ -271,6 +287,46 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     private func currentSplitView() -> SplitTerminalView? {
         tabView.selectedTabViewItem?.view as? SplitTerminalView
+    }
+
+    private var windowFrameSnapshot: WorkspaceWindowFrameSnapshot? {
+        guard let frame = window?.frame else {
+            return nil
+        }
+        return WorkspaceWindowFrameSnapshot(
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private var selectedTabID: String? {
+        guard let selectedItem = tabView.selectedTabViewItem else {
+            return nil
+        }
+        return tabID(for: selectedItem, index: tabView.indexOfTabViewItem(selectedItem))
+    }
+
+    private func layoutOnlyTabDescriptors() -> [WorkspaceSnapshotCoordinator.TabDescriptor] {
+        (0..<tabView.numberOfTabViewItems).compactMap { index in
+            let item = tabView.tabViewItem(at: index)
+            guard let splitView = item.view as? SplitTerminalView else {
+                return nil
+            }
+            return WorkspaceSnapshotCoordinator.TabDescriptor(
+                id: tabID(for: item, index: index),
+                title: nil,
+                root: splitView.layoutOnlyDescriptor(idPrefix: "tab-\(index)")
+            )
+        }
+    }
+
+    private func tabID(for item: NSTabViewItem, index: Int) -> String {
+        if let id = item.identifier as? String, !id.isEmpty {
+            return id
+        }
+        return "tab-\(index)"
     }
 
     private func defaultTabLabel() -> String {

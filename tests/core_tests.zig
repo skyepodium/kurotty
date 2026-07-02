@@ -261,6 +261,108 @@ test "parser keeps OSC open when ESC is not a string terminator" {
     try std.testing.expectEqualStrings("done", second[1].printable.bytes);
 }
 
+test "parser bounds oversized CSI buffers and resynchronizes at the final byte" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const oversized_digits = "1" ** (core.Parser.max_csi_sequence_bytes + 1);
+    const first = try parser.feed("\x1b[" ++ oversized_digits);
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+    try std.testing.expectEqual(@as(usize, 0), parser.control.items.len);
+
+    const second = try parser.feed("mok");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
+}
+
+test "parser bounds oversized OSC buffers and resynchronizes at string terminator" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parser = core.Parser.init(arena.allocator());
+    defer parser.deinit();
+
+    const oversized_title = "x" ** (core.Parser.max_string_sequence_bytes + 1);
+    const first = try parser.feed("\x1b]0;" ++ oversized_title);
+    try std.testing.expectEqual(@as(usize, 0), first.len);
+    try std.testing.expectEqual(@as(usize, 0), parser.string.items.len);
+
+    const second = try parser.feed("\x1b\\ok");
+    try std.testing.expectEqual(@as(usize, 1), second.len);
+    try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
+}
+
+test "screen mutation recorder captures parser intent without mutating grid" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("hi\x1b[2J!");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 4, .height = 2 });
+    defer recorder.deinit();
+
+    var grid = try core.Grid.init(std.testing.allocator, 4, 2);
+    defer grid.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 3), recorder.items().len);
+    try std.testing.expectEqualStrings("hi", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 0), recorder.items()[0].printable.row);
+    try std.testing.expectEqual(@as(usize, 0), recorder.items()[0].printable.col);
+    try std.testing.expectEqual(@as(usize, 2), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 2), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(u8, 'J'), recorder.items()[1].csi.final);
+    try std.testing.expectEqualSlices(u16, &.{2}, recorder.items()[1].csi.params);
+    try std.testing.expectEqualStrings("!", recorder.items()[2].printable.bytes);
+    try std.testing.expectEqualStrings("    ", grid.rowText(0));
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorRow());
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorCol());
+}
+
+test "screen mutation recorder bounds printable cells for wide-ish row writes" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("AＢC");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 3, .height = 1 });
+    defer recorder.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.items().len);
+    try std.testing.expectEqualStrings("AＢ", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 3), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 4), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(usize, 3), recorder.cursorCol());
+    try std.testing.expect(recorder.items()[0].printable.cell_count <= recorder.widthCells());
+}
+
+test "screen mutation recorder does not split wide printable across final cell" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("A界");
+    defer parser.freeEvents(events);
+
+    var recorder = core.ScreenMutationRecorder.init(std.testing.allocator, .{ .width = 2, .height = 1 });
+    defer recorder.deinit();
+
+    try recorder.recordEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.items().len);
+    try std.testing.expectEqualStrings("A", recorder.items()[0].printable.bytes);
+    try std.testing.expectEqual(@as(usize, 1), recorder.items()[0].printable.cell_count);
+    try std.testing.expectEqual(@as(usize, 3), recorder.items()[0].printable.raw_cell_count);
+    try std.testing.expectEqual(@as(usize, 1), recorder.cursorCol());
+}
+
 test "grid applies printable text, cursor movement, and erase in display" {
     var grid = try core.Grid.init(std.testing.allocator, 4, 3);
     defer grid.deinit();
@@ -439,4 +541,40 @@ test "renderer damage lifecycle reuses retained storage across frames" {
         try std.testing.expectEqual(@as(u32, 0), clean.dirty_rects);
         try std.testing.expectEqual(@as(u32, 0), clean.draw_calls);
     }
+}
+
+test "pty dimensions accept valid terminal cell sizes" {
+    const dims = try core.PtyDimensions.init(120, 40);
+
+    try std.testing.expectEqual(@as(u16, 120), dims.cols);
+    try std.testing.expectEqual(@as(u16, 40), dims.rows);
+}
+
+test "pty dimensions reject zero and winsize overflow" {
+    try std.testing.expectError(error.InvalidDimensions, core.PtyDimensions.init(0, 24));
+    try std.testing.expectError(error.InvalidDimensions, core.PtyDimensions.init(80, 0));
+    try std.testing.expectError(error.DimensionOverflow, core.PtyDimensions.init(65_536, 24));
+    try std.testing.expectError(error.DimensionOverflow, core.PtyDimensions.init(80, 65_536));
+}
+
+test "pty size diagnostic reports renderer mismatch deltas" {
+    const pty = try core.PtyDimensions.init(100, 30);
+    const renderer = try core.PtyDimensions.init(96, 32);
+
+    const diagnostic = core.PtySizeDiagnostic.compare(pty, renderer);
+
+    try std.testing.expectEqual(core.PtySizeStatus.mismatch, diagnostic.status);
+    try std.testing.expect(!diagnostic.matches());
+    try std.testing.expectEqual(@as(i32, -4), diagnostic.cols_delta);
+    try std.testing.expectEqual(@as(i32, 2), diagnostic.rows_delta);
+}
+
+test "pty resize request construction validates requested dimensions" {
+    const request = try core.PtyResizeRequest.init(132, 43, .renderer, 7);
+
+    try std.testing.expectEqual(@as(u64, 7), request.sequence);
+    try std.testing.expectEqual(core.PtyResizeSource.renderer, request.source);
+    try std.testing.expectEqual(@as(u16, 132), request.dimensions.cols);
+    try std.testing.expectEqual(@as(u16, 43), request.dimensions.rows);
+    try std.testing.expectError(error.InvalidDimensions, core.PtyResizeRequest.init(0, 43, .renderer, 8));
 }

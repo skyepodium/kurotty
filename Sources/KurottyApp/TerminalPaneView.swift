@@ -144,6 +144,12 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView.sendText(text)
     }
 
+    func layoutOnlyDescriptor(id: String) -> WorkspaceSnapshotCoordinator.PaneDescriptor {
+        WorkspaceSnapshotCoordinator.PaneDescriptor(
+            id: id
+        )
+    }
+
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.windowBackground.cgColor

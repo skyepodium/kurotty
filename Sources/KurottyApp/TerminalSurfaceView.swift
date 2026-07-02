@@ -14,6 +14,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
+    private let securityPolicy = TerminalSecurityPolicy.default
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
@@ -41,6 +42,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var oscBuffer = ""
     private var terminalTitle = "-zsh"
     private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    private var shellIntegration = TerminalShellIntegration(
+        currentWorkingDirectoryCandidate: FileManager.default.homeDirectoryForCurrentUser.path
+    )
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
@@ -61,6 +65,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var submittedInputSequence = 0
     private var backgroundTaskInputSequence: Int?
     private var backgroundTaskHasOutput = false
+    private var pendingSubmittedInputText = ""
+    private var backgroundTaskDescription: String?
     private var backgroundTaskOutputText = ""
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
@@ -581,7 +587,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition? {
         guard markedText.length > 0 else { return nil }
         let anchor = markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
-        return TerminalCellPosition(row: anchor.row - visibleStartRow, column: anchor.column)
+        let contentRow = scrollbackRows.count + anchor.row
+        return TerminalCellPosition(row: contentRow - visibleStartRow, column: anchor.column)
     }
 
     private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool {
@@ -885,7 +892,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func recordUserInput(_ text: String) {
-        guard text.contains("\r") || text.contains("\n") else {
+        guard recordSubmittedInputText(text) else {
             return
         }
         pendingMarkedTextAnchor = nil
@@ -896,6 +903,58 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskOutputText = ""
         backgroundTaskNotificationWorkItem?.cancel()
         backgroundTaskNotificationWorkItem = nil
+    }
+
+    @discardableResult
+    private func recordSubmittedInputText(_ text: String) -> Bool {
+        var didSubmit = false
+        for character in text {
+            if character == "\r" || character == "\n" {
+                didSubmit = submitBackgroundTaskDescriptionIfNeeded() || didSubmit
+                continue
+            }
+            if character == "\u{7f}" {
+                if !pendingSubmittedInputText.isEmpty {
+                    pendingSubmittedInputText.removeLast()
+                }
+                continue
+            }
+            if character == "\u{15}" {
+                pendingSubmittedInputText.removeAll(keepingCapacity: true)
+                continue
+            }
+            guard character.isTerminalPrintableGrapheme else {
+                continue
+            }
+            pendingSubmittedInputText.append(character)
+            trimPendingSubmittedInputTextIfNeeded()
+        }
+        return didSubmit
+    }
+
+    @discardableResult
+    private func submitBackgroundTaskDescriptionIfNeeded() -> Bool {
+        defer {
+            pendingSubmittedInputText.removeAll(keepingCapacity: true)
+        }
+        guard let body = TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText) else {
+            backgroundTaskDescription = nil
+            return false
+        }
+        backgroundTaskDescription = body
+        return true
+    }
+
+    private func trimPendingSubmittedInputTextIfNeeded() {
+        let maxCharacters = AppConstants.Notifications.backgroundTaskInputCaptureMaxCharacters
+        guard pendingSubmittedInputText.count > maxCharacters else {
+            return
+        }
+        let startIndex = pendingSubmittedInputText.index(
+            pendingSubmittedInputText.endIndex,
+            offsetBy: -maxCharacters
+        )
+        pendingSubmittedInputText = String(pendingSubmittedInputText[startIndex...])
     }
 
     private func recordKeyboardSelectionInputStartIfNeeded(for text: String) {
@@ -911,6 +970,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard backgroundTaskInputSequence != nil else {
             return
         }
+        guard !text.isEmpty else {
+            return
+        }
         backgroundTaskHasOutput = true
         appendBackgroundTaskOutputText(text)
         scheduleBackgroundTaskIdleCheck()
@@ -922,7 +984,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard backgroundTaskOutputText.count > maxCharacters else {
             return
         }
-        let startIndex = backgroundTaskOutputText.index(backgroundTaskOutputText.endIndex, offsetBy: -maxCharacters)
+        let startIndex = backgroundTaskOutputText.index(
+            backgroundTaskOutputText.endIndex,
+            offsetBy: -maxCharacters
+        )
         backgroundTaskOutputText = String(backgroundTaskOutputText[startIndex...])
     }
 
@@ -952,10 +1017,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskNotificationWorkItem = nil
         let outputText = backgroundTaskOutputText
         backgroundTaskOutputText = ""
+        let body = backgroundTaskNotificationBody(outputText: outputText)
+        backgroundTaskDescription = nil
         guard shouldDeliverUserNotification else {
             return
         }
-        let body = backgroundTaskNotificationBody(outputText: outputText)
         notifier.notifyBackgroundTaskCompleted(body: body)
     }
 
@@ -968,13 +1034,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func backgroundTaskNotificationBody(outputText: String) -> String {
-        guard let summary = TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText) else {
-            return AppConstants.Notifications.backgroundTaskFinishedBody
+        if let outputSummary = TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText) {
+            return trimmedBackgroundTaskNotificationBody(outputSummary)
         }
-        if summary.count <= AppConstants.Notifications.backgroundTaskSummaryMaxCharacters {
-            return summary
+        return backgroundTaskDescription ?? AppConstants.Notifications.backgroundTaskFinishedBody
+    }
+
+    private func trimmedBackgroundTaskNotificationBody(_ body: String) -> String {
+        guard body.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
+            return body
         }
-        return String(summary.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+        return String(body.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
     }
 
     private func enqueueOutput(_ text: String) {
@@ -1065,12 +1135,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func selectedText() -> String? {
         guard let range = normalizedSelectionRange() else { return nil }
-        let rows = allRowsForSelection()
-        guard !rows.isEmpty else { return nil }
+        guard contentRowCount > 0 else { return nil }
 
         var selectedLines: [String] = []
-        for rowIndex in range.start.row...range.end.row where rows.indices.contains(rowIndex) {
-            let row = rows[rowIndex]
+        for rowIndex in range.start.row...range.end.row {
+            guard let row = contentRow(at: rowIndex) else { continue }
             let startColumn = rowIndex == range.start.row ? range.start.column : 0
             let endColumn = rowIndex == range.end.row ? range.end.column : min(row.count - 1, screen.columns - 1)
             guard startColumn <= endColumn, startColumn < row.count else {
@@ -1232,7 +1301,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rawRow = Int(floor((bounds.height - location.y - padding.top) / cellHeight))
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
         let visibleRow = max(0, min(metrics.size.rows - 1, rawRow))
-        let maxContentRow = max(0, allRowsForSelection().count - 1)
+        let maxContentRow = max(0, contentRowCount - 1)
         let row = min(maxContentRow, visibleRowStartIndex(limit: metrics.size.rows) + visibleRow)
         return TerminalCellPosition(row: row, column: column)
     }
@@ -1271,7 +1340,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         metrics: TerminalMetrics,
         inputStart: TerminalCellPosition
     ) -> TerminalCellPosition {
-        let maxRow = max(0, allRowsForSelection().count - 1)
+        let maxRow = max(0, contentRowCount - 1)
         let nextRow = max(inputStart.row, min(maxRow, row))
         let minimumColumn = nextRow == inputStart.row ? inputStart.column : 0
         let nextColumn = max(minimumColumn, min(metrics.size.columns - 1, column))
@@ -1315,6 +1384,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
         guard let url = URL(string: link.urlString) else { return }
+        guard securityPolicy.linkOpenDecision(for: url) == .ask else { return }
         let alert = NSAlert()
         alert.messageText = "Open Link?"
         alert.informativeText = link.urlString
@@ -1342,12 +1412,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func visibleRowsForRendering(limit: Int) -> [[TerminalScreenCell]] {
-        let allRows = allRowsForSelection()
-        guard !allRows.isEmpty else { return [] }
+        let totalRows = contentRowCount
+        guard totalRows > 0 else { return [] }
         let visibleCount = max(1, limit)
         let start = visibleRowStartIndex(limit: limit)
-        let end = min(allRows.count, start + visibleCount)
-        var rows = Array(allRows[start..<end])
+        let end = min(totalRows, start + visibleCount)
+        var rows: [[TerminalScreenCell]] = []
+        rows.reserveCapacity(visibleCount)
+        for rowIndex in start..<end {
+            guard let row = contentRow(at: rowIndex) else { continue }
+            rows.append(row)
+        }
         if rows.count < visibleCount {
             rows.append(contentsOf: Array(repeating: TerminalScreen.blankRow(columns: screen.columns), count: visibleCount - rows.count))
         }
@@ -1355,20 +1430,30 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func visibleRowStartIndex(limit: Int) -> Int {
-        let allRows = allRowsForSelection()
-        guard !allRows.isEmpty else { return 0 }
+        let totalRows = contentRowCount
+        guard totalRows > 0 else { return 0 }
         let visibleCount = max(1, limit)
-        let bottomStart = max(0, allRows.count - visibleCount)
+        let bottomStart = max(0, totalRows - visibleCount)
         return max(0, bottomStart - scrollbackOffset)
     }
 
     private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int {
         let visibleCount = max(1, visibleRows ?? terminalMetrics().size.rows)
-        return max(0, allRowsForSelection().count - visibleCount)
+        return max(0, contentRowCount - visibleCount)
     }
 
-    private func allRowsForSelection() -> [[TerminalScreenCell]] {
-        scrollbackRows.rows + screen.cells
+    private var contentRowCount: Int {
+        scrollbackRows.count + screen.cells.count
+    }
+
+    private func contentRow(at index: Int) -> [TerminalScreenCell]? {
+        guard index >= 0 else { return nil }
+        if index < scrollbackRows.count {
+            return scrollbackRows.row(at: index)
+        }
+        let screenIndex = index - scrollbackRows.count
+        guard screen.cells.indices.contains(screenIndex) else { return nil }
+        return screen.cells[screenIndex]
     }
 
     private func terminalMetrics() -> TerminalMetrics {
@@ -1749,18 +1834,32 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
+        let integrationEvent = dispatchTerminalIntegrationOsc(command)
+
         switch code {
         case "0", "1", "2":
             terminalTitle = payload
             publishTitle()
         case "7":
-            updateWorkingDirectory(fromOsc7: payload)
+            if case let .shellIntegration(.workingDirectoryChanged(path)) = integrationEvent {
+                currentWorkingDirectory = path
+            }
             publishTitle()
         case "9":
             notifyItermOsc9(payload)
         default:
             break
         }
+    }
+
+    private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
+        var dispatcher = TerminalOSCDispatcher(
+            osc52Policy: TerminalOSC52Policy(policy: securityPolicy),
+            shellIntegration: shellIntegration
+        )
+        let event = dispatcher.dispatch(command, origin: .unknown)
+        shellIntegration = dispatcher.shellIntegration
+        return event
     }
 
     private func notifyItermOsc9(_ payload: String) {
@@ -1779,15 +1878,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         default:
             break
         }
-    }
-
-    private func updateWorkingDirectory(fromOsc7 payload: String) {
-        guard let url = URL(string: payload),
-              url.isFileURL
-        else {
-            return
-        }
-        currentWorkingDirectory = url.path
     }
 
     private func publishTitle() {
@@ -2245,70 +2335,5 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // on the lightty background.
         let component = 205 + (clamped - 250) * 6
         return TerminalTextStyle.rgb(red: component, green: component, blue: component)
-    }
-}
-
-private struct BoundedScrollbackRows {
-    private var storage: [[TerminalScreenCell]] = []
-    private var startIndex = 0
-
-    var count: Int {
-        storage.count - startIndex
-    }
-
-    var isEmpty: Bool {
-        count == 0
-    }
-
-    var rows: [[TerminalScreenCell]] {
-        guard !isEmpty else { return [] }
-        return Array(storage[startIndex...])
-    }
-
-    @discardableResult
-    mutating func append(contentsOf newRows: [[TerminalScreenCell]], limit: Int) -> Int {
-        guard !newRows.isEmpty else { return 0 }
-        storage.append(contentsOf: newRows)
-        let previousCount = count - newRows.count
-        _ = trim(to: limit)
-        return max(0, count - max(0, previousCount))
-    }
-
-    @discardableResult
-    mutating func trim(to limit: Int) -> Bool {
-        let boundedLimit = max(0, limit)
-        let rowsToDrop = count - boundedLimit
-        guard rowsToDrop > 0 else {
-            compactStorageIfNeeded()
-            return false
-        }
-
-        startIndex += rowsToDrop
-        compactStorageIfNeeded()
-        return true
-    }
-
-    private mutating func compactStorageIfNeeded() {
-        guard startIndex > 0 else { return }
-        guard startIndex >= storage.count / 2 || startIndex == storage.count else { return }
-        storage.removeSubrange(0..<startIndex)
-        startIndex = 0
-    }
-
-    mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
-        guard previousStyle != nextStyle else { return }
-        for rowIndex in startIndex..<storage.count {
-            for columnIndex in storage[rowIndex].indices where storage[rowIndex][columnIndex].style == previousStyle {
-                storage[rowIndex][columnIndex].style = nextStyle
-            }
-        }
-    }
-
-    mutating func remapColors(_ colorMap: TerminalStyleColorMap) {
-        for rowIndex in startIndex..<storage.count {
-            for columnIndex in storage[rowIndex].indices {
-                storage[rowIndex][columnIndex].style = storage[rowIndex][columnIndex].style.remappingColors(colorMap)
-            }
-        }
     }
 }

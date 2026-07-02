@@ -46,6 +46,56 @@ struct TerminalRenderingDiagnostics {
     let linearGlyphSamplingEnabled: Bool
 }
 
+struct TerminalRenderDamageDiagnostics {
+    enum RedrawDecision: CustomStringConvertible {
+        case full
+        case partial
+
+        var description: String {
+            switch self {
+            case .full:
+                "full"
+            case .partial:
+                "partial"
+            }
+        }
+    }
+
+    let redrawDecision: RedrawDecision
+    let dirtyRectCount: Int
+    let scissorDisabled: Bool
+    let submittedDisplayRects: [CGRect]
+
+    static let empty = TerminalRenderDamageDiagnostics(
+        redrawDecision: .full,
+        dirtyRectCount: 0,
+        scissorDisabled: false,
+        submittedDisplayRects: []
+    )
+
+    static func make(
+        frame: TerminalFrame,
+        bounds: CGRect,
+        diagnosticFullRedrawEnabled: Bool,
+        scissorDisabled: Bool
+    ) -> TerminalRenderDamageDiagnostics {
+        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
+            return TerminalRenderDamageDiagnostics(
+                redrawDecision: .full,
+                dirtyRectCount: frame.dirtyRects.count,
+                scissorDisabled: scissorDisabled,
+                submittedDisplayRects: [bounds]
+            )
+        }
+        return TerminalRenderDamageDiagnostics(
+            redrawDecision: .partial,
+            dirtyRectCount: frame.dirtyRects.count,
+            scissorDisabled: scissorDisabled,
+            submittedDisplayRects: frame.dirtyRects.map(\.cgRect)
+        )
+    }
+}
+
 final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
@@ -133,6 +183,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var lastGlyphUVOrigin = SIMD2<Float>.zero
     private var lastGlyphUVSize = SIMD2<Float>.zero
     private var lastGlyphDrawOffsetPoints = SIMD2<Float>.zero
+    private var lastAtlasBufferSignature: Int?
+    private var lastFontCellMetricsInput: FontCellMetricsInput?
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -142,6 +194,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private let glyphSlotHeight = DesignTokens.Component.glyphSlotHeightPX
     private var fontCellMetrics: FontCellMetrics = .empty
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
+    private var lastDamageDiagnostics = TerminalRenderDamageDiagnostics.empty
+    private var lastPixelProbeDiagnostics: [TerminalPixelProbe] = []
 
     override var isOpaque: Bool {
         true
@@ -213,17 +267,24 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         terminalFrame = frame
         rebuildFontCellMetrics()
         synchronizeBackingScaleAndDrawableSize()
-        rebuildAtlasBuffers()
+        let shouldRebuildAtlasBuffers = atlasBuffersNeedRebuild(for: frame)
+        if shouldRebuildAtlasBuffers {
+            rebuildAtlasBuffers()
+        }
         logRenderingDiagnosticsIfNeeded()
         if diagnosticCPUFallbackEnabled {
             rebuildTextTexture()
         }
-        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
-            setNeedsDisplay(bounds)
-        } else {
-            for rect in frame.dirtyRects {
-                setNeedsDisplay(rect.cgRect)
-            }
+        let damageDiagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: frame,
+            bounds: bounds,
+            diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled,
+            scissorDisabled: DebugOptions.noScissor
+        )
+        lastDamageDiagnostics = damageDiagnostics
+        let submittedDisplayRects = damageDiagnostics.submittedDisplayRects
+        for rect in submittedDisplayRects {
+            setNeedsDisplay(rect)
         }
     }
 
@@ -399,6 +460,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
     }
 
+    var damageDiagnostics: TerminalRenderDamageDiagnostics {
+        lastDamageDiagnostics
+    }
+
+    var pixelProbeDiagnostics: [TerminalPixelProbe] {
+        lastPixelProbeDiagnostics
+    }
+
     var lastFrameDirtyRowsForDiagnostics: [Int] {
         terminalFrame.dirtyRows
     }
@@ -409,6 +478,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
 
     var lastFrameDamageWasFullForDiagnostics: Bool {
         terminalFrame.isFullDamage
+    }
+
+    var lastSubmittedDisplayRectsForDiagnostics: [CGRect] {
+        lastDamageDiagnostics.submittedDisplayRects
+    }
+
+    var lastFrameScissorWasDisabledForDiagnostics: Bool {
+        lastDamageDiagnostics.scissorDisabled
     }
 
     private var atlasInstanceCount: Int {
@@ -442,10 +519,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard diagnosticRenderingLogEnabled else { return }
         let colorAttachment = descriptor.colorAttachments[0]
         NSLog(
-            "Kurotty render frame: index=%llu fullRedraw=%@ dirtyRects=%d drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ dirtyRects=%d submittedDisplayRects=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
             renderFrameIndex,
             diagnosticFullRedrawEnabled ? "yes" : "no",
-            terminalFrame.dirtyRects.count,
+            damageDiagnostics.redrawDecision.description,
+            damageDiagnostics.dirtyRectCount,
+            damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
+            damageDiagnostics.scissorDisabled ? "yes" : "no",
             NSStringFromSize(drawableSize),
             NSStringFromSize(drawableSize),
             "\(colorAttachment?.loadAction ?? .dontCare)",
@@ -476,12 +556,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         if DebugOptions.dirtyRects || DebugOptions.cursorCell {
             NSLog(
-                "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ cursorCell=(%d,%d) noScissor=%@",
+                "Kurotty model rects: dirtyRows=%@ dirtyRects=%@ submittedDisplayRects=%@ cursorCell=(%d,%d) noScissor=%@",
                 terminalFrame.dirtyRows.map(String.init).joined(separator: ","),
                 terminalFrame.dirtyRects.map { NSStringFromRect($0.cgRect) }.joined(separator: " | "),
+                damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
                 terminalFrame.cursorRow,
                 terminalFrame.cursorColumn,
-                DebugOptions.noScissor ? "yes" : "no"
+                damageDiagnostics.scissorDisabled ? "yes" : "no"
             )
         }
     }
@@ -571,10 +652,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         resetAtlasIfCellMetricsChanged()
         var instances: [GlyphInstance] = []
         var glyphDebugRects: [CGRect] = []
+        var pixelProbes: [TerminalPixelProbe] = []
         instances.reserveCapacity(terminalFrame.cells.count + terminalFrame.markedText.count)
         for cell in terminalFrame.cells {
             guard !isCellCoveredByMarkedText(cell) else { continue }
-            appendGlyphInstance(character: cell.character, column: cell.column, row: cell.row, into: &instances, debugRects: &glyphDebugRects, color: cell.foreground)
+            appendGlyphInstance(
+                character: cell.character,
+                column: cell.column,
+                row: cell.row,
+                into: &instances,
+                debugRects: &glyphDebugRects,
+                pixelProbes: &pixelProbes,
+                color: cell.foreground
+            )
         }
         if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
             var column = terminalFrame.markedTextColumn
@@ -586,6 +676,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                     row: terminalFrame.cursorRow,
                     into: &instances,
                     debugRects: &glyphDebugRects,
+                    pixelProbes: &pixelProbes,
                     color: markedTextColor(for: character, utf16Offset: utf16Offset)
                 )
                 column += character.terminalColumnWidth
@@ -678,12 +769,123 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
         updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)
         rebuildDebugOverlayBuffer(glyphDebugRects: glyphDebugRects)
+        lastPixelProbeDiagnostics = pixelProbes
 
         var uniforms = TerminalUniforms(
             viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
             useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
         )
         updateSharedBuffer(&uniformsBuffer, with: &uniforms)
+        lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)
+    }
+
+    private func atlasBuffersNeedRebuild(for frame: TerminalFrame) -> Bool {
+        let nextSignature = makeAtlasBufferSignature(for: frame)
+        return nextSignature != lastAtlasBufferSignature
+    }
+
+    private func makeAtlasBufferSignature(for frame: TerminalFrame) -> Int {
+        var hasher = Hasher()
+        hasher.combine(frame.cells.count)
+        for cell in frame.cells {
+            hasher.combine(cell.character)
+            hasher.combine(cell.column)
+            hasher.combine(cell.row)
+            combineColor(cell.foreground, into: &hasher)
+            combineColor(cell.background, into: &hasher)
+        }
+        hasher.combine(frame.backgrounds.count)
+        for background in frame.backgrounds {
+            hasher.combine(background.column)
+            hasher.combine(background.row)
+            combineColor(background.color, into: &hasher)
+        }
+        hasher.combine(frame.decorations.count)
+        for decoration in frame.decorations {
+            hasher.combine(decoration.column)
+            hasher.combine(decoration.row)
+            hasher.combine(decoration.width)
+            combineDecorationKind(decoration.kind, into: &hasher)
+            combineColor(decoration.color, into: &hasher)
+        }
+        combineColor(frame.defaultForeground, into: &hasher)
+        combineColor(frame.defaultBackground, into: &hasher)
+        frame.dirtyRows.forEach { hasher.combine($0) }
+        for rect in frame.dirtyRects {
+            hasher.combine(rect.x)
+            hasher.combine(rect.y)
+            hasher.combine(rect.width)
+            hasher.combine(rect.height)
+        }
+        hasher.combine(frame.isFullDamage)
+        hasher.combine(frame.cursorColumn)
+        hasher.combine(frame.cursorRow)
+        hasher.combine(frame.cursorBlinkOn)
+        combineColor(cursorColor, into: &hasher)
+        hasher.combine(frame.markedTextColumn)
+        hasher.combine(frame.markedText)
+        hasher.combine(frame.markedTextSelectedRange.location)
+        hasher.combine(frame.markedTextSelectedRange.length)
+        hasher.combine(frame.columns)
+        hasher.combine(frame.visibleRows)
+        hasher.combine(frame.cellSize.width)
+        hasher.combine(frame.cellSize.height)
+        hasher.combine(frame.padding.x)
+        hasher.combine(frame.padding.y)
+        hasher.combine(bounds.size.width)
+        hasher.combine(bounds.size.height)
+        hasher.combine(backingScale)
+        hasher.combine(drawableSize.width)
+        hasher.combine(drawableSize.height)
+        combineFontCellMetrics(fontCellMetrics, into: &hasher)
+        hasher.combine(diagnosticPixelSnappingEnabled)
+        hasher.combine(diagnosticLinearGlyphSamplingEnabled)
+        hasher.combine(diagnosticCellBoundaryOverlayEnabled)
+        hasher.combine(diagnosticBaselineOverlayEnabled)
+        hasher.combine(diagnosticGlyphQuadOverlayEnabled)
+        return hasher.finalize()
+    }
+
+    private func combineColor(_ color: SIMD4<Float>, into hasher: inout Hasher) {
+        hasher.combine(color.x)
+        hasher.combine(color.y)
+        hasher.combine(color.z)
+        hasher.combine(color.w)
+    }
+
+    private func combineDecorationKind(_ kind: TerminalDecoration.Kind, into hasher: inout Hasher) {
+        switch kind {
+        case .underline:
+            hasher.combine(0)
+        case .strikethrough:
+            hasher.combine(1)
+        case let .boxDrawing(left, right, up, down):
+            hasher.combine(2)
+            hasher.combine(left)
+            hasher.combine(right)
+            hasher.combine(up)
+            hasher.combine(down)
+        case let .blockElement(x, y, width, height):
+            hasher.combine(3)
+            hasher.combine(x)
+            hasher.combine(y)
+            hasher.combine(width)
+            hasher.combine(height)
+        }
+    }
+
+    private func combineFontCellMetrics(_ metrics: FontCellMetrics, into hasher: inout Hasher) {
+        hasher.combine(metrics.fixedCellWidth)
+        hasher.combine(metrics.fixedCellHeight)
+        hasher.combine(metrics.ascenderPixels)
+        hasher.combine(metrics.descenderPixels)
+        hasher.combine(metrics.leadingPixels)
+        hasher.combine(metrics.baselineOffsetPixels)
+        hasher.combine(metrics.underlinePositionPixels)
+        hasher.combine(metrics.underlineThicknessPixels)
+        hasher.combine(metrics.cursorHeightPixels)
+        hasher.combine(metrics.cellWidthPixels)
+        hasher.combine(metrics.cellHeightPixels)
     }
 
     private func appendGlyphInstance(
@@ -692,12 +894,33 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         row: Int,
         into instances: inout [GlyphInstance],
         debugRects: inout [CGRect],
+        pixelProbes: inout [TerminalPixelProbe],
         color: SIMD4<Float> = SIMD4<Float>(0.92, 0.92, 0.92, 1)
     ) {
         guard row >= 0, row < terminalFrame.visibleRows else { return }
         let entry = glyphEntry(for: character)
         let cellOrigin = physicalPixelCellOrigin(column: column, row: row)
         let pixelSize = entry.pixelSize
+        let glyphRect = CGRect(
+            x: CGFloat(cellOrigin.x + entry.bearingXPixels),
+            y: CGFloat(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels),
+            width: CGFloat(pixelSize.width),
+            height: CGFloat(pixelSize.height)
+        )
+        let cellRect = CGRect(
+            x: CGFloat(cellOrigin.x),
+            y: CGFloat(cellOrigin.y),
+            width: CGFloat(entry.cellWidthPixels),
+            height: CGFloat(entry.cellHeightPixels)
+        )
+        let dirtyRect = diagnosticDirtyRectPixels(for: cellRect.union(glyphRect))
+        pixelProbes.append(TerminalPixelProbe.make(
+            cellRect: cellRect,
+            glyphRect: glyphRect,
+            dirtyRect: dirtyRect,
+            scissorRect: DebugOptions.noScissor ? nil : dirtyRect,
+            backingScale: backingScale
+        ))
         if diagnosticGlyphQuadOverlayEnabled {
             let origin = physicalPixelsToPoints(CGPoint(
                 x: CGFloat(cellOrigin.x + entry.bearingXPixels),
@@ -712,6 +935,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             uvSize: entry.uvSize,
             color: color
         ))
+    }
+
+    private func diagnosticDirtyRectPixels(for probeRect: CGRect) -> CGRect? {
+        let dirtyRects = terminalFrame.dirtyRects.map { physicalPixelRect($0.cgRect) }
+        if terminalFrame.isFullDamage || dirtyRects.isEmpty {
+            return physicalPixelRect(bounds)
+        }
+        return dirtyRects.first { $0.intersects(probeRect) }
     }
 
     private func solidInstance(
@@ -1195,6 +1426,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         // Display transfers can change both AppKit point scale and Metal drawable
         // pixels. Rebuild dependent buffers immediately so the next frame cannot use
         // a Retina atlas or viewport on a 1x external monitor.
+        rebuildFontCellMetrics()
         rebuildVertexBuffer()
         rebuildAtlasBuffers()
         if diagnosticCPUFallbackEnabled {
@@ -1338,6 +1570,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private func rebuildFontCellMetrics() {
+        let input = FontCellMetricsInput(
+            fontName: font.fontName,
+            pointSize: font.pointSize,
+            cellSize: terminalFrame.cellSize,
+            backingScale: backingScale
+        )
+        guard input != lastFontCellMetricsInput else { return }
+        lastFontCellMetricsInput = input
         fontCellMetrics = FontCellMetrics(font: font, cellSize: terminalFrame.cellSize.cgSize, scale: backingScale)
     }
 
@@ -1361,6 +1601,24 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             diagnostics.pixelSnappingEnabled ? "on" : "off",
             diagnostics.linearGlyphSamplingEnabled ? "on" : "off"
         )
+        if let probe = lastPixelProbeDiagnostics.first(where: { $0.reasonCode != .contained }) ?? lastPixelProbeDiagnostics.first {
+            NSLog(
+                "Kurotty pixel probe: reason=%@ cellPx=%@ glyphPx=%@ dirtyPx=%@ scissorPx=%@ scale=%0.2f flags=(glyphCell:%@ glyphDirty:%@ glyphScissor:%@ cellDirty:%@ cellScissor:%@ fractional:%@ emptyGlyph:%@)",
+                probe.summary,
+                NSStringFromRect(probe.cellRect),
+                NSStringFromRect(probe.glyphRect),
+                probe.dirtyRect.map { NSStringFromRect($0) } ?? "nil",
+                probe.scissorRect.map { NSStringFromRect($0) } ?? "nil",
+                probe.backingScale,
+                probe.clippingFlags.glyphExceedsCellBounds ? "yes" : "no",
+                probe.clippingFlags.glyphExceedsDirtyRect ? "yes" : "no",
+                probe.clippingFlags.glyphExceedsScissorRect ? "yes" : "no",
+                probe.clippingFlags.cellExceedsDirtyRect ? "yes" : "no",
+                probe.clippingFlags.cellExceedsScissorRect ? "yes" : "no",
+                probe.clippingFlags.fractionalPixelEdges ? "yes" : "no",
+                probe.clippingFlags.emptyGlyphRect ? "yes" : "no"
+            )
+        }
     }
 
     private func uploadAtlas(region: MTLRegion? = nil) {
@@ -1654,6 +1912,13 @@ private struct PixelSize {
 private struct PixelPoint {
     let x: Int
     let y: Int
+}
+
+private struct FontCellMetricsInput: Equatable {
+    let fontName: String
+    let pointSize: CGFloat
+    let cellSize: TerminalFrameSize
+    let backingScale: CGFloat
 }
 
 private struct FontCellMetrics {

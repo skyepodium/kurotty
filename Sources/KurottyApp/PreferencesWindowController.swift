@@ -1,5 +1,75 @@
 import AppKit
 
+struct PreferencesValidationStatus: Equatable {
+    enum Kind: Equatable {
+        case valid
+        case warnings
+        case errors
+    }
+
+    var kind: Kind
+    var message: String
+    var issues: [AppSettingsValidationIssue]
+
+    var canSave: Bool {
+        kind != .errors
+    }
+}
+
+enum PreferencesValidationPresenter {
+    static func status(
+        for rawJSON: String,
+        directoryExists: (String) -> Bool = defaultDirectoryExists
+    ) -> PreferencesValidationStatus {
+        do {
+            let settings = try JSONDecoder().decode(AppSettings.self, from: Data(rawJSON.utf8))
+            let report = AppSettingsValidation.report(for: settings, directoryExists: directoryExists)
+            return status(for: report)
+        } catch {
+            return PreferencesValidationStatus(
+                kind: .errors,
+                message: "Errors: Settings JSON is invalid: \(error.localizedDescription)",
+                issues: []
+            )
+        }
+    }
+
+    private static func status(for report: AppSettingsValidationReport) -> PreferencesValidationStatus {
+        let errors = report.issues.filter { $0.severity == .error }
+        if !errors.isEmpty {
+            return PreferencesValidationStatus(
+                kind: .errors,
+                message: "Errors: \(summary(for: errors))",
+                issues: report.issues
+            )
+        }
+
+        let warnings = report.issues.filter { $0.severity == .warning }
+        if !warnings.isEmpty {
+            return PreferencesValidationStatus(
+                kind: .warnings,
+                message: "Warnings: \(summary(for: warnings))",
+                issues: report.issues
+            )
+        }
+
+        return PreferencesValidationStatus(
+            kind: .valid,
+            message: "Settings valid.",
+            issues: report.issues
+        )
+    }
+
+    private static func summary(for issues: [AppSettingsValidationIssue]) -> String {
+        issues.map(\.message).joined(separator: " ")
+    }
+
+    private static func defaultDirectoryExists(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+}
+
 @MainActor
 final class PreferencesWindowController: NSWindowController {
     init() {
@@ -147,16 +217,23 @@ final class PreferencesView: NSView {
     @objc private func reloadFromDisk() {
         do {
             textView.string = try store.loadRawJSON()
-            setStatus("Loaded \(store.settingsURL.path)")
+            let status = PreferencesValidationPresenter.status(for: textView.string)
+            setStatus("Loaded \(store.settingsURL.path). \(status.message)")
         } catch {
             setStatus("Reload failed: \(error.localizedDescription)")
         }
     }
 
     @objc private func saveToDisk() {
+        let status = PreferencesValidationPresenter.status(for: textView.string)
+        guard status.canSave else {
+            setStatus("Save blocked. \(status.message)")
+            return
+        }
+
         do {
             try store.save(rawJSON: textView.string)
-            setStatus("Saved \(store.settingsURL.path)")
+            setStatus("Saved \(store.settingsURL.path). \(status.message)")
         } catch {
             setStatus("Save failed: \(error.localizedDescription)")
         }

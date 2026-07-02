@@ -23,7 +23,11 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     private var inputDrainGeneration: UInt64 = 0
     private var isStarted = false
     private var isStopping = false
+    private var isInputDrainScheduled = false
+    private var pendingInput = Data()
+    private var pendingInputStartIndex = 0
     private var pendingOutput = Data()
+    private var pendingOutputStartIndex = 0
     private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
 
     func start(workingDirectory requestedWorkingDirectory: String) {
@@ -61,26 +65,9 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
 
     func write(_ text: String) {
         guard let data = text.data(using: .utf8) else { return }
-        data.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.baseAddress else { return }
-            var offset = 0
-            while offset < rawBuffer.count {
-                let written = Darwin.write(master, base.advanced(by: offset), rawBuffer.count - offset)
-                if written > 0 {
-                    offset += written
-                    continue
-                }
-                if written == -1 && errno == EINTR {
-                    continue
-                }
-                if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    usleep(AppConstants.Shell.ptyWriteRetryDelayMicros)
-                    continue
-                }
-                break
-            }
+        readQueue.async { [weak self] in
+            self?.enqueueInput(data)
         }
-        scheduleOutputDrain()
     }
 
     func canReceiveTerminalResponseWithoutEcho() -> Bool {
@@ -94,15 +81,38 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
 
     func resize(columns: Int, rows: Int) {
         guard master >= 0 else { return }
+        let trace = TerminalResizeTrace(
+            requestedColumns: columns,
+            requestedRows: rows,
+            cellSize: nil,
+            viewSize: nil,
+            ioctlResult: 0,
+            ioctlErrno: nil,
+            didSendSIGWINCH: false
+        )
         var size = winsize(
-            ws_row: UInt16(max(1, rows)),
-            ws_col: UInt16(max(1, columns)),
+            ws_row: UInt16(trace.clampedRows),
+            ws_col: UInt16(trace.clampedColumns),
             ws_xpixel: 0,
             ws_ypixel: 0
         )
-        _ = ioctl(master, TIOCSWINSZ, &size)
+        let ioctlResult = ioctl(master, TIOCSWINSZ, &size)
+        let ioctlErrno = ioctlResult == -1 ? errno : nil
+        var didSendSIGWINCH = false
         if childPid > 0 {
-            kill(childPid, SIGWINCH)
+            didSendSIGWINCH = kill(childPid, SIGWINCH) == 0
+        }
+        if DebugOptions.ptyLog {
+            let completedTrace = TerminalResizeTrace(
+                requestedColumns: columns,
+                requestedRows: rows,
+                cellSize: nil,
+                viewSize: nil,
+                ioctlResult: Int32(ioctlResult),
+                ioctlErrno: ioctlErrno,
+                didSendSIGWINCH: didSendSIGWINCH
+            )
+            NSLog("Kurotty PTY resize: %@", completedTrace.description)
         }
     }
 
@@ -123,6 +133,89 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
             childPid = -1
         }
         master = -1
+    }
+
+    private func enqueueInput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        pendingInput.append(data)
+        drainInput()
+    }
+
+    private func drainInput() {
+        isInputDrainScheduled = false
+        guard master >= 0 else {
+            pendingInput.removeAll(keepingCapacity: true)
+            pendingInputStartIndex = 0
+            return
+        }
+
+        var didWrite = false
+        while pendingInputReadableCount > 0 {
+            let previousInputCount = pendingInputReadableCount
+            let didMakeProgress = writeInputChunk(master)
+            didWrite = didWrite || pendingInputReadableCount < previousInputCount
+            guard didMakeProgress else {
+                if didWrite {
+                    scheduleOutputDrain()
+                }
+                scheduleInputDrain()
+                return
+            }
+        }
+
+        if didWrite {
+            scheduleOutputDrain()
+        }
+    }
+
+    private func writeInputChunk(_ fd: Int32) -> Bool {
+        let written = pendingInput.withUnsafeBytes { rawBuffer -> Int in
+            guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+            return Darwin.write(
+                fd,
+                baseAddress.advanced(by: pendingInputStartIndex),
+                pendingInputReadableCount
+            )
+        }
+
+        if written > 0 {
+            consumePendingInput(written)
+            return true
+        }
+        if written == -1 && errno == EINTR {
+            return true
+        }
+        if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return false
+        }
+
+        pendingInput.removeAll(keepingCapacity: true)
+        pendingInputStartIndex = 0
+        return true
+    }
+
+    private var pendingInputReadableCount: Int {
+        pendingInput.count - pendingInputStartIndex
+    }
+
+    private func consumePendingInput(_ count: Int) {
+        pendingInputStartIndex += count
+        compactPendingInputIfNeeded()
+    }
+
+    private func compactPendingInputIfNeeded() {
+        guard pendingInputStartIndex > 0 else { return }
+        guard pendingInputStartIndex >= pendingInput.count / 2 || pendingInputStartIndex == pendingInput.count else { return }
+        pendingInput = Data(pendingInput[pendingInputStartIndex...])
+        pendingInputStartIndex = 0
+    }
+
+    private func scheduleInputDrain() {
+        guard !isInputDrainScheduled else { return }
+        isInputDrainScheduled = true
+        readQueue.asyncAfter(deadline: .now() + .microseconds(Int(AppConstants.Shell.ptyWriteRetryDelayMicros))) { [weak self] in
+            self?.drainInput()
+        }
     }
 
     private func observeMaster(_ fd: Int32) {
@@ -211,28 +304,41 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     }
 
     private func takeDecodedOutput() -> String? {
-        if let text = String(data: pendingOutput, encoding: .utf8) {
-            pendingOutput.removeAll(keepingCapacity: true)
+        let pendingBytes = pendingOutput[pendingOutputStartIndex...]
+        if let text = String(data: Data(pendingBytes), encoding: .utf8) {
+            consumePendingOutput(pendingBytes.count)
             return text
         }
 
-        let count = pendingOutput.count
+        let count = pendingBytes.count
         guard count > AppConstants.Shell.maximumUTF8ScalarBytes else { return nil }
         for validCount in stride(
             from: count - 1,
             through: max(0, count - AppConstants.Shell.maximumUTF8ScalarBytes),
             by: -1
         ) {
-            let prefix = pendingOutput.prefix(validCount)
+            let prefix = pendingBytes.prefix(validCount)
             if let text = String(data: prefix, encoding: .utf8) {
-                pendingOutput.removeFirst(validCount)
+                consumePendingOutput(validCount)
                 return text
             }
         }
         let decodableCount = count - AppConstants.Shell.maximumUTF8ScalarBytes
-        let text = String(decoding: pendingOutput.prefix(decodableCount), as: UTF8.self)
-        pendingOutput.removeFirst(decodableCount)
+        let text = String(decoding: pendingBytes.prefix(decodableCount), as: UTF8.self)
+        consumePendingOutput(decodableCount)
         return text
+    }
+
+    private func consumePendingOutput(_ count: Int) {
+        pendingOutputStartIndex += count
+        compactPendingOutputIfNeeded()
+    }
+
+    private func compactPendingOutputIfNeeded() {
+        guard pendingOutputStartIndex > 0 else { return }
+        guard pendingOutputStartIndex >= pendingOutput.count / 2 || pendingOutputStartIndex == pendingOutput.count else { return }
+        pendingOutput = Data(pendingOutput[pendingOutputStartIndex...])
+        pendingOutputStartIndex = 0
     }
 
     private static func normalizedExitStatus(_ status: Int32) -> Int32 {

@@ -462,10 +462,12 @@ final class AppSettingsStore {
 
 // MARK: - App-Side Settings Persistence
 
-struct AppSettingsPersistence {
+struct AppSettingsPersistence: @unchecked Sendable {
     private let fileManager: FileManager
     private let settingsURL: URL
     private let queue = DispatchQueue(label: Queue.label)
+    private let queueID = UUID()
+    private static let queueKey = DispatchSpecificKey<UUID>()
 
     private enum Queue {
         static let label = "dev.kurotty.settings.persistence"
@@ -474,10 +476,11 @@ struct AppSettingsPersistence {
     init(fileManager: FileManager, settingsURL: URL) {
         self.fileManager = fileManager
         self.settingsURL = settingsURL
+        queue.setSpecific(key: Self.queueKey, value: queueID)
     }
 
     func loadOrCreateDefaultData(_ defaultData: Data) throws -> Data {
-        try queue.sync {
+        try performOnPersistenceQueue {
             guard fileManager.fileExists(atPath: settingsURL.path) else {
                 try ensureSettingsDirectoryExists()
                 try defaultData.write(to: settingsURL, options: .atomic)
@@ -489,10 +492,33 @@ struct AppSettingsPersistence {
     }
 
     func save(_ data: Data) throws {
-        try queue.sync {
+        try performOnPersistenceQueue {
             try ensureSettingsDirectoryExists()
             try data.write(to: settingsURL, options: .atomic)
         }
+    }
+
+    private func performOnPersistenceQueue<T: Sendable>(_ work: @Sendable @escaping () throws -> T) throws -> T {
+        if DispatchQueue.getSpecific(key: Self.queueKey) == queueID {
+            return try work()
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultBox = LockedPersistenceResult<T>()
+        queue.async {
+            let nextResult: Result<T, Error>
+            do {
+                nextResult = .success(try work())
+            } catch {
+                nextResult = .failure(error)
+            }
+
+            resultBox.set(nextResult)
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        return try resultBox.get()
     }
 
     private func ensureSettingsDirectoryExists() throws {
@@ -505,5 +531,23 @@ struct AppSettingsPersistence {
             at: directoryURL,
             withIntermediateDirectories: true
         )
+    }
+}
+
+private final class LockedPersistenceResult<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<Value, Error>?
+
+    func set(_ result: Result<Value, Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func get() throws -> Value {
+        lock.lock()
+        let result = self.result
+        lock.unlock()
+        return try result!.get()
     }
 }

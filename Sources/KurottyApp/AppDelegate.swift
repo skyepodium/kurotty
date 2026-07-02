@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateController = UpdateController()
     private var windowController: TerminalWindowController?
     private var preferencesController: PreferencesWindowController?
+    private var commandPaletteController: CommandPaletteWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
@@ -39,6 +40,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = preferencesController ?? PreferencesWindowController()
         preferencesController = controller
         controller.showWindow(nil)
+    }
+
+    @objc func openCommandPalette() {
+        guard let terminalController = activeTerminalWindowController else {
+            return
+        }
+
+        let controller = CommandPaletteWindowController { [weak terminalController] command in
+            guard let terminalController else {
+                return
+            }
+            TerminalCommandDispatcher.execute(command, on: terminalController)
+        }
+        commandPaletteController = controller
+        controller.showWindow(nil)
+    }
+
+    @objc func saveWorkspaceSnapshot() {
+        guard let terminalController = activeTerminalWindowController else {
+            return
+        }
+
+        let coordinator = WorkspaceSnapshotCoordinator()
+        let snapshotURL = workspaceSnapshotURL()
+        do {
+            let descriptor = terminalController.layoutOnlyWorkspaceDescriptor()
+            _ = try coordinator.saveLayoutOnlySnapshot(from: descriptor, to: snapshotURL)
+            showInformationalAlert(
+                title: "Workspace Saved",
+                message: "Saved layout-only workspace snapshot to \(snapshotURL.path)."
+            )
+        } catch {
+            showInformationalAlert(
+                title: "Workspace Save Failed",
+                message: error.localizedDescription
+            )
+        }
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -144,10 +182,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.sendTextToActivePane(sequence)
     }
 
+    private func workspaceSnapshotURL() -> URL {
+        AppSettingsStore.shared.settingsURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("workspace.json")
+    }
+
     private func showUpdateUnavailableNotice() {
+        showInformationalAlert(
+            title: "자동 업데이트를 사용할 수 없습니다",
+            message: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."
+        )
+    }
+
+    private func showInformationalAlert(title: String, message: String) {
         let alert = NSAlert()
-        alert.messageText = "자동 업데이트를 사용할 수 없습니다"
-        alert.informativeText = "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."
+        alert.messageText = title
+        alert.informativeText = message
         alert.alertStyle = .informational
         alert.addButton(withTitle: "확인")
         alert.runModal()

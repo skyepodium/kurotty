@@ -142,6 +142,29 @@ final class SplitTerminalView: NSSplitView {
         pane.sendText(text)
     }
 
+    func layoutOnlyDescriptor(idPrefix: String) -> WorkspaceSnapshotCoordinator.SplitTreeDescriptor {
+        if arrangedSubviews.count == 1,
+           let pane = arrangedSubviews.first as? TerminalPaneView {
+            return .pane(pane.layoutOnlyDescriptor(id: "\(idPrefix)-pane-0"))
+        }
+
+        return .split(WorkspaceSnapshotCoordinator.SplitDescriptor(
+            id: "\(idPrefix)-split",
+            axis: isVertical ? .vertical : .horizontal,
+            children: arrangedSubviews.enumerated().compactMap { index, subview in
+                let childIDPrefix = "\(idPrefix)-\(index)"
+                if let pane = subview as? TerminalPaneView {
+                    return .pane(pane.layoutOnlyDescriptor(id: "\(childIDPrefix)-pane"))
+                }
+                if let splitView = subview as? SplitTerminalView {
+                    return splitView.layoutOnlyDescriptor(idPrefix: childIDPrefix)
+                }
+                return nil
+            },
+            proportions: layoutProportions()
+        ))
+    }
+
     var primaryTerminalSurface: TerminalSurfaceView? {
         firstPane()?.terminalSurface
     }
@@ -212,6 +235,21 @@ final class SplitTerminalView: NSSplitView {
             }
         }
         return false
+    }
+
+    private func layoutProportions() -> [Double]? {
+        guard arrangedSubviews.count > 1 else {
+            return nil
+        }
+
+        let lengths = arrangedSubviews.map { subview in
+            isVertical ? subview.frame.width : subview.frame.height
+        }
+        let total = lengths.reduce(0, +)
+        guard total > 0 else {
+            return nil
+        }
+        return lengths.map { Double($0 / total) }
     }
 
     private func splitGroupAsUnit(axis: NSLayoutConstraint.Orientation) -> Bool {

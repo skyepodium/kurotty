@@ -1,8 +1,28 @@
 import AppKit
+import KurottyCore
 import XCTest
 @testable import KurottyApp
 
 final class TerminalTextInputRouterTests: XCTestCase {
+    @MainActor
+    func testPromptInputViewMarkedTextIsOverlayOnlyUntilCommit() throws {
+        let core = SpyTerminalCore()
+        let view = TerminalInputView(core: core)
+        view.frame = NSRect(x: 0, y: 0, width: 640, height: 96)
+
+        view.setMarkedText("ㅇ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.setMarkedText("아", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 1))
+        view.setMarkedText("안", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 1))
+
+        XCTAssertTrue(view.hasMarkedText())
+        XCTAssertEqual(core.fedText, [])
+
+        view.insertText("안", replacementRange: NSRange(location: 0, length: 1))
+
+        XCTAssertFalse(view.hasMarkedText())
+        XCTAssertEqual(core.fedText, ["안"])
+    }
+
     @MainActor
     func testPromptInputViewInvalidatesWhenMarkedTextStartsBeforeCommit() throws {
         let view = TerminalInputView(core: CoreBridge(cols: 80, rows: 24))
@@ -17,6 +37,31 @@ final class TerminalTextInputRouterTests: XCTestCase {
         let unmarkTextStart = try XCTUnwrap(source.range(of: "func unmarkText"))
         let setMarkedTextSource = source[setMarkedTextStart.lowerBound..<unmarkTextStart.lowerBound]
         XCTAssertTrue(setMarkedTextSource.contains("needsDisplay = true"))
+    }
+
+    func testTerminalSurfaceMarkedTextDoesNotSendToPtyOrCoreBeforeCommit() throws {
+        let source = try terminalSurfaceViewSource()
+        let setMarkedTextSource = try sourceSlice(
+            in: source,
+            from: "func setMarkedText",
+            to: "func unmarkText"
+        )
+        let insertTextSource = try sourceSlice(
+            in: source,
+            from: "func insertText",
+            to: "override func doCommand"
+        )
+
+        XCTAssertTrue(setMarkedTextSource.contains("markedText = NSMutableAttributedString(attributedString: attr)"))
+        XCTAssertTrue(setMarkedTextSource.contains("inputSelectedRange = selectedRange"))
+        XCTAssertTrue(setMarkedTextSource.contains("updateRendererFrame()"))
+        XCTAssertFalse(setMarkedTextSource.contains("send("))
+        XCTAssertFalse(setMarkedTextSource.contains("shell.write"))
+        XCTAssertFalse(setMarkedTextSource.contains("core.feed"))
+
+        XCTAssertTrue(insertTextSource.contains("unmarkText()"))
+        XCTAssertTrue(insertTextSource.contains("guard !text.isEmpty else { return }"))
+        XCTAssertTrue(insertTextSource.contains("send(text)"))
     }
 
     func testPromptInputViewNewlineCommandSendsCarriageReturn() throws {
@@ -251,4 +296,33 @@ final class TerminalTextInputRouterTests: XCTestCase {
             .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")
         return try String(contentsOf: path, encoding: .utf8)
     }
+
+    private func terminalSurfaceViewSource() throws -> String {
+        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+        return try String(contentsOf: path, encoding: .utf8)
+    }
+
+    private func sourceSlice(in source: String, from startPattern: String, to endPattern: String) throws -> Substring {
+        let start = try XCTUnwrap(source.range(of: startPattern))
+        let end = try XCTUnwrap(source.range(of: endPattern, range: start.upperBound..<source.endIndex))
+        return source[start.lowerBound..<end.lowerBound]
+    }
+}
+
+private final class SpyTerminalCore: TerminalCore {
+    private(set) var fedText: [String] = []
+
+    func feed(_ text: String) {
+        fedText.append(text)
+    }
+
+    func recordKeyEvent() {}
+    func recordFramePresented() {}
+    func beginFrame(visibleCells: UInt32) -> UInt32 { 0 }
+    func endFrame() {}
+    func lastLatencyMicros() -> UInt64 { 0 }
+    func resize(cols: UInt32, rows: UInt32) {}
+    func cell(row: UInt32, col: UInt32) -> UInt8 { 0 }
+    func copyRow(_ row: UInt32, into buffer: inout [UInt8]) -> Int { 0 }
 }
