@@ -93,7 +93,11 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 ## macOS Notifications
 
 - `UNUserNotificationCenterDelegate` callbacks are delivered on UserNotifications-owned queues, not the main actor. Do not mark the delegate object itself `@MainActor`.
-- Keep notification delegate methods nonisolated and side-effect narrow. If a notification response must touch AppKit, hop explicitly with `Task { @MainActor in ... }` inside the callback.
+- Keep notification delegate methods nonisolated and side-effect narrow.
+- Do not create Swift concurrency tasks from UserNotifications delegate callbacks to complete the callback on `MainActor`. In release-installed apps this can crash on `com.apple.usernotifications.UNUserNotificationServiceConnection.call-out` with `_swift_task_checkIsolatedSwift` / `dispatch_assert_queue`.
+- Call the UserNotifications `completionHandler` exactly once on the callback queue before touching AppKit. For actions that need UI focus, complete the callback first, then use `DispatchQueue.main.async { ... }` for the AppKit work.
+- Do not move `completionHandler()` inside `Task { @MainActor in ... }`, `Task { await MainActor.run { ... } }`, or any async path whose executor may differ from the UserNotifications callback queue.
+- Regression tests for notification response handling must assert this source shape: nonisolated delegate callback, callback completion before AppKit focus, no `Task { @MainActor in`, no `Task { await MainActor.run`, and an explicit `DispatchQueue.main.async` UI hop.
 - Installed app notification fixes must be validated against an `.app` bundle, not only `swift run`, because the development fallback path can hide UserNotifications delegate behavior.
 - Notification body text must come from an explicit terminal notification protocol or command/session completion event. Do not use shell prompts, path/title rows, status bars, placeholders, or freshly redrawn idle UI as notification body text.
 - Use Ghostty as the reference model for this area: OSC desktop notifications are explicit `show_desktop_notification` events, and command-finished notifications are derived from command metadata such as duration and exit code rather than scraped screen rows.
