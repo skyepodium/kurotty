@@ -133,55 +133,64 @@ struct TerminalRenderDamageDiagnostics {
         diagnosticFullRedrawEnabled: Bool,
         scissorDisabled: Bool
     ) -> TerminalRenderDamageDiagnostics {
-        if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty {
-            let fallbackReason: CoalescingFallbackReason
-            if diagnosticFullRedrawEnabled {
-                fallbackReason = .diagnosticFullRedraw
-            } else if frame.isFullDamage {
-                fallbackReason = .fullDamageFrame
-            } else {
-                fallbackReason = .emptyDirtyRects
-            }
-            return TerminalRenderDamageDiagnostics(
-                redrawDecision: .full,
-                schedulingPolicy: .fullRedrawFallback,
-                dirtyRectCount: frame.dirtyRects.count,
-                scissorDisabled: scissorDisabled,
-                submittedDisplayRects: [bounds],
-                canCoalesceAtDisplayCadence: false,
-                coalescingFallbackReason: fallbackReason,
-                stablePixelBounds: [],
-                stablePixelBoundCount: 0
-            )
-        }
         let displaySize = TerminalFrameSize(width: Double(bounds.width), height: Double(bounds.height))
-        let pixelBoundsReport = frame.damageMetadata.stablePixelBoundsReport(
+        let policy = frame.damageMetadata.redrawPolicy(
             scale: Double(backingScale),
-            clipTo: displaySize
+            clipTo: displaySize,
+            diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled,
+            scissorDisabled: scissorDisabled
         )
-        let stablePixelBounds = pixelBoundsReport.pixelBounds
-        let canCoalesceAtDisplayCadence = !scissorDisabled &&
-            pixelBoundsReport.fallbackReason == nil &&
-            stablePixelBounds.count == frame.dirtyRects.count
-        let fallbackReason: CoalescingFallbackReason
-        if canCoalesceAtDisplayCadence {
-            fallbackReason = .none
-        } else if scissorDisabled {
-            fallbackReason = .scissorDisabled
-        } else {
-            fallbackReason = .unstablePixelBounds
-        }
+        let submittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\.cgRect)
         return TerminalRenderDamageDiagnostics(
-            redrawDecision: .partial,
-            schedulingPolicy: canCoalesceAtDisplayCadence ? .displayCadenceCoalescingCandidate : .immediatePartialRedraw,
+            redrawDecision: redrawDecision(from: policy.redrawDecision),
+            schedulingPolicy: schedulingPolicy(from: policy.schedulingPolicy),
             dirtyRectCount: frame.dirtyRects.count,
             scissorDisabled: scissorDisabled,
-            submittedDisplayRects: frame.dirtyRects.map(\.cgRect),
-            canCoalesceAtDisplayCadence: canCoalesceAtDisplayCadence,
-            coalescingFallbackReason: fallbackReason,
-            stablePixelBounds: stablePixelBounds,
-            stablePixelBoundCount: pixelBoundsReport.stablePixelBoundCount
+            submittedDisplayRects: submittedDisplayRects,
+            canCoalesceAtDisplayCadence: policy.canCoalesceAtDisplayCadence,
+            coalescingFallbackReason: coalescingFallbackReason(from: policy.coalescingFallbackReason),
+            stablePixelBounds: policy.stablePixelBounds,
+            stablePixelBoundCount: policy.stablePixelBoundCount
         )
+    }
+
+    private static func redrawDecision(from decision: TerminalFrameRedrawDecision) -> RedrawDecision {
+        switch decision {
+        case .full:
+            .full
+        case .partial:
+            .partial
+        }
+    }
+
+    private static func schedulingPolicy(from policy: TerminalFrameDamageSchedulingPolicy) -> SchedulingPolicy {
+        switch policy {
+        case .fullRedrawFallback:
+            .fullRedrawFallback
+        case .displayCadenceCoalescingCandidate:
+            .displayCadenceCoalescingCandidate
+        case .immediatePartialRedraw:
+            .immediatePartialRedraw
+        }
+    }
+
+    private static func coalescingFallbackReason(
+        from reason: TerminalFrameCoalescingFallbackReason
+    ) -> CoalescingFallbackReason {
+        switch reason {
+        case .none:
+            .none
+        case .diagnosticFullRedraw:
+            .diagnosticFullRedraw
+        case .fullDamageFrame:
+            .fullDamageFrame
+        case .emptyDirtyRects:
+            .emptyDirtyRects
+        case .scissorDisabled:
+            .scissorDisabled
+        case .unstablePixelBounds:
+            .unstablePixelBounds
+        }
     }
 }
 

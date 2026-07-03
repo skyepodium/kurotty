@@ -293,6 +293,61 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(outOfOrder.description.contains("token=secret"))
     }
 
+    func testTraceCorrelationReportExposesProductionTimelineSummary() {
+        let traceID = TerminalEventTraceID("timeline-pipeline")
+        let summary = TerminalEventLedger.TraceSummary(
+            traceID: traceID,
+            eventCount: 4,
+            kindCounts: [
+                .ptyRead: 1,
+                .parserEvent: 1,
+                .screenMutation: 1,
+                .renderFrame: 1,
+            ],
+            ptyReadByteCount: 11,
+            parserEventByteCount: 5,
+            screenMutationCount: 1,
+            renderFrameCount: 1,
+            dirtyRegionCount: 3,
+            fullRedrawCount: 1,
+            firstSequence: 12,
+            lastSequence: 15,
+            droppedEventCount: 2
+        )
+        let resize = TerminalResizeCycleSnapshot(
+            traceID: "timeline-pipeline",
+            source: "runtime-resize",
+            viewportSize: TerminalFrameSize(width: 800, height: 400),
+            cellSize: TerminalFrameSize(width: 8, height: 16),
+            ptyColumns: 100,
+            ptyRows: 25,
+            screenColumns: 100,
+            screenRows: 24,
+            rendererColumns: 100,
+            rendererRows: 25
+        )
+        let report = TerminalTraceCorrelationReport(
+            eventSummary: summary,
+            stageSequence: [.ptyRead, .parserEvent, .screenMutation, .renderFrame],
+            resizeSnapshot: resize
+        )
+
+        let timeline = report.timelineSummary
+
+        XCTAssertEqual(timeline.traceID, traceID)
+        XCTAssertEqual(timeline.stagePath, "ptyRead>parserEvent>screenMutation>renderFrame")
+        XCTAssertEqual(timeline.firstSequence, 12)
+        XCTAssertEqual(timeline.lastSequence, 15)
+        XCTAssertEqual(timeline.resizeIssueCount, 1)
+        XCTAssertTrue(timeline.hasCompleteRenderPath)
+        XCTAssertEqual(
+            timeline.description,
+            "trace=timeline-pipeline stages=ptyRead>parserEvent>screenMutation>renderFrame complete=true sequenceRange=12...15 events=4 droppedEvents=2 resizeIssues=1 ptyBytes=11 parserBytes=5 screenMutations=1 renderFrames=1 dirtyRegions=3 fullRedraws=1"
+        )
+        XCTAssertFalse(timeline.description.contains("CSI"))
+        XCTAssertFalse(timeline.description.contains("secret"))
+    }
+
     func testCoreBridgeReportsSwiftScaffoldDiagnosticWhenZigCoreIsUnavailable() {
         let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
 
