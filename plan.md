@@ -46,15 +46,22 @@
   - renderer damage: redraw/coalescing policy를 `TerminalRenderFrame` contract로 이동해 production diagnostics가 같은 정책을 사용.
   - scrollback export: raw row materialization 없이 export window summary를 계산해 copy/search/AI 참조 준비.
   - AI command reference: command span snapshot에 raw output 없는 copyable locator metadata 추가.
+- [~] feature/runtime-backend-next-20260704-073705: UI 제외 backend/runtime 병렬 작업.
+  - trace source-of-truth: PTY/parser/screen/render stage completeness와 missing stage metadata를 raw payload 없이 노출.
+  - resize ledger: PTY winsize, screen grid, renderer grid, drawable/frame size와 disagreeing participant metadata를 한 summary로 연결.
+  - shell evidence: passive OSC baseline과 per-session opt-in/installed integration evidence를 분리.
+  - command backend: fold/search/copy-reference/replay command-span action vocabulary와 approval policy를 command registry에 추가.
+  - glyph contract: shaping/fallback/atlas/clipping readiness summary를 `TerminalGlyphRun` backend contract로 추가.
+  - scrollback live access: search/copy/AI context reference window availability를 raw row text 없이 metadata로 분류.
 
 현재 남은 큰 축:
 
 - [~] Swift scaffold와 Zig terminal core의 단일 source-of-truth 통합: metadata/diagnostics는 보강됨. 실제 runtime mutation path 통합은 남음.
-- [~] 실제 PTY/parser/screen/render event ledger를 하나의 디버깅 타임라인으로 묶기: correlation report와 timeline summary 기반은 완료. live viewer/production wiring은 남음.
+- [~] 실제 PTY/parser/screen/render event ledger를 하나의 디버깅 타임라인으로 묶기: correlation report, timeline summary, source-of-truth completeness 기반은 완료. live viewer/production wiring은 남음.
 - [~] renderer damage/scissor 최적화를 production path에서 완성: redraw/coalescing policy contract는 완료. 실제 repaint scheduling 최적화와 live measurement는 남음.
-- [~] glyph shaping/fallback/font atlas contract의 full implementation: diagnostic contract는 완료. CoreText/atlas production implementation은 남음.
-- [~] segmented scrollback store와 대용량 stress/performance 기준: retained range/coordinate/stress/export-window 기준은 보강됨. disk-backed/off-main-thread store는 남음.
-- [~] shell integration opt-in script, command folding/replay/search UX: backend metadata와 evidence 분리는 완료. 실제 UX와 install-free onboarding은 남음.
+- [~] glyph shaping/fallback/font atlas contract의 full implementation: backend readiness contract는 완료. CoreText/atlas production implementation은 남음.
+- [~] segmented scrollback store와 대용량 stress/performance 기준: retained range/coordinate/stress/export-window/live-access 기준은 보강됨. disk-backed/off-main-thread store는 남음.
+- [~] shell integration opt-in script, command folding/replay/search UX: backend metadata, evidence 분리, command action vocabulary는 완료. 실제 UX와 install-free onboarding은 남음.
 - [~] browser-like UI polish, non-developer onboarding, DESIGN.md 업데이트.
 - [~] AI agent UX layer: secret-safe backend action API와 command span locator는 강화됨. context reference UI와 approval presentation은 남음.
 
@@ -454,10 +461,12 @@
 - [~] parser event와 screen mutation을 분리한 테스트 fixture를 추가한다.
   - 완료: screen/escape/parser 관련 regression test와 command/OSC bridge 테스트 일부 추가.
   - 완료: trace correlation report에 metadata-only timeline summary 추가.
-  - 남음: PTY bytes -> parser event -> screen mutation -> render frame을 live path에서 한 trace id로 묶고 Swift scaffold/Zig core source-of-truth 차이를 드러내는 fixture.
+  - 완료: PTY bytes -> parser event -> screen mutation -> render frame stage completeness와 missing stage metadata를 raw payload 없이 진단.
+  - 남음: Swift scaffold/Zig core source-of-truth 차이를 live runtime fixture로 드러내기.
 - [~] `PtyResizeTrace` 구조와 metadata-only logging을 추가한다.
   - 완료: resize diagnostics 기반 일부 추가.
-  - 남음: PTY winsize, screen size, renderer drawable size를 한 ledger로 연결.
+  - 완료: PTY winsize, screen size, renderer grid/drawable/frame size를 한 ledger summary로 연결.
+  - 남음: 실제 resize live path에서 해당 summary를 지속적으로 채집.
 - [x] IME marked text overlay를 screen mutation과 분리하고 Korean IME test matrix를 문서화한다.
   - 완료: marked text가 PTY/core로 commit 전 전송되지 않는 회귀 테스트와 input router 기반 추가.
 - [~] renderer scissor/dirty rect debug overlay와 pixel probe를 추가한다.
@@ -465,12 +474,14 @@
   - 남음: render coalescing, production damage/scissor path 최적화, live debug overlay polish.
 - [~] glyph shaping/fallback contract를 설계하고 CoreText/Metal atlas ownership을 문서화한다.
   - 완료: `TerminalGlyphRun` 기반, glyph atlas/fallback/clipping 회귀 테스트 일부 추가.
-  - 남음: shaping/fallback/atlas contract를 문서화하고 full implementation으로 확장.
+  - 완료: shaping/fallback/atlas/clipping readiness를 backend contract로 노출.
+  - 남음: CoreText/Metal atlas production implementation으로 확장.
 - [x] shell integration v1에서 OSC 7/133만 먼저 지원한다.
   - 완료: OSC 7 cwd, OSC 133 prompt/command/output/end, exit code, command span/history, live OSC dispatcher hook.
 - [~] shell opt-in metadata를 passive OSC metadata와 분리한다.
   - 완료: shell capability descriptors, passive OSC support와 opt-in snippet metadata 구분, OSC 7 path encoding, bash CWD-only conservative capability.
-  - 남음: per-session opt-in evidence, UI/audit/AI surfaces에서 baseline support와 installed integration을 구분.
+  - 완료: per-session opt-in evidence에서 baseline support와 installed integration을 구분.
+  - 남음: UI/audit/AI surfaces에 해당 distinction을 표시.
 - [x] AI context export는 redaction/audit/log cap 없이 구현하지 않는다.
   - 완료: `AIContextLayer`, secret redaction, capped event log, AI command context bridge, raw output default-off 및 approval gate.
 - [x] settings validation을 preferences UI에 연결한다.
@@ -479,7 +490,8 @@
   - 완료: `CommandPalettePresenter`, AppKit palette window, `Cmd+Shift+P`, command dispatch bridge.
 - [~] command UX를 command registry 중심으로 정리한다.
   - 완료: palette aliases/search tokens를 command registry metadata로 이동하고 ambiguous duplicate token 제거.
-  - 남음: command spans, search/copy/fold/replay candidates, menu/palette/action dispatch가 같은 command surface와 approval policy를 공유.
+  - 완료: command spans, search/copy/fold/replay backend commands와 approval policy를 command registry에 추가.
+  - 남음: menu/palette/action dispatch와 실제 UI가 해당 command surface를 공유.
 - [~] workspace/session snapshot을 layout-only로 먼저 저장한다.
   - 완료: `WorkspaceSnapshot`, atomic store, `WorkspaceSnapshotCoordinator`, app menu save flow.
   - 남음: process restore, command replay, session restore UX는 explicit opt-in 이후.
@@ -489,6 +501,7 @@
   - 완료: `BoundedScrollbackRows.Diagnostics`, `TerminalScrollbackDiagnosticsSummary`, raw text 미노출 테스트.
 - [~] segmented scrollback store와 million-line stress test를 구현한다.
   - 완료: segmented/bounded scrollback 기반, export window metadata summary, million-line stress target.
+  - 완료: search/copy/AI context reference live access window availability summary 추가.
   - 남음: live scrollback path 전체를 segmented store 중심으로 정리하고 UI/search/copy mode와 연결.
 - [ ] command folding/search/replay UI를 구현한다.
 - [ ] browser-like toolbar/search/copy mode/quick terminal UX를 다듬는다.

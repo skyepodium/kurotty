@@ -95,6 +95,10 @@ struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
         TerminalTraceTimelineSummary(report: self)
     }
 
+    var sourceOfTruthDiagnostic: TerminalTraceSourceOfTruthDiagnostic {
+        TerminalTraceSourceOfTruthDiagnostic(report: self)
+    }
+
     var description: String {
         [
             "trace=\(traceID)",
@@ -121,6 +125,63 @@ struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
             searchStart = stageSequence.index(after: matchIndex)
         }
         return true
+    }
+}
+
+struct TerminalTraceSourceOfTruthDiagnostic: Equatable, CustomStringConvertible {
+    static let requiredRenderPathStages: [TerminalEventLedger.EventKind] = [
+        .ptyRead,
+        .parserEvent,
+        .screenMutation,
+        .renderFrame,
+    ]
+
+    let timelineSummary: TerminalTraceTimelineSummary
+    let requiredStages: [TerminalEventLedger.EventKind]
+    let missingStages: [TerminalEventLedger.EventKind]
+
+    init(
+        report: TerminalTraceCorrelationReport,
+        requiredStages: [TerminalEventLedger.EventKind] = Self.requiredRenderPathStages
+    ) {
+        timelineSummary = report.timelineSummary
+        self.requiredStages = requiredStages
+        missingStages = requiredStages.filter { !report.stageSequence.contains($0) }
+    }
+
+    var traceID: TerminalEventTraceID {
+        timelineSummary.traceID
+    }
+
+    var missingStageNames: [String] {
+        missingStages.map(\.description)
+    }
+
+    var isSourceOfTruthComplete: Bool {
+        missingStages.isEmpty
+            && timelineSummary.hasCompleteRenderPath
+            && timelineSummary.droppedEventCount == 0
+    }
+
+    var description: String {
+        [
+            "trace=\(traceID)",
+            "sourceOfTruthComplete=\(isSourceOfTruthComplete)",
+            "completeRenderPath=\(timelineSummary.hasCompleteRenderPath)",
+            "stages=\(timelineSummary.stagePath)",
+            "missingStages=\(missingStageDescription)",
+            "events=\(timelineSummary.eventCount)",
+            "droppedEvents=\(timelineSummary.droppedEventCount)",
+            "ptyBytes=\(timelineSummary.ptyReadByteCount)",
+            "parserBytes=\(timelineSummary.parserEventByteCount)",
+            "screenMutations=\(timelineSummary.screenMutationCount)",
+            "renderFrames=\(timelineSummary.renderFrameCount)",
+        ].joined(separator: " ")
+    }
+
+    private var missingStageDescription: String {
+        let names = missingStageNames
+        return names.isEmpty ? "none" : names.joined(separator: ",")
     }
 }
 

@@ -129,6 +129,24 @@ struct TerminalShellIntegrationSessionEvidence: Equatable {
     }
 }
 
+struct TerminalShellIntegrationSessionSummary: Equatable {
+    struct BaselineSupport: Equatable {
+        let supportedPassiveOSCSequences: [TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence]
+        let observedPassiveOSCSequences: [TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence]
+    }
+
+    struct OptInIntegration: Equatable {
+        let supportedSnippetCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability]
+        let observedCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability]
+        let completedCommandSpanReferences: [TerminalCommandSpanReference]
+        let installedWorkingDirectorySupportObserved: Bool
+        let installedCommandBoundarySupportObserved: Bool
+    }
+
+    let baselineSupport: BaselineSupport
+    let optInIntegration: OptInIntegration
+}
+
 extension TerminalCommandSpan {
     var reference: TerminalCommandSpanReference {
         TerminalCommandSpanReference(
@@ -231,6 +249,34 @@ struct TerminalShellIntegration: Equatable {
         )
     }
 
+    var sessionSummary: TerminalShellIntegrationSessionSummary {
+        let completedSpans = recentCommandSpans
+        let installedCommandBoundarySupportObserved = !completedSpans.isEmpty
+        let installedWorkingDirectorySupportObserved = completedSpans.contains { $0.cwd != nil }
+        var observedCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = []
+
+        if installedWorkingDirectorySupportObserved {
+            observedCapabilities.append(.workingDirectoryTracking)
+        }
+        if installedCommandBoundarySupportObserved {
+            observedCapabilities.append(.commandBoundaryTracking)
+        }
+
+        return TerminalShellIntegrationSessionSummary(
+            baselineSupport: TerminalShellIntegrationSessionSummary.BaselineSupport(
+                supportedPassiveOSCSequences: capabilityDescriptor.passiveOSCSequences,
+                observedPassiveOSCSequences: sessionEvidence.observedPassiveOSCSequences
+            ),
+            optInIntegration: TerminalShellIntegrationSessionSummary.OptInIntegration(
+                supportedSnippetCapabilities: Self.supportedOptInSnippetCapabilities,
+                observedCapabilities: observedCapabilities,
+                completedCommandSpanReferences: sessionEvidence.completedCommandSpanReferences,
+                installedWorkingDirectorySupportObserved: installedWorkingDirectorySupportObserved,
+                installedCommandBoundarySupportObserved: installedCommandBoundarySupportObserved
+            )
+        )
+    }
+
     private static let workingDirectorySnippetCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = [
         .workingDirectoryTracking,
     ]
@@ -302,6 +348,16 @@ struct TerminalShellIntegration: Equatable {
             requiresInstaller: false
         ),
     ]
+
+    private static var supportedOptInSnippetCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] {
+        var capabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = []
+        for descriptor in optInSnippetDescriptors {
+            for capability in descriptor.capabilities where !capabilities.contains(capability) {
+                capabilities.append(capability)
+            }
+        }
+        return capabilities
+    }
 
     init(
         currentWorkingDirectoryCandidate: String? = nil,

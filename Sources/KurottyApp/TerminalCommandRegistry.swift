@@ -29,6 +29,29 @@ enum TerminalWindowCommandAction: Equatable {
     case selectPreviousTab
 }
 
+enum TerminalCommandSpanCommandID: String, CaseIterable {
+    case foldOutput = "commandSpan.foldOutput"
+    case searchOutput = "commandSpan.searchOutput"
+    case copyReference = "commandSpan.copyReference"
+    case replay = "commandSpan.replay"
+}
+
+enum TerminalCommandSpanAction: Equatable {
+    case foldOutput
+    case searchOutput
+    case copyReference
+    case replay
+}
+
+enum TerminalCommandSpanCategory: String, CaseIterable {
+    case commandSpans
+}
+
+enum TerminalCommandApprovalPolicy: Equatable {
+    case none
+    case explicitUserConfirmation
+}
+
 struct TerminalCommandShortcut: Equatable {
     let keyEquivalent: String?
     let keyCode: UInt16?
@@ -103,10 +126,47 @@ struct TerminalCommand: Equatable {
     }
 }
 
+struct TerminalCommandSpanCommand: Equatable {
+    let id: TerminalCommandSpanCommandID
+    let title: String
+    let category: TerminalCommandSpanCategory
+    let action: TerminalCommandSpanAction
+    let approvalPolicy: TerminalCommandApprovalPolicy
+    let searchTokens: [String]
+
+    init(
+        id: TerminalCommandSpanCommandID,
+        title: String,
+        category: TerminalCommandSpanCategory = .commandSpans,
+        action: TerminalCommandSpanAction,
+        approvalPolicy: TerminalCommandApprovalPolicy = .none,
+        searchTokens: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.category = category
+        self.action = action
+        self.approvalPolicy = approvalPolicy
+        self.searchTokens = searchTokens
+    }
+}
+
 struct TerminalCommandRegistry {
-    static let `default` = TerminalCommandRegistry(windowCommands: Self.defaultWindowCommands)
+    static let `default` = TerminalCommandRegistry(
+        windowCommands: Self.defaultWindowCommands,
+        commandSpanCommands: Self.defaultCommandSpanCommands
+    )
 
     let windowCommands: [TerminalCommand]
+    let commandSpanCommands: [TerminalCommandSpanCommand]
+
+    init(
+        windowCommands: [TerminalCommand],
+        commandSpanCommands: [TerminalCommandSpanCommand] = []
+    ) {
+        self.windowCommands = windowCommands
+        self.commandSpanCommands = commandSpanCommands
+    }
 
     func windowCommand(matching event: NSEvent) -> TerminalCommand? {
         windowCommands.first { command in
@@ -196,6 +256,34 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "]", modifiers: [.command, .shift]),
             action: .selectNextTab,
             searchTokens: ["next window", "tab next", "forward tab"]
+        ),
+    ]
+
+    private static let defaultCommandSpanCommands: [TerminalCommandSpanCommand] = [
+        TerminalCommandSpanCommand(
+            id: .foldOutput,
+            title: "Fold Command Output",
+            action: .foldOutput,
+            searchTokens: ["collapse command output", "hide command output", "toggle command output"]
+        ),
+        TerminalCommandSpanCommand(
+            id: .searchOutput,
+            title: "Search Command Output",
+            action: .searchOutput,
+            searchTokens: ["find in command output", "search span output", "filter command output"]
+        ),
+        TerminalCommandSpanCommand(
+            id: .copyReference,
+            title: "Copy Command Reference",
+            action: .copyReference,
+            searchTokens: ["copy span reference", "copy command id", "copy command link"]
+        ),
+        TerminalCommandSpanCommand(
+            id: .replay,
+            title: "Replay Command",
+            action: .replay,
+            approvalPolicy: .explicitUserConfirmation,
+            searchTokens: ["rerun command", "run command again", "repeat command"]
         ),
     ]
 }

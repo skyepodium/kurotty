@@ -348,6 +348,78 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(timeline.description.contains("secret"))
     }
 
+    func testTraceSourceOfTruthDiagnosticExposesMissingStagesWithoutPayloadText() {
+        let traceID = TerminalEventTraceID("missing-stage-pipeline")
+        let summary = TerminalEventLedger.TraceSummary(
+            traceID: traceID,
+            eventCount: 2,
+            kindCounts: [
+                .ptyRead: 1,
+                .screenMutation: 1,
+            ],
+            ptyReadByteCount: 12,
+            parserEventByteCount: 0,
+            screenMutationCount: 1,
+            renderFrameCount: 0,
+            dirtyRegionCount: 0,
+            fullRedrawCount: 0,
+            firstSequence: 4,
+            lastSequence: 5,
+            droppedEventCount: 0
+        )
+        let report = TerminalTraceCorrelationReport(
+            eventSummary: summary,
+            stageSequence: [.ptyRead, .screenMutation]
+        )
+
+        let diagnostic = report.sourceOfTruthDiagnostic
+
+        XCTAssertFalse(diagnostic.isSourceOfTruthComplete)
+        XCTAssertEqual(diagnostic.missingStages, [.parserEvent, .renderFrame])
+        XCTAssertEqual(diagnostic.missingStageNames, ["parserEvent", "renderFrame"])
+        XCTAssertEqual(
+            diagnostic.description,
+            "trace=missing-stage-pipeline sourceOfTruthComplete=false completeRenderPath=false stages=ptyRead>screenMutation missingStages=parserEvent,renderFrame events=2 droppedEvents=0 ptyBytes=12 parserBytes=0 screenMutations=1 renderFrames=0"
+        )
+        XCTAssertFalse(diagnostic.description.contains("CSI"))
+        XCTAssertFalse(diagnostic.description.contains("token=secret"))
+    }
+
+    func testTraceSourceOfTruthDiagnosticMarksCompleteOrderedUndroppedTrace() {
+        let traceID = TerminalEventTraceID("complete-live-fixture")
+        let summary = TerminalEventLedger.TraceSummary(
+            traceID: traceID,
+            eventCount: 4,
+            kindCounts: [
+                .ptyRead: 1,
+                .parserEvent: 1,
+                .screenMutation: 1,
+                .renderFrame: 1,
+            ],
+            ptyReadByteCount: 8,
+            parserEventByteCount: 8,
+            screenMutationCount: 1,
+            renderFrameCount: 1,
+            dirtyRegionCount: 1,
+            fullRedrawCount: 0,
+            firstSequence: 0,
+            lastSequence: 3,
+            droppedEventCount: 0
+        )
+        let report = TerminalTraceCorrelationReport(
+            eventSummary: summary,
+            stageSequence: [.ptyRead, .parserEvent, .screenMutation, .renderFrame]
+        )
+
+        let diagnostic = report.sourceOfTruthDiagnostic
+
+        XCTAssertTrue(diagnostic.isSourceOfTruthComplete)
+        XCTAssertTrue(diagnostic.missingStages.isEmpty)
+        XCTAssertEqual(diagnostic.missingStageNames, [])
+        XCTAssertTrue(diagnostic.description.contains("sourceOfTruthComplete=true"))
+        XCTAssertTrue(diagnostic.description.contains("missingStages=none"))
+    }
+
     func testCoreBridgeReportsSwiftScaffoldDiagnosticWhenZigCoreIsUnavailable() {
         let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
 
