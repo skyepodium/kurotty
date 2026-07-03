@@ -46,7 +46,7 @@
   - renderer damage: redraw/coalescing policy를 `TerminalRenderFrame` contract로 이동해 production diagnostics가 같은 정책을 사용.
   - scrollback export: raw row materialization 없이 export window summary를 계산해 copy/search/AI 참조 준비.
   - AI command reference: command span snapshot에 raw output 없는 copyable locator metadata 추가.
-- [~] feature/runtime-backend-next-20260704-073705: UI 제외 backend/runtime 병렬 작업.
+- [x] PR #54: UI 제외 backend/runtime 병렬 작업.
   - trace source-of-truth: PTY/parser/screen/render stage completeness와 missing stage metadata를 raw payload 없이 노출.
   - resize ledger: PTY winsize, screen grid, renderer grid, drawable/frame size와 disagreeing participant metadata를 한 summary로 연결.
   - shell evidence: passive OSC baseline과 per-session opt-in/installed integration evidence를 분리.
