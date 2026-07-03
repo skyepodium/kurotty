@@ -194,6 +194,55 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.sessionEvidence.completedCommandSpanReferences.first?.spanID, 1)
     }
 
+    func testSessionSummarySeparatesBaselineSupportFromOptInEvidence() {
+        var integration = TerminalShellIntegration()
+
+        XCTAssertEqual(
+            integration.sessionSummary,
+            TerminalShellIntegrationSessionSummary(
+                baselineSupport: TerminalShellIntegrationSessionSummary.BaselineSupport(
+                    supportedPassiveOSCSequences: [.osc7, .osc133],
+                    observedPassiveOSCSequences: []
+                ),
+                optInIntegration: TerminalShellIntegrationSessionSummary.OptInIntegration(
+                    supportedSnippetCapabilities: [.workingDirectoryTracking, .commandBoundaryTracking],
+                    observedCapabilities: [],
+                    completedCommandSpanReferences: [],
+                    installedWorkingDirectorySupportObserved: false,
+                    installedCommandBoundarySupportObserved: false
+                )
+            )
+        )
+
+        _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
+
+        XCTAssertEqual(integration.sessionSummary.baselineSupport.observedPassiveOSCSequences, [.osc7])
+        XCTAssertEqual(integration.sessionSummary.optInIntegration.observedCapabilities, [])
+        XCTAssertFalse(integration.sessionSummary.optInIntegration.installedWorkingDirectorySupportObserved)
+        XCTAssertFalse(integration.sessionSummary.optInIntegration.installedCommandBoundarySupportObserved)
+    }
+
+    func testSessionSummaryRequiresCompletedCommandSpanForInstalledCommandBoundaryEvidence() {
+        var integration = TerminalShellIntegration()
+
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+
+        XCTAssertEqual(integration.sessionSummary.baselineSupport.observedPassiveOSCSequences, [.osc133])
+        XCTAssertEqual(integration.sessionSummary.optInIntegration.observedCapabilities, [])
+        XCTAssertFalse(integration.sessionSummary.optInIntegration.installedCommandBoundarySupportObserved)
+
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;0")
+
+        XCTAssertEqual(
+            integration.sessionSummary.optInIntegration.observedCapabilities,
+            [.commandBoundaryTracking]
+        )
+        XCTAssertTrue(integration.sessionSummary.optInIntegration.installedCommandBoundarySupportObserved)
+        XCTAssertEqual(integration.sessionSummary.optInIntegration.completedCommandSpanReferences.first?.spanID, 1)
+    }
+
     func testOptInShellIntegrationSnippetDescriptorsCoverSupportedShellsWithoutInstaller() {
         let descriptor = TerminalShellIntegration().capabilityDescriptor
 

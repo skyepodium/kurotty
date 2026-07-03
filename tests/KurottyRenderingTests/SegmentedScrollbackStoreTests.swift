@@ -177,6 +177,57 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertFalse(String(describing: summary).contains("tail"))
     }
 
+    func testLiveAccessSummaryClassifiesSearchCopyAndAIWindowsWithoutRowText() {
+        var store = SegmentedScrollbackStore<String>(rowLimit: 4, segmentSize: 2)
+
+        store.append(contentsOf: [
+            "secret zero",
+            "secret one",
+            "normal two",
+            "normal three",
+            "tail four",
+            "tail five",
+        ])
+
+        let copySummary = store.liveAccessSummary(
+            purpose: .copyMode,
+            absoluteStartIndex: 2,
+            rowCount: 3,
+            materializationLimit: 8
+        )
+        let searchSummary = store.liveAccessSummary(
+            purpose: .search,
+            absoluteStartIndex: 1,
+            rowCount: 6,
+            materializationLimit: 2
+        )
+        let aiSummary = store.liveAccessSummary(
+            purpose: .aiContextReference,
+            absoluteStartIndex: 5,
+            rowCount: 5,
+            materializationLimit: 1
+        )
+
+        XCTAssertEqual(copySummary.purpose, .copyMode)
+        XCTAssertEqual(copySummary.availability, .fullyAvailable)
+        XCTAssertTrue(copySummary.canServeSynchronously)
+        XCTAssertFalse(copySummary.requiresUserVisibleWarning)
+
+        XCTAssertEqual(searchSummary.purpose, .search)
+        XCTAssertEqual(searchSummary.availability, .partiallyDroppedAndFuture)
+        XCTAssertFalse(searchSummary.canServeSynchronously)
+        XCTAssertTrue(searchSummary.requiresUserVisibleWarning)
+
+        XCTAssertEqual(aiSummary.purpose, .aiContextReference)
+        XCTAssertEqual(aiSummary.availability, .partiallyFuture)
+        XCTAssertFalse(aiSummary.canServeSynchronously)
+        XCTAssertTrue(aiSummary.requiresUserVisibleWarning)
+        XCTAssertTrue(String(describing: aiSummary).contains("purpose=aiContextReference"))
+        XCTAssertFalse(String(describing: searchSummary).contains("secret"))
+        XCTAssertFalse(String(describing: searchSummary).contains("normal"))
+        XCTAssertFalse(String(describing: searchSummary).contains("tail"))
+    }
+
     func testMillionLineAppendKeepsRetainedStorageWithinPressureCeiling() {
         var store = SegmentedScrollbackStore<Int>(rowLimit: 1_000_000, segmentSize: 1_024)
 

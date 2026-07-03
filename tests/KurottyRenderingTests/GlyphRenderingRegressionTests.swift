@@ -2095,7 +2095,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try debugOptionsSource().contains("static let testNotification"))
 
         XCTAssertTrue(readmeSource.contains("iTerm2-compatible notifications"))
-        XCTAssertTrue(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
+        XCTAssertFalse(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
     }
 
     func testInstalledAppUsesMultiResolutionIcnsForSystemIconSurfaces() throws {

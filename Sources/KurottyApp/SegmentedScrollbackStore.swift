@@ -63,6 +63,50 @@ struct SegmentedScrollbackStore<Row> {
         }
     }
 
+    enum LiveAccessPurpose: String, Equatable, CustomStringConvertible {
+        case search
+        case copyMode
+        case aiContextReference
+
+        var description: String { rawValue }
+    }
+
+    enum LiveAccessAvailability: String, Equatable, CustomStringConvertible {
+        case fullyAvailable
+        case fullyDropped
+        case fullyFuture
+        case partiallyDropped
+        case partiallyFuture
+        case partiallyDroppedAndFuture
+        case emptyRequest
+
+        var description: String { rawValue }
+    }
+
+    struct LiveAccessSummary: Equatable, CustomStringConvertible {
+        let purpose: LiveAccessPurpose
+        let exportWindow: ExportWindowSummary
+        let availability: LiveAccessAvailability
+
+        var canServeSynchronously: Bool {
+            availability == .fullyAvailable && !exportWindow.requiresBoundedMaterialization
+        }
+
+        var requiresUserVisibleWarning: Bool {
+            !canServeSynchronously
+        }
+
+        var description: String {
+            [
+                "purpose=\(purpose)",
+                "availability=\(availability)",
+                "canServeSynchronously=\(canServeSynchronously)",
+                "requiresUserVisibleWarning=\(requiresUserVisibleWarning)",
+                "window=\(exportWindow)",
+            ].joined(separator: " ")
+        }
+    }
+
     struct Diagnostics: Equatable, CustomStringConvertible {
         let rowLimit: Int
         let segmentSize: Int
@@ -209,6 +253,24 @@ struct SegmentedScrollbackStore<Row> {
         )
     }
 
+    func liveAccessSummary(
+        purpose: LiveAccessPurpose,
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int
+    ) -> LiveAccessSummary {
+        let exportWindow = exportWindowSummary(
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit
+        )
+        return LiveAccessSummary(
+            purpose: purpose,
+            exportWindow: exportWindow,
+            availability: Self.liveAccessAvailability(for: exportWindow)
+        )
+    }
+
     static func exportWindowSummary(
         absoluteStartIndex: Int,
         rowCount: Int,
@@ -257,6 +319,33 @@ struct SegmentedScrollbackStore<Row> {
             skippedFutureRowCount: skippedFutureRowCount,
             retainedRowSummary: retainedRowSummary
         )
+    }
+
+    private static func liveAccessAvailability(for summary: ExportWindowSummary) -> LiveAccessAvailability {
+        guard summary.requestedRowCount > 0 else {
+            return .emptyRequest
+        }
+
+        let hasAvailableRows = summary.availableRowCount > 0
+        let hasDroppedRows = summary.skippedDroppedRowCount > 0
+        let hasFutureRows = summary.skippedFutureRowCount > 0
+
+        switch (hasAvailableRows, hasDroppedRows, hasFutureRows) {
+        case (true, false, false):
+            return .fullyAvailable
+        case (false, true, false):
+            return .fullyDropped
+        case (false, false, true):
+            return .fullyFuture
+        case (_, true, true):
+            return .partiallyDroppedAndFuture
+        case (_, true, false):
+            return .partiallyDropped
+        case (_, false, true):
+            return .partiallyFuture
+        case (false, false, false):
+            return .emptyRequest
+        }
     }
 
     private var retainedStorageRowCount: Int {

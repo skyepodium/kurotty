@@ -228,4 +228,83 @@ final class TerminalGlyphRunTests: XCTestCase {
         XCTAssertEqual(decoded.atlas.ownership, .unassigned)
         XCTAssertEqual(decoded.clipping.overhang, .zero)
     }
+
+    func testBackendContractSummarizesShapingFallbackAtlasAndClippingReadiness() throws {
+        let run = TerminalGlyphRun.diagnosticModel(
+            sourceText: "한",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1),
+            fallbackFont: .primary(name: "Menlo", identifier: "menlo-regular", requestedPresentation: .cjk),
+            fallbackChain: [
+                .primary(name: "Menlo", identifier: "menlo-regular", requestedPresentation: .cjk),
+                .systemCascade(name: "Apple SD Gothic Neo", identifier: "apple-sd-gothic-neo", requestedPresentation: .cjk),
+            ],
+            glyphs: [
+                TerminalGlyph(glyphID: 4001, sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: 1)),
+            ],
+            advance: TerminalGlyphAdvance(x: 18, y: 0),
+            bounds: TerminalGlyphBounds(x: -1, y: -3, width: 20, height: 16),
+            atlasKey: TerminalGlyphAtlasKey.separated(
+                fontIdentifier: "apple-sd-gothic-neo",
+                presentation: .cjk,
+                sourceFingerprint: "U+D55C",
+                glyphIDs: [4001],
+                pointSizePixels: 18,
+                scale: 2
+            ),
+            shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: .fallbackResolved),
+            atlas: TerminalGlyphAtlasMetadata(
+                ownership: .sharedFontAtlas,
+                slot: TerminalGlyphAtlasSlotMetadata(index: 7, x: 64, y: 32, width: 22, height: 18)
+            ),
+            clipping: TerminalGlyphClippingMetrics(
+                inkBounds: TerminalGlyphBounds(x: -1, y: -3, width: 20, height: 16),
+                cellBounds: TerminalGlyphBounds(x: 0, y: -3, width: 18, height: 16),
+                overhang: TerminalGlyphOverhang(left: 1, right: 1, top: 0, bottom: 0),
+                clippedEdges: [.left, .right]
+            )
+        )
+
+        XCTAssertEqual(run.contract.shapingReadiness, .ready)
+        XCTAssertEqual(run.contract.fallbackResolution, .fallbackChainResolved)
+        XCTAssertEqual(run.contract.atlasReadiness, .resident)
+        XCTAssertEqual(run.contract.atlasOwnership, .sharedFontAtlas)
+        XCTAssertEqual(run.contract.clippingRisk, .clipped)
+        XCTAssertEqual(run.contract.validationFlags, [.fallbackChainUsed, .atlasSlotAssigned, .clippingRisk])
+
+        let decoded = try JSONDecoder().decode(TerminalGlyphRun.self, from: JSONEncoder().encode(run))
+        XCTAssertEqual(decoded.contract, run.contract)
+    }
+
+    func testBackendContractDefaultsForLegacyPayloads() throws {
+        let decoded = try JSONDecoder().decode(TerminalGlyphRun.self, from: Data("""
+        {
+          "source": {
+            "text": "?",
+            "range": { "utf16Location": 3, "utf16Length": 1 },
+            "graphemeClusterCount": 1,
+            "unicodeScalarValues": [63]
+          },
+          "terminalCellWidth": 1,
+          "fallbackFont": {
+            "decision": "unresolved",
+            "name": "",
+            "identifier": "",
+            "requestedPresentation": "unspecified"
+          },
+          "glyphs": [],
+          "advance": { "x": 9, "y": 0 },
+          "bounds": { "x": 0, "y": -2, "width": 8, "height": 12 },
+          "atlasKey": { "value": "legacy/missing" },
+          "shaping": { "engine": "diagnostic", "status": "missingGlyph" },
+          "diagnosticFlags": ["missingGlyph"]
+        }
+        """.utf8))
+
+        XCTAssertEqual(decoded.contract.shapingReadiness, .blocked)
+        XCTAssertEqual(decoded.contract.fallbackResolution, .unresolved)
+        XCTAssertEqual(decoded.contract.atlasReadiness, .unassigned)
+        XCTAssertEqual(decoded.contract.atlasOwnership, .unassigned)
+        XCTAssertEqual(decoded.contract.clippingRisk, .none)
+        XCTAssertEqual(decoded.contract.validationFlags, [.missingGlyph, .fallbackUnresolved, .atlasUnassigned])
+    }
 }
