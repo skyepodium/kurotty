@@ -2068,13 +2068,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(notifierSource.contains("completionHandler([.banner, .list, .sound])"))
         XCTAssertEqual(notifierSource.components(separatedBy: "completionHandler([.banner, .list, .sound])").count - 1, 1)
         XCTAssertTrue(notifierSource.contains("didReceive response: UNNotificationResponse"))
-        XCTAssertTrue(notifierSource.contains("Task { @MainActor in"))
+        XCTAssertFalse(notifierSource.contains("Task { @MainActor in"))
+        XCTAssertFalse(notifierSource.contains("Task { await MainActor.run"))
+        XCTAssertTrue(notifierSource.contains("DispatchQueue.main.async"))
         XCTAssertTrue(notifierSource.contains("focusExistingTerminalWindow"))
         XCTAssertTrue(notifierSource.contains("response.actionIdentifier == UNNotificationDefaultActionIdentifier"))
         XCTAssertTrue(notifierSource.contains("completionHandler()"))
         XCTAssertLessThan(
-            notifierSource.range(of: "focusExistingTerminalWindow")!.lowerBound,
-            notifierSource.range(of: "completionHandler()", options: .backwards)!.lowerBound
+            notifierSource.range(of: "completionHandler()", options: .backwards)!.lowerBound,
+            notifierSource.range(of: "focusExistingTerminalWindow")!.lowerBound
         )
         XCTAssertTrue(notifierSource.contains("notification response identifier="))
         XCTAssertTrue(notifierSource.contains("UNNotificationRequest("))
