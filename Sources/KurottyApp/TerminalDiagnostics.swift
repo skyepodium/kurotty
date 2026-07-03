@@ -5,16 +5,18 @@ import simd
 struct TerminalNotificationLogMetadata: CustomStringConvertible {
     let identifierPrefix: String
     let titleLength: Int
+    let subtitleLength: Int
     let bodyLength: Int
 
-    init(identifierPrefix: String, title: String, body: String) {
+    init(identifierPrefix: String, title: String, subtitle: String = "", body: String) {
         self.identifierPrefix = identifierPrefix
         titleLength = title.count
+        subtitleLength = subtitle.count
         bodyLength = body.count
     }
 
     var description: String {
-        "identifierPrefix=\(identifierPrefix) titleLength=\(titleLength) bodyLength=\(bodyLength)"
+        "identifierPrefix=\(identifierPrefix) titleLength=\(titleLength) subtitleLength=\(subtitleLength) bodyLength=\(bodyLength)"
     }
 }
 

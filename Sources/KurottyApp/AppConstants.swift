@@ -126,7 +126,12 @@ enum AppConstants {
         static let categoryIdentifier = "dev.kurotty.terminal"
         static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
         static let backgroundTaskIdentifierPrefix = "dev.kurotty.terminal.background-task"
-        static let defaultTitle = "Alert"
+        static let defaultTitle = "Kurotty"
+        static let terminalNotificationTitle = "Terminal notification"
+        static let backgroundTaskTitle = "Task finished"
+        static let codexFinishedTitle = "Codex task finished"
+        static let codexFailedTitle = "Codex task failed"
+        static let codexNeedsInputTitle = "Codex needs input"
         static let testBody = "Kurotty test notification."
         static let backgroundTaskFinishedBody = "Task finished."
         static let backgroundTaskIdleSeconds: TimeInterval = 1.2

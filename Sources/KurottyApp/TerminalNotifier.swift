@@ -48,20 +48,25 @@ final class TerminalNotifier: NSObject {
 
     @MainActor
     func notifyItermOsc9(message: String) {
-        let body = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        let payload = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty else { return }
+        guard let body = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: payload) else {
+            return
+        }
         deliver(
-            title: AppConstants.Notifications.defaultTitle,
+            title: AppConstants.Notifications.terminalNotificationTitle,
+            subtitle: "",
             body: body,
             identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
         )
     }
 
     @MainActor
-    func notifyBackgroundTaskCompleted(body: String) {
+    func notifyBackgroundTaskCompleted(content: TerminalBackgroundTaskNotificationContent) {
         deliver(
-            title: AppConstants.Notifications.defaultTitle,
-            body: body,
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
             identifierPrefix: AppConstants.Notifications.backgroundTaskIdentifierPrefix
         )
     }
@@ -70,21 +75,28 @@ final class TerminalNotifier: NSObject {
     func notifyTestNotification() {
         deliver(
             title: AppConstants.Notifications.defaultTitle,
+            subtitle: "",
             body: AppConstants.Notifications.testBody,
             identifierPrefix: "\(AppConstants.Notifications.categoryIdentifier).test"
         )
     }
 
     @MainActor
-    private func deliver(title: String, body: String, identifierPrefix: String) {
-        let metadata = TerminalNotificationLogMetadata(identifierPrefix: identifierPrefix, title: title, body: body)
+    private func deliver(title: String, subtitle: String, body: String, identifierPrefix: String) {
+        let metadata = TerminalNotificationLogMetadata(
+            identifierPrefix: identifierPrefix,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
         guard let center else {
-            deliverDevelopmentNotification(title: title, body: body, metadata: metadata)
+            deliverDevelopmentNotification(title: title, subtitle: subtitle, body: body, metadata: metadata)
             return
         }
 
         let content = UNMutableNotificationContent()
         content.title = title
+        content.subtitle = subtitle
         content.body = body
         content.categoryIdentifier = AppConstants.Notifications.categoryIdentifier
         content.sound = .default
@@ -114,10 +126,14 @@ final class TerminalNotifier: NSObject {
     @MainActor
     private func deliverDevelopmentNotification(
         title: String,
+        subtitle: String,
         body: String,
         metadata: TerminalNotificationLogMetadata
     ) {
-        let script = "display notification \(appleScriptString(body)) with title \(appleScriptString(title))"
+        var script = "display notification \(appleScriptString(body)) with title \(appleScriptString(title))"
+        if !subtitle.isEmpty {
+            script += " subtitle \(appleScriptString(subtitle))"
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: AppConstants.Notifications.developmentNotificationExecutablePath)
         process.arguments = ["-e", script]

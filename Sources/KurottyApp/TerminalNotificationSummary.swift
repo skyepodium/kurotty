@@ -16,6 +16,62 @@ enum TerminalSubmittedCommandSummary {
     }
 }
 
+struct TerminalBackgroundTaskNotificationContent: Equatable {
+    let title: String
+    let subtitle: String
+    let body: String
+
+    static func make(submittedCommand: String?, outputText: String) -> TerminalBackgroundTaskNotificationContent {
+        let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedCommand ?? "")
+        let body = notificationBody(command: command, outputText: outputText)
+        let isCodex = command?.lowercased().split(whereSeparator: { $0.isWhitespace }).first == "codex"
+        let title: String
+        if isCodex {
+            title = codexTitle(for: body)
+        } else {
+            title = AppConstants.Notifications.backgroundTaskTitle
+        }
+        return TerminalBackgroundTaskNotificationContent(
+            title: title,
+            subtitle: command ?? "",
+            body: body
+        )
+    }
+
+    private static func notificationBody(command: String?, outputText: String) -> String {
+        if let outputSummary = TerminalNotificationSummary.notificationBodyText(fromOutputText: outputText) {
+            return trimmed(outputSummary)
+        }
+        if let command {
+            return trimmed(command)
+        }
+        return AppConstants.Notifications.backgroundTaskFinishedBody
+    }
+
+    private static func codexTitle(for body: String) -> String {
+        let lowercasedBody = body.lowercased()
+        if lowercasedBody.contains("approval required")
+            || lowercasedBody.contains("requires approval")
+            || lowercasedBody.contains("needs input")
+            || lowercasedBody.contains("waiting for input") {
+            return AppConstants.Notifications.codexNeedsInputTitle
+        }
+        if lowercasedBody.contains("error:")
+            || lowercasedBody.contains("failed")
+            || lowercasedBody.contains("failure") {
+            return AppConstants.Notifications.codexFailedTitle
+        }
+        return AppConstants.Notifications.codexFinishedTitle
+    }
+
+    private static func trimmed(_ body: String) -> String {
+        guard body.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
+            return body
+        }
+        return String(body.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+    }
+}
+
 enum TerminalNotificationSummary {
     static func latestMeaningfulLine(fromVisibleLines lines: [String]) -> String? {
         for line in lines.reversed() {
@@ -52,6 +108,49 @@ enum TerminalNotificationSummary {
             return nil
         }
         return block.reversed().joined(separator: "\n")
+    }
+
+    static func notificationBodyText(fromOutputText text: String) -> String? {
+        let normalizedText = stripTerminalControls(from: text)
+            .replacingOccurrences(of: "\r", with: "\n")
+        var lines = [String]()
+        var previousWasBlank = false
+        for line in normalizedText.components(separatedBy: .newlines) {
+            guard let meaningfulLine = meaningfulNotificationLine(from: line) else {
+                if !lines.isEmpty {
+                    previousWasBlank = true
+                }
+                continue
+            }
+            if previousWasBlank, !lines.isEmpty {
+                lines.append("")
+            }
+            lines.append(meaningfulLine)
+            previousWasBlank = false
+        }
+        while lines.last == "" {
+            lines.removeLast()
+        }
+        guard !lines.isEmpty else {
+            return nil
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func meaningfulNotificationLine(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isMeaningfulLine(trimmed) else {
+            return nil
+        }
+        let cleaned = removingInlineStatusFragment(from: trimmed)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isMeaningfulLine(cleaned) else {
+            return nil
+        }
+        if cleaned == trimmed {
+            return line.trimmingCharacters(in: .newlines)
+        }
+        return cleaned
     }
 
     private static func meaningfulContentLine(from line: String) -> String? {
@@ -302,6 +401,9 @@ enum TerminalNotificationSummary {
     }
 
     private static func isShellPromptLine(_ line: String) -> Bool {
+        if line == "%" || line == "$" || line == "#" {
+            return true
+        }
         let normalizedLine = line
             .replacingOccurrences(of: "\u{fffd}", with: " ")
             .replacingOccurrences(of: "\u{00a0}", with: " ")

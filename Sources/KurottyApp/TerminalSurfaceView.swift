@@ -1017,12 +1017,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         backgroundTaskNotificationWorkItem = nil
         let outputText = backgroundTaskOutputText
         backgroundTaskOutputText = ""
-        let body = backgroundTaskNotificationBody(outputText: outputText)
+        let content = backgroundTaskNotificationContent(outputText: outputText)
         backgroundTaskDescription = nil
         guard shouldDeliverUserNotification else {
             return
         }
-        notifier.notifyBackgroundTaskCompleted(body: body)
+        notifier.notifyBackgroundTaskCompleted(content: content)
     }
 
     private var isTerminalFocusedForUser: Bool {
@@ -1033,18 +1033,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         !isTerminalFocusedForUser
     }
 
-    private func backgroundTaskNotificationBody(outputText: String) -> String {
-        if let outputSummary = TerminalNotificationSummary.latestMeaningfulText(fromOutputText: outputText) {
-            return trimmedBackgroundTaskNotificationBody(outputSummary)
-        }
-        return backgroundTaskDescription ?? AppConstants.Notifications.backgroundTaskFinishedBody
-    }
-
-    private func trimmedBackgroundTaskNotificationBody(_ body: String) -> String {
-        guard body.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
-            return body
-        }
-        return String(body.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+    private func backgroundTaskNotificationContent(outputText: String) -> TerminalBackgroundTaskNotificationContent {
+        TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: backgroundTaskDescription,
+            outputText: outputText
+        )
     }
 
     private func enqueueOutput(_ text: String) {
