@@ -11,7 +11,7 @@
 
 ## 0. 작업 상태 요약
 
-마지막 업데이트: 2026-07-03
+마지막 업데이트: 2026-07-04
 
 표기:
 
@@ -41,7 +41,7 @@
   - scrollback backend: segmented store retained-row summary, absolute/visible coordinate helper, 대용량 stress 기준 보강.
   - shell backend: OSC evidence와 command span fold/replay/search metadata를 descriptor와 분리.
   - AI backend: action approval을 action id, kind, immutable fingerprint, current policy re-evaluation에 묶어 같은 id 재사용 공격 차단.
-- [~] feature/runtime-followup-parallel-slice: runtime follow-up 병렬 작업.
+- [x] PR #53: runtime follow-up 병렬 작업.
   - trace timeline: correlation report에서 production-friendly metadata-only timeline summary를 노출.
   - renderer damage: redraw/coalescing policy를 `TerminalRenderFrame` contract로 이동해 production diagnostics가 같은 정책을 사용.
   - scrollback export: raw row materialization 없이 export window summary를 계산해 copy/search/AI 참조 준비.
