@@ -158,9 +158,9 @@ private final class TerminalNotificationDelegate: NSObject, UNUserNotificationCe
             completionHandler()
             return
         }
-        Task { @MainActor in
+        completionHandler()
+        DispatchQueue.main.async {
             (NSApp.delegate as? AppDelegate)?.focusExistingTerminalWindow()
-            completionHandler()
         }
     }
 }
