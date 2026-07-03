@@ -12,6 +12,7 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
     public let shaping: TerminalGlyphShapingDiagnostics
     public let atlas: TerminalGlyphAtlasMetadata
     public let clipping: TerminalGlyphClippingMetrics
+    public let contract: TerminalGlyphBackendContract
     public let diagnosticFlags: Set<TerminalGlyphDiagnosticFlag>
 
     public init(
@@ -26,6 +27,7 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         shaping: TerminalGlyphShapingDiagnostics = .unshapedDiagnostic,
         atlas: TerminalGlyphAtlasMetadata = .unassigned,
         clipping: TerminalGlyphClippingMetrics = .zero,
+        contract: TerminalGlyphBackendContract? = nil,
         diagnosticFlags: Set<TerminalGlyphDiagnosticFlag>
     ) {
         self.source = source
@@ -39,6 +41,13 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         self.shaping = shaping
         self.atlas = atlas
         self.clipping = clipping
+        self.contract = contract ?? TerminalGlyphBackendContract(
+            shaping: shaping,
+            fallbackFont: fallbackFont,
+            fallbackChain: self.fallbackChain,
+            atlas: atlas,
+            clipping: clipping
+        )
         self.diagnosticFlags = diagnosticFlags
     }
 
@@ -54,6 +63,7 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         case shaping
         case atlas
         case clipping
+        case contract
         case diagnosticFlags
     }
 
@@ -70,6 +80,13 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         shaping = try container.decodeIfPresent(TerminalGlyphShapingDiagnostics.self, forKey: .shaping) ?? .unshapedDiagnostic
         atlas = try container.decodeIfPresent(TerminalGlyphAtlasMetadata.self, forKey: .atlas) ?? .unassigned
         clipping = try container.decodeIfPresent(TerminalGlyphClippingMetrics.self, forKey: .clipping) ?? .zero
+        contract = try container.decodeIfPresent(TerminalGlyphBackendContract.self, forKey: .contract) ?? TerminalGlyphBackendContract(
+            shaping: shaping,
+            fallbackFont: fallbackFont,
+            fallbackChain: fallbackChain,
+            atlas: atlas,
+            clipping: clipping
+        )
         diagnosticFlags = try container.decode(Set<TerminalGlyphDiagnosticFlag>.self, forKey: .diagnosticFlags)
     }
 
@@ -85,6 +102,7 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         shaping: TerminalGlyphShapingDiagnostics = .unshapedDiagnostic,
         atlas: TerminalGlyphAtlasMetadata = .unassigned,
         clipping: TerminalGlyphClippingMetrics? = nil,
+        contract: TerminalGlyphBackendContract? = nil,
         diagnosticFlags explicitDiagnosticFlags: Set<TerminalGlyphDiagnosticFlag> = []
     ) -> TerminalGlyphRun {
         let source = TerminalGlyphSourceCluster(text: sourceText, range: sourceRange)
@@ -105,6 +123,7 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
             shaping: shaping,
             atlas: atlas,
             clipping: clipping,
+            contract: contract,
             diagnosticFlags: inferredDiagnosticFlags.union(explicitDiagnosticFlags)
         )
     }
@@ -329,6 +348,151 @@ public struct TerminalGlyphShapingDiagnostics: Codable, Equatable, Sendable {
         case substituted
         case fallbackResolved
         case missingGlyph
+    }
+}
+
+public struct TerminalGlyphBackendContract: Codable, Equatable, Sendable {
+    public let shapingReadiness: ShapingReadiness
+    public let fallbackResolution: FallbackResolution
+    public let atlasReadiness: AtlasReadiness
+    public let atlasOwnership: TerminalGlyphAtlasMetadata.Ownership
+    public let clippingRisk: ClippingRisk
+    public let validationFlags: Set<ValidationFlag>
+
+    public init(
+        shapingReadiness: ShapingReadiness,
+        fallbackResolution: FallbackResolution,
+        atlasReadiness: AtlasReadiness,
+        atlasOwnership: TerminalGlyphAtlasMetadata.Ownership,
+        clippingRisk: ClippingRisk,
+        validationFlags: Set<ValidationFlag>
+    ) {
+        self.shapingReadiness = shapingReadiness
+        self.fallbackResolution = fallbackResolution
+        self.atlasReadiness = atlasReadiness
+        self.atlasOwnership = atlasOwnership
+        self.clippingRisk = clippingRisk
+        self.validationFlags = validationFlags
+    }
+
+    public init(
+        shaping: TerminalGlyphShapingDiagnostics,
+        fallbackFont: TerminalGlyphFallbackFont,
+        fallbackChain: [TerminalGlyphFallbackFont],
+        atlas: TerminalGlyphAtlasMetadata,
+        clipping: TerminalGlyphClippingMetrics
+    ) {
+        let shapingReadiness = ShapingReadiness(shaping.status)
+        let fallbackResolution = FallbackResolution(fallbackFont: fallbackFont, fallbackChain: fallbackChain)
+        let atlasReadiness = AtlasReadiness(atlas: atlas)
+        let clippingRisk = ClippingRisk(clipping: clipping)
+        var validationFlags: Set<ValidationFlag> = []
+
+        if shapingReadiness == .requiresShaping {
+            validationFlags.insert(.requiresShaping)
+        }
+        if shapingReadiness == .blocked {
+            validationFlags.insert(.missingGlyph)
+        }
+        if fallbackResolution == .unresolved {
+            validationFlags.insert(.fallbackUnresolved)
+        }
+        if fallbackResolution == .fallbackChainResolved {
+            validationFlags.insert(.fallbackChainUsed)
+        }
+        if atlasReadiness == .unassigned {
+            validationFlags.insert(.atlasUnassigned)
+        }
+        if atlas.slot != nil {
+            validationFlags.insert(.atlasSlotAssigned)
+        }
+        if clippingRisk != .none {
+            validationFlags.insert(.clippingRisk)
+        }
+
+        self.init(
+            shapingReadiness: shapingReadiness,
+            fallbackResolution: fallbackResolution,
+            atlasReadiness: atlasReadiness,
+            atlasOwnership: atlas.ownership,
+            clippingRisk: clippingRisk,
+            validationFlags: validationFlags
+        )
+    }
+
+    public enum ShapingReadiness: String, Codable, Equatable, Sendable {
+        case requiresShaping
+        case ready
+        case blocked
+
+        fileprivate init(_ status: TerminalGlyphShapingDiagnostics.Status) {
+            switch status {
+            case .unshaped:
+                self = .requiresShaping
+            case .shaped, .substituted, .fallbackResolved:
+                self = .ready
+            case .missingGlyph:
+                self = .blocked
+            }
+        }
+    }
+
+    public enum FallbackResolution: String, Codable, Equatable, Sendable {
+        case primaryResolved
+        case fallbackChainResolved
+        case unresolved
+
+        fileprivate init(fallbackFont: TerminalGlyphFallbackFont, fallbackChain: [TerminalGlyphFallbackFont]) {
+            if fallbackFont.decision == .unresolved || fallbackChain.contains(where: { $0.decision == .unresolved }) {
+                self = .unresolved
+            } else if fallbackFont.decision != .primary || fallbackChain.count > 1 {
+                self = .fallbackChainResolved
+            } else {
+                self = .primaryResolved
+            }
+        }
+    }
+
+    public enum AtlasReadiness: String, Codable, Equatable, Sendable {
+        case unassigned
+        case reserved
+        case resident
+
+        fileprivate init(atlas: TerminalGlyphAtlasMetadata) {
+            if atlas.ownership == .unassigned {
+                self = .unassigned
+            } else if atlas.slot == nil {
+                self = .reserved
+            } else {
+                self = .resident
+            }
+        }
+    }
+
+    public enum ClippingRisk: String, Codable, Equatable, Sendable {
+        case none
+        case overhang
+        case clipped
+
+        fileprivate init(clipping: TerminalGlyphClippingMetrics) {
+            if !clipping.clippedEdges.isEmpty {
+                self = .clipped
+            } else if !clipping.overhang.isZero {
+                self = .overhang
+            } else {
+                self = .none
+            }
+        }
+    }
+
+    public enum ValidationFlag: String, Codable, Equatable, Hashable, Sendable {
+        case requiresShaping
+        case missingGlyph
+        case fallbackUnresolved
+        case fallbackChainUsed
+        case atlasUnassigned
+        case atlasSlotAssigned
+        case clippingRisk
     }
 }
 

@@ -286,6 +286,89 @@ public struct TerminalFrameStablePixelBoundsReport: Equatable, Sendable {
     }
 }
 
+public enum TerminalFrameRedrawDecision: Equatable, Sendable, CustomStringConvertible {
+    case full
+    case partial
+
+    public var description: String {
+        switch self {
+        case .full:
+            "full"
+        case .partial:
+            "partial"
+        }
+    }
+}
+
+public enum TerminalFrameDamageSchedulingPolicy: Equatable, Sendable, CustomStringConvertible {
+    case fullRedrawFallback
+    case displayCadenceCoalescingCandidate
+    case immediatePartialRedraw
+
+    public var description: String {
+        switch self {
+        case .fullRedrawFallback:
+            "full-redraw-fallback"
+        case .displayCadenceCoalescingCandidate:
+            "display-cadence-coalescing-candidate"
+        case .immediatePartialRedraw:
+            "immediate-partial-redraw"
+        }
+    }
+}
+
+public enum TerminalFrameCoalescingFallbackReason: Equatable, Sendable, CustomStringConvertible {
+    case none
+    case diagnosticFullRedraw
+    case fullDamageFrame
+    case emptyDirtyRects
+    case scissorDisabled
+    case unstablePixelBounds
+
+    public var description: String {
+        switch self {
+        case .none:
+            "none"
+        case .diagnosticFullRedraw:
+            "diagnostic-full-redraw"
+        case .fullDamageFrame:
+            "full-damage-frame"
+        case .emptyDirtyRects:
+            "empty-dirty-rects"
+        case .scissorDisabled:
+            "scissor-disabled"
+        case .unstablePixelBounds:
+            "unstable-pixel-bounds"
+        }
+    }
+}
+
+public struct TerminalFrameDamageRedrawPolicy: Equatable, Sendable {
+    public let redrawDecision: TerminalFrameRedrawDecision
+    public let schedulingPolicy: TerminalFrameDamageSchedulingPolicy
+    public let canCoalesceAtDisplayCadence: Bool
+    public let coalescingFallbackReason: TerminalFrameCoalescingFallbackReason
+    public let stablePixelBounds: [TerminalFramePixelRect]
+
+    public var stablePixelBoundCount: Int {
+        stablePixelBounds.count
+    }
+
+    public init(
+        redrawDecision: TerminalFrameRedrawDecision,
+        schedulingPolicy: TerminalFrameDamageSchedulingPolicy,
+        canCoalesceAtDisplayCadence: Bool,
+        coalescingFallbackReason: TerminalFrameCoalescingFallbackReason,
+        stablePixelBounds: [TerminalFramePixelRect]
+    ) {
+        self.redrawDecision = redrawDecision
+        self.schedulingPolicy = schedulingPolicy
+        self.canCoalesceAtDisplayCadence = canCoalesceAtDisplayCadence
+        self.coalescingFallbackReason = coalescingFallbackReason
+        self.stablePixelBounds = stablePixelBounds
+    }
+}
+
 public struct TerminalFrameDamageMetadata: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case none
@@ -407,6 +490,58 @@ public struct TerminalFrameDamageMetadata: Equatable, Sendable {
         return TerminalFrameStablePixelBoundsReport(
             pixelBounds: pixelRects,
             fallbackReason: nil
+        )
+    }
+
+    public func redrawPolicy(
+        scale: Double,
+        clippingMargin: Double = 0,
+        clipTo displaySize: TerminalFrameSize? = nil,
+        diagnosticFullRedrawEnabled: Bool,
+        scissorDisabled: Bool
+    ) -> TerminalFrameDamageRedrawPolicy {
+        if diagnosticFullRedrawEnabled || kind == .fullRedraw || dirtyRects.isEmpty {
+            let fallbackReason: TerminalFrameCoalescingFallbackReason
+            if diagnosticFullRedrawEnabled {
+                fallbackReason = .diagnosticFullRedraw
+            } else if kind == .fullRedraw {
+                fallbackReason = .fullDamageFrame
+            } else {
+                fallbackReason = .emptyDirtyRects
+            }
+            return TerminalFrameDamageRedrawPolicy(
+                redrawDecision: .full,
+                schedulingPolicy: .fullRedrawFallback,
+                canCoalesceAtDisplayCadence: false,
+                coalescingFallbackReason: fallbackReason,
+                stablePixelBounds: []
+            )
+        }
+
+        let pixelBoundsReport = stablePixelBoundsReport(
+            scale: scale,
+            clippingMargin: clippingMargin,
+            clipTo: displaySize
+        )
+        let stablePixelBounds = pixelBoundsReport.pixelBounds
+        let canCoalesceAtDisplayCadence = !scissorDisabled &&
+            pixelBoundsReport.fallbackReason == nil &&
+            stablePixelBounds.count == dirtyRects.count
+        let fallbackReason: TerminalFrameCoalescingFallbackReason
+        if canCoalesceAtDisplayCadence {
+            fallbackReason = .none
+        } else if scissorDisabled {
+            fallbackReason = .scissorDisabled
+        } else {
+            fallbackReason = .unstablePixelBounds
+        }
+
+        return TerminalFrameDamageRedrawPolicy(
+            redrawDecision: .partial,
+            schedulingPolicy: canCoalesceAtDisplayCadence ? .displayCadenceCoalescingCandidate : .immediatePartialRedraw,
+            canCoalesceAtDisplayCadence: canCoalesceAtDisplayCadence,
+            coalescingFallbackReason: fallbackReason,
+            stablePixelBounds: stablePixelBounds
         )
     }
 

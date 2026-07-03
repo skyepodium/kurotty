@@ -215,25 +215,46 @@ final class TerminalResizeLedgerTests: XCTestCase {
         let snapshot = makeSnapshot(
             traceID: "resize-secret",
             source: "view-measurement",
+            ptyColumns: 121,
+            ptyRows: 40,
             screenColumns: 119,
-            screenRows: 40
+            screenRows: 40,
+            rendererDrawableSize: TerminalFrameSize(width: 1080, height: 720),
+            rendererFrameSize: TerminalFrameSize(width: 1080, height: 720)
         )
 
         let summary = TerminalResizeSourceOfTruthSummary(snapshot: snapshot)
 
         XCTAssertEqual(summary.source, "view-measurement")
         XCTAssertEqual(summary.derivedGrid, TerminalResizeGridSize(columns: 120, rows: 40))
-        XCTAssertEqual(summary.ptyWinsize, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(summary.ptyWinsize, TerminalResizeGridSize(columns: 121, rows: 40))
         XCTAssertEqual(summary.screenSize, TerminalResizeGridSize(columns: 119, rows: 40))
         XCTAssertEqual(summary.rendererGrid, TerminalResizeGridSize(columns: 120, rows: 40))
+        XCTAssertEqual(summary.rendererDrawableSize, TerminalFrameSize(width: 1080, height: 720))
+        XCTAssertEqual(summary.rendererFrameSize, TerminalFrameSize(width: 1080, height: 720))
+        XCTAssertEqual(summary.disagreeingParticipants, [.ptyWinsize, .screenGrid])
         XCTAssertFalse(summary.isValid)
-        XCTAssertEqual(summary.issueCount, 1)
+        XCTAssertEqual(summary.issueCount, 2)
         XCTAssertEqual(
             summary.description,
-            "source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 valid=false issueCount=1"
+            "source=view-measurement derived=120x40 pty=121x40 screen=119x40 renderer=120x40 drawable=1080.00x720.00 frame=1080.00x720.00 disagree=pty,screen valid=false issueCount=2"
         )
         XCTAssertFalse(summary.description.contains("secret"))
         XCTAssertFalse(summary.description.contains("/Users/"))
+    }
+
+    func testSourceOfTruthSummaryUsesUnavailableRendererSizesAndNoDisagreements() {
+        let snapshot = makeSnapshot(source: "view-measurement")
+
+        let summary = TerminalResizeSourceOfTruthSummary(snapshot: snapshot)
+
+        XCTAssertNil(summary.rendererDrawableSize)
+        XCTAssertNil(summary.rendererFrameSize)
+        XCTAssertEqual(summary.disagreeingParticipants, [])
+        XCTAssertEqual(
+            summary.description,
+            "source=view-measurement derived=120x40 pty=120x40 screen=120x40 renderer=120x40 drawable=unavailable frame=unavailable disagree=none valid=true issueCount=0"
+        )
     }
 
     private func makeSnapshot(

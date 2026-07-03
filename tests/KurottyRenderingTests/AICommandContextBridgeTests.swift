@@ -148,6 +148,31 @@ final class AICommandContextBridgeTests: XCTestCase {
         XCTAssertFalse(String(describing: snapshot).contains("raw output should stay referenced only"))
     }
 
+    func testCommandSpanSnapshotCarriesCopyableReferenceLocatorWithoutRawOutput() {
+        let rawOutput = "token=raw-secret should stay out"
+        let span = TerminalCommandSpan(
+            id: 42,
+            cwd: "/repo",
+            startBoundarySequence: 10,
+            endBoundarySequence: 14,
+            exitCode: 0,
+            promptBoundarySequence: 9,
+            outputBoundarySequence: 12,
+            commandText: "swift test"
+        )
+
+        let snapshot = AICommandContextBridge().snapshot(
+            for: .init(span: span, output: rawOutput),
+            maxEvents: 4,
+            maxTextLength: 1_000
+        )
+
+        let eventText = snapshot.events.first?.text ?? ""
+        XCTAssertTrue(eventText.contains("commandSpanReference: kurotty-command-span://42?start=10&output=12&end=14"))
+        XCTAssertFalse(String(describing: snapshot).contains(rawOutput))
+        XCTAssertFalse(String(describing: snapshot).contains("raw-secret"))
+    }
+
     func testApprovalMetadataCarriesTargetAndRedactedContextSummary() {
         let rawToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
         let bridge = AICommandContextBridge()

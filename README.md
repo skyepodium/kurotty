@@ -40,12 +40,6 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - Terminal styling support for 16-color, 256-color, truecolor, dim, inverse, underline, and strikethrough.
 - OSC title, working-directory, color query, and iTerm2-compatible notifications.
 
-Notification example:
-
-```sh
-printf '\e]9;Task finished\a'
-```
-
 Kurotty shows OSC 9 messages as macOS `Alert` notifications with the app icon and the message body.
 
 ## Build From Source

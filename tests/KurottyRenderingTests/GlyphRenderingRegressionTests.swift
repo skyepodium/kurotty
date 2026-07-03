@@ -805,7 +805,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
-        XCTAssertTrue(metalSource.contains("if diagnosticFullRedrawEnabled || frame.isFullDamage || frame.dirtyRects.isEmpty"))
+        XCTAssertTrue(metalSource.contains("let policy = frame.damageMetadata.redrawPolicy("))
+        XCTAssertTrue(metalSource.contains("let submittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\\.cgRect)"))
         XCTAssertTrue(metalSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
         XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
         XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
@@ -951,8 +952,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("renderer.diagnosticFullRedrawEnabled = DebugOptions.fullModelRedraw || AppConstants.Rendering.forceFullModelRedrawUntilDamageIsVerified"))
         XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false {\n        didSet {\n            setNeedsDisplay(bounds)\n        }\n    }"))
         XCTAssertTrue(metalSource.contains("TerminalRenderDamageDiagnostics.make("))
-        XCTAssertTrue(metalSource.contains("submittedDisplayRects: [bounds]"))
-        XCTAssertTrue(metalSource.contains("submittedDisplayRects: frame.dirtyRects.map(\\.cgRect)"))
+        XCTAssertTrue(metalSource.contains("diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled"))
+        XCTAssertTrue(metalSource.contains("scissorDisabled: scissorDisabled"))
+        XCTAssertTrue(metalSource.contains("frame.damageMetadata.redrawPolicy("))
+        XCTAssertTrue(metalSource.contains("policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\\.cgRect)"))
         XCTAssertTrue(metalSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)\n        }"))
         XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool {\n        terminalFrame.isFullDamage\n    }"))
         XCTAssertTrue(metalSource.contains("fullRedraw=%@"))
@@ -2092,7 +2095,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try debugOptionsSource().contains("static let testNotification"))
 
         XCTAssertTrue(readmeSource.contains("iTerm2-compatible notifications"))
-        XCTAssertTrue(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
+        XCTAssertFalse(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
     }
 
     func testInstalledAppUsesMultiResolutionIcnsForSystemIconSurfaces() throws {

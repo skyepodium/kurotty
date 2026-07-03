@@ -212,6 +212,9 @@ struct AICommandContextBridge {
         if let commandSpanID = reference.commandSpanID {
             lines.append("commandSpanID: \(commandSpanID)")
         }
+        if let commandSpanReference = commandSpanReferenceLocator(for: reference) {
+            lines.append("commandSpanReference: \(commandSpanReference)")
+        }
         if let targetPaneID = reference.targetPaneID {
             lines.append("targetPaneID: \(targetPaneID)")
         }
@@ -230,6 +233,26 @@ struct AICommandContextBridge {
         if let endBoundarySequence = reference.endBoundarySequence {
             lines.append("endBoundarySequence: \(endBoundarySequence)")
         }
+    }
+
+    private func commandSpanReferenceLocator(for reference: AICommandContextReference) -> String? {
+        guard let commandSpanID = reference.commandSpanID else {
+            return nil
+        }
+
+        var queryItems: [String] = []
+        if let startBoundarySequence = reference.startBoundarySequence {
+            queryItems.append("start=\(startBoundarySequence)")
+        }
+        if let outputBoundarySequence = reference.outputBoundarySequence {
+            queryItems.append("output=\(outputBoundarySequence)")
+        }
+        if let endBoundarySequence = reference.endBoundarySequence {
+            queryItems.append("end=\(endBoundarySequence)")
+        }
+
+        let query = queryItems.isEmpty ? "" : "?\(queryItems.joined(separator: "&"))"
+        return "kurotty-command-span://\(commandSpanID)\(query)"
     }
 
     private func sanitizedReference(

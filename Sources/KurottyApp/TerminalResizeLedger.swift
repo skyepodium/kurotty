@@ -183,12 +183,25 @@ struct TerminalResizeLedgerReport: Equatable, CustomStringConvertible {
     }
 }
 
+enum TerminalResizeLedgerParticipant: String, Equatable, CustomStringConvertible {
+    case ptyWinsize = "pty"
+    case screenGrid = "screen"
+    case rendererGrid = "renderer"
+
+    var description: String {
+        rawValue
+    }
+}
+
 struct TerminalResizeSourceOfTruthSummary: Equatable, CustomStringConvertible {
     let source: String?
     let derivedGrid: TerminalResizeGridSize
     let ptyWinsize: TerminalResizeGridSize
     let screenSize: TerminalResizeGridSize
     let rendererGrid: TerminalResizeGridSize
+    let rendererDrawableSize: TerminalFrameSize?
+    let rendererFrameSize: TerminalFrameSize?
+    let disagreeingParticipants: [TerminalResizeLedgerParticipant]
     let isValid: Bool
     let issueCount: Int
 
@@ -198,7 +211,10 @@ struct TerminalResizeSourceOfTruthSummary: Equatable, CustomStringConvertible {
         ptyWinsize = snapshot.ptyWinsize
         screenSize = snapshot.screenSize
         rendererGrid = snapshot.renderer.gridSize
+        rendererDrawableSize = snapshot.renderer.drawableSize
+        rendererFrameSize = snapshot.renderer.frameSize
         let report = snapshot.validationReport
+        disagreeingParticipants = Self.disagreeingParticipants(from: report.issues)
         isValid = report.isValid
         issueCount = report.issues.count
     }
@@ -210,9 +226,37 @@ struct TerminalResizeSourceOfTruthSummary: Equatable, CustomStringConvertible {
             "pty=\(ptyWinsize)",
             "screen=\(screenSize)",
             "renderer=\(rendererGrid)",
+            "drawable=\(Self.format(size: rendererDrawableSize))",
+            "frame=\(Self.format(size: rendererFrameSize))",
+            "disagree=\(Self.format(participants: disagreeingParticipants))",
             "valid=\(isValid)",
             "issueCount=\(issueCount)",
         ].joined(separator: " ")
+    }
+
+    private static func disagreeingParticipants(
+        from issues: [TerminalResizeLedgerIssue]
+    ) -> [TerminalResizeLedgerParticipant] {
+        issues.map { issue in
+            switch issue {
+            case .ptyMismatch:
+                return .ptyWinsize
+            case .screenMismatch:
+                return .screenGrid
+            case .rendererMismatch:
+                return .rendererGrid
+            }
+        }
+    }
+
+    private static func format(size: TerminalFrameSize?) -> String {
+        guard let size else { return "unavailable" }
+        return String(format: "%0.2fx%0.2f", size.width, size.height)
+    }
+
+    private static func format(participants: [TerminalResizeLedgerParticipant]) -> String {
+        guard !participants.isEmpty else { return "none" }
+        return participants.map(\.description).joined(separator: ",")
     }
 }
 

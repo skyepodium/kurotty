@@ -49,6 +49,40 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count)
     }
 
+    func testDefaultCommandSpanCommandsExposeStableMetadata() {
+        let commands = TerminalCommandRegistry.default.commandSpanCommands
+        let commandByID = Dictionary(uniqueKeysWithValues: commands.map { ($0.id, $0) })
+
+        XCTAssertEqual(commandByID[.foldOutput]?.title, "Fold Command Output")
+        XCTAssertEqual(commandByID[.foldOutput]?.category, .commandSpans)
+        XCTAssertEqual(commandByID[.foldOutput]?.action, .foldOutput)
+        XCTAssertEqual(commandByID[.foldOutput]?.approvalPolicy, .some(.none))
+        XCTAssertTrue(commandByID[.foldOutput]?.searchTokens.contains("collapse command output") == true)
+
+        XCTAssertEqual(commandByID[.searchOutput]?.title, "Search Command Output")
+        XCTAssertEqual(commandByID[.searchOutput]?.category, .commandSpans)
+        XCTAssertEqual(commandByID[.searchOutput]?.action, .searchOutput)
+        XCTAssertEqual(commandByID[.searchOutput]?.approvalPolicy, .some(.none))
+
+        XCTAssertEqual(commandByID[.copyReference]?.title, "Copy Command Reference")
+        XCTAssertEqual(commandByID[.copyReference]?.category, .commandSpans)
+        XCTAssertEqual(commandByID[.copyReference]?.action, .copyReference)
+        XCTAssertEqual(commandByID[.copyReference]?.approvalPolicy, .some(.none))
+        XCTAssertTrue(commandByID[.copyReference]?.searchTokens.contains("copy span reference") == true)
+
+        XCTAssertEqual(commandByID[.replay]?.title, "Replay Command")
+        XCTAssertEqual(commandByID[.replay]?.category, .commandSpans)
+        XCTAssertEqual(commandByID[.replay]?.action, .replay)
+        XCTAssertEqual(commandByID[.replay]?.approvalPolicy, .explicitUserConfirmation)
+        XCTAssertTrue(commandByID[.replay]?.searchTokens.contains("rerun command") == true)
+    }
+
+    func testDefaultCommandSpanCommandIDsAreUnique() {
+        let ids = TerminalCommandRegistry.default.commandSpanCommands.map(\.id)
+
+        XCTAssertEqual(Set(ids).count, ids.count)
+    }
+
     func testShortcutLookupFindsDefaultCommands() throws {
         let registry = TerminalCommandRegistry.default
 

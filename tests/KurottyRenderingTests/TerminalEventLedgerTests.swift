@@ -299,7 +299,7 @@ final class TerminalEventLedgerTests: XCTestCase {
                 actual: TerminalResizeGridSize(columns: 119, rows: 40)
             ),
         ])
-        XCTAssertTrue(report.description.contains("resize=source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 valid=false issueCount=1"))
+        XCTAssertTrue(report.description.contains("resize=source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 drawable=unavailable frame=unavailable disagree=screen valid=false issueCount=1"))
         XCTAssertFalse(report.description.contains("CSI"))
     }
 }
