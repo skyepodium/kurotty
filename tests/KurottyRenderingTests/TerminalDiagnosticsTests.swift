@@ -214,6 +214,53 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testNotificationSummaryDoesNotReturnOnlyShellPercentPrompt() {
+        XCTAssertNil(
+            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
+            %
+            """)
+        )
+    }
+
+    func testCodexNotificationContentUsesSpecificTitleAndMeaningfulBody() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex",
+            outputText: """
+            develop → main PR 올렸습니다.
+
+            PR: https://github.com/skyepodium/kurotty/pull/57
+            상태: `OPEN`, `MERGEABLE`
+
+            %
+            """
+        )
+
+        XCTAssertEqual(content.title, "Codex task finished")
+        XCTAssertEqual(content.subtitle, "codex")
+        XCTAssertEqual(
+            content.body,
+            "develop → main PR 올렸습니다.\n\nPR: https://github.com/skyepodium/kurotty/pull/57\n상태: `OPEN`, `MERGEABLE`"
+        )
+    }
+
+    func testCodexNotificationContentDetectsFailureAndInputRequired() {
+        let failed = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex",
+            outputText: "error: release build failed\nSee logs for details."
+        )
+        XCTAssertEqual(failed.title, "Codex task failed")
+        XCTAssertEqual(failed.subtitle, "codex")
+        XCTAssertEqual(failed.body, "error: release build failed\nSee logs for details.")
+
+        let needsInput = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex",
+            outputText: "Approval required: allow shell command?\n❯ Yes\n  No"
+        )
+        XCTAssertEqual(needsInput.title, "Codex needs input")
+        XCTAssertEqual(needsInput.subtitle, "codex")
+        XCTAssertEqual(needsInput.body, "Approval required: allow shell command?\n❯ Yes\n  No")
+    }
+
     func testNotificationLogMetadataDoesNotExposeTitleOrBody() {
         let metadata = TerminalNotificationLogMetadata(
             identifierPrefix: "dev.kurotty.terminal.osc9",
