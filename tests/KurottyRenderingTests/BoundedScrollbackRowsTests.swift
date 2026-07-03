@@ -102,6 +102,39 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertFalse(String(describing: rows.diagnostics).contains("normal output"))
     }
 
+    func testExportWindowSummaryForwardsBoundedMetadataWithoutRawRows() {
+        var rows = BoundedScrollbackRows()
+
+        rows.append(
+            contentsOf: makeRows(["secret zero", "secret one", "normal two", "tail three"]),
+            limit: 2
+        )
+        rows.remapStyle(
+            from: .default,
+            to: TerminalTextStyle(
+                foreground: TerminalTextStyle.default.foreground,
+                background: TerminalTextStyle.default.background,
+                bold: true
+            )
+        )
+
+        let summary = rows.exportWindowSummary(
+            absoluteStartIndex: 1,
+            rowCount: 4,
+            materializationLimit: 1
+        )
+
+        XCTAssertEqual(summary.firstAvailableAbsoluteRowIndex, 2)
+        XCTAssertEqual(summary.availableRowCount, 2)
+        XCTAssertEqual(summary.boundedMaterializedRowCount, 1)
+        XCTAssertEqual(summary.skippedDroppedRowCount, 1)
+        XCTAssertEqual(summary.skippedFutureRowCount, 1)
+        XCTAssertTrue(summary.requiresBoundedMaterialization)
+        XCTAssertFalse(String(describing: summary).contains("secret"))
+        XCTAssertFalse(String(describing: summary).contains("normal"))
+        XCTAssertFalse(String(describing: summary).contains("tail"))
+    }
+
     func testRemappingStylesAndColorsDoesNotChangeDiagnostics() {
         let previousDefaultStyle = TerminalTextStyle(
             foreground: SIMD4<Float>(0.1, 0.2, 0.3, 1),

@@ -145,6 +145,38 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertFalse(String(describing: store.diagnostics).contains("normal output"))
     }
 
+    func testExportWindowSummaryBoundsMaterializationWithoutRowText() {
+        var store = SegmentedScrollbackStore<String>(rowLimit: 4, segmentSize: 2)
+
+        store.append(contentsOf: [
+            "secret zero",
+            "secret one",
+            "normal two",
+            "normal three",
+            "tail four",
+            "tail five",
+        ])
+
+        let summary = store.exportWindowSummary(
+            absoluteStartIndex: 1,
+            rowCount: 6,
+            materializationLimit: 2
+        )
+
+        XCTAssertEqual(summary.requestedStartAbsoluteRowIndex, 1)
+        XCTAssertEqual(summary.requestedRowCount, 6)
+        XCTAssertEqual(summary.firstAvailableAbsoluteRowIndex, 2)
+        XCTAssertEqual(summary.availableRowCount, 4)
+        XCTAssertEqual(summary.boundedMaterializedRowCount, 2)
+        XCTAssertEqual(summary.skippedDroppedRowCount, 1)
+        XCTAssertEqual(summary.skippedFutureRowCount, 1)
+        XCTAssertTrue(summary.requiresBoundedMaterialization)
+        XCTAssertFalse(summary.isFullyRetained)
+        XCTAssertFalse(String(describing: summary).contains("secret"))
+        XCTAssertFalse(String(describing: summary).contains("normal"))
+        XCTAssertFalse(String(describing: summary).contains("tail"))
+    }
+
     func testMillionLineAppendKeepsRetainedStorageWithinPressureCeiling() {
         var store = SegmentedScrollbackStore<Int>(rowLimit: 1_000_000, segmentSize: 1_024)
 

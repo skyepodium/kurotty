@@ -91,6 +91,10 @@ struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
         ])
     }
 
+    var timelineSummary: TerminalTraceTimelineSummary {
+        TerminalTraceTimelineSummary(report: self)
+    }
+
     var description: String {
         [
             "trace=\(traceID)",
@@ -117,6 +121,69 @@ struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
             searchStart = stageSequence.index(after: matchIndex)
         }
         return true
+    }
+}
+
+struct TerminalTraceTimelineSummary: Equatable, CustomStringConvertible {
+    let traceID: TerminalEventTraceID
+    let stageSequence: [TerminalEventLedger.EventKind]
+    let hasCompleteRenderPath: Bool
+    let firstSequence: Int?
+    let lastSequence: Int?
+    let eventCount: Int
+    let droppedEventCount: Int
+    let resizeIssueCount: Int
+    let ptyReadByteCount: Int
+    let parserEventByteCount: Int
+    let screenMutationCount: Int
+    let renderFrameCount: Int
+    let dirtyRegionCount: Int
+    let fullRedrawCount: Int
+
+    init(report: TerminalTraceCorrelationReport) {
+        traceID = report.traceID
+        stageSequence = report.stageSequence
+        hasCompleteRenderPath = report.hasCompleteRenderPath
+        firstSequence = report.eventSummary.firstSequence
+        lastSequence = report.eventSummary.lastSequence
+        eventCount = report.eventSummary.eventCount
+        droppedEventCount = report.eventSummary.droppedEventCount
+        resizeIssueCount = report.resizeValidationIssues.count
+        ptyReadByteCount = report.eventSummary.ptyReadByteCount
+        parserEventByteCount = report.eventSummary.parserEventByteCount
+        screenMutationCount = report.eventSummary.screenMutationCount
+        renderFrameCount = report.eventSummary.renderFrameCount
+        dirtyRegionCount = report.eventSummary.dirtyRegionCount
+        fullRedrawCount = report.eventSummary.fullRedrawCount
+    }
+
+    var stagePath: String {
+        stageSequence.map(\.description).joined(separator: ">")
+    }
+
+    var description: String {
+        [
+            "trace=\(traceID)",
+            "stages=\(stagePath)",
+            "complete=\(hasCompleteRenderPath)",
+            "sequenceRange=\(sequenceRangeDescription)",
+            "events=\(eventCount)",
+            "droppedEvents=\(droppedEventCount)",
+            "resizeIssues=\(resizeIssueCount)",
+            "ptyBytes=\(ptyReadByteCount)",
+            "parserBytes=\(parserEventByteCount)",
+            "screenMutations=\(screenMutationCount)",
+            "renderFrames=\(renderFrameCount)",
+            "dirtyRegions=\(dirtyRegionCount)",
+            "fullRedraws=\(fullRedrawCount)",
+        ].joined(separator: " ")
+    }
+
+    private var sequenceRangeDescription: String {
+        guard let firstSequence, let lastSequence else {
+            return "unavailable"
+        }
+        return "\(firstSequence)...\(lastSequence)"
     }
 }
 

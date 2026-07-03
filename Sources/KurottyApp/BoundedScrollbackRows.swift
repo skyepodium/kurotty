@@ -108,6 +108,19 @@ struct BoundedScrollbackRows {
         return absoluteRowIndex - retainedRowSummary.firstRetainedRowIndex
     }
 
+    func exportWindowSummary(
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int
+    ) -> SegmentedScrollbackStore<[TerminalScreenCell]>.ExportWindowSummary {
+        SegmentedScrollbackStore<[TerminalScreenCell]>.exportWindowSummary(
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+    }
+
     mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
         guard previousStyle != nextStyle else { return }
         remapRows { row in

@@ -28,6 +28,41 @@ struct SegmentedScrollbackStore<Row> {
         }
     }
 
+    struct ExportWindowSummary: Equatable, CustomStringConvertible {
+        let requestedStartAbsoluteRowIndex: Int
+        let requestedRowCount: Int
+        let firstAvailableAbsoluteRowIndex: Int?
+        let availableRowCount: Int
+        let boundedMaterializedRowCount: Int
+        let materializationLimit: Int
+        let skippedDroppedRowCount: Int
+        let skippedFutureRowCount: Int
+        let retainedRowSummary: RetainedRowSummary
+
+        var requiresBoundedMaterialization: Bool {
+            availableRowCount > boundedMaterializedRowCount
+        }
+
+        var isFullyRetained: Bool {
+            requestedRowCount == availableRowCount
+        }
+
+        var description: String {
+            [
+                "requestedStartRow=\(requestedStartAbsoluteRowIndex)",
+                "requestedRows=\(requestedRowCount)",
+                "firstAvailableRow=\(firstAvailableAbsoluteRowIndex.map(String.init) ?? "none")",
+                "availableRows=\(availableRowCount)",
+                "boundedMaterializedRows=\(boundedMaterializedRowCount)",
+                "materializationLimit=\(materializationLimit)",
+                "skippedDroppedRows=\(skippedDroppedRowCount)",
+                "skippedFutureRows=\(skippedFutureRowCount)",
+                "requiresBoundedMaterialization=\(requiresBoundedMaterialization)",
+                "retainedRange=\(retainedRowSummary)",
+            ].joined(separator: " ")
+        }
+    }
+
     struct Diagnostics: Equatable, CustomStringConvertible {
         let rowLimit: Int
         let segmentSize: Int
@@ -161,6 +196,69 @@ struct SegmentedScrollbackStore<Row> {
         return absoluteRowIndex - droppedRowCount
     }
 
+    func exportWindowSummary(
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int
+    ) -> ExportWindowSummary {
+        Self.exportWindowSummary(
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+    }
+
+    static func exportWindowSummary(
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int,
+        retainedRowSummary: RetainedRowSummary
+    ) -> ExportWindowSummary {
+        let requestedRowCount = max(0, rowCount)
+        let materializationLimit = max(0, materializationLimit)
+        let requestedEndIndex = clampedEndIndex(
+            startIndex: absoluteStartIndex,
+            count: requestedRowCount
+        )
+        let retainedEndIndex = retainedRowSummary.nextRowIndex
+
+        let firstAvailableIndex = max(
+            absoluteStartIndex,
+            retainedRowSummary.firstRetainedRowIndex
+        )
+        let unavailableEndIndex = min(
+            requestedEndIndex,
+            retainedRowSummary.firstRetainedRowIndex
+        )
+        let skippedDroppedRowCount = clampedNonNegativeDistance(
+            from: absoluteStartIndex,
+            to: unavailableEndIndex
+        )
+
+        let availableEndIndex = min(requestedEndIndex, retainedEndIndex)
+        let availableRowCount = clampedNonNegativeDistance(
+            from: firstAvailableIndex,
+            to: availableEndIndex
+        )
+        let skippedFutureRowCount = clampedNonNegativeDistance(
+            from: max(absoluteStartIndex, retainedEndIndex),
+            to: requestedEndIndex
+        )
+
+        return ExportWindowSummary(
+            requestedStartAbsoluteRowIndex: absoluteStartIndex,
+            requestedRowCount: requestedRowCount,
+            firstAvailableAbsoluteRowIndex: availableRowCount > 0 ? firstAvailableIndex : nil,
+            availableRowCount: availableRowCount,
+            boundedMaterializedRowCount: min(availableRowCount, materializationLimit),
+            materializationLimit: materializationLimit,
+            skippedDroppedRowCount: skippedDroppedRowCount,
+            skippedFutureRowCount: skippedFutureRowCount,
+            retainedRowSummary: retainedRowSummary
+        )
+    }
+
     private var retainedStorageRowCount: Int {
         segments.reduce(0) { $0 + $1.count }
     }
@@ -173,6 +271,18 @@ struct SegmentedScrollbackStore<Row> {
     private var maximumRetainedStorageRowCount: Int {
         guard rowLimit > 0 else { return 0 }
         return rowLimit + segmentSize - 1
+    }
+
+    private static func clampedEndIndex(startIndex: Int, count: Int) -> Int {
+        guard count > 0 else { return startIndex }
+        let (endIndex, overflow) = startIndex.addingReportingOverflow(count)
+        return overflow ? Int.max : endIndex
+    }
+
+    private static func clampedNonNegativeDistance(from startIndex: Int, to endIndex: Int) -> Int {
+        guard endIndex > startIndex else { return 0 }
+        let (distance, overflow) = endIndex.subtractingReportingOverflow(startIndex)
+        return overflow ? Int.max : distance
     }
 
     private mutating func appendWithoutTrimming(_ row: Row) {

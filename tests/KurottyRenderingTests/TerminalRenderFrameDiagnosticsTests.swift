@@ -116,6 +116,27 @@ final class TerminalRenderFrameDiagnosticsTests: XCTestCase {
         XCTAssertEqual(outsideReport.fallbackReason?.description, "outside-display-bounds")
     }
 
+    func testDamageRedrawPolicyKeepsPartialFallbackExplicitWhenScissorIsDisabled() {
+        let policy = makeFrame(
+            dirtyRows: [1],
+            dirtyRects: [rowRect(1)],
+            isFullDamage: false
+        )
+        .damageMetadata.redrawPolicy(
+            scale: 2,
+            clipTo: TerminalFrameSize(width: 80, height: 40),
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: true
+        )
+
+        XCTAssertEqual(policy.redrawDecision.description, "partial")
+        XCTAssertEqual(policy.schedulingPolicy.description, "immediate-partial-redraw")
+        XCTAssertEqual(policy.coalescingFallbackReason.description, "scissor-disabled")
+        XCTAssertFalse(policy.canCoalesceAtDisplayCadence)
+        XCTAssertEqual(policy.stablePixelBounds, [TerminalFramePixelRect(x: 0, y: 40, width: 80, height: 40)])
+        XCTAssertEqual(policy.stablePixelBoundCount, 1)
+    }
+
     private func makeFrame(
         dirtyRows: [Int],
         dirtyRects: [TerminalFrameRect],
