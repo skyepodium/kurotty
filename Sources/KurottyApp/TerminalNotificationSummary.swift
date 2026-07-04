@@ -25,6 +25,7 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
         let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedCommand ?? "")
         let body = notificationBody(command: command, outputText: outputText)
         let isCodex = command?.lowercased().split(whereSeparator: { $0.isWhitespace }).first == "codex"
+            || TerminalNotificationSummary.isCodexLikeOutput(outputText)
         let title: String
         if isCodex {
             title = codexTitle(for: body)
@@ -39,6 +40,10 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
     }
 
     private static func notificationBody(command: String?, outputText: String) -> String {
+        if TerminalNotificationSummary.isCodexLikeOutput(outputText),
+           let codexSummary = TerminalNotificationSummary.codexNotificationBodyText(fromOutputText: outputText) {
+            return trimmed(codexSummary)
+        }
         if let outputSummary = TerminalNotificationSummary.notificationBodyText(fromOutputText: outputText) {
             return trimmed(outputSummary)
         }
@@ -73,6 +78,34 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
 }
 
 enum TerminalNotificationSummary {
+    static func isCodexLikeOutput(_ text: String) -> Bool {
+        let normalizedText = normalizedTerminalText(from: text)
+        let lines = normalizedText.components(separatedBy: .newlines)
+        return lines.contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return isMetadataStatusLine(trimmed)
+                || trimmed.hasPrefix("› ")
+                || trimmed.hasPrefix("• Explored")
+                || trimmed.hasPrefix("• Edited")
+                || trimmed.hasPrefix("• Ran")
+                || trimmed.hasPrefix("• Read")
+        }
+    }
+
+    static func codexNotificationBodyText(fromOutputText text: String) -> String? {
+        let normalizedText = normalizedTerminalText(from: text)
+        for line in normalizedText.components(separatedBy: .newlines).reversed() {
+            guard let meaningfulLine = meaningfulContentLine(from: line) else {
+                continue
+            }
+            guard let answer = codexAssistantAnswer(from: meaningfulLine) else {
+                continue
+            }
+            return answer
+        }
+        return nil
+    }
+
     static func latestMeaningfulLine(fromVisibleLines lines: [String]) -> String? {
         for line in lines.reversed() {
             guard let meaningfulLine = meaningfulContentLine(from: line) else {
@@ -84,14 +117,12 @@ enum TerminalNotificationSummary {
     }
 
     static func latestMeaningfulLine(fromOutputText text: String) -> String? {
-        let normalizedText = stripTerminalControls(from: text)
-            .replacingOccurrences(of: "\r", with: "\n")
+        let normalizedText = normalizedTerminalText(from: text)
         return latestMeaningfulLine(fromVisibleLines: normalizedText.components(separatedBy: .newlines))
     }
 
     static func latestMeaningfulText(fromOutputText text: String) -> String? {
-        let normalizedText = stripTerminalControls(from: text)
-            .replacingOccurrences(of: "\r", with: "\n")
+        let normalizedText = normalizedTerminalText(from: text)
         let lines = normalizedText.components(separatedBy: .newlines)
         var block = [String]()
         for line in lines.reversed() {
@@ -111,8 +142,7 @@ enum TerminalNotificationSummary {
     }
 
     static func notificationBodyText(fromOutputText text: String) -> String? {
-        let normalizedText = stripTerminalControls(from: text)
-            .replacingOccurrences(of: "\r", with: "\n")
+        let normalizedText = normalizedTerminalText(from: text)
         var lines = [String]()
         var previousWasBlank = false
         for line in normalizedText.components(separatedBy: .newlines) {
@@ -135,6 +165,45 @@ enum TerminalNotificationSummary {
             return nil
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func normalizedTerminalText(from text: String) -> String {
+        stripTerminalControls(from: text)
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(
+                of: #"(?:\d{1,3};){2,}\d{1,3}[A-Za-z]?"#,
+                with: "",
+                options: .regularExpression
+            )
+    }
+
+    private static func codexAssistantAnswer(from line: String) -> String? {
+        guard line.hasPrefix("• ") else {
+            return nil
+        }
+        let answer = removingCodexStatusSuffix(from: String(line.dropFirst(2)))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !answer.isEmpty else {
+            return nil
+        }
+        guard !isCodexToolStatusAnswer(String(answer)) else {
+            return nil
+        }
+        return String(answer)
+    }
+
+    private static func isCodexToolStatusAnswer(_ answer: String) -> Bool {
+        answer == "Explored"
+            || answer == "Edited"
+            || answer == "Ran"
+            || answer == "Read"
+            || answer == "Searched"
+            || answer == "Thinking"
+            || answer.hasPrefix("Explored ")
+            || answer.hasPrefix("Edited ")
+            || answer.hasPrefix("Ran ")
+            || answer.hasPrefix("Read ")
+            || answer.hasPrefix("Searched ")
     }
 
     private static func meaningfulNotificationLine(from line: String) -> String? {
@@ -212,7 +281,15 @@ enum TerminalNotificationSummary {
             searchIndex = markerRange.upperBound
         }
 
-        return line
+        return removingCodexStatusSuffix(from: line)
+    }
+
+    private static func removingCodexStatusSuffix(from line: String) -> String {
+        line.replacingOccurrences(
+            of: #"(?:Worki|Work|Ready|Thinking)[0-9]+$"#,
+            with: "",
+            options: .regularExpression
+        )
     }
 
     private static func isInlineStatusFragment(_ suffix: String) -> Bool {
