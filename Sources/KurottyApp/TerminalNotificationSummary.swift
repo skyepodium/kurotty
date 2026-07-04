@@ -18,10 +18,24 @@ enum TerminalSubmittedCommandSummary {
 
 enum TerminalBackgroundTaskTrackingPolicy {
     static func shouldTrackSubmittedInput(_ submittedInput: String, visibleText: String) -> Bool {
-        guard TerminalSubmittedCommandSummary.notificationBody(from: submittedInput) != nil else {
+        guard let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedInput) else {
             return false
         }
-        return !TerminalNotificationSummary.isCodexLikeOutput(visibleText)
+        guard isTrackableCommand(command) else {
+            return false
+        }
+        return !TerminalNotificationSummary.isActiveCodexTuiVisible(visibleText)
+    }
+
+    private static func isTrackableCommand(_ command: String) -> Bool {
+        let tokens = command.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard let executable = tokens.first else {
+            return false
+        }
+        if executable == "codex" {
+            return tokens.dropFirst().first == "exec"
+        }
+        return true
     }
 }
 
@@ -33,8 +47,7 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
     static func make(submittedCommand: String?, outputText: String) -> TerminalBackgroundTaskNotificationContent {
         let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedCommand ?? "")
         let body = notificationBody(command: command, outputText: outputText)
-        let isCodex = command?.lowercased().split(whereSeparator: { $0.isWhitespace }).first == "codex"
-            || TerminalNotificationSummary.isCodexLikeOutput(outputText)
+        let isCodex = command.map(TerminalBackgroundTaskNotificationContent.isExplicitCodexTaskCommand) ?? false
         let title: String
         if isCodex {
             title = codexTitle(for: body)
@@ -78,6 +91,14 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
         return AppConstants.Notifications.codexFinishedTitle
     }
 
+    private static func isExplicitCodexTaskCommand(_ command: String) -> Bool {
+        let tokens = command.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard tokens.first == "codex" else {
+            return false
+        }
+        return tokens.dropFirst().first == "exec"
+    }
+
     private static func trimmed(_ body: String) -> String {
         guard body.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
             return body
@@ -87,6 +108,28 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
 }
 
 enum TerminalNotificationSummary {
+    static func isActiveCodexTuiVisible(_ text: String) -> Bool {
+        let normalizedText = normalizedTerminalText(from: text)
+        let tailLines = normalizedText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .suffix(6)
+
+        guard let lastLine = tailLines.last else {
+            return false
+        }
+        if isShellPromptLine(lastLine) {
+            return false
+        }
+        if isPromptInputLine(lastLine) || isMetadataStatusLine(lastLine) {
+            return true
+        }
+        return tailLines.suffix(2).contains { line in
+            isMetadataStatusLine(line)
+        }
+    }
+
     static func isCodexLikeOutput(_ text: String) -> Bool {
         let normalizedText = normalizedTerminalText(from: text)
         let lines = normalizedText.components(separatedBy: .newlines)

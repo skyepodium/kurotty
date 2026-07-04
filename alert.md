@@ -36,6 +36,12 @@ background-task notification for every submitted line, including ordinary input
 inside an interactive Codex TUI. Mature terminals do not treat "user pressed
 Enter in a full-screen/interactive program" as "a background task has started."
 
+The third correction is stricter: Kurotty must not infer a Codex completion title
+from Codex-looking output alone. `Codex task finished` now requires an explicit
+Codex task command shape such as `codex exec ...` or a future explicit agent
+event. A plain `codex` launch is treated as an interactive TUI start, not a
+finishable background task.
+
 ## Ghostty
 
 ### Source Areas
@@ -491,6 +497,10 @@ Applied correction:
 - Keep normal shell commands eligible for fallback tracking.
 - Reject generic background-task tracking when the current visible terminal text
   is Codex-like TUI output.
+- Reject a plain `codex` command as interactive TUI launch; allow only explicit
+  noninteractive `codex exec ...` fallback tracking.
+- Do not promote generic background notifications to `Codex task finished`
+  because their output looks Codex-like.
 - Clear stale captured command/output/work items when tracking is rejected so
   old agent text cannot leak into the next notification.
 
@@ -506,7 +516,7 @@ summary, approval request, and exit/failure state.
 - `bell`: BEL / terminal bell
 - `oscNotification`: OSC 9 / iTerm2 / Kitty-style explicit notification
 - `commandStarted`: OSC 133 C or shell integration start
-- `commandFinished`: OSC 133 D or fallback idle output completion
+- `commandFinished`: OSC 133 D, shell integration command end, or explicit noninteractive command lifecycle
 - `agentState`: Codex/agent finished, failed, needs input, waiting approval
 - `activity`: output in unfocused pane
 - `silence`: no output for configured interval
@@ -566,6 +576,10 @@ Each alert should carry:
 - Suppress fallback background-task tracking while Codex interactive TUI output
   is visible, preventing ordinary prompts such as `hello` from becoming fake
   "Codex task finished" notifications.
+- Remove output-only Codex title inference; Codex-specific titles require
+  explicit `codex exec ...` command shape until a dedicated agent event exists.
+- Treat `codex` by itself as an interactive TUI launch and suppress background
+  task completion tracking for it.
 
 ### Next Iteration
 

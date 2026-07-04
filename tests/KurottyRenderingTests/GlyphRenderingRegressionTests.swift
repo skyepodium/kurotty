@@ -1446,6 +1446,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(preferencesSource.contains("textContainer?.containerSize = NSSize(\n            width: CGFloat.greatestFiniteMagnitude"))
     }
 
+    func testSettingsEditorAutosavesValidEditsWithoutManualSaveOrReloadButtons() throws {
+        let preferencesSource = try preferencesWindowControllerSource()
+
+        XCTAssertTrue(preferencesSource.contains("NSTextViewDelegate"))
+        XCTAssertTrue(preferencesSource.contains("textView.delegate = self"))
+        XCTAssertTrue(preferencesSource.contains("func textDidChange(_ notification: Notification)"))
+        XCTAssertTrue(preferencesSource.contains("scheduleAutosave()"))
+        XCTAssertTrue(preferencesSource.contains("try store.save(rawJSON: textView.string)"))
+        XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Save\""))
+        XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Reload\""))
+        XCTAssertFalse(preferencesSource.contains("#selector(saveToDisk)"))
+        XCTAssertFalse(preferencesSource.contains("#selector(reloadFromDisk)"))
+    }
+
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"New Tab\", action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))

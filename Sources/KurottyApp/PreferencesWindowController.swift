@@ -96,21 +96,21 @@ final class PreferencesWindowController: NSWindowController {
 }
 
 @MainActor
-final class PreferencesView: NSView {
+final class PreferencesView: NSView, NSTextViewDelegate {
     private enum Layout {
         static let windowPadding = DesignTokens.Space.preferencesInsetPX
         static let controlSpacing = DesignTokens.Space.preferencesGapPX
         static let statusHeight = DesignTokens.Component.preferencesStatusHeightPX
-        static let buttonWidth = DesignTokens.Component.preferencesButtonWidthPX
-        static let buttonHeight = DesignTokens.Component.preferencesButtonHeightPX
         static let editorFontSize = DesignTokens.Component.settingsEditorFontSizePT
     }
+
+    private static let autosaveDelay: TimeInterval = 0.35
 
     private let store: AppSettingsStore
     private let textView = NSTextView()
     private let statusLabel = NSTextField(labelWithString: "")
-    private let saveButton = NSButton(title: "Save", target: nil, action: nil)
-    private let reloadButton = NSButton(title: "Reload", target: nil, action: nil)
+    private var autosaveWorkItem: DispatchWorkItem?
+    private var isLoadingFromDisk = false
 
     init(frame frameRect: NSRect, store: AppSettingsStore = .shared) {
         self.store = store
@@ -143,6 +143,7 @@ final class PreferencesView: NSView {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isRichText = false
+        textView.delegate = self
         textView.font = .monospacedSystemFont(ofSize: Layout.editorFontSize, weight: .regular)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -155,24 +156,8 @@ final class PreferencesView: NSView {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
 
-        saveButton.target = self
-        saveButton.action = #selector(saveToDisk)
-        saveButton.bezelStyle = .rounded
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-
-        reloadButton.target = self
-        reloadButton.action = #selector(reloadFromDisk)
-        reloadButton.bezelStyle = .rounded
-        reloadButton.translatesAutoresizingMaskIntoConstraints = false
-
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let buttonStack = NSStackView(views: [reloadButton, saveButton])
-        buttonStack.orientation = .horizontal
-        buttonStack.alignment = .centerY
-        buttonStack.spacing = Layout.controlSpacing
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -189,7 +174,6 @@ final class PreferencesView: NSView {
         stack.addArrangedSubview(label("settings.json"))
         stack.addArrangedSubview(scrollView)
         stack.addArrangedSubview(statusLabel)
-        stack.addArrangedSubview(buttonStack)
 
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -201,10 +185,6 @@ final class PreferencesView: NSView {
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: DesignTokens.Component.preferencesControlWidthPX),
             statusLabel.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
             statusLabel.heightAnchor.constraint(equalToConstant: Layout.statusHeight),
-            saveButton.widthAnchor.constraint(equalToConstant: Layout.buttonWidth),
-            reloadButton.widthAnchor.constraint(equalToConstant: Layout.buttonWidth),
-            saveButton.heightAnchor.constraint(equalToConstant: Layout.buttonHeight),
-            reloadButton.heightAnchor.constraint(equalToConstant: Layout.buttonHeight),
         ])
     }
 
@@ -214,28 +194,58 @@ final class PreferencesView: NSView {
         return field
     }
 
-    @objc private func reloadFromDisk() {
+    private func reloadFromDisk() {
         do {
+            isLoadingFromDisk = true
             textView.string = try store.loadRawJSON()
+            isLoadingFromDisk = false
             let status = PreferencesValidationPresenter.status(for: textView.string)
-            setStatus("Loaded \(store.settingsURL.path). \(status.message)")
+            setStatus("Loaded \(store.settingsURL.path). Edits apply automatically. \(status.message)")
         } catch {
-            setStatus("Reload failed: \(error.localizedDescription)")
+            isLoadingFromDisk = false
+            setStatus("Load failed: \(error.localizedDescription)")
         }
     }
 
-    @objc private func saveToDisk() {
+    func textDidChange(_ notification: Notification) {
+        guard !isLoadingFromDisk else {
+            return
+        }
+
         let status = PreferencesValidationPresenter.status(for: textView.string)
         guard status.canSave else {
-            setStatus("Save blocked. \(status.message)")
+            autosaveWorkItem?.cancel()
+            setStatus("Not applied. \(status.message)")
+            return
+        }
+
+        setStatus("Applying settings. \(status.message)")
+        scheduleAutosave()
+    }
+
+    private func scheduleAutosave() {
+        autosaveWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.autosaveCurrentSettings()
+            }
+        }
+        autosaveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autosaveDelay, execute: workItem)
+    }
+
+    private func autosaveCurrentSettings() {
+        let status = PreferencesValidationPresenter.status(for: textView.string)
+        guard status.canSave else {
+            setStatus("Not applied. \(status.message)")
             return
         }
 
         do {
             try store.save(rawJSON: textView.string)
-            setStatus("Saved \(store.settingsURL.path). \(status.message)")
+            setStatus("Applied \(store.settingsURL.path). \(status.message)")
         } catch {
-            setStatus("Save failed: \(error.localizedDescription)")
+            setStatus("Apply failed: \(error.localizedDescription)")
         }
     }
 
