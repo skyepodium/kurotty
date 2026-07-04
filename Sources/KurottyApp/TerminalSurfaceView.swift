@@ -224,7 +224,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let position = cellPosition(for: event)
-        if event.modifierFlags.contains(.command), let link = linkRange(at: position) {
+        if let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
             presentOpenLinkDialog(for: link)

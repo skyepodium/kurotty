@@ -1947,6 +1947,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("override func flagsChanged(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
         XCTAssertFalse(surfaceSource.contains("guard event.modifierFlags.contains(.command) else"))
+        XCTAssertFalse(surfaceSource.contains("event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
+        XCTAssertTrue(surfaceSource.contains("if let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("TerminalLinkRange.findAll(in: sourceRow, row: row)"))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
