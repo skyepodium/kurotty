@@ -222,9 +222,88 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testBackgroundTaskTrackingRejectsInteractiveCodexTuiConversationInput() {
+        XCTAssertFalse(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "hello",
+                visibleText: """
+                › hello
+
+                • I'll load the required startup skill, then respond normally.
+
+                • Explored
+                  └ Read SKILL.md (superpowers:using-superpowers skill)
+
+                • Hello. How can I help?
+
+                › Summarize recent commits
+                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
+                """
+            )
+        )
+    }
+
+    func testBackgroundTaskTrackingAllowsShellCommandsOutsideInteractiveTui() {
+        XCTAssertTrue(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "swift test",
+                visibleText: """
+                skyepodium ~/dev/kurotty
+                """
+            )
+        )
+    }
+
+    func testBackgroundTaskTrackingRejectsInteractiveCodexCommandLaunch() {
+        XCTAssertFalse(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "codex",
+                visibleText: """
+                \(NSUserName()) ~/dev/kurotty
+                """
+            )
+        )
+
+        XCTAssertTrue(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "codex exec summarize recent commits",
+                visibleText: """
+                \(NSUserName()) ~/dev/kurotty
+                """
+            )
+        )
+    }
+
+    func testBackgroundTaskTrackingRejectsCodexPromptDrafts() {
+        XCTAssertFalse(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "Summarize recent commits",
+                visibleText: """
+                › Summarize recent commits
+                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
+                """
+            )
+        )
+    }
+
+    func testBackgroundTaskTrackingAllowsShellCommandAfterCodexTranscriptWhenShellPromptIsCurrent() {
+        XCTAssertTrue(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "ls",
+                visibleText: """
+                › hello
+
+                • Hello. How can I help?
+
+                \(NSUserName()) ~/dev/kurotty
+                """
+            )
+        )
+    }
+
     func testCodexNotificationContentUsesSpecificTitleAndMeaningfulBody() {
         let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex",
+            submittedCommand: "codex exec create pr",
             outputText: """
             develop → main PR 올렸습니다.
 
@@ -236,14 +315,14 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
 
         XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex")
+        XCTAssertEqual(content.subtitle, "codex exec create pr")
         XCTAssertEqual(
             content.body,
             "develop → main PR 올렸습니다.\n\nPR: https://github.com/skyepodium/kurotty/pull/57\n상태: `OPEN`, `MERGEABLE`"
         )
     }
 
-    func testCodexNotificationContentUsesOnlyLatestAssistantAnswerBlock() {
+    func testGenericBackgroundNotificationDoesNotPromoteCodexLikeOutputToCodexCompletion() {
         let content = TerminalBackgroundTaskNotificationContent.make(
             submittedCommand: "hello",
             outputText: """
@@ -262,7 +341,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(content.title, "Codex task finished")
+        XCTAssertEqual(content.title, "Task finished")
         XCTAssertEqual(content.subtitle, "hello")
         XCTAssertEqual(content.body, "Hello. What are we working on?")
         XCTAssertFalse(content.body.contains("38;2"))
@@ -273,21 +352,36 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(content.body.contains("gpt-5.5"))
     }
 
+    func testExplicitCodexCommandCanUseCodexCompletionTitle() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex exec inspect tree",
+            outputText: """
+            • I checked the working tree and found no changes.
+
+            gpt-5.5 medium · ~/dev · Ready · Workspace · Context 99% left
+            """
+        )
+
+        XCTAssertEqual(content.title, "Codex task finished")
+        XCTAssertEqual(content.subtitle, "codex exec inspect tree")
+        XCTAssertEqual(content.body, "I checked the working tree and found no changes.")
+    }
+
     func testCodexNotificationContentDetectsFailureAndInputRequired() {
         let failed = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex",
+            submittedCommand: "codex exec release",
             outputText: "error: release build failed\nSee logs for details."
         )
         XCTAssertEqual(failed.title, "Codex task failed")
-        XCTAssertEqual(failed.subtitle, "codex")
+        XCTAssertEqual(failed.subtitle, "codex exec release")
         XCTAssertEqual(failed.body, "error: release build failed\nSee logs for details.")
 
         let needsInput = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex",
+            submittedCommand: "codex exec release",
             outputText: "Approval required: allow shell command?\n❯ Yes\n  No"
         )
         XCTAssertEqual(needsInput.title, "Codex needs input")
-        XCTAssertEqual(needsInput.subtitle, "codex")
+        XCTAssertEqual(needsInput.subtitle, "codex exec release")
         XCTAssertEqual(needsInput.body, "Approval required: allow shell command?\n❯ Yes\n  No")
     }
 
