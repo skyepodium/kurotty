@@ -440,6 +440,83 @@ struct AIAgentActionDispatchResult: Equatable {
     }
 }
 
+struct AIAgentActionApprovalDialogFlow: Equatable, CustomStringConvertible {
+    struct Decision: Equatable {
+        let approval: AIAgentActionApprovalResult
+    }
+
+    let actionID: String
+    let kind: AIAgentActionKind
+    let title: String
+    let decision: TerminalSecurityPolicy.Decision
+    let reason: String
+    let redactedPreview: String
+    let summary: String?
+    let contextReferences: [AICommandContextReference]
+    let metadata: AIAgentActionApprovalMetadata
+    private let actionFingerprint: AIAgentActionApprovalFingerprint
+
+    init(result: AIAgentActionApprovalResult) {
+        self.actionID = result.actionID
+        self.kind = result.actionKind
+        self.title = Self.title(for: result)
+        self.decision = result.decision
+        self.reason = result.reason
+        self.redactedPreview = result.redactedPreview
+        self.summary = result.metadata.contextSummary.map(aiApprovalRedacted)
+        self.contextReferences = result.metadata.contextReferences
+        self.metadata = result.metadata
+        self.actionFingerprint = result.actionFingerprint
+    }
+
+    var description: String {
+        [
+            "AIAgentActionApprovalDialogFlow(actionID: \(actionID)",
+            "kind: \(kind)",
+            "decision: \(decision)",
+            "reason: \(reason)",
+            "preview: \(redactedPreview)",
+            "summary: \(summary ?? "unspecified"))",
+        ].map(aiApprovalRedacted).joined(separator: " ")
+    }
+
+    func approve() -> Decision {
+        Decision(approval: approvalResult(decision: .allow, reasonPrefix: "approved"))
+    }
+
+    func deny() -> Decision {
+        Decision(approval: approvalResult(decision: .deny, reasonPrefix: "denied"))
+    }
+
+    private func approvalResult(
+        decision: TerminalSecurityPolicy.Decision,
+        reasonPrefix: String
+    ) -> AIAgentActionApprovalResult {
+        AIAgentActionApprovalResult(
+            actionID: actionID,
+            actionKind: kind,
+            actionFingerprint: actionFingerprint,
+            metadata: decision == .allow ? metadata.markingCommandOutputApproved() : metadata,
+            decision: decision,
+            reason: "\(reasonPrefix): \(reason)",
+            redactedPreview: redactedPreview,
+            timestamp: Date(),
+            approvesCommandOutputExport: metadata.commandOutput?.includesRawOutput == true
+        )
+    }
+
+    private static func title(for result: AIAgentActionApprovalResult) -> String {
+        switch result.decision {
+        case .allow:
+            return "AI Terminal Action Allowed"
+        case .ask:
+            return "Approve AI Terminal Action"
+        case .deny:
+            return "AI Terminal Action Denied"
+        }
+    }
+}
+
 struct AIAgentActionDispatcher {
     private let evaluator: AIAgentActionApprovalEvaluator
     private let handlers: AIAgentActionDispatchHandlers
@@ -475,6 +552,30 @@ struct AIAgentActionDispatcher {
         case .deny:
             return result(for: action, status: .denied, approval: evaluated)
         }
+    }
+
+    func dispatch(
+        _ action: AIAgentActionRequest,
+        dialogDecision: AIAgentActionApprovalDialogFlow.Decision
+    ) -> AIAgentActionDispatchResult {
+        let evaluated = evaluator.evaluate(action)
+        let suppliedApproval = AIAgentActionApprovalResult(
+            actionID: dialogDecision.approval.actionID,
+            actionKind: dialogDecision.approval.actionKind,
+            actionFingerprint: dialogDecision.approval.actionFingerprint,
+            metadata: dialogDecision.approval.decision == .allow
+                ? evaluated.metadata.markingCommandOutputApproved()
+                : evaluated.metadata,
+            decision: dialogDecision.approval.decision,
+            reason: dialogDecision.approval.reason,
+            redactedPreview: dialogDecision.approval.redactedPreview,
+            timestamp: dialogDecision.approval.timestamp,
+            approvesCommandOutputExport: dialogDecision.approval.approvesCommandOutputExport
+        )
+        guard suppliedApproval.decision != .deny else {
+            return result(for: action, status: .denied, approval: suppliedApproval)
+        }
+        return dispatchApproved(action, evaluated: evaluated, approval: suppliedApproval)
     }
 
     private func dispatchApproved(

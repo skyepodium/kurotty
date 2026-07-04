@@ -10,10 +10,22 @@ struct TerminalCommandPaletteEntry: Equatable {
     let aliases: [String]
 }
 
+struct TerminalCommandSpanPaletteEntry: Equatable {
+    let command: TerminalCommandSpanCommand
+    let title: String
+    let id: String
+    let categoryTitle: String
+    let aliases: [String]
+}
+
 struct TerminalCommandPalette {
     let entries: [TerminalCommandPaletteEntry]
+    let commandSpanEntries: [TerminalCommandSpanPaletteEntry]
 
-    init(registry: TerminalCommandRegistry = .default) {
+    init(
+        registry: TerminalCommandRegistry = .default,
+        includesCommandSpanCommands: Bool = false
+    ) {
         self.entries = registry.windowCommands.map { command in
             TerminalCommandPaletteEntry(
                 command: command,
@@ -25,6 +37,17 @@ struct TerminalCommandPalette {
                 aliases: command.searchTokens
             )
         }
+        self.commandSpanEntries = includesCommandSpanCommands
+            ? registry.commandSpanCommands.map { command in
+                TerminalCommandSpanPaletteEntry(
+                    command: command,
+                    title: command.title,
+                    id: command.id.rawValue,
+                    categoryTitle: command.category.paletteTitle,
+                    aliases: command.searchTokens
+                )
+            }
+            : []
     }
 
     func results(
@@ -56,10 +79,40 @@ struct TerminalCommandPalette {
             }
             .map(\.entry)
     }
+
+    func commandSpanResults(for query: String) -> [TerminalCommandSpanPaletteEntry] {
+        let normalizedQuery = query.paletteSearchText
+
+        guard !normalizedQuery.isEmpty else {
+            return commandSpanEntries
+        }
+
+        return commandSpanEntries
+            .enumerated()
+            .compactMap { index, entry -> RankedCommandSpanPaletteEntry? in
+                guard let rank = entry.matchRank(for: normalizedQuery) else {
+                    return nil
+                }
+                return RankedCommandSpanPaletteEntry(entry: entry, rank: rank, index: index)
+            }
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank {
+                    return lhs.rank < rhs.rank
+                }
+                return lhs.index < rhs.index
+            }
+            .map(\.entry)
+    }
 }
 
 private struct RankedCommandPaletteEntry {
     let entry: TerminalCommandPaletteEntry
+    let rank: Int
+    let index: Int
+}
+
+private struct RankedCommandSpanPaletteEntry {
+    let entry: TerminalCommandSpanPaletteEntry
     let rank: Int
     let index: Int
 }
@@ -103,6 +156,41 @@ private extension TerminalCommandPaletteEntry {
     }
 }
 
+private extension TerminalCommandSpanPaletteEntry {
+    func matchRank(for query: String) -> Int? {
+        let normalizedTitle = title.paletteSearchText
+        let normalizedID = id.paletteSearchText
+        let normalizedCategory = categoryTitle.paletteSearchText
+        let normalizedAliases = aliases.map(\.paletteSearchText)
+
+        if normalizedTitle == query {
+            return 0
+        }
+        if normalizedTitle.hasPrefix(query) {
+            return 1
+        }
+        if normalizedTitle.contains(query) {
+            return 2
+        }
+        if normalizedID.hasPrefix(query) {
+            return 3
+        }
+        if normalizedID.contains(query) {
+            return 4
+        }
+        if normalizedCategory.hasPrefix(query) || normalizedCategory.contains(query) {
+            return 5
+        }
+        if normalizedAliases.contains(where: { $0.hasPrefix(query) || $0.contains(query) }) {
+            return 7
+        }
+        if normalizedTitle.paletteContainsTokens(in: query) || normalizedTitle.paletteContainsSubsequence(query) {
+            return 8
+        }
+        return nil
+    }
+}
+
 private extension TerminalCommandCategory {
     var paletteTitle: String {
         switch self {
@@ -112,6 +200,15 @@ private extension TerminalCommandCategory {
             return "Panes"
         case .navigation:
             return "Navigation"
+        }
+    }
+}
+
+private extension TerminalCommandSpanCategory {
+    var paletteTitle: String {
+        switch self {
+        case .commandSpans:
+            return "Command Spans"
         }
     }
 }
