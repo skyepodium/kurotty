@@ -104,6 +104,52 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try arrowEvent(keyCode: 126, modifiers: [.command, .numericPad]))?.action, .focusPane(.up))
     }
 
+    func testCommandSpanLookupUsesRegistryCommandMapping() {
+        let registry = TerminalCommandRegistry.default
+
+        XCTAssertEqual(registry.commandSpanCommand(for: .foldOutput)?.title, "Fold Command Output")
+        XCTAssertEqual(registry.commandSpanCommand(for: .searchOutput)?.action, .searchOutput)
+        XCTAssertEqual(registry.commandSpanCommand(for: .copyReference)?.approvalPolicy, .some(.none))
+        XCTAssertEqual(registry.commandSpanCommand(for: .replay)?.approvalPolicy, .explicitUserConfirmation)
+    }
+
+    func testCommandSpanDispatcherRequiresReplayConfirmationMetadataBeforeHandler() {
+        let replay = TerminalCommandRegistry.default.commandSpanCommand(for: .replay)!
+        let candidate = TerminalCommandReplayCandidate(
+            spanID: 9,
+            reference: TerminalCommandSpanReference(
+                spanID: 9,
+                startBoundarySequence: 20,
+                endBoundarySequence: 24
+            ),
+            commandText: "swift test",
+            cwd: "/repo",
+            exitCode: 0,
+            requiresExplicitUserConfirmation: true
+        )
+        var replayedCommands: [String] = []
+        let handlers = TerminalCommandSpanDispatchHandlers(
+            replay: { candidate, approval in
+                replayedCommands.append("\(candidate.commandText):\(approval.isExplicitlyConfirmed)")
+            }
+        )
+
+        let blocked = TerminalCommandDispatcher.execute(
+            replay,
+            context: .replay(candidate, approval: .init(isExplicitlyConfirmed: false)),
+            handlers: handlers
+        )
+        let dispatched = TerminalCommandDispatcher.execute(
+            replay,
+            context: .replay(candidate, approval: .init(isExplicitlyConfirmed: true)),
+            handlers: handlers
+        )
+
+        XCTAssertEqual(blocked, .requiresApproval)
+        XCTAssertEqual(dispatched, .dispatched)
+        XCTAssertEqual(replayedCommands, ["swift test:true"])
+    }
+
     private func keyEvent(
         _ characters: String,
         modifiers: NSEvent.ModifierFlags,

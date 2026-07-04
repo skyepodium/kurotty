@@ -174,6 +174,12 @@ struct TerminalCommandRegistry {
         }
     }
 
+    func commandSpanCommand(for id: TerminalCommandSpanCommandID) -> TerminalCommandSpanCommand? {
+        commandSpanCommands.first { command in
+            command.id == id
+        }
+    }
+
     private static let arrowShortcutExtras: NSEvent.ModifierFlags = [.option, .numericPad, .function]
 
     private static let defaultWindowCommands: [TerminalCommand] = [

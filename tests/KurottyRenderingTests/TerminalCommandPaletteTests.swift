@@ -93,6 +93,23 @@ final class TerminalCommandPaletteTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count)
     }
 
+    func testCommandSpanCommandsCanBeSearchedFromRegistryBackedPalette() {
+        let palette = TerminalCommandPalette(includesCommandSpanCommands: true)
+
+        XCTAssertEqual(
+            palette.commandSpanResults(for: "rerun command").first?.command.id,
+            .replay
+        )
+        XCTAssertEqual(
+            palette.commandSpanResults(for: "copy span reference").first?.command.id,
+            .copyReference
+        )
+        XCTAssertEqual(
+            palette.commandSpanResults(for: "").map(\.command.id),
+            TerminalCommandRegistry.default.commandSpanCommands.map(\.id)
+        )
+    }
+
     private static func command(
         id: TerminalWindowCommandID,
         title: String,
