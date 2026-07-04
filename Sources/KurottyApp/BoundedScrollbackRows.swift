@@ -41,6 +41,42 @@ struct BoundedScrollbackRows {
         case saturated
     }
 
+    struct LiveReadWindowDescriptor: Equatable, CustomStringConvertible {
+        let accessSummary: SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessSummary
+        let firstAvailableVisibleRowIndex: Int?
+        let availableVisibleRowCount: Int
+        let boundedMaterializedVisibleRowCount: Int
+
+        var purpose: SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessPurpose {
+            accessSummary.purpose
+        }
+
+        var availability: SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessAvailability {
+            accessSummary.availability
+        }
+
+        var canServeSynchronously: Bool {
+            accessSummary.canServeSynchronously
+        }
+
+        var requiresUserVisibleWarning: Bool {
+            accessSummary.requiresUserVisibleWarning
+        }
+
+        var description: String {
+            [
+                "purpose=\(purpose)",
+                "availability=\(availability)",
+                "firstAvailableVisibleRow=\(firstAvailableVisibleRowIndex.map(String.init) ?? "none")",
+                "availableVisibleRows=\(availableVisibleRowCount)",
+                "boundedMaterializedVisibleRows=\(boundedMaterializedVisibleRowCount)",
+                "canServeSynchronously=\(canServeSynchronously)",
+                "requiresUserVisibleWarning=\(requiresUserVisibleWarning)",
+                "access=\(accessSummary)",
+            ].joined(separator: " ")
+        }
+    }
+
     private static let segmentSize = 1_024
 
     private var storage = Self.makeStorage(rowLimit: 0)
@@ -118,6 +154,32 @@ struct BoundedScrollbackRows {
             rowCount: rowCount,
             materializationLimit: materializationLimit,
             retainedRowSummary: retainedRowSummary
+        )
+    }
+
+    func liveReadWindowDescriptor(
+        purpose: SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessPurpose,
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int
+    ) -> LiveReadWindowDescriptor {
+        let accessSummary = SegmentedScrollbackStore<[TerminalScreenCell]>.liveAccessSummary(
+            purpose: purpose,
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+        let exportWindow = accessSummary.exportWindow
+        let firstAvailableVisibleRowIndex = exportWindow.firstAvailableAbsoluteRowIndex.flatMap {
+            visibleRowIndex(forAbsoluteRowIndex: $0)
+        }
+
+        return LiveReadWindowDescriptor(
+            accessSummary: accessSummary,
+            firstAvailableVisibleRowIndex: firstAvailableVisibleRowIndex,
+            availableVisibleRowCount: exportWindow.availableRowCount,
+            boundedMaterializedVisibleRowCount: exportWindow.boundedMaterializedRowCount
         )
     }
 

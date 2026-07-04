@@ -29,4 +29,19 @@ enum TerminalCoreFactory {
         }
         return diagnosticCore.mutationSourceDiagnostic
     }
+
+    static func runtimeBoundaryDiagnostic(for core: any TerminalCore) -> TerminalCoreRuntimeBoundaryDiagnostic {
+        guard let diagnosticCore = core as? TerminalCoreRuntimeBoundaryDiagnosing else {
+            return TerminalCoreRuntimeBoundaryDiagnostic(
+                feedBridgeParticipant: .unknown,
+                parserMutationOwner: .unknown,
+                screenMutationOwner: .unknown,
+                renderMutationOwner: .unknown,
+                mutationHandoffReady: false,
+                dualWriteRisk: .unknown,
+                reason: "diagnostic-unavailable"
+            )
+        }
+        return diagnosticCore.runtimeBoundaryDiagnostic
+    }
 }

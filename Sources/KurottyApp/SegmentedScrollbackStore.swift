@@ -319,15 +319,12 @@ struct SegmentedScrollbackStore<Row> {
         rowCount: Int,
         materializationLimit: Int
     ) -> LiveAccessSummary {
-        let exportWindow = exportWindowSummary(
+        Self.liveAccessSummary(
+            purpose: purpose,
             absoluteStartIndex: absoluteStartIndex,
             rowCount: rowCount,
-            materializationLimit: materializationLimit
-        )
-        return LiveAccessSummary(
-            purpose: purpose,
-            exportWindow: exportWindow,
-            availability: Self.liveAccessAvailability(for: exportWindow)
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
         )
     }
 
@@ -388,6 +385,26 @@ struct SegmentedScrollbackStore<Row> {
             skippedDroppedRowCount: skippedDroppedRowCount,
             skippedFutureRowCount: skippedFutureRowCount,
             retainedRowSummary: retainedRowSummary
+        )
+    }
+
+    static func liveAccessSummary(
+        purpose: LiveAccessPurpose,
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int,
+        retainedRowSummary: RetainedRowSummary
+    ) -> LiveAccessSummary {
+        let exportWindow = exportWindowSummary(
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+        return LiveAccessSummary(
+            purpose: purpose,
+            exportWindow: exportWindow,
+            availability: liveAccessAvailability(for: exportWindow)
         )
     }
 

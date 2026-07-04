@@ -228,6 +228,32 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertFalse(String(describing: searchSummary).contains("tail"))
     }
 
+    func testStaticLiveAccessSummaryUsesProvidedRetainedCoordinates() {
+        let retainedSummary = SegmentedScrollbackStore<String>.RetainedRowSummary(
+            firstRetainedRowIndex: 40,
+            retainedRowCount: 5,
+            droppedRowCount: 40
+        )
+
+        let summary = SegmentedScrollbackStore<String>.liveAccessSummary(
+            purpose: .search,
+            absoluteStartIndex: 38,
+            rowCount: 10,
+            materializationLimit: 3,
+            retainedRowSummary: retainedSummary
+        )
+
+        XCTAssertEqual(summary.purpose, .search)
+        XCTAssertEqual(summary.availability, .partiallyDroppedAndFuture)
+        XCTAssertEqual(summary.exportWindow.firstAvailableAbsoluteRowIndex, 40)
+        XCTAssertEqual(summary.exportWindow.availableRowCount, 5)
+        XCTAssertEqual(summary.exportWindow.boundedMaterializedRowCount, 3)
+        XCTAssertEqual(summary.exportWindow.skippedDroppedRowCount, 2)
+        XCTAssertEqual(summary.exportWindow.skippedFutureRowCount, 3)
+        XCTAssertFalse(summary.canServeSynchronously)
+        XCTAssertFalse(String(describing: summary).contains("secret"))
+    }
+
     func testPersistenceSnapshotIsCodableMetadataOnly() throws {
         var store = SegmentedScrollbackStore<String>(rowLimit: 5, segmentSize: 3)
 

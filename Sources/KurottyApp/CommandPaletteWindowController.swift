@@ -1,19 +1,65 @@
 import AppKit
 
+struct CommandPalettePresentedEntry: Equatable {
+    enum Kind: Equatable {
+        case window(TerminalCommandPaletteEntry)
+        case commandSpan(TerminalCommandSpanPaletteEntry)
+    }
+
+    let kind: Kind
+
+    var title: String {
+        switch kind {
+        case let .window(entry):
+            return entry.title
+        case let .commandSpan(entry):
+            return entry.title
+        }
+    }
+
+    var detail: String? {
+        switch kind {
+        case let .window(entry):
+            return entry.shortcutLabel
+        case let .commandSpan(entry):
+            return entry.requiresExplicitApproval
+                ? "\(entry.categoryTitle) - Requires confirmation"
+                : entry.categoryTitle
+        }
+    }
+
+    var windowCommand: TerminalCommand? {
+        guard case let .window(entry) = kind else {
+            return nil
+        }
+        return entry.command
+    }
+
+    var commandSpanCommand: TerminalCommandSpanCommand? {
+        guard case let .commandSpan(entry) = kind else {
+            return nil
+        }
+        return entry.command
+    }
+}
+
 struct CommandPalettePresenter {
     private let palette: TerminalCommandPalette
     private(set) var query: String
-    private(set) var visibleEntries: [TerminalCommandPaletteEntry]
+    private(set) var visibleEntries: [CommandPalettePresentedEntry]
     private(set) var selectedIndex: Int?
 
-    init(palette: TerminalCommandPalette = TerminalCommandPalette(), query: String = "") {
+    init(
+        palette: TerminalCommandPalette = TerminalCommandPalette(includesCommandSpanCommands: true),
+        query: String = ""
+    ) {
         self.palette = palette
         self.query = query
-        self.visibleEntries = palette.results(for: query)
+        self.visibleEntries = Self.presentedEntries(in: palette, matching: query)
         self.selectedIndex = visibleEntries.isEmpty ? nil : 0
     }
 
-    var selectedEntry: TerminalCommandPaletteEntry? {
+    var selectedEntry: CommandPalettePresentedEntry? {
         guard let selectedIndex,
               visibleEntries.indices.contains(selectedIndex)
         else {
@@ -24,7 +70,7 @@ struct CommandPalettePresenter {
 
     mutating func updateQuery(_ query: String) {
         self.query = query
-        visibleEntries = palette.results(for: query)
+        visibleEntries = Self.presentedEntries(in: palette, matching: query)
         selectedIndex = visibleEntries.isEmpty ? nil : 0
     }
 
@@ -46,12 +92,28 @@ struct CommandPalettePresenter {
         selectedIndex = min(max(currentIndex + offset, 0), visibleEntries.count - 1)
     }
 
-    func executeSelected(_ execute: (TerminalCommand) -> Void) -> Bool {
+    func executeSelected(
+        windowCommandExecutor: (TerminalCommand) -> Void,
+        commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool
+    ) -> Bool {
         guard let selectedEntry else {
             return false
         }
-        execute(selectedEntry.command)
-        return true
+        switch selectedEntry.kind {
+        case let .window(entry):
+            windowCommandExecutor(entry.command)
+            return true
+        case let .commandSpan(entry):
+            return commandSpanExecutor(entry.command)
+        }
+    }
+
+    private static func presentedEntries(
+        in palette: TerminalCommandPalette,
+        matching query: String
+    ) -> [CommandPalettePresentedEntry] {
+        palette.results(for: query).map { .init(kind: .window($0)) }
+            + palette.commandSpanResults(for: query).map { .init(kind: .commandSpan($0)) }
     }
 }
 
@@ -61,14 +123,17 @@ final class CommandPaletteWindowController: NSWindowController {
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let commandExecutor: (TerminalCommand) -> Void
+    private let commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool
     private var presenter: CommandPalettePresenter
 
     init(
-        palette: TerminalCommandPalette = TerminalCommandPalette(),
-        commandExecutor: @escaping (TerminalCommand) -> Void
+        palette: TerminalCommandPalette = TerminalCommandPalette(includesCommandSpanCommands: true),
+        commandExecutor: @escaping (TerminalCommand) -> Void,
+        commandSpanExecutor: @escaping (TerminalCommandSpanCommand) -> Bool = { _ in false }
     ) {
         self.presenter = CommandPalettePresenter(palette: palette)
         self.commandExecutor = commandExecutor
+        self.commandSpanExecutor = commandSpanExecutor
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 360),
@@ -170,7 +235,10 @@ final class CommandPaletteWindowController: NSWindowController {
     }
 
     private func executeSelectedCommand() {
-        guard presenter.executeSelected(commandExecutor) else {
+        guard presenter.executeSelected(
+            windowCommandExecutor: commandExecutor,
+            commandSpanExecutor: commandSpanExecutor
+        ) else {
             return
         }
         close()
@@ -233,8 +301,8 @@ extension CommandPaletteWindowController: NSTableViewDataSource, NSTableViewDele
             }
 
             let entry = presenter.visibleEntries[row]
-            if let shortcutLabel = entry.shortcutLabel {
-                textField.stringValue = "\(entry.title)    \(shortcutLabel)"
+            if let detail = entry.detail {
+                textField.stringValue = "\(entry.title)    \(detail)"
             } else {
                 textField.stringValue = entry.title
             }

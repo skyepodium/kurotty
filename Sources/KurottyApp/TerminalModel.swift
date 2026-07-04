@@ -41,16 +41,17 @@ struct TerminalLinkRange: Equatable {
         self.row == row && column >= startColumn && column < endColumn
     }
 
-    static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
+    static func findAll(in cells: [TerminalScreenCell], row: Int) -> [TerminalLinkRange] {
         var text = ""
         var columnsByCharacterOffset: [Int] = []
         for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
             text.append(cell.character)
             columnsByCharacterOffset.append(cellColumn)
         }
-        guard !text.isEmpty else { return nil }
+        guard !text.isEmpty else { return [] }
 
         let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        var ranges: [TerminalLinkRange] = []
         for match in linkRegex.matches(in: text, range: searchRange) {
             guard let textRange = Range(match.range, in: text) else { continue }
             var urlString = String(text[textRange])
@@ -70,16 +71,20 @@ struct TerminalLinkRange: Equatable {
 
             let startColumn = columnsByCharacterOffset[startOffset]
             let endColumn = columnsByCharacterOffset[endOffset - 1] + 1
-            if column >= startColumn && column < endColumn {
-                return TerminalLinkRange(
-                    row: row,
-                    startColumn: startColumn,
-                    endColumn: endColumn,
-                    urlString: urlString
-                )
-            }
+            ranges.append(TerminalLinkRange(
+                row: row,
+                startColumn: startColumn,
+                endColumn: endColumn,
+                urlString: urlString
+            ))
         }
-        return nil
+        return ranges
+    }
+
+    static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
+        findAll(in: cells, row: row).first { link in
+            link.contains(row: row, column: column)
+        }
     }
 }
 
