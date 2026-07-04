@@ -441,13 +441,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return true
         }
 
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-              event.charactersIgnoringModifiers == "\t"
-        else {
-            return false
-        }
-        send("\t")
-        return true
+        return false
     }
 
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
@@ -821,60 +815,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func doCommand(by selector: Selector) {
-        switch selector {
-        case #selector(insertNewline(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\r")
-        case #selector(insertTab(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\t")
-        case #selector(cancelOperation(_:)):
+        if selector == #selector(cancelOperation(_:)) {
             resetMarkedTextForInputSourceChange()
-            send("\u{1b}")
-        case #selector(deleteBackward(_:)):
+        }
+        if let sequence = TerminalKeyEncoder.sequence(for: selector) {
             pendingMarkedTextAnchor = nil
-            send("\u{7f}")
-        case #selector(deleteForward(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[3~")
-        case #selector(moveToBeginningOfLine(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[H")
-        case #selector(moveToEndOfLine(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[F")
-        case #selector(moveUp(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[A")
-        case #selector(moveDown(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[B")
-        case #selector(moveLeft(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[D")
-        case #selector(moveRight(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[C")
-        case #selector(moveUpAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)
-        case #selector(moveDownAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)
-        case #selector(moveRightAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)
-        case #selector(moveLeftAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)
-        case #selector(scrollPageUp(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[5~")
-        case #selector(scrollPageDown(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[6~")
-        default:
-            break
+            send(sequence)
         }
     }
 

@@ -615,6 +615,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
         let frameSource = try terminalRenderFrameSource()
         let routerSource = try terminalTextInputRouterSource()
+        let encoderSource = try terminalKeyEncoderSource()
 
         XCTAssertTrue(frameSource.contains("let markedTextSelectedRange: TerminalTextSelectionRange"))
         XCTAssertTrue(source.contains("markedTextColor(for: character, utf16Offset: utf16Offset)"))
@@ -628,7 +629,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil"))
         XCTAssertTrue(surfaceSource.contains("recordOutputForBackgroundTask(text)\n        pendingMarkedTextAnchor = nil\n        markDirty(row: cursorRow)"))
-        XCTAssertTrue(surfaceSource.contains("case #selector(deleteBackward(_:)):\n            pendingMarkedTextAnchor = nil\n            send(\"\\u{7f}\")"))
+        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.deleteBackward(_:)):\n            return \"\\u{7f}\""))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
         XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)\n        unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
@@ -1745,9 +1747,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()
         let routerSource = try terminalTextInputRouterSource()
+        let encoderSource = try terminalKeyEncoderSource()
 
-        XCTAssertTrue(surfaceSource.contains("case #selector(cancelOperation(_:)):\n            resetMarkedTextForInputSourceChange()\n            send(\"\\u{1b}\")"))
-        XCTAssertTrue(inputSource.contains("case #selector(cancelOperation(_:)):\n            resetMarkedTextForInputSourceChange()\n            core.feed(\"\\u{1b}\")"))
+        XCTAssertTrue(surfaceSource.contains("if selector == #selector(cancelOperation(_:)) {\n            resetMarkedTextForInputSourceChange()\n        }"))
+        XCTAssertTrue(inputSource.contains("if selector == #selector(cancelOperation(_:)) {\n            resetMarkedTextForInputSourceChange()\n        }"))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.cancelOperation(_:)):\n            return \"\\u{1b}\""))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
         XCTAssertTrue(routerSource.contains("case 0x5b:\n            return \"\\u{1b}\""))
@@ -1757,19 +1761,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
         let inputSource = try terminalInputViewSource()
         let routerSource = try terminalTextInputRouterSource()
+        let encoderSource = try terminalKeyEncoderSource()
         let registrySource = try terminalCommandRegistrySource()
 
         XCTAssertTrue(routerSource.contains("static func latinKeyEquivalent(for event: NSEvent) -> String?"))
         XCTAssertTrue(routerSource.contains("static func commandShortcutControlText(for event: NSEvent) -> String?"))
-        XCTAssertTrue(routerSource.contains("32: \"u\""))
+        XCTAssertTrue(encoderSource.contains("32: \"u\""))
+        XCTAssertTrue(encoderSource.contains("31: \"o\""))
         XCTAssertTrue(registrySource.contains("TerminalTextInputRouter.latinKeyEquivalent(for: event)"))
 
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
-        XCTAssertTrue(surfaceSource.contains("case #selector(moveUpAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)"))
-        XCTAssertTrue(surfaceSource.contains("case #selector(moveDownAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)"))
-        XCTAssertTrue(surfaceSource.contains("case #selector(moveRightAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)"))
-        XCTAssertTrue(surfaceSource.contains("case #selector(moveLeftAndModifySelection(_:)):\n            pendingMarkedTextAnchor = nil\n            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
+        XCTAssertTrue(inputSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveUpAndModifySelection(_:)):\n            return \"\\u{1b}[1;2A\""))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveDownAndModifySelection(_:)):\n            return \"\\u{1b}[1;2B\""))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveRightAndModifySelection(_:)):\n            return \"\\u{1b}[1;2C\""))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveLeftAndModifySelection(_:)):\n            return \"\\u{1b}[1;2D\""))
         XCTAssertTrue(surfaceSource.contains("private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int)"))
         XCTAssertTrue(surfaceSource.contains("private var keyboardSelectionInputStart: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("recordKeyboardSelectionInputStartIfNeeded(for: text)"))
@@ -1777,10 +1785,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("let minimumColumn = nextRow == inputStart.row ? inputStart.column : 0"))
 
         for source in [surfaceSource, inputSource] {
-            XCTAssertTrue(source.contains("case #selector(moveUpAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("case #selector(moveDownAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("case #selector(moveRightAndModifySelection(_:))"))
-            XCTAssertTrue(source.contains("case #selector(moveLeftAndModifySelection(_:))"))
             XCTAssertFalse(source.contains("\\u{1b}[1;2A"))
             XCTAssertFalse(source.contains("\\u{1b}[1;2B"))
             XCTAssertFalse(source.contains("\\u{1b}[1;2C"))
@@ -2858,6 +2862,12 @@ private func terminalInputViewSource() throws -> String {
 private func terminalTextInputRouterSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalTextInputRouter.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalKeyEncoderSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalKeyEncoder.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

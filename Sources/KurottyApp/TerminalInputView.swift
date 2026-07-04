@@ -97,13 +97,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             return true
         }
 
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-              event.charactersIgnoringModifiers == "\t"
-        else {
-            return false
-        }
-        core.feed("\t")
-        return true
+        return false
     }
 
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
@@ -128,26 +122,11 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func doCommand(by selector: Selector) {
-        switch selector {
-        case #selector(insertNewline(_:)):
-            core.feed("\r")
-        case #selector(insertTab(_:)):
-            core.feed("\t")
-        case #selector(cancelOperation(_:)):
+        if selector == #selector(cancelOperation(_:)) {
             resetMarkedTextForInputSourceChange()
-            core.feed("\u{1b}")
-        case #selector(deleteBackward(_:)):
-            core.feed("\u{7f}")
-        case #selector(moveUpAndModifySelection(_:)):
-            break
-        case #selector(moveDownAndModifySelection(_:)):
-            break
-        case #selector(moveRightAndModifySelection(_:)):
-            break
-        case #selector(moveLeftAndModifySelection(_:)):
-            break
-        default:
-            break
+        }
+        if let sequence = TerminalKeyEncoder.sequence(for: selector) {
+            core.feed(sequence)
         }
     }
 
