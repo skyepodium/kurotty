@@ -353,6 +353,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             let item = NSMenuItem(title: title, action: selector(for: action), keyEquivalent: "")
             item.target = self
             item.isEnabled = entry.isEnabled
+            if let iconSymbolName = entry.iconSymbolName {
+                item.image = NSImage(systemSymbolName: iconSymbolName, accessibilityDescription: title)
+                item.image?.isTemplate = true
+            }
             menu.addItem(item)
         }
         return menu
