@@ -1515,6 +1515,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
         XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))
         XCTAssertTrue(windowSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
         XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
@@ -1829,6 +1831,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private let statusDotView = NSView()"))
         XCTAssertTrue(paneSource.contains("private let titleField = NSTextField(labelWithString: \"~ (-zsh)\")"))
         XCTAssertTrue(paneSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func updateTrackingAreas()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseEntered(with event: NSEvent)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseExited(with event: NSEvent)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(paneSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))
@@ -2863,6 +2870,12 @@ private func readmeSource() throws -> String {
 private func terminalPaneViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalPaneView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func chromeIconButtonSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/ChromeIconButton.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
