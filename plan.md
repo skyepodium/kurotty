@@ -62,7 +62,7 @@
 - [~] glyph shaping/fallback/font atlas contract의 full implementation: backend readiness contract와 CoreText 기반 fallback/atlas-key slice는 완료. Metal atlas production integration은 남음.
 - [~] segmented scrollback store와 대용량 stress/performance 기준: retained range/coordinate/stress/export-window/live-access, codable segment persistence metadata, live read-window descriptor 기준은 보강됨. 실제 disk-backed/off-main-thread store는 남음.
 - [~] shell integration opt-in script, command folding/replay/search UX: backend metadata, evidence 분리, command action vocabulary, install-free onboarding descriptor, palette presentation metadata, AppKit palette command-span rows는 완료. 실제 selected command-span runtime wiring은 남음.
-- [~] browser-like UI polish, non-developer onboarding, DESIGN.md 업데이트: install-free onboarding model과 HTML-like link hover/underline affordance는 추가됨. 실제 toolbar/search/copy mode 화면 polish는 남음.
+- [~] browser-like UI polish, non-developer onboarding, DESIGN.md 업데이트: install-free onboarding model, HTML-like link hover/underline affordance, tab/split chrome button hover affordance는 추가됨. 실제 toolbar/search/copy mode 화면 polish는 남음.
 - [~] AI agent UX layer: secret-safe backend action API, command span locator, context reference display rows, approval presentation model은 강화됨. 실제 AppKit approval/context UI rendering은 남음.
 
 ## 1. 바로 넣어야 할 것
@@ -515,6 +515,8 @@
 - [~] browser-like toolbar/search/copy mode/quick terminal UX를 다듬는다.
   - 완료: 설치 없는 shell integration onboarding step model 추가.
   - 완료: 터미널 URL 링크를 Cmd 없이도 항상 밑줄/hover/손가락 커서로 표시하고, 실제 열기는 기존 확인 흐름으로 유지.
+  - 완료: split pane `x`, tab `x`, tab `+` chrome button에 손가락 커서와 명확한 hover 배경을 적용.
+  - 완료: tab/button tracking area 경계에서 발생할 수 있는 hover 배경 깜빡임을 bounds 검사로 안정화.
   - 남음: 실제 toolbar/search/copy mode/quick terminal 화면 polish.
 - [~] `kurotty/DESIGN.md`에 native UI, 브랜드, non-developer onboarding 가이드를 업데이트한다.
   - 완료: native UI, command UX, AI action boundary, diagnostics 방향 일부 업데이트.
