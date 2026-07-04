@@ -25,6 +25,10 @@ private extension TerminalFramePoint {
     var cgY: CGFloat { CGFloat(y) }
 }
 
+private struct MainQueuePresentationCallback: @unchecked Sendable {
+    let run: () -> Void
+}
+
 private struct BackgroundRun {
     let column: Int
     let row: Int
@@ -500,14 +504,25 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
 
         encoder.endEncoding()
+        let presentedCompletionHandler = Self.makePresentedCompletionHandler(onPresented)
         commandBuffer.present(drawable)
-        commandBuffer.addCompletedHandler { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.onPresented?()
-            }
-        }
+        commandBuffer.addCompletedHandler(presentedCompletionHandler)
         commandBuffer.commit()
         renderFrameIndex &+= 1
+    }
+
+    nonisolated private static func makePresentedCompletionHandler(
+        _ onPresented: (() -> Void)?
+    ) -> MTLCommandBufferHandler {
+        let callback = onPresented.map { MainQueuePresentationCallback(run: $0) }
+        return { _ in
+            guard let callback else {
+                return
+            }
+            DispatchQueue.main.async {
+                callback.run()
+            }
+        }
     }
 
     var isAtlasPathReadyForRendering: Bool {
