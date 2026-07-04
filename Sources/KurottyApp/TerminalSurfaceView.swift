@@ -282,6 +282,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        window?.makeFirstResponder(self)
+        return makeTerminalContextMenu()
+    }
+
     func rendererFramePresented() {
         core.recordFramePresented()
     }
@@ -304,12 +309,77 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    @objc private func copySelectionFromContextMenu(_ sender: Any?) {
+        guard let text = selectedText() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func splitRightFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.right)
+    }
+
+    @objc private func splitLeftFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.left)
+    }
+
+    @objc private func splitDownFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.down)
+    }
+
+    @objc private func splitUpFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.up)
+    }
+
     @objc func cut(_ sender: Any?) {
         copy(sender)
     }
 
     func sendText(_ text: String) {
         send(text)
+    }
+
+    private func makeTerminalContextMenu() -> NSMenu {
+        let state = TerminalContextMenuState(
+            hasSelection: normalizedSelectionRange() != nil,
+            hasPasteboardText: !(NSPasteboard.general.string(forType: .string)?.isEmpty ?? true)
+        )
+        let menu = NSMenu()
+        for entry in TerminalContextMenuBuilder.entries(for: state) {
+            guard let title = entry.title, let action = entry.action else {
+                menu.addItem(.separator())
+                continue
+            }
+            let item = NSMenuItem(title: title, action: selector(for: action), keyEquivalent: "")
+            item.target = self
+            item.isEnabled = entry.isEnabled
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func selector(for action: TerminalContextMenuAction) -> Selector {
+        switch action {
+        case .copySelection:
+            return #selector(copySelectionFromContextMenu(_:))
+        case .paste:
+            return #selector(paste(_:))
+        case .split(.right):
+            return #selector(splitRightFromContextMenu(_:))
+        case .split(.left):
+            return #selector(splitLeftFromContextMenu(_:))
+        case .split(.down):
+            return #selector(splitDownFromContextMenu(_:))
+        case .split(.up):
+            return #selector(splitUpFromContextMenu(_:))
+        }
+    }
+
+    private func splitFromContextMenu(_ direction: TerminalPaneSplitDirection) {
+        guard let controller = window?.windowController as? TerminalWindowController else {
+            return
+        }
+        controller.split(direction: direction)
     }
 
     private func handleCommandKey(_ event: NSEvent) -> Bool {

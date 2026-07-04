@@ -83,11 +83,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func splitVertically() {
-        currentSplitView()?.split(axis: .vertical)
+        split(direction: .right)
     }
 
     func splitHorizontally() {
-        currentSplitView()?.split(axis: .horizontal)
+        split(direction: .down)
+    }
+
+    func split(direction: TerminalPaneSplitDirection) {
+        currentSplitView()?.split(direction: direction)
     }
 
     func focusPane(_ direction: TerminalPaneFocusDirection) {
@@ -518,6 +522,11 @@ private final class TerminalTabItemView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if closeButton.frame.contains(location) {
+            onClose()
+            return
+        }
         onSelect()
     }
 
