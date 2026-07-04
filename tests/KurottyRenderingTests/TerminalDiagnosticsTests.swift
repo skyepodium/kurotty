@@ -243,6 +243,36 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testCodexNotificationContentUsesOnlyLatestAssistantAnswerBlock() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "hello",
+            outputText: """
+            \u{1b}[38;2;200;169;238;49mAsk for approval
+
+            • I'll load the required startup skill first, then I'll answer normally.
+
+            • Explored
+              └ Read SKILL.md (superpowers:using-superpowers skill)
+
+            ────────────────────────────────────────
+
+            • Hello. What are we working on?\u{1b}[38;2;200;169;238;49mWorki55
+
+            gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval · Context 99% left
+            """
+        )
+
+        XCTAssertEqual(content.title, "Codex task finished")
+        XCTAssertEqual(content.subtitle, "hello")
+        XCTAssertEqual(content.body, "Hello. What are we working on?")
+        XCTAssertFalse(content.body.contains("38;2"))
+        XCTAssertFalse(content.body.contains("Ask for approval"))
+        XCTAssertFalse(content.body.contains("Explored"))
+        XCTAssertFalse(content.body.contains("SKILL.md"))
+        XCTAssertFalse(content.body.contains("Worki55"))
+        XCTAssertFalse(content.body.contains("gpt-5.5"))
+    }
+
     func testCodexNotificationContentDetectsFailureAndInputRequired() {
         let failed = TerminalBackgroundTaskNotificationContent.make(
             submittedCommand: "codex",
