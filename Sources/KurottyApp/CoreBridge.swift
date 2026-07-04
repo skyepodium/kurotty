@@ -28,6 +28,7 @@ private enum CoreLibraryPath {
 final class CoreBridge: TerminalCore,
     TerminalCoreCompatibilityDiagnosing,
     TerminalCoreMutationSourceDiagnosing,
+    TerminalCoreRuntimeBoundaryDiagnosing,
     @unchecked Sendable {
     private let symbols: CoreSymbols?
     private var handle: TerminalHandle?
@@ -65,6 +66,19 @@ final class CoreBridge: TerminalCore,
             frameMutationOwner: .swiftScaffold,
             zigBridgeActive: handle != nil,
             reason: handle == nil ? "zig-core-unavailable" : "swift-runtime-mutation-with-zig-feed-active"
+        )
+    }
+
+    var runtimeBoundaryDiagnostic: TerminalCoreRuntimeBoundaryDiagnostic {
+        let isZigFeedBridgeActive = handle != nil
+        return TerminalCoreRuntimeBoundaryDiagnostic(
+            feedBridgeParticipant: isZigFeedBridgeActive ? .zigCore : .swiftScaffold,
+            parserMutationOwner: .swiftScaffold,
+            screenMutationOwner: .swiftScaffold,
+            renderMutationOwner: .swiftScaffold,
+            mutationHandoffReady: false,
+            dualWriteRisk: isZigFeedBridgeActive ? .feedBridgeOnly : .none,
+            reason: isZigFeedBridgeActive ? "zig-feed-bridge-active-swift-mutation-owner" : "zig-core-unavailable"
         )
     }
 

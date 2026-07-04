@@ -854,12 +854,19 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("let coalescingFallbackReason: CoalescingFallbackReason"))
         XCTAssertTrue(metalSource.contains("let stablePixelBounds: [TerminalFramePixelRect]"))
         XCTAssertTrue(metalSource.contains("let stablePixelBoundCount: Int"))
+        XCTAssertTrue(metalSource.contains("struct TerminalRenderScissorRect"))
+        XCTAssertTrue(metalSource.contains("let scissorReadiness: ScissorReadiness"))
+        XCTAssertTrue(metalSource.contains("let scissorRects: [TerminalRenderScissorRect]"))
+        XCTAssertTrue(metalSource.contains("var scissorPlanIsReady: Bool"))
         XCTAssertTrue(metalSource.contains("var damageDiagnostics: TerminalRenderDamageDiagnostics"))
         XCTAssertTrue(metalSource.contains("var lastSubmittedDisplayRectsForDiagnostics: [CGRect]"))
         XCTAssertTrue(metalSource.contains("var lastFrameScissorWasDisabledForDiagnostics: Bool"))
         XCTAssertTrue(metalSource.contains("var lastFrameCanCoalesceAtDisplayCadenceForDiagnostics: Bool"))
         XCTAssertTrue(metalSource.contains("var lastFrameCoalescingFallbackReasonForDiagnostics: String"))
         XCTAssertTrue(metalSource.contains("var lastFrameStablePixelBoundCountForDiagnostics: Int"))
+        XCTAssertTrue(metalSource.contains("var lastFrameScissorReadinessForDiagnostics: String"))
+        XCTAssertTrue(metalSource.contains("var lastFrameScissorPlanIsReadyForDiagnostics: Bool"))
+        XCTAssertTrue(metalSource.contains("var lastFrameScissorRectsForDiagnostics: [TerminalRenderScissorRect]"))
         XCTAssertTrue(updateSource.contains("TerminalRenderDamageDiagnostics.make("))
         XCTAssertTrue(updateSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
         XCTAssertTrue(updateSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)"))
@@ -869,6 +876,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(logSource.contains("coalescingFallbackReason=%@"))
         XCTAssertTrue(logSource.contains("submittedDisplayRects=%@"))
         XCTAssertTrue(logSource.contains("stablePixelBoundCount=%d"))
+        XCTAssertTrue(logSource.contains("scissorReadiness=%@"))
+        XCTAssertTrue(logSource.contains("scissorPlanReady=%@"))
+        XCTAssertTrue(logSource.contains("scissorRects=%@"))
         XCTAssertTrue(logSource.contains("damageDiagnostics.dirtyRectCount"))
         XCTAssertTrue(logSource.contains("damageDiagnostics.scissorDisabled ? \"yes\" : \"no\""))
     }
@@ -1505,9 +1515,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
         XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))
         XCTAssertTrue(windowSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(windowSource.contains("addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
+        XCTAssertTrue(windowSource.contains("closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
         XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
+        XCTAssertTrue(windowSource.contains("let location = convert(event.locationInWindow, from: nil)"))
+        XCTAssertTrue(windowSource.contains("guard !bounds.contains(location) else { return }"))
         XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX"))
         XCTAssertTrue(windowSource.contains("chromeTheme.activeIndicator.cgColor"))
@@ -1819,6 +1835,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private let statusDotView = NSView()"))
         XCTAssertTrue(paneSource.contains("private let titleField = NSTextField(labelWithString: \"~ (-zsh)\")"))
         XCTAssertTrue(paneSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func updateTrackingAreas()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseEntered(with event: NSEvent)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseExited(with event: NSEvent)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("let location = convert(event.locationInWindow, from: nil)"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("guard !bounds.contains(location) else { return }"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(paneSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))
@@ -1910,15 +1933,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("paneDropTargetBorderWidthPX"))
     }
 
-    func testTerminalLinksActivateOnlyOnCommandHoverAndOpenWithConfirmation() throws {
+    func testTerminalLinksShowHtmlStyleHoverAffordanceAndOpenWithConfirmation() throws {
         let surfaceSource = try terminalSurfaceViewSource()
         let modelSource = try terminalModelSource()
 
         XCTAssertTrue(modelSource.contains("struct TerminalLinkRange: Equatable"))
+        XCTAssertTrue(modelSource.contains("static func findAll(in cells: [TerminalScreenCell], row: Int) -> [TerminalLinkRange]"))
         XCTAssertTrue(surfaceSource.contains("override func mouseMoved(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains("override func flagsChanged(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
-        XCTAssertTrue(surfaceSource.contains("event.modifierFlags.contains(.command)"))
+        XCTAssertFalse(surfaceSource.contains("guard event.modifierFlags.contains(.command) else"))
+        XCTAssertTrue(surfaceSource.contains("TerminalLinkRange.findAll(in: sourceRow, row: row)"))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
         XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for link: TerminalLinkRange)"))
@@ -2851,6 +2876,12 @@ private func readmeSource() throws -> String {
 private func terminalPaneViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalPaneView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func chromeIconButtonSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/ChromeIconButton.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

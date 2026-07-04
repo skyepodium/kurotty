@@ -190,7 +190,42 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("shell.onRuntimeEvent = { [weak self] event in"))
         XCTAssertTrue(surfaceSource.contains("self?.recordRuntimeEvent(event)"))
         XCTAssertTrue(surfaceSource.contains("private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent)"))
+        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.append(event)"))
+        XCTAssertTrue(surfaceSource.contains("beginOutputRuntimeEventBatch(byteCount: text.utf8.count)"))
+        XCTAssertTrue(surfaceSource.contains("let traceID = nextOutputFlushTraceID()"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordPtyRead(byteCount: ptyByteCount)"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordParserEvent(.printable(byteCount: byteCount))"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordRenderFrame(.init("))
+        XCTAssertTrue(surfaceSource.contains("dirtyRegionCount: damage.rects.count"))
+        XCTAssertTrue(surfaceSource.contains("batch.commit(to: &runtimeEventLedger)"))
+        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.reduce(0)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalEventTraceID(\"output-flush-\\(outputFlushTraceSequence)\")"))
+        XCTAssertFalse(surfaceSource.contains("pendingRuntimeOutputTraceIDs.removeAll"))
         XCTAssertFalse(surfaceSource.contains("runtimeEventLedger.recordPtyRead(traceID: event.traceID, data:"))
+        XCTAssertFalse(surfaceSource.contains("recordParserEvent(traceID: traceID, event: .printable(data:"))
+    }
+
+    func testRuntimeOutputFlushUsesSyntheticTraceWithoutCompletingIndividualPtyReads() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let firstRead = TerminalEventTraceID("pty-read-1")
+        let secondRead = TerminalEventTraceID("pty-read-2")
+        let flush = TerminalEventTraceID("output-flush-0")
+
+        ledger.recordPtyRead(traceID: firstRead, byteCount: 4)
+        ledger.recordPtyRead(traceID: secondRead, byteCount: 6)
+        var batch = TerminalRuntimeEventBatch(traceID: flush)
+        batch.recordPtyRead(byteCount: 10)
+        batch.recordParserEvent(.printable(byteCount: 10))
+        batch.recordRenderFrame(.init(frameIndex: 3, dirtyRegionCount: 1, fullRedraw: false))
+        batch.commit(to: &ledger)
+
+        XCTAssertEqual(ledger.events(for: firstRead).map(\.kind), [.ptyRead])
+        XCTAssertEqual(ledger.events(for: secondRead).map(\.kind), [.ptyRead])
+        XCTAssertFalse(ledger.traceCorrelationReport(for: firstRead).hasCompleteRenderPath)
+        XCTAssertFalse(ledger.traceCorrelationReport(for: secondRead).hasCompleteRenderPath)
+        XCTAssertEqual(ledger.traceCorrelationReport(for: flush).stageSequence, [.ptyRead, .parserEvent, .renderFrame])
+        XCTAssertEqual(ledger.summary(for: flush).ptyReadByteCount, 10)
+        XCTAssertEqual(ledger.summary(for: flush).parserEventByteCount, 10)
     }
 
     func testRuntimeBatchCorrelatesLiveBoundaryMetadataUnderStableTraceID() {

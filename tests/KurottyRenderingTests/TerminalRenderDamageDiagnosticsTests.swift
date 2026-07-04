@@ -20,6 +20,10 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 0, width: 80, height: 40)])
         XCTAssertEqual(diagnostics.stablePixelBounds, [])
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "full-redraw-fallback")
+        XCTAssertFalse(diagnostics.scissorPlanIsReady)
+        XCTAssertEqual(diagnostics.scissorRectCount, 0)
+        XCTAssertEqual(diagnostics.scissorRects, [])
     }
 
     func testPartialDamageCanBeMarkedAsDisplayCadenceCoalescingCandidateWhenPixelBoundsAreStable() {
@@ -38,6 +42,10 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 20, width: 40, height: 20)])
         XCTAssertEqual(diagnostics.stablePixelBounds, [TerminalFramePixelRect(x: 0, y: 40, width: 80, height: 40)])
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "ready")
+        XCTAssertTrue(diagnostics.scissorPlanIsReady)
+        XCTAssertEqual(diagnostics.scissorRectCount, 1)
+        XCTAssertEqual(diagnostics.scissorRects, [TerminalRenderScissorRect(x: 0, y: 40, width: 80, height: 40)])
     }
 
     func testDisplayCadenceCandidateCoalescesTouchingDirtyRectsBeforeScheduling() {
@@ -62,6 +70,11 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.coalescedDisplayRectCount, 1)
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 20, width: 40, height: 20)])
         XCTAssertTrue(diagnostics.canCoalesceAtDisplayCadence)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "ready")
+        XCTAssertEqual(diagnostics.scissorRects, [
+            TerminalRenderScissorRect(x: 0, y: 40, width: 40, height: 40),
+            TerminalRenderScissorRect(x: 40, y: 40, width: 40, height: 40),
+        ])
     }
 
     func testPartialDamageFallsBackToImmediatePolicyWhenPixelBoundsAreUnstable() {
@@ -82,6 +95,9 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
         XCTAssertEqual(diagnostics.stablePixelBounds, [])
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "unstable-pixel-bounds")
+        XCTAssertFalse(diagnostics.scissorPlanIsReady)
+        XCTAssertEqual(diagnostics.scissorRects, [])
     }
 
     func testPartialDamageReportsScissorDisabledAsCoalescingFallbackReason() {
@@ -99,6 +115,9 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertFalse(diagnostics.canCoalesceAtDisplayCadence)
         XCTAssertEqual(diagnostics.stablePixelBounds, [TerminalFramePixelRect(x: 0, y: 40, width: 80, height: 40)])
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "scissor-disabled")
+        XCTAssertFalse(diagnostics.scissorPlanIsReady)
+        XCTAssertEqual(diagnostics.scissorRects, [])
     }
 
     func testDiagnosticFullRedrawReportsForcedFallbackWithoutEnablingPartialRepaint() {
@@ -117,6 +136,26 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 0, width: 80, height: 40)])
         XCTAssertEqual(diagnostics.stablePixelBounds, [])
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 0)
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "full-redraw-fallback")
+        XCTAssertFalse(diagnostics.scissorPlanIsReady)
+        XCTAssertEqual(diagnostics.scissorRects, [])
+    }
+
+    func testScissorPlanClipsStablePixelBoundsToDrawablePixels() {
+        let diagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(
+                dirtyRects: [TerminalFrameRect(x: 30, y: 10, width: 20, height: 20)],
+                isFullDamage: false
+            ),
+            bounds: CGRect(x: 0, y: 0, width: 40, height: 20),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: false
+        )
+
+        XCTAssertEqual(diagnostics.scissorReadiness.description, "ready")
+        XCTAssertEqual(diagnostics.scissorRects, [TerminalRenderScissorRect(x: 60, y: 20, width: 20, height: 20)])
+        XCTAssertEqual(diagnostics.scissorRectCount, 1)
     }
 
     private func makeFrame(
