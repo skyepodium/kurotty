@@ -173,6 +173,28 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.sessionEvidence, TerminalShellIntegrationSessionEvidence())
     }
 
+    func testCapabilityDescriptorExposesInstallFreeOnboardingSteps() {
+        let descriptor = TerminalShellIntegration().capabilityDescriptor
+
+        XCTAssertEqual(
+            descriptor.onboardingSteps,
+            [
+                TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+                    title: "Works without setup",
+                    detail: "Kurotty passively detects OSC 7 working-directory updates and OSC 133 command boundaries when your shell already emits them.",
+                    commandID: nil,
+                    requiresInstaller: false
+                ),
+                TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+                    title: "Enable richer command UX",
+                    detail: "Copy an opt-in shell snippet for fold, replay, search, and command-reference actions without installing a helper.",
+                    commandID: .showShellIntegrationSnippets,
+                    requiresInstaller: false
+                ),
+            ]
+        )
+    }
+
     func testSessionEvidenceRecordsObservedOptInSignalsSeparatelyFromDescriptors() {
         var integration = TerminalShellIntegration()
 

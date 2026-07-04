@@ -6,6 +6,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
     static let titleNotificationKey = "title"
+    private static let runtimeEventLedgerCapacity = 4_096
 
     private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore(
         cols: UInt32(AppConstants.Terminal.defaultColumns),
@@ -70,6 +71,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var backgroundTaskOutputText = ""
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
+    private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
@@ -119,6 +121,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 self?.enqueueOutput(text)
             }
         }
+        shell.onRuntimeEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.recordRuntimeEvent(event)
+            }
+        }
         if DebugOptions.ptyLog {
             shell.onRawOutput = { data in
                 let metadata = TerminalRawPtyLogMetadata(data: data)
@@ -140,6 +147,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         observeInputSourceChanges()
         shell.start(workingDirectory: settings.shell.workingDirectory)
+    }
+
+    private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent) {
+        runtimeEventLedger.record(event)
     }
 
     required init?(coder: NSCoder) {

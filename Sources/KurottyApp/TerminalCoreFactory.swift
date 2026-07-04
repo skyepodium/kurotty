@@ -17,4 +17,16 @@ enum TerminalCoreFactory {
         }
         return diagnosticCore.compatibilityDiagnostic
     }
+
+    static func mutationSourceDiagnostic(for core: any TerminalCore) -> TerminalCoreMutationSourceDiagnostic {
+        guard let diagnosticCore = core as? TerminalCoreMutationSourceDiagnosing else {
+            return TerminalCoreMutationSourceDiagnostic(
+                sessionMutationOwner: .unknown,
+                frameMutationOwner: .unknown,
+                zigBridgeActive: false,
+                reason: "diagnostic-unavailable"
+            )
+        }
+        return diagnosticCore.mutationSourceDiagnostic
+    }
 }

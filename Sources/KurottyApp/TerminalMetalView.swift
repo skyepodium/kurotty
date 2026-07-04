@@ -113,6 +113,9 @@ struct TerminalRenderDamageDiagnostics {
     let dirtyRectCount: Int
     let scissorDisabled: Bool
     let submittedDisplayRects: [CGRect]
+    let uncoalescedSubmittedDisplayRectCount: Int
+    let scheduledDisplayRectCount: Int
+    let coalescedDisplayRectCount: Int
     let canCoalesceAtDisplayCadence: Bool
     let coalescingFallbackReason: CoalescingFallbackReason
     let stablePixelBounds: [TerminalFramePixelRect]
@@ -124,6 +127,9 @@ struct TerminalRenderDamageDiagnostics {
         dirtyRectCount: 0,
         scissorDisabled: false,
         submittedDisplayRects: [],
+        uncoalescedSubmittedDisplayRectCount: 0,
+        scheduledDisplayRectCount: 0,
+        coalescedDisplayRectCount: 0,
         canCoalesceAtDisplayCadence: false,
         coalescingFallbackReason: .emptyDirtyRects,
         stablePixelBounds: [],
@@ -144,13 +150,19 @@ struct TerminalRenderDamageDiagnostics {
             diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled,
             scissorDisabled: scissorDisabled
         )
-        let submittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\.cgRect)
+        let uncoalescedSubmittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\.cgRect)
+        let submittedDisplayRects = policy.canCoalesceAtDisplayCadence
+            ? coalescedDisplayRects(uncoalescedSubmittedDisplayRects)
+            : uncoalescedSubmittedDisplayRects
         return TerminalRenderDamageDiagnostics(
             redrawDecision: redrawDecision(from: policy.redrawDecision),
             schedulingPolicy: schedulingPolicy(from: policy.schedulingPolicy),
             dirtyRectCount: frame.dirtyRects.count,
             scissorDisabled: scissorDisabled,
             submittedDisplayRects: submittedDisplayRects,
+            uncoalescedSubmittedDisplayRectCount: uncoalescedSubmittedDisplayRects.count,
+            scheduledDisplayRectCount: submittedDisplayRects.count,
+            coalescedDisplayRectCount: max(0, uncoalescedSubmittedDisplayRects.count - submittedDisplayRects.count),
             canCoalesceAtDisplayCadence: policy.canCoalesceAtDisplayCadence,
             coalescingFallbackReason: coalescingFallbackReason(from: policy.coalescingFallbackReason),
             stablePixelBounds: policy.stablePixelBounds,
@@ -195,6 +207,35 @@ struct TerminalRenderDamageDiagnostics {
         case .unstablePixelBounds:
             .unstablePixelBounds
         }
+    }
+
+    private static func coalescedDisplayRects(_ rects: [CGRect]) -> [CGRect] {
+        let sortedRects = rects
+            .filter { !$0.isNull && !$0.isEmpty }
+            .sorted {
+                if $0.minY != $1.minY { return $0.minY < $1.minY }
+                return $0.minX < $1.minX
+            }
+        guard var current = sortedRects.first else { return [] }
+
+        var coalescedRects: [CGRect] = []
+        for rect in sortedRects.dropFirst() {
+            if Self.canCoalesceDisplayRects(current, rect) {
+                current = current.union(rect)
+            } else {
+                coalescedRects.append(current)
+                current = rect
+            }
+        }
+        coalescedRects.append(current)
+        return coalescedRects
+    }
+
+    private static func canCoalesceDisplayRects(_ first: CGRect, _ second: CGRect) -> Bool {
+        first.maxX >= second.minX &&
+            second.maxX >= first.minX &&
+            first.maxY >= second.minY &&
+            second.maxY >= first.minY
     }
 }
 
@@ -645,7 +686,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard diagnosticRenderingLogEnabled else { return }
         let colorAttachment = descriptor.colorAttachments[0]
         NSLog(
-            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ coalescingFallbackReason=%@ dirtyRects=%d submittedDisplayRects=%@ stablePixelBoundCount=%d stablePixelBounds=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ coalescingFallbackReason=%@ dirtyRects=%d submittedDisplayRects=%@ uncoalescedSubmittedDisplayRects=%d scheduledDisplayRects=%d coalescedDisplayRects=%d stablePixelBoundCount=%d stablePixelBounds=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
             renderFrameIndex,
             diagnosticFullRedrawEnabled ? "yes" : "no",
             damageDiagnostics.redrawDecision.description,
@@ -654,6 +695,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             damageDiagnostics.coalescingFallbackReason.description,
             damageDiagnostics.dirtyRectCount,
             damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
+            damageDiagnostics.uncoalescedSubmittedDisplayRectCount,
+            damageDiagnostics.scheduledDisplayRectCount,
+            damageDiagnostics.coalescedDisplayRectCount,
             damageDiagnostics.stablePixelBoundCount,
             damageDiagnostics.stablePixelBounds.map { "{x:\($0.x),y:\($0.y),w:\($0.width),h:\($0.height)}" }.joined(separator: " | "),
             damageDiagnostics.scissorDisabled ? "yes" : "no",

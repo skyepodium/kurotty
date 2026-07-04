@@ -136,11 +136,21 @@ Partially mitigated.
 
 Full redraw is enabled as the current safe path. The Metal render pass is configured with `.clear` every frame and does not rely on previous drawable contents. Dirty rectangles are still tracked for diagnostics, but rendering no longer depends on stale input-line fragments.
 
+Stable partial-damage frames now take one production scheduling step before invalidation: when the `TerminalRenderFrame` policy marks the frame as a display-cadence coalescing candidate, `TerminalMetalView` merges touching or overlapping dirty rects before calling `setNeedsDisplay`. Render diagnostics report the original submitted rect count, final scheduled rect count, and coalesced rect reduction. Full redraw, diagnostic full redraw, scissor-disabled, and unstable-pixel fallback paths still bypass this coalescing and preserve the full-redraw fallback behavior.
+
 ### E. Buffer Lifecycle Risk
 
 One concrete issue was found.
 
 `isAtlasPathReadyForRendering` previously required `atlasInstanceCount > 0`. That prevented background and cursor quads from rendering on frames with no visible glyphs. The readiness check now only verifies resources; glyph instance count only controls the glyph draw call.
+
+### F. Glyph Shaping / Fallback / Atlas Contract
+
+Partially mitigated.
+
+`TerminalGlyphRun` now has a CoreText-backed construction path that derives platform-shaped glyph ids, per-glyph advances, fallback font identity, source scalar fingerprint, reserved atlas key fields, and clipping risk from real run bounds. This keeps atlas slots renderer-owned while giving tests and diagnostics a stable contract for CJK/emoji fallback and atlas readiness before the Metal atlas has a resident slot.
+
+The remaining production gap is wiring this contract into the renderer's atlas cache lifecycle: slot residency, eviction, and glyph run reuse are still owned by the existing Metal path.
 
 ## Coordinate Findings
 
