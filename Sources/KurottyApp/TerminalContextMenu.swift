@@ -36,6 +36,19 @@ enum TerminalContextMenuAction: Equatable {
         }
         return direction
     }
+
+    var iconSymbolName: String {
+        switch self {
+        case .copySelection:
+            return "doc.on.doc"
+        case .paste:
+            return "doc.on.clipboard"
+        case .split(.right), .split(.left):
+            return "rectangle.split.2x1"
+        case .split(.down), .split(.up):
+            return "rectangle.split.1x2"
+        }
+    }
 }
 
 struct TerminalContextMenuState: Equatable {
@@ -47,16 +60,27 @@ struct TerminalContextMenuEntry: Equatable {
     let title: String?
     let action: TerminalContextMenuAction?
     let isEnabled: Bool
+    let iconSymbolName: String?
 
     static func item(
         title: String,
         action: TerminalContextMenuAction,
         isEnabled: Bool = true
     ) -> TerminalContextMenuEntry {
-        TerminalContextMenuEntry(title: title, action: action, isEnabled: isEnabled)
+        TerminalContextMenuEntry(
+            title: title,
+            action: action,
+            isEnabled: isEnabled,
+            iconSymbolName: action.iconSymbolName
+        )
     }
 
-    static let separator = TerminalContextMenuEntry(title: nil, action: nil, isEnabled: false)
+    static let separator = TerminalContextMenuEntry(
+        title: nil,
+        action: nil,
+        isEnabled: false,
+        iconSymbolName: nil
+    )
 }
 
 enum TerminalContextMenuBuilder {

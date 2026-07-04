@@ -49,4 +49,23 @@ final class TerminalContextMenuTests: XCTestCase {
 
         XCTAssertEqual(splitActions, [.right, .left, .down, .up])
     }
+
+    func testContextMenuEntriesProvideIconSymbolsForVisibleActions() {
+        let iconSymbolsByTitle = Dictionary(
+            uniqueKeysWithValues: TerminalContextMenuBuilder.entries(
+                for: TerminalContextMenuState(hasSelection: true, hasPasteboardText: true)
+            )
+                .compactMap { entry -> (String, String)? in
+                    guard let title = entry.title, let iconSymbolName = entry.iconSymbolName else { return nil }
+                    return (title, iconSymbolName)
+                }
+        )
+
+        XCTAssertEqual(iconSymbolsByTitle["Copy"], "doc.on.doc")
+        XCTAssertEqual(iconSymbolsByTitle["Paste"], "doc.on.clipboard")
+        XCTAssertEqual(iconSymbolsByTitle["Split Right"], "rectangle.split.2x1")
+        XCTAssertEqual(iconSymbolsByTitle["Split Left"], "rectangle.split.2x1")
+        XCTAssertEqual(iconSymbolsByTitle["Split Down"], "rectangle.split.1x2")
+        XCTAssertEqual(iconSymbolsByTitle["Split Up"], "rectangle.split.1x2")
+    }
 }
