@@ -897,9 +897,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         pendingMarkedTextAnchor = nil
         keyboardSelectionInputStart = nil
+        guard TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+            backgroundTaskDescription ?? "",
+            visibleText: visibleText()
+        ) else {
+            clearBackgroundTaskTracking()
+            return
+        }
         submittedInputSequence &+= 1
         backgroundTaskInputSequence = submittedInputSequence
         backgroundTaskHasOutput = false
+        backgroundTaskOutputText = ""
+        backgroundTaskNotificationWorkItem?.cancel()
+        backgroundTaskNotificationWorkItem = nil
+    }
+
+    private func clearBackgroundTaskTracking() {
+        backgroundTaskInputSequence = nil
+        backgroundTaskHasOutput = false
+        backgroundTaskDescription = nil
         backgroundTaskOutputText = ""
         backgroundTaskNotificationWorkItem?.cancel()
         backgroundTaskNotificationWorkItem = nil

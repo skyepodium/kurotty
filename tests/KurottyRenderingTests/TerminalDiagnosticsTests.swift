@@ -222,6 +222,38 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testBackgroundTaskTrackingRejectsInteractiveCodexTuiConversationInput() {
+        XCTAssertFalse(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "hello",
+                visibleText: """
+                › hello
+
+                • I'll load the required startup skill, then respond normally.
+
+                • Explored
+                  └ Read SKILL.md (superpowers:using-superpowers skill)
+
+                • Hello. How can I help?
+
+                › Summarize recent commits
+                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
+                """
+            )
+        )
+    }
+
+    func testBackgroundTaskTrackingAllowsShellCommandsOutsideInteractiveTui() {
+        XCTAssertTrue(
+            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
+                "swift test",
+                visibleText: """
+                skyepodium ~/dev/kurotty
+                """
+            )
+        )
+    }
+
     func testCodexNotificationContentUsesSpecificTitleAndMeaningfulBody() {
         let content = TerminalBackgroundTaskNotificationContent.make(
             submittedCommand: "codex",

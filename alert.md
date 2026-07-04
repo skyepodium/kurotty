@@ -28,6 +28,14 @@ extractor that selects the latest assistant answer block and rejects prompt,
 tool/status, and UI chrome lines. Longer term, Kurotty should prefer explicit
 agent events over text extraction.
 
+The second screenshot-class failure changed the diagnosis. The banner was no
+longer showing only `%`, but it still showed unrelated Codex conversation text:
+`hello`, `Hello. How can I help?`, and repaint suffix fragments such as `55`.
+That means body cleanup alone is not the fix. Kurotty was starting a
+background-task notification for every submitted line, including ordinary input
+inside an interactive Codex TUI. Mature terminals do not treat "user pressed
+Enter in a full-screen/interactive program" as "a background task has started."
+
 ## Ghostty
 
 ### Source Areas
@@ -130,6 +138,28 @@ flows. Content source is one of:
 Regex triggers are the important exception: a user can configure content matching.
 That is still an explicit trigger rule, not a generic "summarize whatever is on
 screen" path.
+
+The most relevant iTerm2 distinction for Kurotty is command marks. iTerm2 tracks
+prompt, command, and output ranges as explicit screen metadata. Command-finished
+logic is driven by mark state, command range, exit status, and trigger
+evaluation. Idle/new-output notifications are separate activity features and use
+fixed contextual text. They are not promoted to "command finished" just because
+the screen reached a prompt-looking state.
+
+That difference is exactly what Kurotty was missing. In a Codex TUI, the visible
+screen contains:
+
+- prior user prompts
+- assistant replies
+- status bar state such as model, workspace, approval mode, and readiness
+- tool traces such as `Explored` / `Read`
+- partial repaint artifacts from terminal control sequences
+
+None of those are a reliable completion payload unless Codex, shell integration,
+or a user trigger explicitly marks them as such. Kurotty should therefore
+suppress generic background-task tracking while an interactive agent TUI is
+visible, and reserve "Codex task finished/failed/needs input" for explicit agent
+events or a much narrower future agent-state integration.
 
 Source references from the local tree:
 
@@ -435,6 +465,40 @@ agent.notification {
 }
 ```
 
+### Second Follow-up: Wrong Trigger, Not Just Wrong Summary
+
+The later screenshots showed the previous follow-up was still incomplete:
+
+- `hello` was displayed as the task subtitle even though it was an interactive
+  Codex chat input, not a shell command.
+- `Hello. How can I help?55` was displayed as the body even though it was a
+  previous assistant answer plus a TUI repaint suffix, not the requested task.
+- The real prompt visible on screen, such as `Summarize recent commits`, had not
+  finished; Codex was idle and waiting for input.
+
+Root cause:
+
+- `TerminalSurfaceView.recordUserInput` treated any submitted printable line as
+  a background task candidate.
+- Subsequent output while unfocused was captured and summarized after an idle
+  timeout.
+- In an interactive Codex TUI, that model confuses conversation turns with
+  background command lifecycle.
+
+Applied correction:
+
+- Add `TerminalBackgroundTaskTrackingPolicy`.
+- Keep normal shell commands eligible for fallback tracking.
+- Reject generic background-task tracking when the current visible terminal text
+  is Codex-like TUI output.
+- Clear stale captured command/output/work items when tracking is rejected so
+  old agent text cannot leak into the next notification.
+
+This deliberately does not claim to extract "the task content" from arbitrary
+Codex screen text. The correct long-term fix is an explicit agent-event protocol
+or shell/OSC integration where Codex tells Kurotty the task id, state, prompt,
+summary, approval request, and exit/failure state.
+
 ## Recommended Kurotty Alert Architecture
 
 ### Event Sources
@@ -499,9 +563,13 @@ Each alert should carry:
 - Filter `%` prompt-only notification payloads.
 - Preserve meaningful multi-line output for Codex completion.
 - Add regression tests for the screenshot-class failure.
+- Suppress fallback background-task tracking while Codex interactive TUI output
+  is visible, preventing ordinary prompts such as `hello` from becoming fake
+  "Codex task finished" notifications.
 
 ### Next Iteration
 
+- Add explicit Codex/agent event input instead of screen scraping.
 - Wire OSC 133 command spans directly into notification content, including exit code and duration.
 - Add pane/tab alert flags for activity, bell, failure, and input-required.
 - Add click target metadata so notification activation focuses the originating pane.

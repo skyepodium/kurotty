@@ -16,6 +16,15 @@ enum TerminalSubmittedCommandSummary {
     }
 }
 
+enum TerminalBackgroundTaskTrackingPolicy {
+    static func shouldTrackSubmittedInput(_ submittedInput: String, visibleText: String) -> Bool {
+        guard TerminalSubmittedCommandSummary.notificationBody(from: submittedInput) != nil else {
+            return false
+        }
+        return !TerminalNotificationSummary.isCodexLikeOutput(visibleText)
+    }
+}
+
 struct TerminalBackgroundTaskNotificationContent: Equatable {
     let title: String
     let subtitle: String
