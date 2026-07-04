@@ -478,10 +478,10 @@
   - 남음: CoreText/Metal atlas production implementation으로 확장.
 - [x] shell integration v1에서 OSC 7/133만 먼저 지원한다.
   - 완료: OSC 7 cwd, OSC 133 prompt/command/output/end, exit code, command span/history, live OSC dispatcher hook.
-- [~] shell opt-in metadata를 passive OSC metadata와 분리한다.
+- [x] shell opt-in metadata를 passive OSC metadata와 분리한다.
   - 완료: shell capability descriptors, passive OSC support와 opt-in snippet metadata 구분, OSC 7 path encoding, bash CWD-only conservative capability.
   - 완료: per-session opt-in evidence에서 baseline support와 installed integration을 구분.
-  - 남음: UI/audit/AI surfaces에 해당 distinction을 표시.
+  - 완료: raw output 없이 UI/audit/AI surfaces가 소비할 수 있는 metadata-only evidence row로 passive OSC와 opt-in shell integration 구분 노출.
 - [x] AI context export는 redaction/audit/log cap 없이 구현하지 않는다.
   - 완료: `AIContextLayer`, secret redaction, capped event log, AI command context bridge, raw output default-off 및 approval gate.
 - [x] settings validation을 preferences UI에 연결한다.
@@ -491,7 +491,8 @@
 - [~] command UX를 command registry 중심으로 정리한다.
   - 완료: palette aliases/search tokens를 command registry metadata로 이동하고 ambiguous duplicate token 제거.
   - 완료: command spans, search/copy/fold/replay backend commands와 approval policy를 command registry에 추가.
-  - 남음: menu/palette/action dispatch와 실제 UI가 해당 command surface를 공유.
+  - 완료: command-span command lookup, palette search model, fold/search/copy-reference/replay dispatch model이 command registry를 공유.
+  - 남음: AppKit menu item wiring과 실제 fold/search/copy/replay 화면 동작 연결.
 - [~] workspace/session snapshot을 layout-only로 먼저 저장한다.
   - 완료: `WorkspaceSnapshot`, atomic store, `WorkspaceSnapshotCoordinator`, app menu save flow.
   - 남음: process restore, command replay, session restore UX는 explicit opt-in 이후.
@@ -510,4 +511,5 @@
   - 남음: 실제 toolbar/search/copy mode/quick terminal 화면 설계와 non-developer onboarding polish.
 - [~] AI agent approval/action API와 context reference UI를 구현한다.
   - 완료: redacted context references, copyable command span locator, action request/approval metadata, audit metadata, terminal core direct mutation 금지 검증.
-  - 남음: visible context reference UI, approval dialog flow, action dispatch integration.
+  - 완료: visible context reference dialog-flow model, approve/deny decision model, approval-gated action dispatch integration.
+  - 남음: 실제 AppKit approval dialog presentation과 context reference UI rendering.

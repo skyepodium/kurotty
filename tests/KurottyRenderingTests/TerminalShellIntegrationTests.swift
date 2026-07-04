@@ -178,7 +178,7 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
         XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7])
-        XCTAssertEqual(integration.sessionEvidence.observedOptInCapabilities, [.workingDirectoryTracking])
+        XCTAssertEqual(integration.sessionEvidence.observedOptInCapabilities, [])
         XCTAssertTrue(integration.capabilityDescriptor.optInSnippetDescriptors.allSatisfy { !$0.isEnabledByDefault })
 
         _ = integration.consumeOsc("133;A")
@@ -189,9 +189,53 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.sessionEvidence.observedPassiveOSCSequences, [.osc7, .osc133])
         XCTAssertEqual(
             integration.sessionEvidence.observedOptInCapabilities,
-            [.workingDirectoryTracking, .commandBoundaryTracking]
+            [.commandBoundaryTracking]
         )
         XCTAssertEqual(integration.sessionEvidence.completedCommandSpanReferences.first?.spanID, 1)
+    }
+
+    func testSessionSummaryExposesEvidenceRowsForUIAuditAndAIWithoutRawOutput() {
+        var integration = TerminalShellIntegration()
+
+        _ = integration.consumeOsc("7;file://localhost/Users/skye/project")
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        integration.setActiveCommandText("swift test")
+        _ = integration.consumeOsc("133;C")
+        _ = integration.consumeOsc("133;D;0")
+
+        XCTAssertEqual(
+            integration.sessionSummary.evidenceRows,
+            [
+                TerminalShellIntegrationEvidenceRow(
+                    source: .passiveOSC,
+                    label: "OSC 7",
+                    detail: "working directory signal observed",
+                    exposesRawCommandOutput: false,
+                    isAvailableToUI: true,
+                    isAvailableToAudit: true,
+                    isAvailableToAI: true
+                ),
+                TerminalShellIntegrationEvidenceRow(
+                    source: .passiveOSC,
+                    label: "OSC 133",
+                    detail: "command boundary signal observed",
+                    exposesRawCommandOutput: false,
+                    isAvailableToUI: true,
+                    isAvailableToAudit: true,
+                    isAvailableToAI: true
+                ),
+                TerminalShellIntegrationEvidenceRow(
+                    source: .optInShellIntegration,
+                    label: "Command Boundary Tracking",
+                    detail: "1 completed command span reference available",
+                    exposesRawCommandOutput: false,
+                    isAvailableToUI: true,
+                    isAvailableToAudit: true,
+                    isAvailableToAI: true
+                ),
+            ]
+        )
     }
 
     func testSessionSummarySeparatesBaselineSupportFromOptInEvidence() {

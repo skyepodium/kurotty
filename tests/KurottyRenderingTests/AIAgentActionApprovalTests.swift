@@ -99,6 +99,25 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertTrue(sentText.isEmpty)
     }
 
+    func testDialogApprovalRejectsSameIDSameKindChangedPayloadWithoutInvokingBackendHandler() {
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let pending = dispatcher.dispatch(AIAgentActionRequest.sendText(id: "shared", text: "echo safe"))
+        let dialogDecision = AIAgentActionApprovalDialogFlow(result: pending.approval).approve()
+
+        let result = dispatcher.dispatch(
+            AIAgentActionRequest.sendText(id: "shared", text: "echo changed"),
+            dialogDecision: dialogDecision
+        )
+
+        XCTAssertEqual(result.status, .denied)
+        XCTAssertEqual(result.reason, "approval result fingerprint does not match action request")
+        XCTAssertTrue(sentText.isEmpty)
+    }
+
     func testDispatcherRejectsChangedRawExportContextWithoutInvokingBackendHandler() {
         var exportedContexts: [String] = []
         let dispatcher = AIAgentActionDispatcher(
@@ -514,5 +533,57 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertFalse(description.contains("summary-secret"))
         XCTAssertTrue(description.contains("targetPane=pane-token=[REDACTED_SECRET]"))
         XCTAssertTrue(description.contains("capability=terminal.sendText token=[REDACTED_SECRET]"))
+    }
+
+    func testApprovalDialogFlowModelCarriesVisibleContextAndGatesDispatch() {
+        let metadata = AIAgentActionApprovalMetadata(
+            actor: "planner-agent",
+            targetPaneID: "pane-1",
+            targetWorkspaceID: "workspace-7",
+            cwd: "/repo",
+            capability: "terminal.sendText",
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 42,
+                    targetPaneID: "pane-1",
+                    targetWorkspaceID: "workspace-7",
+                    startBoundarySequence: 10,
+                    outputBoundarySequence: 12,
+                    endBoundarySequence: 14
+                ),
+            ],
+            contextSummary: "command: deploy token=secret-token"
+        )
+        var sentText: [String] = []
+        let dispatcher = AIAgentActionDispatcher(
+            evaluator: AIAgentActionApprovalEvaluator(maxPreviewLength: 80),
+            handlers: .init(sendText: { text, _ in sentText.append(text) })
+        )
+        let action = AIAgentActionRequest.sendText(
+            id: "send-visible-context",
+            text: "echo token=raw-secret",
+            metadata: metadata
+        )
+
+        let pending = dispatcher.dispatch(action)
+        let dialog = AIAgentActionApprovalDialogFlow(result: pending.approval)
+
+        XCTAssertEqual(pending.status, .requiresApproval)
+        XCTAssertEqual(dialog.title, "Approve AI Terminal Action")
+        XCTAssertEqual(dialog.actionID, "send-visible-context")
+        XCTAssertEqual(dialog.decision, .ask)
+        XCTAssertEqual(dialog.contextReferences.map(\.commandSpanID), [42])
+        XCTAssertEqual(dialog.summary, "command: deploy token=[REDACTED_SECRET]")
+        XCTAssertTrue(dialog.redactedPreview.contains("token=[REDACTED_SECRET]"))
+        XCTAssertFalse(String(describing: dialog).contains("raw-secret"))
+        XCTAssertFalse(String(describing: dialog).contains("secret-token"))
+
+        let denied = dispatcher.dispatch(action, dialogDecision: dialog.deny())
+        XCTAssertEqual(denied.status, .denied)
+        XCTAssertTrue(sentText.isEmpty)
+
+        let approved = dispatcher.dispatch(action, dialogDecision: dialog.approve())
+        XCTAssertEqual(approved.status, .dispatched)
+        XCTAssertEqual(sentText, ["echo token=raw-secret"])
     }
 }

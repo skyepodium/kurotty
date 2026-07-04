@@ -145,6 +145,71 @@ struct TerminalShellIntegrationSessionSummary: Equatable {
 
     let baselineSupport: BaselineSupport
     let optInIntegration: OptInIntegration
+
+    var evidenceRows: [TerminalShellIntegrationEvidenceRow] {
+        var rows: [TerminalShellIntegrationEvidenceRow] = baselineSupport.observedPassiveOSCSequences.map { sequence in
+            TerminalShellIntegrationEvidenceRow(
+                source: .passiveOSC,
+                label: sequence.evidenceLabel,
+                detail: sequence.evidenceDetail,
+                exposesRawCommandOutput: false,
+                isAvailableToUI: true,
+                isAvailableToAudit: true,
+                isAvailableToAI: true
+            )
+        }
+
+        if optInIntegration.installedCommandBoundarySupportObserved {
+            rows.append(
+                TerminalShellIntegrationEvidenceRow(
+                    source: .optInShellIntegration,
+                    label: "Command Boundary Tracking",
+                    detail: "\(optInIntegration.completedCommandSpanReferences.count) completed command span reference\(optInIntegration.completedCommandSpanReferences.count == 1 ? "" : "s") available",
+                    exposesRawCommandOutput: false,
+                    isAvailableToUI: true,
+                    isAvailableToAudit: true,
+                    isAvailableToAI: true
+                )
+            )
+        }
+
+        return rows
+    }
+}
+
+struct TerminalShellIntegrationEvidenceRow: Equatable {
+    enum Source: Equatable {
+        case passiveOSC
+        case optInShellIntegration
+    }
+
+    let source: Source
+    let label: String
+    let detail: String
+    let exposesRawCommandOutput: Bool
+    let isAvailableToUI: Bool
+    let isAvailableToAudit: Bool
+    let isAvailableToAI: Bool
+}
+
+private extension TerminalShellIntegrationCapabilityDescriptor.PassiveOSCSequence {
+    var evidenceLabel: String {
+        switch self {
+        case .osc7:
+            return "OSC 7"
+        case .osc133:
+            return "OSC 133"
+        }
+    }
+
+    var evidenceDetail: String {
+        switch self {
+        case .osc7:
+            return "working directory signal observed"
+        case .osc133:
+            return "command boundary signal observed"
+        }
+    }
 }
 
 extension TerminalCommandSpan {
@@ -252,7 +317,7 @@ struct TerminalShellIntegration: Equatable {
     var sessionSummary: TerminalShellIntegrationSessionSummary {
         let completedSpans = recentCommandSpans
         let installedCommandBoundarySupportObserved = !completedSpans.isEmpty
-        let installedWorkingDirectorySupportObserved = completedSpans.contains { $0.cwd != nil }
+        let installedWorkingDirectorySupportObserved = sessionEvidence.observedOptInCapabilities.contains(.workingDirectoryTracking)
         var observedCapabilities: [TerminalShellIntegrationCapabilityDescriptor.OptInCapability] = []
 
         if installedWorkingDirectorySupportObserved {
@@ -428,7 +493,6 @@ struct TerminalShellIntegration: Equatable {
 
         currentWorkingDirectoryCandidate = url.path
         sessionEvidence.recordObservedPassiveOSCSequence(.osc7)
-        sessionEvidence.recordObservedOptInCapability(.workingDirectoryTracking)
         return .workingDirectoryChanged(url.path)
     }
 
