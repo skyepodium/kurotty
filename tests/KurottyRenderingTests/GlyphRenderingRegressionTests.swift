@@ -1515,6 +1515,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
         XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))
         XCTAssertTrue(windowSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(windowSource.contains("addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
+        XCTAssertTrue(windowSource.contains("closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
         XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
