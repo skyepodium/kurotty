@@ -25,7 +25,11 @@ private enum CoreLibraryPath {
     static let swiftPMDebugDevelopmentPath = ".build/debug/\(dylibFilename)"
 }
 
-final class CoreBridge: TerminalCore, TerminalCoreCompatibilityDiagnosing, @unchecked Sendable {
+final class CoreBridge: TerminalCore,
+    TerminalCoreCompatibilityDiagnosing,
+    TerminalCoreMutationSourceDiagnosing,
+    TerminalCoreRuntimeBoundaryDiagnosing,
+    @unchecked Sendable {
     private let symbols: CoreSymbols?
     private var handle: TerminalHandle?
     private var columns: UInt32
@@ -53,6 +57,28 @@ final class CoreBridge: TerminalCore, TerminalCoreCompatibilityDiagnosing, @unch
             parser: .swiftScaffold,
             screen: .swiftScaffold,
             render: .swiftScaffold
+        )
+    }
+
+    var mutationSourceDiagnostic: TerminalCoreMutationSourceDiagnostic {
+        return TerminalCoreMutationSourceDiagnostic(
+            sessionMutationOwner: .swiftScaffold,
+            frameMutationOwner: .swiftScaffold,
+            zigBridgeActive: handle != nil,
+            reason: handle == nil ? "zig-core-unavailable" : "swift-runtime-mutation-with-zig-feed-active"
+        )
+    }
+
+    var runtimeBoundaryDiagnostic: TerminalCoreRuntimeBoundaryDiagnostic {
+        let isZigFeedBridgeActive = handle != nil
+        return TerminalCoreRuntimeBoundaryDiagnostic(
+            feedBridgeParticipant: isZigFeedBridgeActive ? .zigCore : .swiftScaffold,
+            parserMutationOwner: .swiftScaffold,
+            screenMutationOwner: .swiftScaffold,
+            renderMutationOwner: .swiftScaffold,
+            mutationHandoffReady: false,
+            dualWriteRisk: isZigFeedBridgeActive ? .feedBridgeOnly : .none,
+            reason: isZigFeedBridgeActive ? "zig-feed-bridge-active-swift-mutation-owner" : "zig-core-unavailable"
         )
     }
 

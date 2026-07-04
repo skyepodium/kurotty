@@ -6,6 +6,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
     static let titleNotificationKey = "title"
+    private static let runtimeEventLedgerCapacity = 4_096
 
     private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore(
         cols: UInt32(AppConstants.Terminal.defaultColumns),
@@ -70,6 +71,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var backgroundTaskOutputText = ""
     private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
     private var debugFrameIndex: UInt64 = 0
+    private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
+    private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
+    private var outputFlushTraceSequence: UInt64 = 0
+    private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
@@ -119,6 +124,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 self?.enqueueOutput(text)
             }
         }
+        shell.onRuntimeEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.recordRuntimeEvent(event)
+            }
+        }
         if DebugOptions.ptyLog {
             shell.onRawOutput = { data in
                 let metadata = TerminalRawPtyLogMetadata(data: data)
@@ -140,6 +150,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         observeInputSourceChanges()
         shell.start(workingDirectory: settings.shell.workingDirectory)
+    }
+
+    private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent) {
+        runtimeEventLedger.record(event)
+        if event.payload.kind == .ptyRead {
+            pendingRuntimeOutputEvents.append(event)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -558,6 +575,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let selectedCells = selectedCellSet()
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
+            let linkRanges = TerminalLinkRange.findAll(in: sourceRow, row: row)
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
                 let position = TerminalCellPosition(row: visibleStartRow + row, column: column)
@@ -585,6 +603,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         row: row,
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .strikethrough,
+                        color: cell.style.effectiveForeground
+                    ))
+                }
+                if linkRanges.contains(where: { $0.contains(row: row, column: column) }) {
+                    decorations.append(TerminalDecoration(
+                        column: column,
+                        row: row,
+                        width: max(1, cell.character.terminalColumnWidth),
+                        kind: .underline,
                         color: cell.style.effectiveForeground
                     ))
                 }
@@ -649,6 +676,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             visibleRows: metrics.size.rows,
             cellSize: metrics.cellSize,
             padding: TerminalFramePoint(x: Double(padding.left), y: Double(padding.top))
+        ))
+        activeOutputRuntimeEventBatch?.recordRenderFrame(.init(
+            frameIndex: Int(debugFrameIndex),
+            dirtyRegionCount: damage.rects.count,
+            fullRedraw: damage.isFull
         ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
@@ -1152,6 +1184,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendOutput(_ text: String) {
+        beginOutputRuntimeEventBatch(byteCount: text.utf8.count)
+        defer {
+            commitOutputRuntimeEventBatch()
+        }
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
         scrollbackRowsAppendedDuringOutput = 0
@@ -1204,6 +1240,37 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
         updateRendererFrame()
+    }
+
+    private func beginOutputRuntimeEventBatch(byteCount: Int) {
+        let ptyByteCount = consumeRuntimeOutputBatchByteCount(fallbackByteCount: byteCount)
+        let traceID = nextOutputFlushTraceID()
+        activeOutputRuntimeEventBatch = TerminalRuntimeEventBatch(traceID: traceID)
+        activeOutputRuntimeEventBatch?.recordPtyRead(byteCount: ptyByteCount)
+        activeOutputRuntimeEventBatch?.recordParserEvent(.printable(byteCount: byteCount))
+    }
+
+    private func commitOutputRuntimeEventBatch() {
+        guard let batch = activeOutputRuntimeEventBatch else { return }
+        batch.commit(to: &runtimeEventLedger)
+        activeOutputRuntimeEventBatch = nil
+    }
+
+    private func consumeRuntimeOutputBatchByteCount(fallbackByteCount: Int) -> Int {
+        let byteCount = pendingRuntimeOutputEvents.reduce(0) { count, event in
+            guard case let .ptyRead(byteCount) = event.payload else {
+                return count
+            }
+            return count + byteCount
+        }
+        pendingRuntimeOutputEvents.removeAll(keepingCapacity: true)
+        return byteCount > 0 ? byteCount : fallbackByteCount
+    }
+
+    private func nextOutputFlushTraceID() -> TerminalEventTraceID {
+        let traceID = TerminalEventTraceID("output-flush-\(outputFlushTraceSequence)")
+        outputFlushTraceSequence &+= 1
+        return traceID
     }
 
     private func visibleText() -> String {
@@ -1427,10 +1494,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func updateHoveredLinkRange(with event: NSEvent) {
-        guard event.modifierFlags.contains(.command) else {
-            setHoveredLinkRange(nil)
-            return
-        }
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
     }
 

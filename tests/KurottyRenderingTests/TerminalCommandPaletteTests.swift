@@ -110,6 +110,27 @@ final class TerminalCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testCommandSpanPaletteEntriesExposeUXReadinessMetadata() {
+        let palette = TerminalCommandPalette(includesCommandSpanCommands: true)
+        let entriesByID = Dictionary(uniqueKeysWithValues: palette.commandSpanEntries.map { ($0.command.id, $0) })
+
+        XCTAssertEqual(
+            entriesByID[.foldOutput]?.subtitle,
+            "Collapse a completed command's output while keeping the command reference."
+        )
+        XCTAssertEqual(
+            entriesByID[.searchOutput]?.subtitle,
+            "Search within a completed command's output range."
+        )
+        XCTAssertEqual(
+            entriesByID[.replay]?.subtitle,
+            "Run the captured command again after explicit confirmation."
+        )
+        XCTAssertFalse(entriesByID[.foldOutput]?.requiresExplicitApproval == true)
+        XCTAssertTrue(entriesByID[.replay]?.requiresExplicitApproval == true)
+        XCTAssertEqual(palette.commandSpanResults(for: "rerun safely").first?.command.id, .replay)
+    }
+
     private static func command(
         id: TerminalWindowCommandID,
         title: String,

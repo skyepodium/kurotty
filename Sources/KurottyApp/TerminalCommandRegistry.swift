@@ -129,6 +129,7 @@ struct TerminalCommand: Equatable {
 struct TerminalCommandSpanCommand: Equatable {
     let id: TerminalCommandSpanCommandID
     let title: String
+    let subtitle: String
     let category: TerminalCommandSpanCategory
     let action: TerminalCommandSpanAction
     let approvalPolicy: TerminalCommandApprovalPolicy
@@ -137,6 +138,7 @@ struct TerminalCommandSpanCommand: Equatable {
     init(
         id: TerminalCommandSpanCommandID,
         title: String,
+        subtitle: String,
         category: TerminalCommandSpanCategory = .commandSpans,
         action: TerminalCommandSpanAction,
         approvalPolicy: TerminalCommandApprovalPolicy = .none,
@@ -144,6 +146,7 @@ struct TerminalCommandSpanCommand: Equatable {
     ) {
         self.id = id
         self.title = title
+        self.subtitle = subtitle
         self.category = category
         self.action = action
         self.approvalPolicy = approvalPolicy
@@ -269,27 +272,31 @@ struct TerminalCommandRegistry {
         TerminalCommandSpanCommand(
             id: .foldOutput,
             title: "Fold Command Output",
+            subtitle: "Collapse a completed command's output while keeping the command reference.",
             action: .foldOutput,
             searchTokens: ["collapse command output", "hide command output", "toggle command output"]
         ),
         TerminalCommandSpanCommand(
             id: .searchOutput,
             title: "Search Command Output",
+            subtitle: "Search within a completed command's output range.",
             action: .searchOutput,
             searchTokens: ["find in command output", "search span output", "filter command output"]
         ),
         TerminalCommandSpanCommand(
             id: .copyReference,
             title: "Copy Command Reference",
+            subtitle: "Copy a stable command-span reference without including raw output.",
             action: .copyReference,
             searchTokens: ["copy span reference", "copy command id", "copy command link"]
         ),
         TerminalCommandSpanCommand(
             id: .replay,
             title: "Replay Command",
+            subtitle: "Run the captured command again after explicit confirmation.",
             action: .replay,
             approvalPolicy: .explicitUserConfirmation,
-            searchTokens: ["rerun command", "run command again", "repeat command"]
+            searchTokens: ["rerun command", "run command again", "repeat command", "rerun safely"]
         ),
     ]
 }

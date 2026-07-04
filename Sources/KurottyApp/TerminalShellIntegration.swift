@@ -71,6 +71,10 @@ struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
         case manualSnippet
     }
 
+    enum OnboardingCommandID: Equatable {
+        case showShellIntegrationSnippets
+    }
+
     struct OptInSnippetDescriptor: Equatable {
         let shell: Shell
         let installationMode: InstallationMode
@@ -80,8 +84,16 @@ struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
         let requiresInstaller: Bool
     }
 
+    struct OnboardingStep: Equatable {
+        let title: String
+        let detail: String
+        let commandID: OnboardingCommandID?
+        let requiresInstaller: Bool
+    }
+
     let passiveOSCSequences: [PassiveOSCSequence]
     let optInSnippetDescriptors: [OptInSnippetDescriptor]
+    let onboardingSteps: [OnboardingStep]
     let requiresShellScriptInstallation: Bool
 }
 
@@ -310,6 +322,7 @@ struct TerminalShellIntegration: Equatable {
         TerminalShellIntegrationCapabilityDescriptor(
             passiveOSCSequences: [.osc7, .osc133],
             optInSnippetDescriptors: Self.optInSnippetDescriptors,
+            onboardingSteps: Self.onboardingSteps,
             requiresShellScriptInstallation: false
         )
     }
@@ -423,6 +436,21 @@ struct TerminalShellIntegration: Equatable {
         }
         return capabilities
     }
+
+    private static let onboardingSteps: [TerminalShellIntegrationCapabilityDescriptor.OnboardingStep] = [
+        TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+            title: "Works without setup",
+            detail: "Kurotty passively detects OSC 7 working-directory updates and OSC 133 command boundaries when your shell already emits them.",
+            commandID: nil,
+            requiresInstaller: false
+        ),
+        TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+            title: "Enable richer command UX",
+            detail: "Copy an opt-in shell snippet for fold, replay, search, and command-reference actions without installing a helper.",
+            commandID: .showShellIntegrationSnippets,
+            requiresInstaller: false
+        ),
+    ]
 
     init(
         currentWorkingDirectoryCandidate: String? = nil,

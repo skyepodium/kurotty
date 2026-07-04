@@ -358,7 +358,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
         addButton.normalTintColor = chromeTheme.textSecondary
         addButton.hoverTintColor = chromeTheme.textPrimary
-        addButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
+        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
@@ -546,6 +546,8 @@ private final class TerminalTabItemView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard !bounds.contains(location) else { return }
         isHovered = false
         updateAppearance()
     }
@@ -588,7 +590,7 @@ private final class TerminalTabItemView: NSView {
         closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
         closeButton.normalTintColor = selected ? chromeTheme.textSecondary : chromeTheme.textMuted
         closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
+        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([

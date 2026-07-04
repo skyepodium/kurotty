@@ -228,6 +228,136 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertFalse(String(describing: searchSummary).contains("tail"))
     }
 
+    func testStaticLiveAccessSummaryUsesProvidedRetainedCoordinates() {
+        let retainedSummary = SegmentedScrollbackStore<String>.RetainedRowSummary(
+            firstRetainedRowIndex: 40,
+            retainedRowCount: 5,
+            droppedRowCount: 40
+        )
+
+        let summary = SegmentedScrollbackStore<String>.liveAccessSummary(
+            purpose: .search,
+            absoluteStartIndex: 38,
+            rowCount: 10,
+            materializationLimit: 3,
+            retainedRowSummary: retainedSummary
+        )
+
+        XCTAssertEqual(summary.purpose, .search)
+        XCTAssertEqual(summary.availability, .partiallyDroppedAndFuture)
+        XCTAssertEqual(summary.exportWindow.firstAvailableAbsoluteRowIndex, 40)
+        XCTAssertEqual(summary.exportWindow.availableRowCount, 5)
+        XCTAssertEqual(summary.exportWindow.boundedMaterializedRowCount, 3)
+        XCTAssertEqual(summary.exportWindow.skippedDroppedRowCount, 2)
+        XCTAssertEqual(summary.exportWindow.skippedFutureRowCount, 3)
+        XCTAssertFalse(summary.canServeSynchronously)
+        XCTAssertFalse(String(describing: summary).contains("secret"))
+    }
+
+    func testPersistenceSnapshotIsCodableMetadataOnly() throws {
+        var store = SegmentedScrollbackStore<String>(rowLimit: 5, segmentSize: 3)
+
+        store.append(contentsOf: [
+            "secret zero",
+            "secret one",
+            "normal two",
+            "normal three",
+            "tail four",
+            "tail five",
+            "tail six",
+        ])
+
+        let snapshot = store.persistenceSnapshot()
+
+        XCTAssertEqual(snapshot.schemaVersion, 1)
+        XCTAssertEqual(snapshot.rowLimit, 5)
+        XCTAssertEqual(snapshot.segmentSize, 3)
+        XCTAssertEqual(snapshot.retainedRowSummary, .init(
+            firstRetainedRowIndex: 2,
+            retainedRowCount: 5,
+            droppedRowCount: 2
+        ))
+        XCTAssertEqual(snapshot.segments, [
+            .init(
+                ordinal: 0,
+                absoluteStartRowIndex: 2,
+                visibleRowCount: 1,
+                retainedStorageRowCount: 3,
+                isFirstPartialSegment: true,
+                isMutableTailSegment: false
+            ),
+            .init(
+                ordinal: 1,
+                absoluteStartRowIndex: 3,
+                visibleRowCount: 3,
+                retainedStorageRowCount: 3,
+                isFirstPartialSegment: false,
+                isMutableTailSegment: false
+            ),
+            .init(
+                ordinal: 2,
+                absoluteStartRowIndex: 6,
+                visibleRowCount: 1,
+                retainedStorageRowCount: 1,
+                isFirstPartialSegment: false,
+                isMutableTailSegment: true
+            ),
+        ])
+        XCTAssertEqual(snapshot.spillCandidateSegmentCount, 1)
+        XCTAssertEqual(snapshot.spillCandidateRowCount, 3)
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(
+            SegmentedScrollbackStore<String>.PersistenceSnapshot.self,
+            from: encoded
+        )
+        XCTAssertEqual(decoded, snapshot)
+
+        let encodedDescription = String(decoding: encoded, as: UTF8.self)
+        XCTAssertFalse(encodedDescription.contains("secret"))
+        XCTAssertFalse(encodedDescription.contains("normal"))
+        XCTAssertFalse(encodedDescription.contains("tail"))
+    }
+
+    func testPersistenceSnapshotKeepsLargeStoreMetadataBounded() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 10_000, segmentSize: 256)
+
+        store.append(contentsOf: Array(0..<50_000))
+
+        let snapshot = store.persistenceSnapshot()
+
+        XCTAssertEqual(snapshot.retainedRowSummary, .init(
+            firstRetainedRowIndex: 40_000,
+            retainedRowCount: 10_000,
+            droppedRowCount: 40_000
+        ))
+        XCTAssertEqual(snapshot.segments.reduce(0) { $0 + $1.visibleRowCount }, 10_000)
+        XCTAssertEqual(
+            snapshot.segments.map(\.visibleRowCount).max(),
+            256
+        )
+        XCTAssertLessThanOrEqual(
+            snapshot.segments.count,
+            store.diagnostics.maximumRetainedSegmentCount
+        )
+        XCTAssertGreaterThan(snapshot.spillCandidateSegmentCount, 0)
+        XCTAssertGreaterThan(snapshot.spillCandidateRowCount, 0)
+        XCTAssertLessThan(snapshot.segments.count, 50)
+    }
+
+    func testPersistenceSnapshotTreatsFullTailSegmentAsClosedForSpill() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 6, segmentSize: 3)
+
+        store.append(contentsOf: Array(0..<6))
+
+        let snapshot = store.persistenceSnapshot()
+
+        XCTAssertEqual(snapshot.segments.count, 2)
+        XCTAssertEqual(snapshot.segments.map(\.isMutableTailSegment), [false, false])
+        XCTAssertEqual(snapshot.spillCandidateSegmentCount, 2)
+        XCTAssertEqual(snapshot.spillCandidateRowCount, 6)
+    }
+
     func testMillionLineAppendKeepsRetainedStorageWithinPressureCeiling() {
         var store = SegmentedScrollbackStore<Int>(rowLimit: 1_000_000, segmentSize: 1_024)
 
