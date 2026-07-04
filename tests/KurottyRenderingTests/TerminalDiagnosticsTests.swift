@@ -612,6 +612,49 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostic.render, .swiftScaffold)
     }
 
+    func testCoreBridgeReportsMutationSourceContractWhenZigCoreIsUnavailable() {
+        let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = bridge.mutationSourceDiagnostic
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+        XCTAssertTrue(diagnostic.description.contains("sessionMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("frameMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("zigBridgeActive=false"))
+        XCTAssertTrue(diagnostic.description.contains("reason=zig-core-unavailable"))
+    }
+
+    func testCoreBridgeKeepsSwiftMutationOwnerWhenZigFeedBridgeIsActive() {
+        let bridge = CoreBridge(cols: 2, rows: 1)
+        let diagnostic = bridge.mutationSourceDiagnostic
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.zigBridgeActive, diagnostic.reason == "swift-runtime-mutation-with-zig-feed-active")
+    }
+
+    func testTerminalCoreFactoryExposesMutationSourceDiagnosticForTypeErasedCore() {
+        let core: any TerminalCore = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = TerminalCoreFactory.mutationSourceDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+    }
+
+    func testTerminalCoreFactoryReportsUnknownMutationSourceForNonDiagnosingCore() {
+        let core: any TerminalCore = NonDiagnosingTerminalCore()
+        let diagnostic = TerminalCoreFactory.mutationSourceDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .unknown)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .unknown)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "diagnostic-unavailable")
+    }
+
     func testTerminalCoreFactoryReportsUnknownForNonDiagnosingCore() {
         let core: any TerminalCore = NonDiagnosingTerminalCore()
         let diagnostic = TerminalCoreFactory.compatibilityDiagnostic(for: core)

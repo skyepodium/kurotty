@@ -40,6 +40,30 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
     }
 
+    func testDisplayCadenceCandidateCoalescesTouchingDirtyRectsBeforeScheduling() {
+        let diagnostics = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(
+                dirtyRects: [
+                    TerminalFrameRect(x: 0, y: 20, width: 20, height: 20),
+                    TerminalFrameRect(x: 20, y: 20, width: 20, height: 20),
+                ],
+                isFullDamage: false
+            ),
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 40),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: false
+        )
+
+        XCTAssertEqual(diagnostics.redrawDecision.description, "partial")
+        XCTAssertEqual(diagnostics.schedulingPolicy.description, "display-cadence-coalescing-candidate")
+        XCTAssertEqual(diagnostics.uncoalescedSubmittedDisplayRectCount, 2)
+        XCTAssertEqual(diagnostics.scheduledDisplayRectCount, 1)
+        XCTAssertEqual(diagnostics.coalescedDisplayRectCount, 1)
+        XCTAssertEqual(diagnostics.submittedDisplayRects, [CGRect(x: 0, y: 20, width: 40, height: 20)])
+        XCTAssertTrue(diagnostics.canCoalesceAtDisplayCadence)
+    }
+
     func testPartialDamageFallsBackToImmediatePolicyWhenPixelBoundsAreUnstable() {
         let diagnostics = TerminalRenderDamageDiagnostics.make(
             frame: makeFrame(

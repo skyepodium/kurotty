@@ -25,7 +25,10 @@ private enum CoreLibraryPath {
     static let swiftPMDebugDevelopmentPath = ".build/debug/\(dylibFilename)"
 }
 
-final class CoreBridge: TerminalCore, TerminalCoreCompatibilityDiagnosing, @unchecked Sendable {
+final class CoreBridge: TerminalCore,
+    TerminalCoreCompatibilityDiagnosing,
+    TerminalCoreMutationSourceDiagnosing,
+    @unchecked Sendable {
     private let symbols: CoreSymbols?
     private var handle: TerminalHandle?
     private var columns: UInt32
@@ -53,6 +56,15 @@ final class CoreBridge: TerminalCore, TerminalCoreCompatibilityDiagnosing, @unch
             parser: .swiftScaffold,
             screen: .swiftScaffold,
             render: .swiftScaffold
+        )
+    }
+
+    var mutationSourceDiagnostic: TerminalCoreMutationSourceDiagnostic {
+        return TerminalCoreMutationSourceDiagnostic(
+            sessionMutationOwner: .swiftScaffold,
+            frameMutationOwner: .swiftScaffold,
+            zigBridgeActive: handle != nil,
+            reason: handle == nil ? "zig-core-unavailable" : "swift-runtime-mutation-with-zig-feed-active"
         )
     }
 

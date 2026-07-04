@@ -1,5 +1,5 @@
 struct SegmentedScrollbackStore<Row> {
-    struct RetainedRowSummary: Equatable, CustomStringConvertible {
+    struct RetainedRowSummary: Codable, Equatable, CustomStringConvertible {
         let firstRetainedRowIndex: Int
         let retainedRowCount: Int
         let droppedRowCount: Int
@@ -24,6 +24,66 @@ struct SegmentedScrollbackStore<Row> {
                 "retainedRows=\(retainedRowCount)",
                 "droppedRows=\(droppedRowCount)",
                 "nextRow=\(nextRowIndex)",
+            ].joined(separator: " ")
+        }
+    }
+
+    struct PersistenceSegmentDescriptor: Codable, Equatable, CustomStringConvertible {
+        let ordinal: Int
+        let absoluteStartRowIndex: Int
+        let visibleRowCount: Int
+        let retainedStorageRowCount: Int
+        let isFirstPartialSegment: Bool
+        let isMutableTailSegment: Bool
+
+        var canSpillWithoutCompaction: Bool {
+            !isFirstPartialSegment && !isMutableTailSegment
+        }
+
+        var absoluteEndRowIndex: Int {
+            absoluteStartRowIndex + visibleRowCount
+        }
+
+        var description: String {
+            [
+                "ordinal=\(ordinal)",
+                "absoluteStartRow=\(absoluteStartRowIndex)",
+                "absoluteEndRow=\(absoluteEndRowIndex)",
+                "visibleRows=\(visibleRowCount)",
+                "retainedStorageRows=\(retainedStorageRowCount)",
+                "firstPartial=\(isFirstPartialSegment)",
+                "mutableTail=\(isMutableTailSegment)",
+                "canSpillWithoutCompaction=\(canSpillWithoutCompaction)",
+            ].joined(separator: " ")
+        }
+    }
+
+    struct PersistenceSnapshot: Codable, Equatable, CustomStringConvertible {
+        let schemaVersion: Int
+        let rowLimit: Int
+        let segmentSize: Int
+        let retainedRowSummary: RetainedRowSummary
+        let segments: [PersistenceSegmentDescriptor]
+
+        var spillCandidateSegmentCount: Int {
+            segments.filter(\.canSpillWithoutCompaction).count
+        }
+
+        var spillCandidateRowCount: Int {
+            segments.reduce(0) { total, segment in
+                total + (segment.canSpillWithoutCompaction ? segment.visibleRowCount : 0)
+            }
+        }
+
+        var description: String {
+            [
+                "schemaVersion=\(schemaVersion)",
+                "rowLimit=\(rowLimit)",
+                "segmentSize=\(segmentSize)",
+                "retainedRange=\(retainedRowSummary)",
+                "segments=\(segments.count)",
+                "spillCandidateSegments=\(spillCandidateSegmentCount)",
+                "spillCandidateRows=\(spillCandidateRowCount)",
             ].joined(separator: " ")
         }
     }
@@ -271,6 +331,16 @@ struct SegmentedScrollbackStore<Row> {
         )
     }
 
+    func persistenceSnapshot() -> PersistenceSnapshot {
+        PersistenceSnapshot(
+            schemaVersion: 1,
+            rowLimit: rowLimit,
+            segmentSize: segmentSize,
+            retainedRowSummary: retainedRowSummary,
+            segments: persistenceSegmentDescriptors()
+        )
+    }
+
     static func exportWindowSummary(
         absoluteStartIndex: Int,
         rowCount: Int,
@@ -372,6 +442,32 @@ struct SegmentedScrollbackStore<Row> {
         guard endIndex > startIndex else { return 0 }
         let (distance, overflow) = endIndex.subtractingReportingOverflow(startIndex)
         return overflow ? Int.max : distance
+    }
+
+    private func persistenceSegmentDescriptors() -> [PersistenceSegmentDescriptor] {
+        var descriptors: [PersistenceSegmentDescriptor] = []
+        descriptors.reserveCapacity(segments.count)
+
+        var nextAbsoluteRowIndex = droppedRowCount
+        for segmentIndex in segments.indices {
+            let segment = segments[segmentIndex]
+            let visibleStartOffset = segmentIndex == segments.startIndex ? firstSegmentStartIndex : 0
+            let visibleRowCount = segment.count - visibleStartOffset
+            guard visibleRowCount > 0 else { continue }
+
+            descriptors.append(.init(
+                ordinal: descriptors.count,
+                absoluteStartRowIndex: nextAbsoluteRowIndex,
+                visibleRowCount: visibleRowCount,
+                retainedStorageRowCount: segment.count,
+                isFirstPartialSegment: segmentIndex == segments.startIndex && visibleStartOffset > 0,
+                isMutableTailSegment: segmentIndex == segments.index(before: segments.endIndex) &&
+                    segment.count < segmentSize
+            ))
+            nextAbsoluteRowIndex += visibleRowCount
+        }
+
+        return descriptors
     }
 
     private mutating func appendWithoutTrimming(_ row: Row) {

@@ -307,4 +307,107 @@ final class TerminalGlyphRunTests: XCTestCase {
         XCTAssertEqual(decoded.contract.clippingRisk, .none)
         XCTAssertEqual(decoded.contract.validationFlags, [.missingGlyph, .fallbackUnresolved, .atlasUnassigned])
     }
+
+    func testCoreTextModelDerivesStableFallbackAtlasKeyAndReadiness() throws {
+        let first = TerminalGlyphRun.coreTextModel(
+            sourceText: "한",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 12, utf16Length: 1),
+            fontName: "Menlo-Regular",
+            pointSizePixels: 30,
+            scale: 2,
+            cellSizePixels: TerminalGlyphCellSize(width: 18, height: 36)
+        )
+        let second = TerminalGlyphRun.coreTextModel(
+            sourceText: "한",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 12, utf16Length: 1),
+            fontName: "Menlo-Regular",
+            pointSizePixels: 30,
+            scale: 2,
+            cellSizePixels: TerminalGlyphCellSize(width: 18, height: 36)
+        )
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.shaping.engine, .platformShaper)
+        XCTAssertEqual(first.contract.shapingReadiness, .ready)
+        XCTAssertNotEqual(first.contract.atlasReadiness, .resident)
+        XCTAssertEqual(first.contract.atlasReadiness, .reserved)
+        XCTAssertEqual(first.contract.atlasOwnership, .sharedFontAtlas)
+        XCTAssertEqual(first.source.graphemeClusters.first?.terminalCellWidth, 2)
+        XCTAssertEqual(first.terminalCellWidth, 2)
+        XCTAssertEqual(first.atlasKey.sourceFingerprint, "U+D55C")
+        XCTAssertEqual(first.atlasKey.glyphIDs, first.glyphs.map(\.glyphID))
+        XCTAssertEqual(first.atlasKey.pointSizePixels, 30)
+        XCTAssertEqual(first.atlasKey.scale, 2)
+        XCTAssertFalse(first.atlasKey.glyphIDs.isEmpty)
+        XCTAssertFalse(first.fallbackFont.identifier.isEmpty)
+        XCTAssertEqual(first.atlasKey.fontIdentifier, first.fallbackFont.identifier)
+        XCTAssertEqual(first.atlasKey.presentation, first.fallbackFont.requestedPresentation)
+
+        let decoded = try JSONDecoder().decode(TerminalGlyphRun.self, from: JSONEncoder().encode(first))
+        XCTAssertEqual(decoded, first)
+    }
+
+    func testCoreTextModelKeepsEmojiClusterAsSingleAtlasSourceIdentity() {
+        let run = TerminalGlyphRun.coreTextModel(
+            sourceText: "🧑‍💻",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 4, utf16Length: 5),
+            fontName: "Menlo-Regular",
+            pointSizePixels: 30,
+            scale: 2,
+            cellSizePixels: TerminalGlyphCellSize(width: 18, height: 36)
+        )
+
+        XCTAssertEqual(run.source.graphemeClusters, [
+            TerminalGlyphSourceGraphemeCluster(
+                text: "🧑‍💻",
+                range: TerminalGlyphSourceRange(utf16Location: 4, utf16Length: 5),
+                terminalCellWidth: 2,
+                unicodeScalarValues: [0x1f9d1, 0x200d, 0x1f4bb]
+            ),
+        ])
+        XCTAssertEqual(run.atlasKey.sourceFingerprint, "U+1F9D1-U+200D-U+1F4BB")
+        XCTAssertEqual(run.atlasKey.presentation, .emoji)
+        XCTAssertTrue(run.diagnosticFlags.contains(.containsZeroWidthJoiner))
+        XCTAssertTrue(run.diagnosticFlags.contains(.wideCluster))
+        XCTAssertEqual(run.contract.atlasReadiness, .reserved)
+    }
+
+    func testCoreTextModelKeepsMixedFallbackSourceRangesDisjoint() {
+        let run = TerminalGlyphRun.coreTextModel(
+            sourceText: "A한",
+            sourceRange: TerminalGlyphSourceRange(utf16Location: 20, utf16Length: 2),
+            fontName: "Menlo-Regular",
+            pointSizePixels: 30,
+            scale: 2,
+            cellSizePixels: TerminalGlyphCellSize(width: 18, height: 36)
+        )
+
+        XCTAssertEqual(run.glyphs.map(\.sourceRange.utf16Location), [20, 21])
+        XCTAssertEqual(run.glyphs.map(\.sourceRange.utf16Length), [1, 1])
+        XCTAssertEqual(run.atlasKey.glyphIDs, run.glyphs.map(\.glyphID))
+        if Set(run.fallbackChain.map(\.identifier)).count > 1 {
+            XCTAssertTrue(run.atlasKey.fontIdentifier?.hasPrefix("mixed(") == true)
+            XCTAssertNotEqual(run.atlasKey.fontIdentifier, run.fallbackChain.last?.identifier)
+        }
+    }
+
+    func testClippingClassifierMarksOverhangingAtlasInkEdges() {
+        let clipping = TerminalGlyphClippingMetrics.classified(
+            inkBounds: TerminalGlyphBounds(x: -1.25, y: -5, width: 20.5, height: 37),
+            cellBounds: TerminalGlyphBounds(x: 0, y: -4, width: 18, height: 36)
+        )
+
+        XCTAssertEqual(clipping.overhang, TerminalGlyphOverhang(left: 1.25, right: 1.25, top: 1, bottom: 0))
+        XCTAssertEqual(clipping.clippedEdges, [.left, .right, .top])
+        XCTAssertEqual(
+            TerminalGlyphBackendContract(
+                shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: .shaped),
+                fallbackFont: .primary(name: "Menlo", identifier: "menlo-regular"),
+                fallbackChain: [.primary(name: "Menlo", identifier: "menlo-regular")],
+                atlas: TerminalGlyphAtlasMetadata(ownership: .sharedFontAtlas),
+                clipping: clipping
+            ).clippingRisk,
+            .clipped
+        )
+    }
 }

@@ -445,6 +445,26 @@ struct AIAgentActionApprovalDialogFlow: Equatable, CustomStringConvertible {
         let approval: AIAgentActionApprovalResult
     }
 
+    struct PresentationRow: Equatable, CustomStringConvertible {
+        let label: String
+        let value: String
+        let requiresExplicitApproval: Bool
+
+        init(
+            label: String,
+            value: String,
+            requiresExplicitApproval: Bool = false
+        ) {
+            self.label = label
+            self.value = value
+            self.requiresExplicitApproval = requiresExplicitApproval
+        }
+
+        var description: String {
+            "PresentationRow(label: \(label), value: \(value), requiresExplicitApproval: \(requiresExplicitApproval))"
+        }
+    }
+
     let actionID: String
     let kind: AIAgentActionKind
     let title: String
@@ -478,6 +498,31 @@ struct AIAgentActionApprovalDialogFlow: Equatable, CustomStringConvertible {
             "preview: \(redactedPreview)",
             "summary: \(summary ?? "unspecified"))",
         ].map(aiApprovalRedacted).joined(separator: " ")
+    }
+
+    var presentationRows: [PresentationRow] {
+        var rows: [PresentationRow] = [
+            PresentationRow(label: "Actor", value: aiApprovalRedacted(metadata.actor)),
+            PresentationRow(label: "Capability", value: aiApprovalRedacted(metadata.capability)),
+        ]
+
+        if let target = targetValue() {
+            rows.append(PresentationRow(label: "Target", value: target))
+        }
+        if let cwd = metadata.cwd {
+            rows.append(PresentationRow(label: "Working Directory", value: aiApprovalRedacted(cwd)))
+        }
+        rows.append(PresentationRow(label: "Persistence", value: metadata.persistenceScope.description))
+
+        rows.append(contentsOf: contextReferences.compactMap { reference in
+            contextReferenceRow(for: reference)
+        })
+
+        if let commandOutput = metadata.commandOutput {
+            rows.append(commandOutputRow(for: commandOutput))
+        }
+
+        return rows
     }
 
     func approve() -> Decision {
@@ -514,6 +559,57 @@ struct AIAgentActionApprovalDialogFlow: Equatable, CustomStringConvertible {
         case .deny:
             return "AI Terminal Action Denied"
         }
+    }
+
+    private func targetValue() -> String? {
+        switch (metadata.targetPaneID, metadata.targetWorkspaceID) {
+        case let (.some(paneID), .some(workspaceID)):
+            return "\(aiApprovalRedacted(paneID)) / \(aiApprovalRedacted(workspaceID))"
+        case let (.some(paneID), .none):
+            return aiApprovalRedacted(paneID)
+        case let (.none, .some(workspaceID)):
+            return aiApprovalRedacted(workspaceID)
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func contextReferenceRow(for reference: AICommandContextReference) -> PresentationRow? {
+        let hasReference = reference.commandSpanID != nil
+            || reference.startBoundarySequence != nil
+            || reference.endBoundarySequence != nil
+            || reference.targetPaneID != nil
+            || reference.targetWorkspaceID != nil
+        guard hasReference else {
+            return nil
+        }
+
+        var value = reference.commandSpanID.map { "Command #\($0)" } ?? "Command reference"
+        if let start = reference.startBoundarySequence,
+           let end = reference.endBoundarySequence {
+            value += " boundaries \(start)-\(end)"
+        } else if let output = reference.outputBoundarySequence {
+            value += " output boundary \(output)"
+        }
+        return PresentationRow(label: "Context Reference", value: aiApprovalRedacted(value))
+    }
+
+    private func commandOutputRow(for commandOutput: AICommandOutputApprovalMetadata) -> PresentationRow {
+        let outputState: String
+        if commandOutput.includesRawOutput {
+            outputState = commandOutput.rawOutputApproved ? "Raw output approved" : "Raw output requires approval"
+        } else {
+            outputState = "Raw output omitted"
+        }
+
+        let redactionState = commandOutput.secretRedactionEnabled
+            ? "redaction enabled"
+            : "redaction disabled"
+        return PresentationRow(
+            label: "Command Output",
+            value: "\(outputState); \(redactionState)",
+            requiresExplicitApproval: commandOutput.explicitApprovalRequired
+        )
     }
 }
 

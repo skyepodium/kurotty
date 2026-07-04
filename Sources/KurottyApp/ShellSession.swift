@@ -13,6 +13,7 @@ private func systemForkpty(
 final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
+    var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
     var onExit: ((Int32) -> Void)?
 
     private var master: Int32 = -1
@@ -29,6 +30,7 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     private var pendingOutput = Data()
     private var pendingOutputStartIndex = 0
     private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
+    private var ptyReadTraceSequence: UInt64 = 0
 
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
@@ -279,6 +281,7 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
             }
             if count > 0 {
                 let chunk = Data(readBuffer[0..<count])
+                emitRuntimePtyRead(byteCount: chunk.count)
                 onRawOutput?(chunk)
                 pendingOutput.append(chunk)
                 didRead = true
@@ -294,6 +297,14 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             self?.onOutput?(text)
         }
+    }
+
+    private func emitRuntimePtyRead(byteCount: Int) {
+        guard byteCount > 0 else { return }
+        let traceID = TerminalEventTraceID("pty-read-\(ptyReadTraceSequence)")
+        ptyReadTraceSequence &+= 1
+        let event = TerminalEventLedger.RecordedEvent.ptyRead(traceID: traceID, byteCount: byteCount)
+        onRuntimeEvent?(event)
     }
 
     private func setNonBlocking(_ fd: Int32) {

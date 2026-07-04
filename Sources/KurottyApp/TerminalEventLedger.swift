@@ -243,6 +243,12 @@ struct TerminalEventLedger: CustomStringConvertible {
         }
     }
 
+    var timelineSummariesByTraceID: [TerminalEventTraceID: TerminalTraceTimelineSummary] {
+        eventsByTraceID.mapValues { traceEvents in
+            timelineSummary(traceID: traceEvents[0].traceID, events: traceEvents)
+        }
+    }
+
     var description: String {
         "TerminalEventLedger \(diagnostics.description)"
     }
@@ -272,12 +278,22 @@ struct TerminalEventLedger: CustomStringConvertible {
         recordedEvents.map { append(traceID: $0.traceID, payload: $0.payload) }
     }
 
+    @discardableResult
+    mutating func record(_ recordedEvent: RecordedEvent) -> Event {
+        append(traceID: recordedEvent.traceID, payload: recordedEvent.payload)
+    }
+
     func events(for traceID: TerminalEventTraceID) -> [Event] {
         events.filter { $0.traceID == traceID }
     }
 
     func summary(for traceID: TerminalEventTraceID) -> TraceSummary {
         makeSummary(traceID: traceID, events: events(for: traceID))
+    }
+
+    func timelineSummary(for traceID: TerminalEventTraceID) -> TerminalTraceTimelineSummary {
+        let traceEvents = events(for: traceID)
+        return timelineSummary(traceID: traceID, events: traceEvents)
     }
 
     func traceCorrelationReport(
@@ -290,6 +306,16 @@ struct TerminalEventLedger: CustomStringConvertible {
             stageSequence: traceEvents.map(\.kind),
             resizeSnapshot: resizeSnapshot
         )
+    }
+
+    private func timelineSummary(
+        traceID: TerminalEventTraceID,
+        events traceEvents: [Event]
+    ) -> TerminalTraceTimelineSummary {
+        TerminalTraceCorrelationReport(
+            eventSummary: makeSummary(traceID: traceID, events: traceEvents),
+            stageSequence: traceEvents.map(\.kind)
+        ).timelineSummary
     }
 
     func conciseDescription(for traceID: TerminalEventTraceID) -> String {

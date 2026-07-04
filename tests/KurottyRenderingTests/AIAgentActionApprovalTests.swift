@@ -586,4 +586,76 @@ final class AIAgentActionApprovalTests: XCTestCase {
         XCTAssertEqual(approved.status, .dispatched)
         XCTAssertEqual(sentText, ["echo token=raw-secret"])
     }
+
+    func testApprovalDialogFlowExposesRedactedPresentationRows() throws {
+        let metadata = AIAgentActionApprovalMetadata(
+            actor: "planner-token=actor-secret",
+            targetPaneID: "pane-password=pane-secret",
+            targetWorkspaceID: "workspace-7",
+            cwd: "/repo/api_key=cwd-secret",
+            capability: "terminal.exportContext",
+            contextReferences: [
+                AICommandContextReference(
+                    commandSpanID: 42,
+                    targetPaneID: "pane-password=pane-secret",
+                    targetWorkspaceID: "workspace-7",
+                    startBoundarySequence: 10,
+                    outputBoundarySequence: 12,
+                    endBoundarySequence: 14
+                ),
+            ],
+            persistenceScope: .session,
+            contextSummary: "command: cat token=summary-secret",
+            commandOutput: AICommandOutputApprovalMetadata(
+                reference: AICommandContextReference(
+                    commandSpanID: 42,
+                    targetPaneID: "pane-password=pane-secret",
+                    targetWorkspaceID: "workspace-7",
+                    outputBoundarySequence: 12
+                ),
+                includesRawOutput: true,
+                rawOutputApproved: false,
+                secretRedactionEnabled: true,
+                explicitApprovalRequired: true
+            )
+        )
+        let result = AIAgentActionApprovalEvaluator(maxPreviewLength: 80).evaluate(
+            .exportContext(
+                id: "export-context",
+                rawContext: "token=raw-secret",
+                includesRawOutput: true,
+                secretRedactionEnabled: true,
+                metadata: metadata
+            )
+        )
+
+        let dialog = AIAgentActionApprovalDialogFlow(result: result)
+        let rows = dialog.presentationRows
+
+        XCTAssertEqual(rows.map(\.label), [
+            "Actor",
+            "Capability",
+            "Target",
+            "Working Directory",
+            "Persistence",
+            "Context Reference",
+            "Command Output",
+        ])
+        XCTAssertEqual(rows.first { $0.label == "Actor" }?.value, "planner-token=[REDACTED_SECRET]")
+        XCTAssertEqual(rows.first { $0.label == "Capability" }?.value, "terminal.exportContext")
+        XCTAssertEqual(rows.first { $0.label == "Target" }?.value, "pane-password=[REDACTED_SECRET] / workspace-7")
+        XCTAssertEqual(rows.first { $0.label == "Working Directory" }?.value, "/repo/api_key=[REDACTED_SECRET]")
+        XCTAssertEqual(rows.first { $0.label == "Persistence" }?.value, "session")
+        XCTAssertEqual(rows.first { $0.label == "Context Reference" }?.value, "Command #42 boundaries 10-14")
+        XCTAssertEqual(rows.first { $0.label == "Command Output" }?.value, "Raw output requires approval; redaction enabled")
+        XCTAssertTrue(rows.first { $0.label == "Command Output" }?.requiresExplicitApproval == true)
+        XCTAssertFalse(String(describing: rows).contains("raw-secret"))
+        XCTAssertFalse(String(describing: rows).contains("pane-secret"))
+
+        let approvedRows = AIAgentActionApprovalDialogFlow(
+            result: AIAgentActionApprovalEvaluator(maxPreviewLength: 80).approve(result)
+        ).presentationRows
+        XCTAssertEqual(approvedRows.first { $0.label == "Command Output" }?.value, "Raw output approved; redaction enabled")
+        XCTAssertFalse(approvedRows.first { $0.label == "Command Output" }?.requiresExplicitApproval == true)
+    }
 }

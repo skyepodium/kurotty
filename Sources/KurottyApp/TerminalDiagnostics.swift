@@ -60,6 +60,26 @@ protocol TerminalCoreCompatibilityDiagnosing {
     var compatibilityDiagnostic: TerminalCoreCompatibilityDiagnostic { get }
 }
 
+struct TerminalCoreMutationSourceDiagnostic: Equatable, CustomStringConvertible {
+    let sessionMutationOwner: TerminalCoreStateSource
+    let frameMutationOwner: TerminalCoreStateSource
+    let zigBridgeActive: Bool
+    let reason: String
+
+    var description: String {
+        [
+            "sessionMutationOwner=\(sessionMutationOwner.rawValue)",
+            "frameMutationOwner=\(frameMutationOwner.rawValue)",
+            "zigBridgeActive=\(zigBridgeActive)",
+            "reason=\(reason)",
+        ].joined(separator: " ")
+    }
+}
+
+protocol TerminalCoreMutationSourceDiagnosing {
+    var mutationSourceDiagnostic: TerminalCoreMutationSourceDiagnostic { get }
+}
+
 struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
     let traceID: TerminalEventTraceID
     let eventSummary: TerminalEventLedger.TraceSummary

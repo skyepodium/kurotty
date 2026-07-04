@@ -13,8 +13,10 @@ struct TerminalCommandPaletteEntry: Equatable {
 struct TerminalCommandSpanPaletteEntry: Equatable {
     let command: TerminalCommandSpanCommand
     let title: String
+    let subtitle: String
     let id: String
     let categoryTitle: String
+    let requiresExplicitApproval: Bool
     let aliases: [String]
 }
 
@@ -42,8 +44,10 @@ struct TerminalCommandPalette {
                 TerminalCommandSpanPaletteEntry(
                     command: command,
                     title: command.title,
+                    subtitle: command.subtitle,
                     id: command.id.rawValue,
                     categoryTitle: command.category.paletteTitle,
+                    requiresExplicitApproval: command.approvalPolicy == .explicitUserConfirmation,
                     aliases: command.searchTokens
                 )
             }
@@ -161,6 +165,7 @@ private extension TerminalCommandSpanPaletteEntry {
         let normalizedTitle = title.paletteSearchText
         let normalizedID = id.paletteSearchText
         let normalizedCategory = categoryTitle.paletteSearchText
+        let normalizedSubtitle = subtitle.paletteSearchText
         let normalizedAliases = aliases.map(\.paletteSearchText)
 
         if normalizedTitle == query {
@@ -181,10 +186,15 @@ private extension TerminalCommandSpanPaletteEntry {
         if normalizedCategory.hasPrefix(query) || normalizedCategory.contains(query) {
             return 5
         }
+        if normalizedSubtitle.hasPrefix(query) || normalizedSubtitle.contains(query) {
+            return 6
+        }
         if normalizedAliases.contains(where: { $0.hasPrefix(query) || $0.contains(query) }) {
             return 7
         }
-        if normalizedTitle.paletteContainsTokens(in: query) || normalizedTitle.paletteContainsSubsequence(query) {
+        if normalizedTitle.paletteContainsTokens(in: query)
+            || normalizedSubtitle.paletteContainsTokens(in: query)
+            || normalizedTitle.paletteContainsSubsequence(query) {
             return 8
         }
         return nil
