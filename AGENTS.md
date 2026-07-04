@@ -102,6 +102,17 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Notification body text must come from an explicit terminal notification protocol or command/session completion event. Do not use shell prompts, path/title rows, status bars, placeholders, or freshly redrawn idle UI as notification body text.
 - Use Ghostty as the reference model for this area: OSC desktop notifications are explicit `show_desktop_notification` events, and command-finished notifications are derived from command metadata such as duration and exit code rather than scraped screen rows.
 
+## macOS AppKit / Metal Executor Boundaries
+
+- External framework callbacks are not automatically on the main actor, even when the object that registered them is main-actor isolated. Treat Metal, UserNotifications, dispatch source, PTY, file descriptor, and other system callback queues as nonisolated until proven otherwise.
+- Do not pass a closure formed in `@MainActor` context directly to `MTLCommandBuffer.addCompletedHandler`, UserNotifications delegate callbacks, or similar framework-owned completion queues if the closure captures `self`, AppKit objects, renderer state, or any main-actor isolated function.
+- Metal command buffer completion handlers run on Metal-owned queues such as `com.Metal.CompletionQueueDispatch`. Calling main-actor isolated code from that handler can crash release-installed apps with `_swift_task_checkIsolatedSwift` / `dispatch_assert_queue`.
+- For Metal presentation callbacks, create a nonisolated completion handler that does no AppKit or renderer mutation on the Metal queue. Capture only a sendable handoff wrapper, then use `DispatchQueue.main.async { ... }` for the UI/frame-presented callback.
+- Avoid `Task { @MainActor in ... }`, `Task { await MainActor.run { ... } }`, and `MainActor.assumeIsolated { ... }` inside framework-owned callback queues unless there is a written proof that the callback is already executing on the main actor. Prefer explicit `DispatchQueue.main.async` for AppKit UI hops from legacy callback APIs.
+- If Swift 6 reports a sendability error for a callback that is intentionally only invoked after a main-queue hop, use a tiny, narrowly named `@unchecked Sendable` wrapper for the handoff closure. Do not mark broad view/controller types as unchecked sendable.
+- Regression tests for this class of crash should assert source shape: no direct `[weak self]` capture in Metal completion handlers, completion handler construction is nonisolated, and AppKit/main-actor work is reached only through an explicit main-queue hop.
+- Installed app crashes must be diagnosed from the crash queue and binary frame context, not from assumptions based on debug builds. A crash on `com.Metal.CompletionQueueDispatch` points at Metal completion handlers; a crash on `com.apple.usernotifications.UNUserNotificationServiceConnection.call-out` points at notification delegate callbacks.
+
 ## Assets
 
 - `kurotty-profile.png` is the source image for the Kurotty cat icon. Preserve it as an input asset and do not overwrite, resize, crop, delete, or regenerate it during icon replacement work.
