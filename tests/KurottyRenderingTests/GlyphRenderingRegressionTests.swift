@@ -872,6 +872,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(logSource.contains("damageDiagnostics.scissorDisabled ? \"yes\" : \"no\""))
     }
 
+    func testTerminalMetalViewCompletionHandlerDoesNotCaptureMainActorStateOnMetalQueue() throws {
+        let metalSource = try terminalMetalViewSource()
+        let drawSource = try functionBody(named: "draw", in: metalSource)
+
+        XCTAssertTrue(metalSource.contains("private static func makePresentedCompletionHandler"))
+        XCTAssertTrue(drawSource.contains("let presentedCompletionHandler = Self.makePresentedCompletionHandler(onPresented)"))
+        XCTAssertTrue(drawSource.contains("commandBuffer.addCompletedHandler(presentedCompletionHandler)"))
+        XCTAssertFalse(drawSource.contains("commandBuffer.addCompletedHandler { [weak self]"))
+        XCTAssertFalse(drawSource.contains("self?.onPresented?()"))
+    }
+
     func testPtyOutputIsCoalescedBeforeRenderingToAvoidTransientClearedRows() throws {
         let source = try terminalSurfaceViewSource()
 
