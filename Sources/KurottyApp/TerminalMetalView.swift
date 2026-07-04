@@ -2015,7 +2015,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             return false
         }
 
-        let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns
+        let markedTextEndColumn = min(
+            terminalFrame.columns,
+            terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)
+        )
+        let markedTextRange = terminalFrame.markedTextColumn..<markedTextEndColumn
         guard !markedTextRange.isEmpty else { return false }
 
         let cellEndColumn = min(

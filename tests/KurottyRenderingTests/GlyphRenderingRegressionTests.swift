@@ -600,13 +600,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText)"))
     }
 
-    func testMarkedTextMasksUnderlyingPromptPlaceholderCells() throws {
+    func testMarkedTextMasksOnlyCompositionCells() throws {
         let source = try terminalMetalViewSource()
 
         XCTAssertTrue(source.contains("private func isCellCoveredByMarkedText(_ cell: TerminalCell) -> Bool"))
         XCTAssertTrue(source.contains("guard !isCellCoveredByMarkedText(cell) else { continue }"))
-        XCTAssertTrue(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns"))
-        XCTAssertFalse(source.contains("terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)"))
+        XCTAssertTrue(source.contains("let markedTextEndColumn = min(\n            terminalFrame.columns,\n            terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)\n        )"))
+        XCTAssertTrue(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<markedTextEndColumn"))
+        XCTAssertFalse(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns"))
         XCTAssertTrue(source.contains("return cellRange.overlaps(markedTextRange)"))
     }
 
