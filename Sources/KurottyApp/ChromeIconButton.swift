@@ -55,6 +55,8 @@ final class ChromeIconButton: NSButton {
     }
 
     override func mouseExited(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard !bounds.contains(location) else { return }
         isHovered = false
         updateAppearance()
     }
