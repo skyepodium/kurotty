@@ -23,24 +23,78 @@ shell-integration command metadata, user-configured trigger templates, or fixed
 event text. Blindly summarizing the visible screen mixes prompt text, status bars,
 ANSI control fragments, tool traces, and assistant output.
 
-For Codex/agent workflows, the only acceptable fallback is a narrow agent-output
-extractor that selects the latest assistant answer block and rejects prompt,
-tool/status, and UI chrome lines. Longer term, Kurotty should prefer explicit
-agent events over text extraction.
+For interactive TUI and agent workflows, the only acceptable fallback is a narrow
+output extractor that selects a trustworthy answer/message block and rejects
+prompt, tool/status, UI chrome, control fragments, and repaint suffixes. If that
+message block is not present, Kurotty should skip the notification instead of
+sending guessed content. Longer term, Kurotty should prefer explicit terminal,
+shell-integration, or agent events over text extraction.
 
 The second screenshot-class failure changed the diagnosis. The banner was no
-longer showing only `%`, but it still showed unrelated Codex conversation text:
+longer showing only `%`, but it still showed unrelated interactive TUI text:
 `hello`, `Hello. How can I help?`, and repaint suffix fragments such as `55`.
 That means body cleanup alone is not the fix. Kurotty was starting a
 background-task notification for every submitted line, including ordinary input
-inside an interactive Codex TUI. Mature terminals do not treat "user pressed
+inside an interactive TUI. Mature terminals do not treat "user pressed
 Enter in a full-screen/interactive program" as "a background task has started."
 
 The third correction is stricter: Kurotty must not infer a Codex completion title
-from Codex-looking output alone. `Codex task finished` now requires an explicit
-Codex task command shape such as `codex exec ...` or a future explicit agent
-event. A plain `codex` launch is treated as an interactive TUI start, not a
-finishable background task.
+from app-looking output alone. App-specific completion titles require an explicit
+noninteractive task command shape such as `codex exec ...`, shell-integration
+command metadata, or a future explicit agent event. A plain interactive TUI
+launch is not a finishable background task.
+
+The fourth correction, from the July 5 re-check against iTerm2 and Ghostty, is
+the most important architectural rule: an interactive TUI cannot be converted
+into reliable app-specific task completion by scraping the rendered screen.
+iTerm2 does, however, expose terminal alerts for exactly this
+class of interaction: the terminal event is titled `Alert`, and the body is
+session-scoped text such as `Session dev (codex) #1: Hi. What would you like to
+work on?`. That is not a task-completion signal; it is terminal activity/alert
+presentation. Other terminals avoid the false-completion bug by separating event
+sources:
+
+- Ghostty parses OSC 9 into `show_desktop_notification` with an empty title and
+  explicit body in `ghostty/src/terminal/osc/parsers/osc9.zig`.
+- Ghostty parses OSC 777 `notify;Title;Body` into the same explicit desktop
+  notification event in `ghostty/src/terminal/osc/parsers/rxvt_extension.zig`.
+- Ghostty forwards that typed event through `ghostty/src/termio/stream_handler.zig`
+  as `.desktop_notification` and gates delivery in `ghostty/src/Surface.zig`.
+- iTerm2 command completion starts from command marks and shell-integration
+  boundaries in `iTerm2/sources/VT100Screen/VT100ScreenMutableState.m`, then
+  reaches `PTYSession.m` as `screenDidExecuteCommand` /
+  `screenCommandDidExitWithCode`.
+- iTerm2 notification payloads for command completion carry command, exit code,
+  output range, host, directory, and prompt id; idle/new-output/bell are separate
+  event streams.
+- iTerm2 maps OSC 9 to `ITERM_USER_NOTIFICATION`, filters numeric first
+  parameters such as `9;4;...` as progress state, then formats non-rich terminal
+  notifications as title `Alert` with body `Session <session> #<tab>: <message>`.
+
+Kurotty therefore treats OSC desktop notification payloads as first-class
+`TerminalOSCDispatcher.Event.desktopNotification` values. This mirrors the
+Ghostty event boundary and prevents OSC notification body construction from
+falling back to arbitrary visible lines. The compatibility fallback for a live
+interactive TUI uses only output captured after the submitted input, requires a
+trustworthy answer block, and presents as an iTerm2-style terminal `Alert`, not
+as task completion.
+
+The fifth correction, from the external-hook failure, is about transport rather
+than text cleanup. Codex/OMX notify hooks can run without a controlling terminal.
+In that context `/dev/tty` may not exist or may not be writable, and guessing
+`/dev/ttys*` or a parent-process TTY is still hardcoding. Even if such a write
+succeeds, it is not guaranteed to enter Kurotty's PTY parser for the relevant
+pane. The correct model is the one used by cmux/kitty-style control paths:
+
+- PTY OSC 9/777 is accepted only when terminal applications emit it through the
+  PTY.
+- External hooks use an explicit Kurotty notification bridge, not a guessed TTY.
+- The bridge accepts typed JSON or plain text and maps fields such as
+  `last-assistant-message`, `title`, `body`, `message`, `summary`, and
+  `instruction` into a desktop notification payload.
+- Kurotty exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` to child
+  shells so tools launched inside Kurotty can notify the running app without
+  scraping the screen or writing to `/dev/tty`.
 
 ## Ghostty
 
@@ -105,6 +159,9 @@ Source references from the local tree:
 ### Source Areas
 
 - `iTerm2/sources/VT100Screen/VT100Screen.m`
+- `iTerm2/sources/VT100/VT100XtermParser.m`
+- `iTerm2/sources/VT100/VT100Terminal.m`
+- `iTerm2/sources/VT100Screen/VT100ScreenMutableState+TerminalDelegate.m`
 - `iTerm2/sources/PTYSession/PTYSession.m`
 - `iTerm2/sources/Notifications/iTermNotificationController.m`
 - `iTerm2/sources/TerminalView/PTYTab.m`
@@ -127,6 +184,15 @@ It also has separate alert sources:
 - browser notification polyfill
 
 Per-tab/session state prevents repeated idle/new-output spam. Notification clicks reveal the relevant session or perform callback behavior.
+
+OSC 9 follows a specific path:
+
+- `VT100XtermParser.m` maps OSC code `9` to `ITERM_USER_NOTIFICATION`.
+- `VT100Terminal.m` calls `terminalPostUserNotification:token.string`.
+- `VT100ScreenMutableState+TerminalDelegate.m` treats numeric first parameters as
+  extensions. `4` is ConEmu-style progress state, not a user notification.
+- `PTYSession.m` calls `iTermNotificationController notify:@"Alert"` and, unless
+  simple notifications are enabled, formats the body as `Session %@ #%d: %@`.
 
 ### Display Content
 
@@ -152,8 +218,8 @@ evaluation. Idle/new-output notifications are separate activity features and use
 fixed contextual text. They are not promoted to "command finished" just because
 the screen reached a prompt-looking state.
 
-That difference is exactly what Kurotty was missing. In a Codex TUI, the visible
-screen contains:
+That difference is exactly what Kurotty was missing. In an interactive agent/TUI,
+the visible screen contains:
 
 - prior user prompts
 - assistant replies
@@ -162,10 +228,11 @@ screen contains:
 - partial repaint artifacts from terminal control sequences
 
 None of those are a reliable completion payload unless Codex, shell integration,
-or a user trigger explicitly marks them as such. Kurotty should therefore
-suppress generic background-task tracking while an interactive agent TUI is
-visible, and reserve "Codex task finished/failed/needs input" for explicit agent
-events or a much narrower future agent-state integration.
+or a user trigger explicitly marks them as such. Kurotty should therefore avoid
+promoting interactive agent output to "Codex task finished/failed/needs input".
+For user-visible conversational output, Kurotty can still emit an iTerm2-style
+terminal `Alert` by using only the output captured after the submitted input and
+filtering prompt/status/tool/chrome lines before delivery.
 
 Source references from the local tree:
 
@@ -183,6 +250,9 @@ Source references from the local tree:
 - Add per-event first-hit/cooldown state.
 - Keep user preferences per source and per channel.
 - If Kurotty adds content triggers, make them explicit user-configured rules with captured payloads.
+- Match iTerm2 OSC 9 presentation: title `Alert`, body `Session <title> #<tab>:
+  <message>`, and ignore numeric OSC 9 progress/extensions as desktop
+  notifications.
 
 ## Kitty
 
@@ -242,6 +312,8 @@ Source references from the local tree:
 - Add tab/pane activity symbols independent of macOS banners.
 - Use focus-gating and throttling to avoid false activity.
 - Treat OSC 9/99/777 payloads as authoritative content. Treat screen text as untrusted UI material.
+- For OSC 9 specifically, copy iTerm2's split between text notifications and
+  numeric progress/update extensions so progress state does not become a banner.
 
 ## Alacritty
 
@@ -435,13 +507,21 @@ Rules added:
 - notification body extraction can preserve multi-paragraph meaningful output and avoids trailing shell prompts
 - macOS notification subtitle is populated
 - logs still record lengths only, not raw terminal content
+- `KurottyNotificationBridgeServer` opens a user-scoped Unix socket at
+  `Application Support/Kurotty/notify.sock`.
+- `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` are exported before the
+  shell is launched.
+- the app executable supports `--notify`, `--notify-json`, and
+  `--notify-socket-path` for external hooks.
+- bridge JSON prefers explicit fields such as `last-assistant-message`, `body`,
+  `message`, `summary`, and `instruction`; plain text remains an `Alert`.
 
-### Follow-up Fix For Codex TUI Output
+### Follow-up Fix For Interactive TUI Output
 
 The screenshot after the first fix exposed a sharper bug:
 
 - submitted input such as `hello` became the subtitle correctly
-- but the notification body included Codex UI chrome:
+- but the notification body included interactive TUI chrome:
   - color-control leftovers such as `38;2;200;169;238;49m`
   - approval/status text from the bottom bar
   - tool trace blocks such as `Explored` / `Read SKILL.md`
@@ -488,7 +568,7 @@ Root cause:
   a background task candidate.
 - Subsequent output while unfocused was captured and summarized after an idle
   timeout.
-- In an interactive Codex TUI, that model confuses conversation turns with
+- In an interactive TUI, that model confuses conversation turns with
   background command lifecycle.
 
 Applied correction:
@@ -496,18 +576,18 @@ Applied correction:
 - Add `TerminalBackgroundTaskTrackingPolicy`.
 - Keep normal shell commands eligible for fallback tracking.
 - Reject generic background-task tracking when the current visible terminal text
-  is Codex-like TUI output.
+  is interactive TUI output.
 - Reject a plain `codex` command as interactive TUI launch; allow only explicit
   noninteractive `codex exec ...` fallback tracking.
 - Do not promote generic background notifications to `Codex task finished`
-  because their output looks Codex-like.
+  because their output looks like an agent/TUI transcript.
 - Clear stale captured command/output/work items when tracking is rejected so
   old agent text cannot leak into the next notification.
 
 This deliberately does not claim to extract "the task content" from arbitrary
-Codex screen text. The correct long-term fix is an explicit agent-event protocol
-or shell/OSC integration where Codex tells Kurotty the task id, state, prompt,
-summary, approval request, and exit/failure state.
+screen text. The correct long-term fix is an explicit agent-event protocol or
+shell/OSC integration where the running tool tells Kurotty the task id, state,
+prompt, summary, approval request, and exit/failure state.
 
 ## Recommended Kurotty Alert Architecture
 
@@ -573,17 +653,38 @@ Each alert should carry:
 - Filter `%` prompt-only notification payloads.
 - Preserve meaningful multi-line output for Codex completion.
 - Add regression tests for the screenshot-class failure.
-- Suppress fallback background-task tracking while Codex interactive TUI output
-  is visible, preventing ordinary prompts such as `hello` from becoming fake
-  "Codex task finished" notifications.
+- Suppress fallback background-task tracking while interactive TUI output is
+  visible, preventing ordinary prompts such as `hello` from becoming fake
+  app-specific task-completion notifications.
+- Present conversational interactive TUI activity as an iTerm2-style terminal `Alert`
+  when output arrives after user input. The body uses the latest meaningful
+  assistant answer from the captured output buffer, not the full rendered screen.
 - Remove output-only Codex title inference; Codex-specific titles require
   explicit `codex exec ...` command shape until a dedicated agent event exists.
 - Treat `codex` by itself as an interactive TUI launch and suppress background
   task completion tracking for it.
+- Skip interactive terminal-alert fallback delivery when the captured output has
+  only prompts, status rows, tool traces, or control/repaint fragments and no
+  trustworthy answer block.
+- Route OSC 9 and OSC 777 `notify;title;body` through
+  `TerminalOSCDispatcher.Event.desktopNotification` instead of ad hoc surface
+  parsing.
+- Match iTerm2 OSC 9 alert formatting and ignore numeric OSC 9 progress
+  extensions.
+- Deliver explicit desktop notification payloads through `TerminalNotifier`
+  without deriving body text from the rendered screen.
+- Add a cmux-style external bridge for Codex/OMX hooks. This replaces the
+  broken `/dev/tty` OSC write pattern with an explicit Unix socket and CLI
+  client.
+- Document that Codex/OMX Kurotty notifications must use
+  `KUROTTY_NOTIFY_COMMAND`, `KUROTTY_NOTIFY_SOCKET`, or the installed app
+  executable with `--notify` / `--notify-json`.
 
 ### Next Iteration
 
-- Add explicit Codex/agent event input instead of screen scraping.
+- Extend the explicit Kurotty bridge beyond desktop banners into a durable
+  agent-event API. It should accept task id, state, prompt, summary, approval
+  request, exit/failure state, and pane/session target metadata.
 - Wire OSC 133 command spans directly into notification content, including exit code and duration.
 - Add pane/tab alert flags for activity, bell, failure, and input-required.
 - Add click target metadata so notification activation focuses the originating pane.

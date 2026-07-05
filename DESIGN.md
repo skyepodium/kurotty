@@ -24,12 +24,13 @@ Responsibilities:
 
 - Present windows, tabs, splits, and pane focus with the same predictability users expect from a browser.
 - Keep each top-level tab understandable as a workspace surface, with split panes nested inside the tab rather than exposed as separate windows by default.
-- Make common actions visible in menus, toolbar affordances, and the command palette while keeping keyboard-first paths complete.
+- Make common actions visible in menus and the command palette while keeping keyboard-first paths complete.
 
 Design rules:
 
 - Tabs should have stable titles, close affordances, dirty/running indicators, and focus state. Avoid tab behavior that depends on terminal protocol state alone.
 - Split panes should preserve the user's mental model: creating, resizing, moving focus, closing, and restoring panes must operate on stable pane identifiers.
+- Browser-like chrome should stay minimal: top-level tabs are visible when useful, while actions live in menus, keyboard shortcuts, context menus, and the command palette instead of a persistent toolbar above the terminal surface.
 - Browser-like does not mean web-like rendering. Use native AppKit controls where they fit, and keep terminal rendering owned by the Metal terminal surface.
 - The terminal viewport remains the primary content. Do not add illustrations, promotional copy, or decorative brand surfaces around active terminal output.
 
@@ -37,13 +38,16 @@ Design rules:
 
 Responsibilities:
 
-- Provide one command registry for menu items, toolbar actions, keyboard shortcuts, command palette entries, and automation entry points.
+- Provide one command registry for menu items, keyboard shortcuts, command palette entries, and automation entry points.
 - Support output search and copy mode as first-class terminal workflows, not as incidental text-view behavior.
 - Let non-developer users discover commands by plain names while preserving fast keyboard operation for advanced users.
 
 Design rules:
 
 - Commands should declare identifier, title, optional category, default shortcut, enabled state, and target scope: app, window, tab, pane, selection, workspace, or agent.
+- Search should expose terminal-output matches through menu and command-palette entry points once the full match model is wired to scrollback/command-span coordinates.
+- Copy Mode should keep focus in the active terminal pane and reuse the selection model and scrollback coordinates.
+- Quick Terminal opens a new terminal tab in the current window and focuses it, preserving the browser-like tab mental model.
 - Search should operate on terminal coordinates and scrollback ranges. It must not force raw terminal text persistence beyond the selected feature's retention policy.
 - Copy mode should use the selection model and scrollback coordinates, including wide characters, wrapped lines, placeholder blanks, and alternate screen behavior.
 - Palette results should favor actions and current workspace objects before speculative suggestions. AI actions belong in the agent scope and must show approval state when they can send text or run commands.
@@ -60,6 +64,7 @@ Design rules:
 
 - Save layout snapshots separately from shell process state, command replay state, and AI agent resume state.
 - Restore should first create windows, tabs, splits, focus, titles, profile metadata, and cwd hints. Starting shells, replaying commands, or resuming agents requires a separate opt-in policy.
+- `WorkspaceSnapshot.restorePlan` is the inspectable app model for this boundary: layout pane IDs are always listed separately from process restore IDs, and command replay candidates carry approval/risk metadata instead of being executed during layout restore.
 - Workspace UI should show what will be restored before performing risky or surprising actions.
 - Snapshot storage must be atomic and versioned, and it should avoid raw scrollback contents unless the user enabled a feature that explicitly needs them.
 

@@ -20,7 +20,7 @@ struct TerminalNotificationLogMetadata: CustomStringConvertible {
     }
 }
 
-struct TerminalRawPtyLogMetadata: CustomStringConvertible {
+struct TerminalRawPtyLogMetadata: CustomStringConvertible, Sendable {
     let byteCount: Int
 
     init(data: Data) {

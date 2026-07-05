@@ -40,6 +40,12 @@ enum MainMenu {
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(nextTab)
         fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(title: "Search Output", action: #selector(AppDelegate.showSearch), keyEquivalent: "f"))
+        let copyMode = NSMenuItem(title: "Enter Copy Mode", action: #selector(AppDelegate.enterCopyMode), keyEquivalent: "c")
+        copyMode.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(copyMode)
+        fileMenu.addItem(NSMenuItem(title: "Quick Terminal", action: #selector(AppDelegate.openQuickTerminal), keyEquivalent: "`"))
+        fileMenu.addItem(.separator())
         let commandPalette = NSMenuItem(title: "Command Palette...", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: "P")
         commandPalette.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(commandPalette)

@@ -12,6 +12,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let tabView = NSTabView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
     private var chromeTheme: DesignTokens.ChromeTheme
+    var openCommandPaletteRequested: (() -> Void)?
 
     convenience init(paneDragCoordinator: TerminalPaneDragCoordinator) {
         self.init(initialPane: nil, paneDragCoordinator: paneDragCoordinator)
@@ -100,6 +101,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     func sendTextToActivePane(_ text: String) {
         currentSplitView()?.sendTextToActivePane(text)
+    }
+
+    func showSearch() {
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func enterCopyMode() {
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func openQuickTerminal() {
+        newTab()
     }
 
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
