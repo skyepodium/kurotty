@@ -12,7 +12,7 @@ Kurotty is a macOS-first terminal emulator built with Swift/AppKit, Zig, and Met
 
 Kurotty is currently an early developer build. Download the latest alpha release if you only want to try the app; build from source if you want to contribute.
 
-[Download](#download) · [Features](#features) · [Build From Source](#build-from-source) · [License](#license)
+[Download](#download) · [Features](#features) · [Architecture](docs/architecture.md) · [Build From Source](#build-from-source) · [License](#license)
 
 ## Download
 
@@ -94,7 +94,7 @@ To create a local Universal DMG:
 ./scripts/package-release.sh
 ```
 
-Developer notes live in `docs/`.
+Developer notes live in `docs/`, including the [architecture overview](docs/architecture.md).
 
 ## License
 
