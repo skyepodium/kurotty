@@ -1,62 +1,246 @@
-# Architecture
+# Kurotty Architecture
 
-## Swift/AppKit Shell
+Kurotty is a macOS-first terminal emulator with a Swift/AppKit application shell, a Swift terminal rendering model, a Metal renderer, and an optional Zig terminal-core dynamic library. The current production ownership is intentionally conservative: Swift owns the visible terminal state and rendering pipeline, while Zig is loaded through a narrow C ABI for incremental parser, grid, metrics, damage, and migration work.
 
-The AppKit layer is responsible for platform integration:
+## Repository layout
 
-- `TerminalWindowController` creates the main window and tab container.
-- `SplitTerminalView` manages vertical and horizontal terminal panes.
-- `TerminalInputView` handles keyboard events, IME via `NSTextInputClient`, paste, copy, and command dispatch.
-- `MainMenu` wires app, file, split, tab, edit, and preferences actions.
-- `PreferencesWindowController` provides the first preferences shell.
-- `TerminalMetalView` hosts Metal rendering and reports frame-present timestamps to the core bridge.
-- `TerminalSession` is the platform-neutral session contract. `ShellSession` is the current macOS/Darwin `forkpty` implementation selected through `TerminalSessionFactory`.
-- `TerminalCore` is the app-facing terminal core contract. `CoreBridge` is the current dynamic C ABI loader selected through `TerminalCoreFactory`.
+```text
+Sources/KurottyApp/       macOS app, windows, panes, PTY, input, settings, notifications, Metal renderer
+Sources/KurottyCore/      Shared terminal model and render-frame types used by app code and tests
+src/                      Zig terminal core modules and exported C ABI
+tests/KurottyRenderingTests/
+                          Swift tests for rendering, settings, input, commands, OSC, snapshots, diagnostics
+tests/*.zig               Zig unit and leak tests
+docs/                     Developer documentation
+```
 
-## Zig Core
+`docs/` is the right home for architecture notes because the repository already uses it for developer-facing ABI documentation. The root `README.md` should stay product-oriented and link here instead of carrying implementation detail.
 
-The Zig layer owns state that must be fast and predictable:
+## Top-level components
 
-- `Parser` emits printable and CSI events.
-- `Grid` owns visible cell bytes and cursor movement.
-- `Scrollback` stores indexed historical lines and has a one-million-line stress gate.
-- `Metrics` records input-to-present latency samples.
-- `RendererOrchestrator` tracks damage rectangles and frame stats before Metal consumes them.
-- `abi.zig` exposes a small C ABI to the Swift shell.
-- `core.zig` is the public portable barrel for the Zig core. Platform PTY adapters are not exported from that barrel.
+```mermaid
+flowchart TB
+    User[User and macOS events]
+    App[KurottyApp<br/>AppKit application layer]
+    UI[Windows, tabs, panes<br/>TerminalWindowController<br/>SplitTerminalView<br/>TerminalPaneView]
+    Surface[TerminalSurfaceView<br/>terminal state owner]
+    Session[TerminalSession<br/>DarwinPTYTerminalSession]
+    Shell[Child shell in forkpty]
+    CoreTypes[KurottyCore<br/>screen, styles, render frames]
+    Renderer[TerminalAppKitRenderer<br/>TerminalMetalView]
+    Metal[Metal drawable]
+    Bridge[CoreBridge<br/>optional Zig dylib bridge]
+    Zig[Zig core<br/>parser, grid, metrics, renderer orchestrator]
+    Notifications[OSC and bridge notifications<br/>TerminalNotifier]
+    Settings[Settings and workspace snapshots]
 
-## Runtime Foundation Boundaries
+    User --> App
+    App --> UI
+    UI --> Surface
+    Surface <--> Session
+    Session <--> Shell
+    Surface --> CoreTypes
+    Surface --> Renderer
+    Renderer --> Metal
+    Surface --> Bridge
+    Bridge -. dlopen C ABI .-> Zig
+    Surface --> Notifications
+    App --> Settings
+    Settings --> UI
+    Settings --> Surface
+```
 
-The runtime foundation is an integration surface, not a second terminal model. It records bounded metadata that lets the Swift shell, Zig core, renderer, command services, and future AI tools agree on what happened without copying terminal output into long-lived app state.
+## Runtime ownership model
 
-| Boundary | Current Foundation | Integration Rule |
+The most important boundary is ownership of terminal state.
+
+| Area | Current owner | Notes |
 | --- | --- | --- |
-| Resize | `TerminalResizeTrace` records requested winsize and optional view/cell measurements. `TerminalResizeCycleSnapshot` compares the derived grid with PTY, screen, and renderer sizes. | Resize wiring must measure the AppKit viewport, derive rows and columns from cell metrics, apply PTY winsize, resize screen state, and invalidate renderer state. Ledger snapshots are diagnostics only; they do not choose the winning size. |
-| Event flow | `TerminalEventLedger` groups metadata-only events under a `TerminalEventTraceID`: PTY read byte counts, parser event kinds, screen mutation counts, and render-frame metadata. `TerminalTraceTimelineSummary` turns correlation reports into production-friendly stage, sequence, resize-issue, and count summaries. Darwin PTY reads now emit metadata-only runtime events into the surface ledger. | The ledger may tie PTY, parser, screen, and renderer stages together for debugging. It must not store raw bytes, terminal text, pasted text, command output, or environment values. |
-| Scrollback | Zig `Scrollback` owns portable core scrollback behavior. Swift `BoundedScrollbackRows`, `SegmentedScrollbackStore`, and `TerminalScrollbackDiagnosticsSummary` provide bounded app-layer storage and pressure summaries. | Search, copy mode, command spans, and AI context may reference scrollback ranges through stable coordinates or summaries. They must not create unbounded copies of raw scrollback content. |
-| Command context | `TerminalShellIntegration` consumes OSC 7 and OSC 133 metadata into command spans. `TerminalCommandRegistry` owns app/window command identifiers and shortcuts. | Shell command spans are app-layer metadata. They may feed search, copy mode, workspace restore, notification, and AI context bridges, but they must not mutate terminal cells or replace parser state. |
-| AI approval | `AIContextLayer`, `AICommandContextBridge`, `AIAgentActionApproval`, and `TerminalSecurityPolicy` define redacted context snapshots, policy-backed action decisions, and a non-UI dispatch gate. | AI tools consume redacted app-layer context and dispatch explicit commands. Sending text, pasting text, opening local files, exporting raw output, or persisting context must pass through approval/evaluation before touching the terminal session. Pending or denied approvals must not invoke backend handlers. |
+| App lifecycle, menus, windows, tabs, panes | `KurottyApp` | `AppDelegate`, `MainMenu`, `TerminalWindowController`, and `SplitTerminalView` own AppKit composition. |
+| Shell process and PTY IO | `DarwinPTYTerminalSession` | Uses `forkpty`, nonblocking master FD IO, resize ioctl, and child-process observation. |
+| Visible terminal screen, scrollback, parser state, selection, cursor, IME state | `TerminalSurfaceView` | Swift currently mutates the visible model and schedules render frames. |
+| Shared terminal data structures | `KurottyCore` | Provides screen cells, styles, frame types, damage metadata, and renderer protocols. |
+| GPU presentation | `TerminalMetalView` | Implements `TerminalAppKitRenderer` and consumes immutable `TerminalFrame` values. |
+| Zig parser/grid/metrics/damage migration path | `CoreBridge` plus `src/*.zig` | Loaded dynamically when `libkurotty_core.dylib` is present. Swift remains the mutation owner today. |
+| Notifications | `TerminalOSCDispatcher`, `KurottyNotificationBridgeServer`, `TerminalNotifier` | Converts OSC or external bridge payloads into macOS notifications. |
+| Settings and layout snapshots | `AppSettingsStore`, `WorkspaceSnapshotCoordinator` | Settings are normalized and live-applied where supported; workspace snapshots are currently layout-only. |
 
-These boundaries are intentionally metadata-first. When live integration is added, app code should wire existing session, screen, renderer, and security services into these contracts instead of introducing parallel histories, raw-output logs, or AI-specific shortcuts around terminal ownership.
+`CoreBridge` exposes diagnostics that make this ownership explicit. When the Zig library is loaded, Zig participates in feed, metrics, damage, and row-copy APIs, but Swift still owns parser mutation, screen mutation, and render mutation for the visible terminal surface.
 
-## Current Non-UI Runtime Slice
+## Application lifecycle
 
-The branch `feature/non-ui-runtime-next-slice` should advance the next backend/runtime integration layer without marking the branch complete before merge. It builds on the runtime timeline foundations from PR #46 and PR #47. It is not a rewrite of terminal ownership and should not introduce UI dialogs, a second screen model, raw-output log, or hidden AI control path.
+```mermaid
+sequenceDiagram
+    participant main as main.swift
+    participant App as AppDelegate
+    participant Bridge as KurottyNotificationBridgeServer
+    participant Menu as MainMenu
+    participant Window as TerminalWindowController
+    participant Surface as TerminalSurfaceView
+    participant Session as TerminalSession
 
-| Slice | Direction | Focused verification |
-| --- | --- | --- |
-| Source-of-truth diagnostics | Label whether diagnostic state comes from the Swift scaffold, Zig core, PTY boundary, parser boundary, screen mutation summary, or renderer frame. Use that evidence to make divergence visible before removing the Swift scaffold path. | `swift test --filter TerminalEventLedgerTests`, `swift test --filter TerminalResizeLedgerTests`, and `zig build test` |
-| Render coalescing and damage | Keep `TerminalRenderFrame` as the renderer contract. Move toward dirty-region, scissor, and frame-coalescing evidence in the live path before claiming render performance wins. Full redraw remains a correctness fallback. | `swift test --filter TerminalPixelProbeTests` and `swift test --filter GlyphRenderingRegressionTests` |
-| Shell opt-in metadata | Keep passive OSC 7/OSC 133 command spans separate from opt-in shell capability/session evidence. A declarative capability descriptor is not proof that a shell script is installed for the current session. | `swift test --filter TerminalOSCDispatcherTests`, `swift test --filter TerminalShellIntegrationTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
-| Command UX | Route command palette, search/copy/fold/replay candidates, shell command-span actions, and automation through the app command registry. Replay candidates require explicit confirmation. | `swift test --filter TerminalCommandRegistryTests`, `swift test --filter TerminalCommandPaletteTests`, `swift test --filter CommandPaletteWindowControllerTests`, and `swift test --filter TerminalCommandHistoryNavigatorTests` |
-| AI agent action API | Feed redacted command and pane context into approval-gated action requests. Record approval metadata, stable action kind, context references, command-output approval state, and redacted previews, not raw terminal output or hidden direct PTY mutations. Backend dispatch is handler-based and non-UI; `ask` and `deny` outcomes are audit results only until an approval result for the same action ID, action kind, immutable action fingerprint, and current policy evaluation is supplied. | `swift test --filter AIContextLayerTests`, `swift test --filter AICommandContextBridgeTests`, and `swift test --filter AIAgentActionApprovalTests` |
+    main->>App: install NSApplication delegate
+    main->>App: app.run()
+    App->>App: install icon and request notification authorization
+    App->>Bridge: start Unix-domain notification bridge
+    App->>Menu: install application menu
+    App->>Window: openNewWindow()
+    Window->>Surface: create first terminal pane
+    Surface->>Session: start(workingDirectory)
+```
 
-Shell capability descriptors in this slice are declarative defaults, not session-derived proof that a shell has installed opt-in integration. UI, audit, and AI surfaces should treat them as baseline support metadata until runtime detection records per-session evidence.
+On startup, the app handles bridge-only command-line invocations first. Normal GUI startup then creates the AppKit application, starts the notification bridge, installs menus, opens a terminal window, and starts a shell for the first terminal surface.
 
-`TerminalCoreMutationSourceDiagnostic` is the app-facing source-of-truth adapter for the current bridge. It records whether session and frame mutation are owned by the loaded Zig core or by the Swift scaffold fallback, plus a metadata-only reason. This makes the runtime mutation owner visible through `TerminalCoreFactory` without adding another terminal model.
+## Window, tab, and pane composition
 
-## Metal Renderer
+`TerminalWindowController` owns one AppKit window and an `NSTabView`. Each tab contains a `SplitTerminalView`. Split views recursively contain either `TerminalPaneView` leaves or nested split views. A pane wraps chrome and one `TerminalSurfaceView`.
 
-`TerminalRenderFrame` defines the renderer-facing frame contract without AppKit, Metal, `CGRect`, `CGSize`, or `NSRange` types. `TerminalMetalView` adapts that contract to `MTKView`, CoreText glyph rasterization, Metal buffers, dirty-rect invalidation, and presentation callbacks.
+```mermaid
+flowchart LR
+    Window[TerminalWindowController]
+    Tabs[NSTabView]
+    Split[SplitTerminalView]
+    Pane[TerminalPaneView]
+    Surface[TerminalSurfaceView]
 
-The current renderer uses Metal for glyph atlas, background, cursor, underline, strikethrough, and box-drawing passes. A future Linux or Windows renderer should consume `TerminalFrame`-shaped data through a backend-specific adapter instead of depending on AppKit or Metal types.
+    Window --> Tabs
+    Tabs --> Split
+    Split --> Pane
+    Split --> Split
+    Pane --> Surface
+```
+
+This keeps layout concerns outside the terminal emulator core. Pane splitting, focus movement, pane drag/detach, tab labels, and layout-only workspace descriptors live at the window/pane layer. Terminal escape parsing and rendering stay inside `TerminalSurfaceView` and renderer types.
+
+## Input and PTY flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Surface as TerminalSurfaceView
+    participant Router as TerminalTextInputRouter
+    participant Encoder as TerminalKeyEncoder
+    participant Core as TerminalCore
+    participant Session as DarwinPTYTerminalSession
+    participant Shell
+
+    User->>Surface: keyDown / IME / paste
+    Surface->>Core: recordKeyEvent()
+    Surface->>Router: offer text event to AppKit IME when appropriate
+    Router->>Encoder: encode terminal control sequences
+    Surface->>Session: write(text or escape sequence)
+    Session->>Shell: nonblocking PTY write
+```
+
+`TerminalSurfaceView` is the active `NSTextInputClient`. It lets AppKit own IME composition, normalizes committed text, encodes terminal control keys through `TerminalKeyEncoder`, and writes final bytes to the PTY session. Command-key window shortcuts are routed through `TerminalCommandDispatcher` and `TerminalCommandRegistry` instead of being sent to the shell.
+
+## Output, screen, and rendering flow
+
+```mermaid
+sequenceDiagram
+    participant Shell
+    participant Session as DarwinPTYTerminalSession
+    participant Surface as TerminalSurfaceView
+    participant OSC as TerminalOSCDispatcher
+    participant Screen as TerminalScreen / scrollback
+    participant Frame as TerminalFrame
+    participant Renderer as TerminalMetalView
+    participant GPU as Metal
+
+    Shell->>Session: PTY output bytes
+    Session->>Surface: onOutput(text)
+    Surface->>Surface: parse stream state, CSI, OSC, printable text
+    Surface->>OSC: dispatch OSC commands
+    Surface->>Screen: mutate cells, cursor, style, scrollback
+    Surface->>Frame: build immutable render frame with dirty rows/rects
+    Frame->>Renderer: update(frame)
+    Renderer->>GPU: draw glyphs, backgrounds, cursor, decorations
+    Renderer->>Surface: onPresented
+```
+
+Output is coalesced on the main actor before screen mutation and rendering. The Swift screen model tracks visible cells, alternate screen state, scrollback, cursor, selection, links, marked text, dirty rows, and full-damage fallbacks. The renderer receives a `TerminalFrame`, not direct mutable terminal state.
+
+`TerminalMetalView` handles glyph atlas rendering, backgrounds, cursor, underline, strikethrough, box/block decorations, damage diagnostics, and scissor planning. `TerminalFrame` carries enough metadata for full redraw fallback or partial redraw with stable pixel bounds.
+
+## Zig core and ABI boundary
+
+The Zig core is built by `build.zig` as both static and dynamic libraries. Swift uses the dynamic library through `CoreBridge`, which loads `libkurotty_core.dylib` from the app bundle or development build paths.
+
+```mermaid
+flowchart LR
+    Swift[CoreBridge.swift]
+    ABI[src/abi.zig<br/>C exports]
+    Parser[src/parser.zig]
+    Grid[src/grid.zig]
+    Scrollback[src/scrollback.zig]
+    Metrics[src/metrics.zig]
+    Render[src/renderer.zig]
+
+    Swift -. dlopen / dlsym .-> ABI
+    ABI --> Parser
+    ABI --> Grid
+    ABI --> Scrollback
+    ABI --> Metrics
+    ABI --> Render
+```
+
+The ABI is deliberately narrow:
+
+- create and destroy a terminal handle
+- feed bytes into the Zig parser/grid path
+- record key and frame-presentation timestamps
+- read last input-to-present latency
+- resize the Zig grid
+- mark damage and frame boundaries
+- query or copy compact row data
+
+This lets Zig evolve behind a stable C boundary while Swift keeps UI responsiveness and AppKit integration simple. The current row-copy API is compact byte storage, not a complete styled Unicode cell ABI.
+
+## OSC, shell integration, and notifications
+
+`TerminalOSCDispatcher` handles supported OSC commands:
+
+- OSC 9 and OSC 777 become desktop notification payloads.
+- OSC 52 is evaluated by `TerminalOSC52Policy` before clipboard interaction.
+- OSC 7 and OSC 133 feed `TerminalShellIntegration` for working-directory and command-span context.
+
+Kurotty also exposes an external notification bridge for automation tools that cannot reliably write OSC bytes to the terminal TTY. `KurottyNotificationBridgeServer` listens on a Unix-domain socket under Application Support, installs `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND`, accepts text or JSON payloads, and delivers them through `TerminalNotifier`.
+
+## Settings and workspace snapshots
+
+`AppSettings` is a portable Codable settings model. The settings path is normalized through `AppSettingsNormalizer` and checked by `AppSettingsValidation`.
+
+Settings have explicit lifecycle semantics:
+
+- live-applied: terminal theme, font, scrollback, colors, and window dimensions
+- launch-only: schema version and shell working directory for new shell sessions
+
+Workspace snapshots are intentionally layout-only today. `TerminalWindowController` asks panes and split views for descriptors, then `WorkspaceSnapshotCoordinator` writes window, tab, split, and pane layout metadata. It does not persist live shell processes or terminal scrollback.
+
+## Diagnostics and tests
+
+The codebase has diagnostics around PTY reads, resize, dirty rects, renderer damage, runtime ownership, scrollback, terminal events, and pixel probing. Tests are split by runtime:
+
+- Swift rendering and app behavior tests live under `tests/KurottyRenderingTests`.
+- Zig parser, grid, ABI, leak, benchmark, and stress checks live under `tests/`, `bench/`, and `stress/`.
+
+Useful validation commands:
+
+```sh
+swift test
+zig build test
+zig build leak-check
+zig build bench
+```
+
+## Architectural direction
+
+The current architecture favors a safe migration path over a premature full rewrite:
+
+- Keep AppKit, IME, windowing, settings, notification, and Metal presentation in Swift.
+- Keep `KurottyCore` as the shared Swift contract for render frames and terminal data structures.
+- Move parser/grid/scrollback/metrics responsibilities into Zig only behind explicit ABI additions.
+- Avoid dual mutation ownership. When a responsibility moves to Zig, Swift should consume snapshots or events from Zig rather than mutating the same state in parallel.
+- Keep renderer input immutable. `TerminalMetalView` should continue to render `TerminalFrame` values rather than reaching back into live terminal state.
+
+The clean target is one visible terminal-state owner per subsystem, explicit handoff points, and small data contracts between layers.
