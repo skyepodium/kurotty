@@ -55,6 +55,14 @@ When Kurotty launches a shell it exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NO
 /Applications/kurotty.app/Contents/MacOS/kurotty --notify-json '{"last-assistant-message":"Done."}'
 ```
 
+For Codex/OMX task-completion alerts, configure Codex's top-level `notify` entry to use Kurotty's wrapper. The wrapper reads the explicit Codex notify payload, sends it through Kurotty's bridge, then chains to the normal OMX notify hook so existing OMX behavior still runs:
+
+```toml
+notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/path/to/kurotty/scripts/kurotty-codex-notify.mjs"]
+```
+
+This path works even when the active Codex working directory is not an OMX-managed repo. Do not replace it with `/dev/tty`, `/dev/ttys*`, parent-TTY guessing, or rendered-screen scraping.
+
 ## Build From Source
 
 This path is for contributors and local testing.
