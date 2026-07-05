@@ -26,7 +26,6 @@ enum AppSettingKey: String, Codable, Hashable {
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
-    case notificationsExposeBackgroundTaskOutputSummary
 }
 
 enum AppSettingsValidationIssueCode: String, Codable, Equatable {
@@ -68,8 +67,7 @@ enum AppSettingsValidation {
              .terminalColorsCursor,
              .terminalColorsAnsi,
              .windowWidth,
-             .windowHeight,
-             .notificationsExposeBackgroundTaskOutputSummary:
+             .windowHeight:
             return .liveApplied
         }
     }

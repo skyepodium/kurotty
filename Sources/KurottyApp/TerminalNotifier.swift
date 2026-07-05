@@ -48,26 +48,37 @@ final class TerminalNotifier: NSObject {
 
     @MainActor
     func notifyItermOsc9(message: String) {
-        let payload = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else { return }
-        guard let body = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: payload) else {
+        guard let content = TerminalNotificationPayload.contentFromOSC9Payload(message) else {
             return
         }
         deliver(
-            title: AppConstants.Notifications.terminalNotificationTitle,
+            title: content.title,
             subtitle: "",
-            body: body,
+            body: content.body,
             identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
         )
     }
 
     @MainActor
-    func notifyBackgroundTaskCompleted(content: TerminalBackgroundTaskNotificationContent) {
+    func notifyOSC777(payload: String) {
+        guard let content = TerminalNotificationPayload.contentFromOSC777Payload(payload) else {
+            return
+        }
+        deliver(
+            title: content.title,
+            subtitle: "",
+            body: content.body,
+            identifierPrefix: AppConstants.Notifications.osc777IdentifierPrefix
+        )
+    }
+
+    @MainActor
+    func notifyCommandFinished(content: TerminalCommandCompletionNotificationContent) {
         deliver(
             title: content.title,
             subtitle: content.subtitle,
             body: content.body,
-            identifierPrefix: AppConstants.Notifications.backgroundTaskIdentifierPrefix
+            identifierPrefix: AppConstants.Notifications.commandCompletionIdentifierPrefix
         )
     }
 

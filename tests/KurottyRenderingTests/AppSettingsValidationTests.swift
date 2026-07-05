@@ -50,7 +50,6 @@ final class AppSettingsValidationTests: XCTestCase {
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .windowWidth), .liveApplied)
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .windowHeight), .liveApplied)
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .shellWorkingDirectory), .launchOnly)
-        XCTAssertEqual(AppSettingsValidation.lifecycle(for: .notificationsExposeBackgroundTaskOutputSummary), .liveApplied)
     }
 
     func testMigrationAndSchemaVersionAreReportedWithoutChangingSettingsShape() throws {

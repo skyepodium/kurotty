@@ -22,367 +22,44 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(source.contains("text=\\("))
     }
 
-    func testNotificationSummarySkipsMetadataStatusLines() {
-        let statusLine = "gpt-5.5 medium · ~/dev/kurotty · gpt-5.5 · medium · kurotty · develop · No changes · Ready · Workspace · Ask fo..."
-        let answerLine = "• 안녕하세요. 무엇을 도와드릴까요?"
+    func testExplicitTerminalNotificationPayloadUsesOnlyPayloadText() {
+        let payload = "  gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload  "
 
         XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                answerLine,
-                statusLine,
-            ]),
-            answerLine
+            TerminalNotificationPayload.body(fromExplicitPayload: payload),
+            "gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload"
         )
     }
 
-    func testNotificationSummarySkipsCodexContextStatusLines() {
-        let answerLine = "작업 완료: 알림 본문은 마지막 완료 요약을 보여줍니다."
-        let statusLine = "gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Full Access · never · Context 100% left · Context 0% used · 5h 7..."
+    func testExplicitTerminalNotificationPayloadStripsControlsAndBoundsLength() {
+        let payload = "\u{1b}Build finished\u{7f}\n" + String(repeating: "x", count: AppConstants.Notifications.terminalNotificationMaxCharacters + 10)
+        let body = TerminalNotificationPayload.body(fromExplicitPayload: payload)
 
+        XCTAssertEqual(body?.count, AppConstants.Notifications.terminalNotificationMaxCharacters)
+        XCTAssertFalse(body?.contains("\u{1b}") ?? true)
+        XCTAssertFalse(body?.contains("\u{7f}") ?? true)
+        XCTAssertTrue(body?.hasPrefix("Build finished\n") ?? false)
+    }
+
+    func testOSC777NotificationPayloadUsesNotifyTitleAndBodyFields() {
+        let content = TerminalNotificationPayload.contentFromOSC777Payload(
+            "notify;Build finished;All tests passed"
+        )
+
+        XCTAssertEqual(content?.title, "Build finished")
+        XCTAssertEqual(content?.body, "All tests passed")
+    }
+
+    func testOSC777NotificationPayloadRejectsNonNotifyShape() {
+        XCTAssertNil(TerminalNotificationPayload.contentFromOSC777Payload("progress;50"))
+        XCTAssertNil(TerminalNotificationPayload.contentFromOSC777Payload("notify;Missing body"))
+    }
+
+    func testSubmittedCommandSummaryNormalizesOnlySubmittedInput() {
         XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                statusLine,
-            ]),
-            answerLine
+            TerminalSubmittedCommandSummary.notificationBody(from: "  swift test\n--filter TerminalDiagnosticsTests  "),
+            "swift test --filter TerminalDiagnosticsTests"
         )
-    }
-
-    func testNotificationSummarySkipsPromptPlaceholderLines() {
-        let answerLine = "원인 잡아서 고쳤습니다."
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                answerLine,
-                "› Explain this codebase",
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummarySkipsShellPromptLines() {
-        let answerLine = "작업 완료: 알림 본문은 이 줄이어야 합니다."
-        let promptLine = "\(NSUserName()) ~/dev kurotty"
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                promptLine,
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyShellPrompt() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "\(NSUserName()) ~/dev",
-                "\(NSUserName()) /Users/\(NSUserName())/dev/kurotty",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyPromptPlaceholder() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "› Explain this codebase",
-                "> Ask anything",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyStatusOrDecoration() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                "gpt-5.5 medium · ~/dev/kurotty · gpt-5.5 · medium · kurotty · develop · No changes · Ready · Workspace",
-            ])
-        )
-    }
-
-    func testNotificationSummarySkipsSeparatorVariantsAfterAnswer() {
-        let answerLine = "안녕. 오늘은 Kurotty 작업 도와줄까, 아니면 다른 얘기할까?"
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
-                "⎯⎯⎯⎯⎯⎯⎯⎯",
-                "╭────────────────────────╮",
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummaryUsesLatestAnswerFromOutputText() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            \u{1b}[2m•\u{1b}[0m 안녕하세요. 무엇을 도와드릴까요?
-
-            ────────────────────────────────────────
-
-            › 아녕
-
-            • 안녕! 편하게 말씀해 주세요.
-            """),
-            "• 안녕! 편하게 말씀해 주세요."
-        )
-    }
-
-    func testNotificationSummaryUsesLatestMeaningfulOutputBlock() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            build step 1 passed
-            build step 2 passed
-            tests failed: 2 regressions
-
-            ────────────────────────────────────────
-
-            \(NSUserName()) ~/dev/kurotty
-            """),
-            """
-            build step 1 passed
-            build step 2 passed
-            tests failed: 2 regressions
-            """
-        )
-    }
-
-    func testNotificationSummaryUsesLatestCodexAnswerBlockInsteadOfSubmittedPrompt() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            Tip: Use /side to start a side conversation in a temporary fork
-
-            • You have 4 usage limit resets available. Run /usage to use one.
-
-            ⚠ failed to parse hooks config /Users/skyepodium/.codex/hooks.json
-              column 9
-
-            › 안녕하세요
-
-            • superpowers:using-superpowers 지침을 먼저 확인한 뒤, 간단히 응답
-
-            • Explored
-              └ Read SKILL.md (superpowers:using-superpowers skill)
-
-            • 안녕하세요. 무엇을 도와드릴까요?
-
-            ────────────────────────────────────────
-
-            › Summarize recent commits
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-    }
-
-    func testNotificationSummaryRemovesInlineCodexStatusFragments() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            • 안녕하세요. 무엇을 도와드릴까요?•Work55
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            • 안녕하세요. 무엇을 도와드릴까요? · Ready · Workspace
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-    }
-
-    func testNotificationSummarySkipsUsageStatusFromOutputText() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            Weekly limit:
-            [██████████████████████████████]
-            100% left (resets 05:23 on 8 Jul) |
-            """)
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlySeparatorVariants() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
-                "⎯⎯⎯⎯⎯⎯⎯⎯",
-                "╰────────────────────────╯",
-                "••••••••••",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyShellPercentPrompt() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            %
-            """)
-        )
-    }
-
-    func testBackgroundTaskTrackingRejectsInteractiveCodexTuiConversationInput() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "hello",
-                visibleText: """
-                › hello
-
-                • I'll load the required startup skill, then respond normally.
-
-                • Explored
-                  └ Read SKILL.md (superpowers:using-superpowers skill)
-
-                • Hello. How can I help?
-
-                › Summarize recent commits
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingAllowsShellCommandsOutsideInteractiveTui() {
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "swift test",
-                visibleText: """
-                skyepodium ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingRejectsInteractiveCodexCommandLaunch() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "codex",
-                visibleText: """
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "codex exec summarize recent commits",
-                visibleText: """
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingRejectsCodexPromptDrafts() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "Summarize recent commits",
-                visibleText: """
-                › Summarize recent commits
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingAllowsShellCommandAfterCodexTranscriptWhenShellPromptIsCurrent() {
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "ls",
-                visibleText: """
-                › hello
-
-                • Hello. How can I help?
-
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testCodexNotificationContentUsesSpecificTitleAndMeaningfulBody() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec create pr",
-            outputText: """
-            develop → main PR 올렸습니다.
-
-            PR: https://github.com/skyepodium/kurotty/pull/57
-            상태: `OPEN`, `MERGEABLE`
-
-            %
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex exec create pr")
-        XCTAssertEqual(
-            content.body,
-            "develop → main PR 올렸습니다.\n\nPR: https://github.com/skyepodium/kurotty/pull/57\n상태: `OPEN`, `MERGEABLE`"
-        )
-    }
-
-    func testGenericBackgroundNotificationDoesNotPromoteCodexLikeOutputToCodexCompletion() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "hello",
-            outputText: """
-            \u{1b}[38;2;200;169;238;49mAsk for approval
-
-            • I'll load the required startup skill first, then I'll answer normally.
-
-            • Explored
-              └ Read SKILL.md (superpowers:using-superpowers skill)
-
-            ────────────────────────────────────────
-
-            • Hello. What are we working on?\u{1b}[38;2;200;169;238;49mWorki55
-
-            gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Task finished")
-        XCTAssertEqual(content.subtitle, "hello")
-        XCTAssertEqual(content.body, "Hello. What are we working on?")
-        XCTAssertFalse(content.body.contains("38;2"))
-        XCTAssertFalse(content.body.contains("Ask for approval"))
-        XCTAssertFalse(content.body.contains("Explored"))
-        XCTAssertFalse(content.body.contains("SKILL.md"))
-        XCTAssertFalse(content.body.contains("Worki55"))
-        XCTAssertFalse(content.body.contains("gpt-5.5"))
-    }
-
-    func testExplicitCodexCommandCanUseCodexCompletionTitle() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec inspect tree",
-            outputText: """
-            • I checked the working tree and found no changes.
-
-            gpt-5.5 medium · ~/dev · Ready · Workspace · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex exec inspect tree")
-        XCTAssertEqual(content.body, "I checked the working tree and found no changes.")
-    }
-
-    func testCodexNotificationContentDetectsFailureAndInputRequired() {
-        let failed = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec release",
-            outputText: "error: release build failed\nSee logs for details."
-        )
-        XCTAssertEqual(failed.title, "Codex task failed")
-        XCTAssertEqual(failed.subtitle, "codex exec release")
-        XCTAssertEqual(failed.body, "error: release build failed\nSee logs for details.")
-
-        let needsInput = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec release",
-            outputText: "Approval required: allow shell command?\n❯ Yes\n  No"
-        )
-        XCTAssertEqual(needsInput.title, "Codex needs input")
-        XCTAssertEqual(needsInput.subtitle, "codex exec release")
-        XCTAssertEqual(needsInput.body, "Approval required: allow shell command?\n❯ Yes\n  No")
     }
 
     func testNotificationLogMetadataDoesNotExposeTitleOrBody() {
