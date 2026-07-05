@@ -1,7 +1,7 @@
 import Foundation
 import KurottyCore
 
-struct TerminalResizeTrace: CustomStringConvertible {
+struct TerminalResizeTrace: CustomStringConvertible, Sendable {
     let requestedColumns: Int
     let requestedRows: Int
     let clampedColumns: Int

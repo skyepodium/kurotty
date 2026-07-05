@@ -8,3 +8,4 @@ DerivedData/
 .DS_Store
 dist/
 code-rule/
+.omx/logs/

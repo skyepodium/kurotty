@@ -40,7 +40,20 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - Terminal styling support for 16-color, 256-color, truecolor, dim, inverse, underline, and strikethrough.
 - OSC title, working-directory, color query, and iTerm2-compatible notifications.
 
-Kurotty shows OSC 9 messages as macOS `Alert` notifications with the app icon and the message body.
+Kurotty routes OSC 9 and OSC 777 `notify;title;body` messages through typed notification events before showing macOS notifications. OSC 9 banners use the iTerm2-style `Alert` title and `Session <title> #<tab>: <message>` body, while numeric OSC 9 progress extensions are ignored as desktop notifications.
+
+External hooks such as Codex/OMX should not write OSC bytes to `/dev/tty`. Those hooks may not have a controlling TTY, and guessed TTY writes can miss Kurotty entirely. Use the Kurotty notification bridge instead:
+
+```sh
+$KUROTTY_NOTIFY_COMMAND --notify "Build finished"
+$KUROTTY_NOTIFY_COMMAND --notify-json '{"title":"Codex task finished","body":"Tests passed."}'
+```
+
+When Kurotty launches a shell it exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND`. For hooks outside that environment, the installed app executable provides the same bridge client:
+
+```sh
+/Applications/kurotty.app/Contents/MacOS/kurotty --notify-json '{"last-assistant-message":"Done."}'
+```
 
 ## Build From Source
 

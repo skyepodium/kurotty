@@ -166,6 +166,67 @@ struct TerminalResizeCycleSnapshot: Equatable, CustomStringConvertible {
     }
 }
 
+struct TerminalResizeLedger: CustomStringConvertible {
+    struct Diagnostics: Equatable, CustomStringConvertible {
+        let capacity: Int
+        let retainedSnapshotCount: Int
+        let droppedSnapshotCount: Int
+        let issueCount: Int
+
+        var description: String {
+            [
+                "capacity=\(capacity)",
+                "retainedSnapshots=\(retainedSnapshotCount)",
+                "droppedSnapshots=\(droppedSnapshotCount)",
+                "issues=\(issueCount)",
+            ].joined(separator: " ")
+        }
+    }
+
+    let capacity: Int
+    private(set) var snapshots: [TerminalResizeCycleSnapshot] = []
+    private(set) var droppedSnapshotCount = 0
+
+    init(capacity: Int) {
+        self.capacity = max(0, capacity)
+    }
+
+    var latestSnapshot: TerminalResizeCycleSnapshot? {
+        snapshots.last
+    }
+
+    var diagnostics: Diagnostics {
+        Diagnostics(
+            capacity: capacity,
+            retainedSnapshotCount: snapshots.count,
+            droppedSnapshotCount: droppedSnapshotCount,
+            issueCount: snapshots.reduce(0) { $0 + $1.validationReport.issues.count }
+        )
+    }
+
+    var description: String {
+        "TerminalResizeLedger \(diagnostics.description)"
+    }
+
+    mutating func record(_ snapshot: TerminalResizeCycleSnapshot) {
+        guard capacity > 0 else {
+            droppedSnapshotCount += 1
+            return
+        }
+
+        snapshots.append(snapshot)
+        let overflow = snapshots.count - capacity
+        if overflow > 0 {
+            droppedSnapshotCount += overflow
+            snapshots.removeFirst(overflow)
+        }
+    }
+
+    func snapshots(for traceID: String) -> [TerminalResizeCycleSnapshot] {
+        snapshots.filter { $0.traceID == traceID }
+    }
+}
+
 struct TerminalResizeLedgerReport: Equatable, CustomStringConvertible {
     let issues: [TerminalResizeLedgerIssue]
 

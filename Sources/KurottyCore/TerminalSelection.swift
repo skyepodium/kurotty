@@ -30,6 +30,61 @@ public struct TerminalSelectionRangeModel: Equatable, Sendable {
         }
         return TerminalSelectionRangeModel(start: focus, end: anchor)
     }
+
+    public func stableReference(
+        firstVisibleAbsoluteRowIndex: Int,
+        source: TerminalSelectionReferenceSource
+    ) -> TerminalSelectionScrollbackReference? {
+        let startRowResult = start.row.addingReportingOverflow(firstVisibleAbsoluteRowIndex)
+        let endRowResult = end.row.addingReportingOverflow(firstVisibleAbsoluteRowIndex)
+        guard !startRowResult.overflow, !endRowResult.overflow else {
+            return nil
+        }
+        return TerminalSelectionScrollbackReference(
+            source: source,
+            start: TerminalSelectionPosition(row: startRowResult.partialValue, column: start.column),
+            end: TerminalSelectionPosition(row: endRowResult.partialValue, column: end.column)
+        )
+    }
+}
+
+public enum TerminalSelectionReferenceSource: String, Equatable, Sendable, CustomStringConvertible {
+    case search
+    case copyMode
+    case aiContextReference
+
+    public var description: String { rawValue }
+}
+
+public struct TerminalSelectionScrollbackReference: Equatable, Sendable, CustomStringConvertible {
+    public let source: TerminalSelectionReferenceSource
+    public let start: TerminalSelectionPosition
+    public let end: TerminalSelectionPosition
+
+    public init(
+        source: TerminalSelectionReferenceSource,
+        start: TerminalSelectionPosition,
+        end: TerminalSelectionPosition
+    ) {
+        self.source = source
+        self.start = start
+        self.end = end
+    }
+
+    public var rowCount: Int {
+        max(0, end.row - start.row + 1)
+    }
+
+    public var description: String {
+        [
+            "source=\(source)",
+            "startRow=\(start.row)",
+            "startColumn=\(start.column)",
+            "endRow=\(end.row)",
+            "endColumn=\(end.column)",
+            "rows=\(rowCount)",
+        ].joined(separator: " ")
+    }
 }
 
 public struct TerminalSelectionGestureState: Sendable {

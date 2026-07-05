@@ -14,6 +14,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 
 ## Code Style
 
+- Before fixing a bug, identify the root cause with concrete evidence first. Do not patch symptoms with hardcoded strings, app-name checks, screenshot-specific rules, guessed TTY paths, or one-off heuristics when the real protocol, state, lifecycle, or ownership boundary can be fixed.
 - Prefer guard clauses and early returns. Handle unsupported state, empty input, missing resources, invalid dimensions, and unavailable GPU/ABI resources at the top of the function.
 - Keep the happy path shallow. Split nested parser, rendering, shell, or settings logic into named helpers when branching grows.
 - Treat files above roughly 600 lines as split candidates when touching them for behavior work. Do not split only for line count, but avoid growing large renderer, parser, settings, or window-controller files without a staged extraction plan and tests.
@@ -100,7 +101,12 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Regression tests for notification response handling must assert this source shape: nonisolated delegate callback, callback completion before AppKit focus, no `Task { @MainActor in`, no `Task { await MainActor.run`, and an explicit `DispatchQueue.main.async` UI hop.
 - Installed app notification fixes must be validated against an `.app` bundle, not only `swift run`, because the development fallback path can hide UserNotifications delegate behavior.
 - Notification body text must come from an explicit terminal notification protocol or command/session completion event. Do not use shell prompts, path/title rows, status bars, placeholders, or freshly redrawn idle UI as notification body text.
+- iTerm2-compatible terminal alerts are a separate source from app-specific task completion. OSC 9 should present title `Alert` and body `Session <terminal title> #<tab>: <message>`; numeric OSC 9 first parameters such as `9;4;...` are progress extensions and must not become desktop notifications.
+- A bounded activity/idle fallback for an interactive TUI may use output captured after the submitted input, but it must present as a terminal `Alert`, not as app-specific task completion. Do not hardcode application names, prompt words, greetings, or screenshot-specific text. Only deliver when the captured output contains a trustworthy message block; otherwise skip the notification. Filter prompt lines, status bars, tool traces, control fragments, and repaint suffixes before delivery.
 - Use Ghostty as the reference model for this area: OSC desktop notifications are explicit `show_desktop_notification` events, and command-finished notifications are derived from command metadata such as duration and exit code rather than scraped screen rows.
+- Do not send Kurotty notifications from external hooks by guessing `/dev/tty`, `/dev/ttys*`, parent PID TTYs, or foreground process TTYs. Codex/OMX hooks often run without a controlling TTY, and guessed TTY writes do not reliably enter Kurotty's PTY parser.
+- External hooks must use Kurotty's explicit notification bridge, matching the cmux/kitty control-channel model: `KUROTTY_NOTIFY_SOCKET` for the user-scoped Unix socket and `KUROTTY_NOTIFY_COMMAND` or `/Applications/kurotty.app/Contents/MacOS/kurotty --notify` / `--notify-json` for CLI delivery. PTY OSC 9/777 remains only for bytes emitted by the terminal application inside the PTY.
+- When configuring Codex/OMX notifications for Kurotty, pass typed JSON when available so `last-assistant-message`, `title`, `body`, `message`, `summary`, or `instruction` are explicit payload fields. Do not scrape the rendered terminal screen or use a generic `{{projectPath}}` message when the hook has a real assistant/task payload.
 
 ## macOS AppKit / Metal Executor Boundaries
 

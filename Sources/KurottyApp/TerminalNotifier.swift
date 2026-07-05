@@ -73,6 +73,16 @@ final class TerminalNotifier: NSObject {
     }
 
     @MainActor
+    func notifyBridgeNotification(title: String, subtitle: String, body: String) {
+        deliver(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
+        )
+    }
+
+    @MainActor
     func notifyCommandFinished(content: TerminalCommandCompletionNotificationContent) {
         deliver(
             title: content.title,
