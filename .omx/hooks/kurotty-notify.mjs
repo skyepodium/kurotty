@@ -83,6 +83,8 @@ async function sendToKurotty(payload) {
 }
 
 export async function onHookEvent(event, sdk) {
+  if (process.env.KUROTTY_NOTIFY_WRAPPER_SENT === '1') return;
+
   const body = notificationBody(event);
   if (!body) return;
 
