@@ -17,14 +17,29 @@ enum TerminalSubmittedCommandSummary {
 }
 
 enum TerminalBackgroundTaskTrackingPolicy {
+    enum Decision: Equatable {
+        case reject
+        case generic
+        case terminalAlert
+    }
+
     static func shouldTrackSubmittedInput(_ submittedInput: String, visibleText: String) -> Bool {
+        trackingDecision(for: submittedInput, visibleText: visibleText) != .reject
+    }
+
+    static func trackingDecision(for submittedInput: String, visibleText: String) -> Decision {
         guard let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedInput) else {
-            return false
+            return .reject
         }
+
+        if TerminalNotificationSummary.isActiveInteractiveTuiVisible(visibleText) {
+            return .terminalAlert
+        }
+
         guard isTrackableCommand(command) else {
-            return false
+            return .reject
         }
-        return !TerminalNotificationSummary.isActiveCodexTuiVisible(visibleText)
+        return .generic
     }
 
     private static func isTrackableCommand(_ command: String) -> Bool {
@@ -37,20 +52,124 @@ enum TerminalBackgroundTaskTrackingPolicy {
         }
         return true
     }
+
+}
+
+enum TerminalNotificationDeliveryPolicy {
+    static func shouldDeliverUserNotification(isTerminalFocusedForUser: Bool) -> Bool {
+        true
+    }
+}
+
+struct TerminalDesktopNotificationPayload: Equatable {
+    let title: String
+    let body: String
+
+    static func itermOsc9(message: String) -> TerminalDesktopNotificationPayload? {
+        guard !isItermOsc9NumericExtension(message) else {
+            return nil
+        }
+        guard let body = TerminalNotificationSummary.notificationProtocolText(from: message) else {
+            return nil
+        }
+        return TerminalDesktopNotificationPayload(
+            title: AppConstants.Notifications.terminalAlertTitle,
+            body: body
+        )
+    }
+
+    private static func isItermOsc9NumericExtension(_ message: String) -> Bool {
+        let firstParameter = message
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Int(firstParameter) != nil
+    }
+
+    static func rxvtOsc777(payload: String) -> TerminalDesktopNotificationPayload? {
+        let parts = payload.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "notify" else {
+            return nil
+        }
+
+        let title = TerminalNotificationSummary.notificationProtocolText(from: String(parts[1]))
+            ?? AppConstants.Notifications.terminalNotificationTitle
+        let body = TerminalNotificationSummary.notificationProtocolText(from: String(parts[2])) ?? ""
+        guard !body.isEmpty || title != AppConstants.Notifications.terminalNotificationTitle else {
+            return nil
+        }
+        return TerminalDesktopNotificationPayload(title: title, body: body)
+    }
 }
 
 struct TerminalBackgroundTaskNotificationContent: Equatable {
+    enum Source: Equatable {
+        case generic
+        case terminalAlert(sessionDescription: String, tabIndex: Int)
+    }
+
     let title: String
     let subtitle: String
     let body: String
 
-    static func make(submittedCommand: String?, outputText: String) -> TerminalBackgroundTaskNotificationContent {
+    static func make(
+        submittedCommand: String?,
+        outputText: String,
+        source: Source = .generic
+    ) -> TerminalBackgroundTaskNotificationContent {
+        make(
+            submittedCommand: submittedCommand,
+            outputText: outputText,
+            source: source,
+            requireTerminalAlertMessage: false
+        )!
+    }
+
+    static func makeIfDeliverable(
+        submittedCommand: String?,
+        outputText: String,
+        source: Source = .generic
+    ) -> TerminalBackgroundTaskNotificationContent? {
+        make(
+            submittedCommand: submittedCommand,
+            outputText: outputText,
+            source: source,
+            requireTerminalAlertMessage: true
+        )
+    }
+
+    private static func make(
+        submittedCommand: String?,
+        outputText: String,
+        source: Source,
+        requireTerminalAlertMessage: Bool
+    ) -> TerminalBackgroundTaskNotificationContent? {
         let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedCommand ?? "")
+        if case let .terminalAlert(sessionDescription, tabIndex) = source {
+            let body: String
+            if let terminalAlertMessage = terminalAlertNotificationBody(outputText: outputText) {
+                body = terminalAlertMessage
+            } else if requireTerminalAlertMessage {
+                return nil
+            } else {
+                body = notificationBody(command: command, outputText: outputText)
+            }
+            return TerminalBackgroundTaskNotificationContent(
+                title: AppConstants.Notifications.terminalAlertTitle,
+                subtitle: "",
+                body: terminalAlertBody(
+                    message: body,
+                    sessionDescription: sessionDescription,
+                    tabIndex: tabIndex
+                )
+            )
+        }
         let body = notificationBody(command: command, outputText: outputText)
         let isCodex = command.map(TerminalBackgroundTaskNotificationContent.isExplicitCodexTaskCommand) ?? false
         let title: String
         if isCodex {
-            title = codexTitle(for: body)
+            title = codexTitle(for: body, outputText: outputText)
         } else {
             title = AppConstants.Notifications.backgroundTaskTitle
         }
@@ -61,10 +180,18 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
         )
     }
 
+    private static func terminalAlertNotificationBody(outputText: String) -> String? {
+        guard let bulletSummary = TerminalNotificationSummary.terminalBulletNotificationBodyText(
+            fromOutputText: outputText
+        ) else {
+            return nil
+        }
+        return trimmed(bulletSummary)
+    }
+
     private static func notificationBody(command: String?, outputText: String) -> String {
-        if TerminalNotificationSummary.isCodexLikeOutput(outputText),
-           let codexSummary = TerminalNotificationSummary.codexNotificationBodyText(fromOutputText: outputText) {
-            return trimmed(codexSummary)
+        if let bulletSummary = TerminalNotificationSummary.terminalBulletNotificationBodyText(fromOutputText: outputText) {
+            return trimmed(bulletSummary)
         }
         if let outputSummary = TerminalNotificationSummary.notificationBodyText(fromOutputText: outputText) {
             return trimmed(outputSummary)
@@ -75,10 +202,14 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
         return AppConstants.Notifications.backgroundTaskFinishedBody
     }
 
-    private static func codexTitle(for body: String) -> String {
+    private static func codexTitle(for body: String, outputText: String) -> String {
+        if TerminalNotificationSummary.containsNeedsInputStatus(outputText) {
+            return AppConstants.Notifications.codexNeedsInputTitle
+        }
         let lowercasedBody = body.lowercased()
         if lowercasedBody.contains("approval required")
             || lowercasedBody.contains("requires approval")
+            || lowercasedBody.contains("need approval")
             || lowercasedBody.contains("needs input")
             || lowercasedBody.contains("waiting for input") {
             return AppConstants.Notifications.codexNeedsInputTitle
@@ -105,10 +236,51 @@ struct TerminalBackgroundTaskNotificationContent: Equatable {
         }
         return String(body.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
     }
+
+    static func terminalAlertBody(message: String, sessionDescription: String, tabIndex: Int) -> String {
+        let session = sessionDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeSession = session.isEmpty ? AppConstants.Notifications.terminalAlertDefaultSessionDescription : session
+        return "Session \(safeSession) #\(max(1, tabIndex)): \(trimmed(message))"
+    }
 }
 
 enum TerminalNotificationSummary {
-    static func isActiveCodexTuiVisible(_ text: String) -> Bool {
+    static func notificationProtocolText(from text: String) -> String? {
+        let normalized = normalizedTerminalText(from: text)
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        guard normalized.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
+            return normalized
+        }
+        return String(normalized.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+    }
+
+    static func containsNeedsInputStatus(_ text: String) -> Bool {
+        let normalizedText = normalizedTerminalText(from: text)
+        return normalizedText
+            .components(separatedBy: .newlines)
+            .contains { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !isMetadataStatusLine(trimmed) else {
+                    return false
+                }
+                let lowercased = trimmed.lowercased()
+                return lowercased.contains("approval required")
+                    || lowercased.contains("requires approval")
+                    || lowercased.contains("need approval")
+                    || lowercased.contains("needs input")
+                    || lowercased.contains("waiting for input")
+            }
+    }
+
+    static func isActiveInteractiveTuiVisible(_ text: String) -> Bool {
         let normalizedText = normalizedTerminalText(from: text)
         let tailLines = normalizedText
             .components(separatedBy: .newlines)
@@ -130,27 +302,13 @@ enum TerminalNotificationSummary {
         }
     }
 
-    static func isCodexLikeOutput(_ text: String) -> Bool {
-        let normalizedText = normalizedTerminalText(from: text)
-        let lines = normalizedText.components(separatedBy: .newlines)
-        return lines.contains { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            return isMetadataStatusLine(trimmed)
-                || trimmed.hasPrefix("› ")
-                || trimmed.hasPrefix("• Explored")
-                || trimmed.hasPrefix("• Edited")
-                || trimmed.hasPrefix("• Ran")
-                || trimmed.hasPrefix("• Read")
-        }
-    }
-
-    static func codexNotificationBodyText(fromOutputText text: String) -> String? {
+    static func terminalBulletNotificationBodyText(fromOutputText text: String) -> String? {
         let normalizedText = normalizedTerminalText(from: text)
         for line in normalizedText.components(separatedBy: .newlines).reversed() {
             guard let meaningfulLine = meaningfulContentLine(from: line) else {
                 continue
             }
-            guard let answer = codexAssistantAnswer(from: meaningfulLine) else {
+            guard let answer = terminalBulletAnswer(from: meaningfulLine) else {
                 continue
             }
             return answer
@@ -229,22 +387,22 @@ enum TerminalNotificationSummary {
             )
     }
 
-    private static func codexAssistantAnswer(from line: String) -> String? {
-        guard line.hasPrefix("• ") else {
+    private static func terminalBulletAnswer(from line: String) -> String? {
+        guard line.first == "•" else {
             return nil
         }
-        let answer = removingCodexStatusSuffix(from: String(line.dropFirst(2)))
+        let answer = removingTerminalStatusSuffix(from: String(line.dropFirst()))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else {
             return nil
         }
-        guard !isCodexToolStatusAnswer(String(answer)) else {
+        guard !isToolStatusAnswer(String(answer)) else {
             return nil
         }
         return String(answer)
     }
 
-    private static func isCodexToolStatusAnswer(_ answer: String) -> Bool {
+    private static func isToolStatusAnswer(_ answer: String) -> Bool {
         answer == "Explored"
             || answer == "Edited"
             || answer == "Ran"
@@ -333,14 +491,19 @@ enum TerminalNotificationSummary {
             searchIndex = markerRange.upperBound
         }
 
-        return removingCodexStatusSuffix(from: line)
+        return removingTerminalStatusSuffix(from: line)
     }
 
-    private static func removingCodexStatusSuffix(from line: String) -> String {
-        line.replacingOccurrences(
-            of: #"(?:Worki|Work|Ready|Thinking)[0-9]+$"#,
+    private static func removingTerminalStatusSuffix(from line: String) -> String {
+        let withoutNamedStatus = line.replacingOccurrences(
+            of: #"(?<=\S)(?:Working|Worki|Work|Ready|Thinking)[0-9]*$"#,
             with: "",
             options: .regularExpression
+        )
+        return withoutNamedStatus.replacingOccurrences(
+            of: #"(?<=[.!?。？！])(?:W|Wo|Wor|Work|Worki|Working|R|Re|Rea|Read|Ready|T|Th|Thi|Thin|Think|Thinking)[0-9]+$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
         )
     }
 
@@ -481,7 +644,7 @@ enum TerminalNotificationSummary {
         let hasModelSegment = segments.contains { segment in
             segment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil
         }
-        let hasCodexStatusSegment = segments.contains { segment in
+        let hasInteractiveStatusSegment = segments.contains { segment in
             segment == "Ready"
                 || segment == "Workspace"
                 || segment == "No changes"
@@ -490,7 +653,7 @@ enum TerminalNotificationSummary {
                 || segment == "never"
                 || segment.hasPrefix("Context ")
         }
-        if hasModelSegment && hasCodexStatusSegment {
+        if hasModelSegment && hasInteractiveStatusSegment {
             return true
         }
 
@@ -526,7 +689,7 @@ enum TerminalNotificationSummary {
     }
 
     private static func isPromptInputLine(_ line: String) -> Bool {
-        line.range(of: #"^[›>]\s+\S"#, options: .regularExpression) != nil
+        line.range(of: #"^[›>]\s*\S"#, options: .regularExpression) != nil
     }
 
     private static func isShellPromptLine(_ line: String) -> Bool {

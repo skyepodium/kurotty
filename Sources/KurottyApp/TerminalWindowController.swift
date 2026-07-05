@@ -12,6 +12,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let tabView = NSTabView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
     private var chromeTheme: DesignTokens.ChromeTheme
+    var openCommandPaletteRequested: (() -> Void)?
 
     convenience init(paneDragCoordinator: TerminalPaneDragCoordinator) {
         self.init(initialPane: nil, paneDragCoordinator: paneDragCoordinator)
@@ -96,6 +97,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
     func sendTextToActivePane(_ text: String) {
         currentSplitView()?.sendTextToActivePane(text)
+    }
+
+    func showSearch() {
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func enterCopyMode() {
+        currentSplitView()?.focusFirstPane()
+    }
+
+    func openQuickTerminal() {
+        newTab()
     }
 
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
@@ -489,6 +502,18 @@ final class TerminalPaneDropTargetView: NSView {
 }
 
 @MainActor
+enum TerminalTabMouseAction: Equatable {
+    case select
+    case close
+}
+
+enum TerminalTabMouseActionResolver {
+    static func action(for location: NSPoint, closeButtonFrame: NSRect) -> TerminalTabMouseAction {
+        closeButtonFrame.contains(location) ? .close : .select
+    }
+}
+
+@MainActor
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
@@ -518,7 +543,13 @@ private final class TerminalTabItemView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onSelect()
+        let location = convert(event.locationInWindow, from: nil)
+        switch TerminalTabMouseActionResolver.action(for: location, closeButtonFrame: closeButton.frame) {
+        case .close:
+            onClose()
+        case .select:
+            onSelect()
+        }
     }
 
     override func updateTrackingAreas() {

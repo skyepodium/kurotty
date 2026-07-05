@@ -138,6 +138,7 @@ struct SegmentedScrollbackStore<Row> {
     }
 
     private var segments: [[Row]] = []
+    private var firstRetainedSegmentIndex = 0
     private var firstSegmentStartIndex = 0
     private var rowLimit: Int
     private let segmentSize: Int
@@ -163,7 +164,7 @@ struct SegmentedScrollbackStore<Row> {
         Diagnostics(
             rowLimit: rowLimit,
             segmentSize: segmentSize,
-            segmentCount: segments.count,
+            segmentCount: retainedSegmentCount,
             visibleRowCount: visibleRowCount,
             retainedStorageRowCount: retainedStorageRowCount,
             droppedRowCount: droppedRowCount,
@@ -208,15 +209,16 @@ struct SegmentedScrollbackStore<Row> {
 
     func row(at index: Int) -> Row? {
         guard index >= 0, index < visibleRowCount else { return nil }
-        guard let firstSegment = segments.first else { return nil }
+        guard firstRetainedSegmentIndex < segments.count else { return nil }
 
+        let firstSegment = segments[firstRetainedSegmentIndex]
         let firstVisibleCount = firstSegment.count - firstSegmentStartIndex
         if index < firstVisibleCount {
             return firstSegment[firstSegmentStartIndex + index]
         }
 
         let remainingIndex = index - firstVisibleCount
-        let segmentOffset = 1 + remainingIndex / segmentSize
+        let segmentOffset = firstRetainedSegmentIndex + 1 + remainingIndex / segmentSize
         let rowOffset = remainingIndex % segmentSize
         guard segmentOffset < segments.count,
               rowOffset < segments[segmentOffset].count
@@ -321,6 +323,26 @@ struct SegmentedScrollbackStore<Row> {
         )
     }
 
+    static func liveAccessSummary(
+        purpose: LiveAccessPurpose,
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int,
+        retainedRowSummary: RetainedRowSummary
+    ) -> LiveAccessSummary {
+        let exportWindow = exportWindowSummary(
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+        return LiveAccessSummary(
+            purpose: purpose,
+            exportWindow: exportWindow,
+            availability: liveAccessAvailability(for: exportWindow)
+        )
+    }
+
     private static func liveAccessAvailability(for summary: ExportWindowSummary) -> LiveAccessAvailability {
         guard summary.requestedRowCount > 0 else {
             return .emptyRequest
@@ -349,12 +371,21 @@ struct SegmentedScrollbackStore<Row> {
     }
 
     private var retainedStorageRowCount: Int {
-        segments.reduce(0) { $0 + $1.count }
+        guard firstRetainedSegmentIndex < segments.count else { return 0 }
+        return segments[firstRetainedSegmentIndex...].reduce(0) { $0 + $1.count }
+    }
+
+    private var retainedSegmentCount: Int {
+        max(0, segments.count - firstRetainedSegmentIndex)
     }
 
     private var maximumRetainedSegmentCount: Int {
         guard rowLimit > 0 else { return 0 }
         return Int((rowLimit + segmentSize - 1) / segmentSize) + 1
+    }
+
+    private var maximumBackingSegmentCount: Int {
+        maximumRetainedSegmentCount * 4
     }
 
     private var maximumRetainedStorageRowCount: Int {
@@ -401,6 +432,7 @@ struct SegmentedScrollbackStore<Row> {
         guard rowsToDrop > 0 else { return }
         if rowLimit == 0 {
             segments.removeAll(keepingCapacity: false)
+            firstRetainedSegmentIndex = 0
             firstSegmentStartIndex = 0
             visibleRowCount = 0
             compactionCount += 1
@@ -408,8 +440,8 @@ struct SegmentedScrollbackStore<Row> {
         }
 
         var remainingRowsToDrop = rowsToDrop
-        while remainingRowsToDrop > 0, !segments.isEmpty {
-            let visibleRowsInFirstSegment = segments[0].count - firstSegmentStartIndex
+        while remainingRowsToDrop > 0, firstRetainedSegmentIndex < segments.count {
+            let visibleRowsInFirstSegment = segments[firstRetainedSegmentIndex].count - firstSegmentStartIndex
             if remainingRowsToDrop < visibleRowsInFirstSegment {
                 firstSegmentStartIndex += remainingRowsToDrop
                 visibleRowCount -= remainingRowsToDrop
@@ -417,26 +449,29 @@ struct SegmentedScrollbackStore<Row> {
             } else {
                 remainingRowsToDrop -= visibleRowsInFirstSegment
                 visibleRowCount -= visibleRowsInFirstSegment
-                segments.removeFirst()
+                firstRetainedSegmentIndex += 1
                 firstSegmentStartIndex = 0
-                compactionCount += 1
             }
         }
     }
 
     private mutating func compactSegmentsIfNeeded() {
-        guard !segments.isEmpty else {
+        guard firstRetainedSegmentIndex < segments.count else {
+            segments.removeAll(keepingCapacity: false)
+            firstRetainedSegmentIndex = 0
             firstSegmentStartIndex = 0
             return
         }
-        guard segments.count > maximumRetainedSegmentCount ||
-            retainedStorageRowCount > maximumRetainedStorageRowCount
+        guard retainedSegmentCount > maximumRetainedSegmentCount ||
+            retainedStorageRowCount > maximumRetainedStorageRowCount ||
+            segments.count > maximumBackingSegmentCount
         else {
             return
         }
 
         let visibleRows = (0..<visibleRowCount).map { row(at: $0)! }
         segments = []
+        firstRetainedSegmentIndex = 0
         firstSegmentStartIndex = 0
         for row in visibleRows {
             appendWithoutTrimming(row)

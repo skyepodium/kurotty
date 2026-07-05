@@ -40,6 +40,35 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.stablePixelBoundCount, 1)
     }
 
+    func testProductionDamageDiagnosticsExposeSubmittedAreaAndFallbackMetadata() {
+        let partial = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(dirtyRects: [rowRect(1)], isFullDamage: false),
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 40),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: false
+        )
+        let fallback = TerminalRenderDamageDiagnostics.make(
+            frame: makeFrame(dirtyRects: [rowRect(1)], isFullDamage: true),
+            bounds: CGRect(x: 0, y: 0, width: 80, height: 40),
+            backingScale: 2,
+            diagnosticFullRedrawEnabled: false,
+            scissorDisabled: false
+        )
+
+        XCTAssertEqual(partial.submittedDisplayArea, 800)
+        XCTAssertEqual(partial.fullDisplayArea, 3_200)
+        XCTAssertEqual(partial.submittedDisplayAreaRatio, 0.25)
+        XCTAssertFalse(partial.usedFullRedrawFallback)
+        XCTAssertEqual(partial.debugMetadataSummary, "decision=partial policy=display-cadence-coalescing-candidate fallback=none dirtyRects=1 submittedRects=1 submittedArea=800.00/3200.00 ratio=0.2500 stablePixelBounds=1 scissorDisabled=false")
+
+        XCTAssertEqual(fallback.submittedDisplayArea, 3_200)
+        XCTAssertEqual(fallback.submittedDisplayAreaRatio, 1)
+        XCTAssertTrue(fallback.usedFullRedrawFallback)
+        XCTAssertTrue(fallback.debugMetadataSummary.contains("fallback=full-damage-frame"))
+        XCTAssertTrue(fallback.debugMetadataSummary.contains("ratio=1.0000"))
+    }
+
     func testPartialDamageFallsBackToImmediatePolicyWhenPixelBoundsAreUnstable() {
         let diagnostics = TerminalRenderDamageDiagnostics.make(
             frame: makeFrame(

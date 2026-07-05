@@ -38,6 +38,81 @@ pub const PtyResizeRequest = struct {
     }
 };
 
+pub const PtyRuntimeOwner = enum {
+    unclaimed,
+    swift_scaffold,
+    zig_core,
+};
+
+pub const PtyRuntimeOwnershipSample = struct {
+    owner: PtyRuntimeOwner,
+    dimensions: PtyDimensions,
+    source: PtyResizeSource,
+    sequence: u64,
+};
+
+pub const PtyRuntimeOwnershipSummary = struct {
+    current_owner: PtyRuntimeOwner,
+    current_dimensions: ?PtyDimensions,
+    current_source: PtyResizeSource,
+    last_sequence: u64,
+    claim_count: u32,
+    has_owner_handoff: bool,
+    has_dimension_divergence: bool,
+};
+
+pub const PtyRuntimeOwnershipLedger = struct {
+    current_owner: PtyRuntimeOwner = .unclaimed,
+    current_dimensions: ?PtyDimensions = null,
+    current_source: PtyResizeSource = .unknown,
+    last_sequence: u64 = 0,
+    claim_count: u32 = 0,
+    has_owner_handoff: bool = false,
+    has_dimension_divergence: bool = false,
+
+    pub fn init() PtyRuntimeOwnershipLedger {
+        return .{};
+    }
+
+    pub fn record(self: *PtyRuntimeOwnershipLedger, sample: PtyRuntimeOwnershipSample) !void {
+        if (sample.owner == .unclaimed) return error.UnclaimedOwnershipSample;
+        if (self.claim_count > 0 and sample.sequence <= self.last_sequence) {
+            return error.StaleOwnershipSample;
+        }
+
+        if (self.current_owner != .unclaimed and self.current_owner != sample.owner) {
+            self.has_owner_handoff = true;
+        }
+        if (self.current_dimensions) |dimensions| {
+            if (dimensions.cols != sample.dimensions.cols or dimensions.rows != sample.dimensions.rows) {
+                self.has_dimension_divergence = true;
+            }
+        }
+
+        self.current_owner = sample.owner;
+        self.current_dimensions = sample.dimensions;
+        self.current_source = sample.source;
+        self.last_sequence = sample.sequence;
+        self.claim_count += 1;
+    }
+
+    pub fn summary(self: PtyRuntimeOwnershipLedger) PtyRuntimeOwnershipSummary {
+        return .{
+            .current_owner = self.current_owner,
+            .current_dimensions = self.current_dimensions,
+            .current_source = self.current_source,
+            .last_sequence = self.last_sequence,
+            .claim_count = self.claim_count,
+            .has_owner_handoff = self.has_owner_handoff,
+            .has_dimension_divergence = self.has_dimension_divergence,
+        };
+    }
+
+    pub fn hasDivergence(self: PtyRuntimeOwnershipLedger) bool {
+        return self.has_owner_handoff or self.has_dimension_divergence;
+    }
+};
+
 pub const PtySizeStatus = enum {
     matched,
     mismatch,

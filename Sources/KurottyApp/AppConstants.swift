@@ -128,6 +128,9 @@ enum AppConstants {
         static let backgroundTaskIdentifierPrefix = "dev.kurotty.terminal.background-task"
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
+        static let terminalAlertTitle = "Alert"
+        static let terminalAlertDefaultSessionDescription = "kurotty"
+        static let terminalAlertDefaultTabIndex = 1
         static let backgroundTaskTitle = "Task finished"
         static let codexFinishedTitle = "Codex task finished"
         static let codexFailedTitle = "Codex task failed"
@@ -139,6 +142,13 @@ enum AppConstants {
         static let backgroundTaskInputCaptureMaxCharacters = 4096
         static let backgroundTaskSummaryMaxCharacters = 180
         static let developmentNotificationExecutablePath = "/usr/bin/osascript"
+        static let bridgeSocketEnvironmentName = "KUROTTY_NOTIFY_SOCKET"
+        static let bridgeCommandEnvironmentName = "KUROTTY_NOTIFY_COMMAND"
+        static let bridgeSocketFileName = "notify.sock"
+        static let bridgeSocketBacklog: Int32 = 8
+        static let bridgePayloadMaxBytes = 64 * 1024
+        static let bridgeSocketPermissions = 0o600
+        static let bridgeSocketDirectoryPermissions = 0o700
     }
 
     enum Diagnostics {

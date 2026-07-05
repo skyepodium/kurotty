@@ -13,6 +13,8 @@ private func systemForkpty(
 final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
+    var onRuntimeEvent: ((TerminalSessionRuntimeEvent) -> Void)?
+    var onResizeTrace: ((TerminalResizeTrace) -> Void)?
     var onExit: ((Int32) -> Void)?
 
     private var master: Int32 = -1
@@ -102,16 +104,17 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
         if childPid > 0 {
             didSendSIGWINCH = kill(childPid, SIGWINCH) == 0
         }
+        let completedTrace = TerminalResizeTrace(
+            requestedColumns: columns,
+            requestedRows: rows,
+            cellSize: nil,
+            viewSize: nil,
+            ioctlResult: Int32(ioctlResult),
+            ioctlErrno: ioctlErrno,
+            didSendSIGWINCH: didSendSIGWINCH
+        )
+        onResizeTrace?(completedTrace)
         if DebugOptions.ptyLog {
-            let completedTrace = TerminalResizeTrace(
-                requestedColumns: columns,
-                requestedRows: rows,
-                cellSize: nil,
-                viewSize: nil,
-                ioctlResult: Int32(ioctlResult),
-                ioctlErrno: ioctlErrno,
-                didSendSIGWINCH: didSendSIGWINCH
-            )
             NSLog("Kurotty PTY resize: %@", completedTrace.description)
         }
     }
@@ -279,6 +282,8 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
             }
             if count > 0 {
                 let chunk = Data(readBuffer[0..<count])
+                let metadata = TerminalRawPtyLogMetadata(data: chunk)
+                onRuntimeEvent?(.ptyRead(metadata))
                 onRawOutput?(chunk)
                 pendingOutput.append(chunk)
                 didRead = true

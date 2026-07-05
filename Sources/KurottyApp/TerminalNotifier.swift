@@ -48,15 +48,18 @@ final class TerminalNotifier: NSObject {
 
     @MainActor
     func notifyItermOsc9(message: String) {
-        let payload = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else { return }
-        guard let body = TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: payload) else {
+        guard let payload = TerminalDesktopNotificationPayload.itermOsc9(message: message) else {
             return
         }
+        notifyDesktopNotification(payload)
+    }
+
+    @MainActor
+    func notifyDesktopNotification(_ payload: TerminalDesktopNotificationPayload) {
         deliver(
-            title: AppConstants.Notifications.terminalNotificationTitle,
+            title: payload.title,
             subtitle: "",
-            body: body,
+            body: payload.body,
             identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
         )
     }

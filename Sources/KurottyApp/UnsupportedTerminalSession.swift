@@ -12,6 +12,8 @@ private enum UnsupportedTerminalSessionConstants {
 final class UnsupportedTerminalSession: TerminalSession {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
+    var onRuntimeEvent: ((TerminalSessionRuntimeEvent) -> Void)?
+    var onResizeTrace: ((TerminalResizeTrace) -> Void)?
     var onExit: ((Int32) -> Void)?
 
     private let platformName: String

@@ -113,6 +113,19 @@ final class SegmentedScrollbackStoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(store.diagnostics.segmentCount, store.diagnostics.maximumRetainedSegmentCount)
     }
 
+    func testFullSegmentDropsAdvanceHeadWithoutImmediateCompaction() {
+        var store = SegmentedScrollbackStore<Int>(rowLimit: 8, segmentSize: 4)
+
+        store.append(contentsOf: Array(0..<24))
+
+        XCTAssertEqual(store.count, 8)
+        XCTAssertEqual(store.row(at: 0), 16)
+        XCTAssertEqual(store.row(at: 7), 23)
+        XCTAssertEqual(store.diagnostics.droppedRowCount, 16)
+        XCTAssertEqual(store.diagnostics.compactionCount, 0)
+        XCTAssertLessThanOrEqual(store.diagnostics.segmentCount, store.diagnostics.maximumRetainedSegmentCount)
+    }
+
     func testDiagnosticsDoNotExposeRowText() {
         var store = SegmentedScrollbackStore<String>(rowLimit: 2, segmentSize: 2)
 

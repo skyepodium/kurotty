@@ -28,8 +28,8 @@ Run these from the repository root when changing the runtime integration surface
 
 | Area | Command |
 | --- | --- |
-| Resize cycle diagnostics | `swift test --filter TerminalResizeLedgerTests` |
-| PTY/parser/screen/render event metadata | `swift test --filter TerminalEventLedgerTests` |
+| Resize cycle diagnostics and bounded live resize collection | `swift test --filter TerminalResizeLedgerTests` |
+| PTY/parser/screen/render event metadata and session runtime hooks | `swift test --filter TerminalEventLedgerTests`<br>`swift test --filter TerminalDiagnosticsTests` |
 | Swift scrollback bounds and pressure summaries | `swift test --filter TerminalScrollbackDiagnosticsTests` |
 | Shell integration command spans | `swift test --filter TerminalShellIntegrationTests` |
 | AI redaction and context snapshots | `swift test --filter AIContextLayerTests` |
@@ -53,6 +53,7 @@ Use this smaller set for `feature/non-ui-runtime-next-slice` changes. Run only t
 | Scrollback export metadata | `swift test --filter SegmentedScrollbackStoreTests`<br>`swift test --filter BoundedScrollbackRowsTests`<br>`swift test --filter TerminalScrollbackDiagnosticsTests` |
 | Shell opt-in metadata | `swift test --filter TerminalOSCDispatcherTests`<br>`swift test --filter TerminalShellIntegrationTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
 | Command UX | `swift test --filter TerminalCommandRegistryTests`<br>`swift test --filter TerminalCommandPaletteTests`<br>`swift test --filter CommandPaletteWindowControllerTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
+| Browser chrome and workspace restore UX | `swift build`<br>`swift test --filter WorkspaceSnapshotTests`<br>`swift test --filter WorkspaceSnapshotCoordinatorTests`<br>`swift test --filter GlyphRenderingRegressionTests/testTerminalWindowChromeDoesNotReserveToolbarRowAboveTerminal` |
 | AI agent action API | `swift build`<br>`swift test --filter AIContextLayerTests`<br>`swift test --filter AICommandContextBridgeTests`<br>`swift test --filter AIAgentActionApprovalTests` |
 | Documentation-only changes | `git diff --check -- docs/architecture.md docs/testing.md DESIGN.md` |
 

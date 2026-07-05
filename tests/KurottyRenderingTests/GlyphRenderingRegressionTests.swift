@@ -424,6 +424,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("guard !cell.isContinuation else { continue }\n                let position = TerminalCellPosition(row: row, column: column)"))
     }
 
+    func testMetalGlyphAtlasPublishesProductionGlyphRunContracts() throws {
+        let metalSource = try terminalMetalViewSource()
+        let glyphRunSource = try terminalGlyphRunSource()
+
+        XCTAssertTrue(glyphRunSource.contains("static func productionModel("))
+        XCTAssertTrue(glyphRunSource.contains("var isProductionReady: Bool"))
+        XCTAssertTrue(metalSource.contains("let productionRun: TerminalGlyphRun"))
+        XCTAssertTrue(metalSource.contains("var atlasGlyphRunsForDiagnostics: [TerminalGlyphRun]"))
+        XCTAssertTrue(metalSource.contains("lastAtlasGlyphRunsForDiagnostics = glyphs.values.map(\\.productionRun)"))
+        XCTAssertTrue(metalSource.contains("TerminalGlyphRun.productionModel("))
+        XCTAssertTrue(metalSource.contains("shapingStatus: .fallbackResolved"))
+        XCTAssertTrue(metalSource.contains("TerminalGlyphAtlasSlotMetadata(index: slotIndex"))
+    }
+
     func testGlyphAtlasHasEnoughSlotsForMixedTuiAndKoreanText() throws {
         let tokens = try designTokensSource()
         let atlasSize = try integerConstant(named: "glyphAtlasSizePX", in: tokens)
@@ -1504,6 +1518,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
         XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))
         XCTAssertTrue(windowSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        XCTAssertTrue(windowSource.contains("TerminalTabMouseActionResolver.action(for: location, closeButtonFrame: closeButton.frame)"))
+        XCTAssertTrue(windowSource.contains("onClose()"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
         XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
@@ -1545,6 +1561,50 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("accentBlue"))
         XCTAssertTrue(designSource.contains("accentPurple"))
         XCTAssertTrue(designSource.contains("borderHairline"))
+    }
+
+    func testTerminalWindowChromeDoesNotReserveToolbarRowAboveTerminal() throws {
+        let windowSource = try terminalWindowControllerSource()
+        let menuSource = try mainMenuSource()
+        let delegateSource = try appDelegateSource()
+        let designSource = try designTokensSource()
+
+        XCTAssertFalse(windowSource.contains("private let toolbarView = NSView()"))
+        XCTAssertFalse(windowSource.contains("private let toolbarStackView = NSStackView()"))
+        XCTAssertFalse(windowSource.contains("makeToolbarButton(title: \"Search\""))
+        XCTAssertFalse(windowSource.contains("makeToolbarButton(title: \"Copy Mode\""))
+        XCTAssertFalse(windowSource.contains("makeToolbarButton(title: \"Quick Terminal\""))
+        XCTAssertFalse(windowSource.contains("makeToolbarButton(title: \"Commands\""))
+        XCTAssertFalse(windowSource.contains("#selector(searchToolbarButtonPressed(_:))"))
+        XCTAssertFalse(windowSource.contains("#selector(copyModeToolbarButtonPressed(_:))"))
+        XCTAssertFalse(windowSource.contains("#selector(quickTerminalToolbarButtonPressed(_:))"))
+        XCTAssertFalse(windowSource.contains("#selector(commandPaletteToolbarButtonPressed(_:))"))
+        XCTAssertTrue(windowSource.contains("var openCommandPaletteRequested: (() -> Void)?"))
+        XCTAssertTrue(windowSource.contains("func showSearch()"))
+        XCTAssertTrue(windowSource.contains("func enterCopyMode()"))
+        XCTAssertTrue(windowSource.contains("func openQuickTerminal()"))
+
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Search Output\", action: #selector(AppDelegate.showSearch), keyEquivalent: \"f\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Enter Copy Mode\", action: #selector(AppDelegate.enterCopyMode), keyEquivalent: \"c\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Quick Terminal\", action: #selector(AppDelegate.openQuickTerminal), keyEquivalent: \"`\")"))
+        XCTAssertTrue(delegateSource.contains("@objc func showSearch()"))
+        XCTAssertTrue(delegateSource.contains("@objc func enterCopyMode()"))
+        XCTAssertTrue(delegateSource.contains("@objc func openQuickTerminal()"))
+
+        XCTAssertFalse(designSource.contains("terminalToolbarHeightPX"))
+        XCTAssertFalse(designSource.contains("terminalToolbarButtonHeightPX"))
+        XCTAssertFalse(designSource.contains("terminalToolbarButtonMinWidthPX"))
+    }
+
+    func testTerminalSurfaceRestoresRightClickContextMenu() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(surfaceSource.contains("override func menu(for event: NSEvent) -> NSMenu?"))
+        XCTAssertTrue(surfaceSource.contains("makeTerminalContextMenu()"))
+        XCTAssertTrue(surfaceSource.contains("copySelectionFromContextMenu"))
+        XCTAssertTrue(surfaceSource.contains("splitRightFromContextMenu"))
+        XCTAssertTrue(surfaceSource.contains("splitDownFromContextMenu"))
+        XCTAssertTrue(surfaceSource.contains("TerminalContextMenuBuilder.entries"))
     }
 
     func testTerminalSurfacePublishesOscTitleAndDirectoryForTabs() throws {
@@ -2013,8 +2073,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private func send(_ text: String, recordsUserActivity: Bool = true)"))
         XCTAssertTrue(surfaceSource.contains("recordUserInput(text)"))
         XCTAssertTrue(surfaceSource.contains("recordSubmittedInputText(text)"))
-        XCTAssertTrue(surfaceSource.contains("TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput("))
-        XCTAssertTrue(surfaceSource.contains("visibleText: visibleText()"))
+        XCTAssertTrue(surfaceSource.contains("TerminalBackgroundTaskTrackingPolicy.trackingDecision("))
+        XCTAssertTrue(surfaceSource.contains("private var backgroundTaskNotificationSource: TerminalBackgroundTaskNotificationContent.Source = .generic"))
+        XCTAssertTrue(surfaceSource.contains("let visibleSnapshot = visibleText()"))
+        XCTAssertTrue(surfaceSource.contains("visibleText: visibleSnapshot"))
         XCTAssertTrue(surfaceSource.contains("private func clearBackgroundTaskTracking()"))
         XCTAssertTrue(surfaceSource.contains("submitBackgroundTaskDescriptionIfNeeded()"))
         XCTAssertTrue(surfaceSource.contains("recordOutputForBackgroundTask(text)"))
@@ -2024,16 +2086,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: lines)"))
         XCTAssertTrue(surfaceSource.contains("scheduleBackgroundTaskIdleCheck()"))
         XCTAssertTrue(surfaceSource.contains("notifyBackgroundTaskIfIdle(inputSequence: inputSequence)"))
-        XCTAssertTrue(surfaceSource.contains("guard shouldDeliverUserNotification else"))
         XCTAssertTrue(surfaceSource.contains("let outputText = backgroundTaskOutputText"))
         XCTAssertTrue(surfaceSource.contains("backgroundTaskOutputText = \"\""))
-        XCTAssertTrue(surfaceSource.contains("let content = backgroundTaskNotificationContent(outputText: outputText)"))
-        XCTAssertTrue(surfaceSource.contains("private var shouldDeliverUserNotification: Bool"))
-        XCTAssertTrue(surfaceSource.contains("!isTerminalFocusedForUser"))
-        XCTAssertTrue(surfaceSource.contains("private var isTerminalFocusedForUser: Bool"))
-        XCTAssertTrue(surfaceSource.contains("NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self"))
-        XCTAssertTrue(surfaceSource.contains("private func backgroundTaskNotificationContent(outputText: String) -> TerminalBackgroundTaskNotificationContent"))
-        XCTAssertTrue(surfaceSource.contains("TerminalBackgroundTaskNotificationContent.make("))
+        XCTAssertTrue(surfaceSource.contains("guard let content = backgroundTaskNotificationContent(outputText: outputText)"))
+        XCTAssertFalse(surfaceSource.contains("guard shouldDeliverUserNotification else"))
+        XCTAssertFalse(surfaceSource.contains("shouldDeliverUserNotification"))
+        XCTAssertFalse(surfaceSource.contains("private var isTerminalFocusedForUser: Bool"))
+        XCTAssertFalse(surfaceSource.contains("private var shouldDeliverUserNotification: Bool"))
+        XCTAssertTrue(surfaceSource.contains("private func backgroundTaskNotificationContent(outputText: String) -> TerminalBackgroundTaskNotificationContent?"))
+        XCTAssertTrue(surfaceSource.contains("TerminalBackgroundTaskNotificationContent.makeIfDeliverable("))
+        XCTAssertTrue(surfaceSource.contains("source: backgroundTaskNotificationSource"))
         XCTAssertTrue(surfaceSource.contains("submittedCommand: backgroundTaskDescription"))
         XCTAssertTrue(surfaceSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText)"))
         XCTAssertFalse(surfaceSource.contains("guard exposeBackgroundTaskOutputSummary"))
@@ -2043,9 +2105,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("sendTerminalResponse(response)"))
         XCTAssertFalse(surfaceSource.contains("notifyShellDidExit"))
         XCTAssertFalse(surfaceSource.contains("shell.onExit = { [weak self] status in"))
-        XCTAssertTrue(surfaceSource.contains("case \"9\":"))
-        XCTAssertTrue(surfaceSource.contains("notifyItermOsc9(payload)"))
-        XCTAssertTrue(surfaceSource.contains("notifier.notifyItermOsc9(message: payload)"))
+        XCTAssertTrue(surfaceSource.contains("case let .desktopNotification(payload)"))
+        XCTAssertTrue(surfaceSource.contains("terminalDesktopNotificationPayload(payload, oscCode: code)"))
+        XCTAssertTrue(surfaceSource.contains("notifier.notifyDesktopNotification(notificationPayload)"))
+        XCTAssertTrue(surfaceSource.contains("clearBackgroundTaskTracking()"))
+        XCTAssertFalse(surfaceSource.contains("notifyItermOsc9(payload)"))
         XCTAssertFalse(surfaceSource.contains("detectCodexTaskStateInScreen"))
         XCTAssertFalse(surfaceSource.contains("codexTaskIsRunning"))
         XCTAssertFalse(surfaceSource.contains("isCodexBusyScreen"))
@@ -2117,6 +2181,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try appConstantsSource().contains("static let codexFinishedTitle = \"Codex task finished\""))
         XCTAssertTrue(try appConstantsSource().contains("static let codexFailedTitle = \"Codex task failed\""))
         XCTAssertTrue(try appConstantsSource().contains("static let codexNeedsInputTitle = \"Codex needs input\""))
+        XCTAssertTrue(try appConstantsSource().contains("static let terminalAlertTitle = \"Alert\""))
+        XCTAssertTrue(try appConstantsSource().contains("static let terminalAlertDefaultTabIndex = 1"))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskIdentifierPrefix = \"dev.kurotty.terminal.background-task\""))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskSummaryMaxCharacters"))
         XCTAssertTrue(try appConstantsSource().contains("static let backgroundTaskFinishedBody = \"Task finished.\""))
@@ -2543,6 +2609,12 @@ private func productionMetalShaderSource() throws -> String {
 private func terminalMetalViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalGlyphRunSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyCore/TerminalGlyphRun.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

@@ -135,6 +135,44 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertFalse(String(describing: summary).contains("tail"))
     }
 
+    func testLiveAccessSummaryForwardsSearchCopyAndAIWindowsWithoutRawRows() {
+        var rows = BoundedScrollbackRows()
+
+        rows.append(
+            contentsOf: makeRows(["secret zero", "secret one", "normal two", "tail three"]),
+            limit: 2
+        )
+
+        let copySummary = rows.liveAccessSummary(
+            purpose: .copyMode,
+            absoluteStartIndex: 2,
+            rowCount: 2,
+            materializationLimit: 2
+        )
+        let searchSummary = rows.liveAccessSummary(
+            purpose: .search,
+            absoluteStartIndex: 1,
+            rowCount: 4,
+            materializationLimit: 1
+        )
+        let aiSummary = rows.liveAccessSummary(
+            purpose: .aiContextReference,
+            absoluteStartIndex: 3,
+            rowCount: 3,
+            materializationLimit: 1
+        )
+
+        XCTAssertEqual(copySummary.availability, .fullyAvailable)
+        XCTAssertTrue(copySummary.canServeSynchronously)
+        XCTAssertEqual(searchSummary.availability, .partiallyDroppedAndFuture)
+        XCTAssertFalse(searchSummary.canServeSynchronously)
+        XCTAssertEqual(aiSummary.availability, .partiallyFuture)
+        XCTAssertTrue(aiSummary.requiresUserVisibleWarning)
+        XCTAssertFalse(String(describing: searchSummary).contains("secret"))
+        XCTAssertFalse(String(describing: searchSummary).contains("normal"))
+        XCTAssertFalse(String(describing: searchSummary).contains("tail"))
+    }
+
     func testRemappingStylesAndColorsDoesNotChangeDiagnostics() {
         let previousDefaultStyle = TerminalTextStyle(
             foreground: SIMD4<Float>(0.1, 0.2, 0.3, 1),

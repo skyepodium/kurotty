@@ -127,6 +127,55 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
             diagnosticFlags: inferredDiagnosticFlags.union(explicitDiagnosticFlags)
         )
     }
+
+    public static func productionModel(
+        sourceText: String,
+        sourceRange: TerminalGlyphSourceRange,
+        fallbackFont: TerminalGlyphFallbackFont,
+        fallbackChain: [TerminalGlyphFallbackFont]? = nil,
+        glyphs: [TerminalGlyph],
+        advance: TerminalGlyphAdvance,
+        bounds: TerminalGlyphBounds,
+        atlasSlot: TerminalGlyphAtlasSlotMetadata,
+        atlasOwnership: TerminalGlyphAtlasMetadata.Ownership = .glyphCache,
+        pointSizePixels: Int,
+        scale: Int,
+        shapingStatus: TerminalGlyphShapingDiagnostics.Status = .fallbackResolved,
+        clipping: TerminalGlyphClippingMetrics? = nil,
+        diagnosticFlags explicitDiagnosticFlags: Set<TerminalGlyphDiagnosticFlag> = []
+    ) -> TerminalGlyphRun {
+        let glyphIDs = glyphs.map(\.glyphID)
+        let sourceFingerprint = sourceText.unicodeScalars
+            .map { String(format: "U+%04X", $0.value) }
+            .joined(separator: "-")
+        let atlasKey = TerminalGlyphAtlasKey.separated(
+            fontIdentifier: fallbackFont.identifier,
+            presentation: fallbackFont.requestedPresentation,
+            sourceFingerprint: sourceFingerprint,
+            glyphIDs: glyphIDs,
+            pointSizePixels: pointSizePixels,
+            scale: scale
+        )
+        var flags = explicitDiagnosticFlags
+        if fallbackFont.decision != .primary || (fallbackChain?.count ?? 1) > 1 {
+            flags.insert(.fallbackFontSelected)
+        }
+
+        return diagnosticModel(
+            sourceText: sourceText,
+            sourceRange: sourceRange,
+            fallbackFont: fallbackFont,
+            fallbackChain: fallbackChain,
+            glyphs: glyphs,
+            advance: advance,
+            bounds: bounds,
+            atlasKey: atlasKey,
+            shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: shapingStatus),
+            atlas: TerminalGlyphAtlasMetadata(ownership: atlasOwnership, slot: atlasSlot),
+            clipping: clipping,
+            diagnosticFlags: flags
+        )
+    }
 }
 
 public struct TerminalGlyphSourceCluster: Codable, Equatable, Sendable {
@@ -152,16 +201,32 @@ public struct TerminalGlyphSourceCluster: Codable, Equatable, Sendable {
         case unicodeScalarValues
     }
 
+    enum EncodedCodingKeys: String, CodingKey {
+        case range
+        case graphemeClusterCount
+        case graphemeClusters
+        case unicodeScalarCount
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: EncodedCodingKeys.self)
+        try container.encode(range, forKey: .range)
+        try container.encode(graphemeClusterCount, forKey: .graphemeClusterCount)
+        try container.encode(graphemeClusters, forKey: .graphemeClusters)
+        try container.encode(unicodeScalarValues.count, forKey: .unicodeScalarCount)
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        text = try container.decode(String.self, forKey: .text)
         range = try container.decode(TerminalGlyphSourceRange.self, forKey: .range)
         graphemeClusterCount = try container.decode(Int.self, forKey: .graphemeClusterCount)
+        unicodeScalarValues = try container.decodeIfPresent([UInt32].self, forKey: .unicodeScalarValues) ?? []
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+            ?? String(unicodeScalarValues: unicodeScalarValues)
         graphemeClusters = try container.decodeIfPresent(
             [TerminalGlyphSourceGraphemeCluster].self,
             forKey: .graphemeClusters
         ) ?? TerminalGlyphSourceGraphemeCluster.clusters(in: text, startingAt: range.utf16Location)
-        unicodeScalarValues = try container.decode([UInt32].self, forKey: .unicodeScalarValues)
     }
 }
 
@@ -176,6 +241,35 @@ public struct TerminalGlyphSourceGraphemeCluster: Codable, Equatable, Sendable {
         self.range = range
         self.terminalCellWidth = terminalCellWidth
         self.unicodeScalarValues = unicodeScalarValues
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case range
+        case terminalCellWidth
+        case unicodeScalarValues
+    }
+
+    enum EncodedCodingKeys: String, CodingKey {
+        case range
+        case terminalCellWidth
+        case unicodeScalarCount
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: EncodedCodingKeys.self)
+        try container.encode(range, forKey: .range)
+        try container.encode(terminalCellWidth, forKey: .terminalCellWidth)
+        try container.encode(unicodeScalarValues.count, forKey: .unicodeScalarCount)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        range = try container.decode(TerminalGlyphSourceRange.self, forKey: .range)
+        terminalCellWidth = try container.decode(Int.self, forKey: .terminalCellWidth)
+        unicodeScalarValues = try container.decodeIfPresent([UInt32].self, forKey: .unicodeScalarValues) ?? []
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+            ?? String(unicodeScalarValues: unicodeScalarValues)
     }
 
     fileprivate static func clusters(in text: String, startingAt utf16Location: Int) -> [TerminalGlyphSourceGraphemeCluster] {
@@ -193,6 +287,17 @@ public struct TerminalGlyphSourceGraphemeCluster: Codable, Equatable, Sendable {
                 unicodeScalarValues: character.unicodeScalars.map(\.value)
             )
         }
+    }
+}
+
+private extension String {
+    init(unicodeScalarValues: [UInt32]) {
+        var scalars = String.UnicodeScalarView()
+        for value in unicodeScalarValues {
+            guard let scalar = UnicodeScalar(value) else { continue }
+            scalars.append(scalar)
+        }
+        self = String(scalars)
     }
 }
 
@@ -358,6 +463,13 @@ public struct TerminalGlyphBackendContract: Codable, Equatable, Sendable {
     public let atlasOwnership: TerminalGlyphAtlasMetadata.Ownership
     public let clippingRisk: ClippingRisk
     public let validationFlags: Set<ValidationFlag>
+
+    public var isProductionReady: Bool {
+        shapingReadiness == .ready &&
+            fallbackResolution != .unresolved &&
+            atlasReadiness == .resident &&
+            clippingRisk != .clipped
+    }
 
     public init(
         shapingReadiness: ShapingReadiness,
@@ -542,6 +654,41 @@ public struct TerminalGlyphAtlasKey: Codable, Equatable, Hashable, Sendable {
         glyphIDs = try container.decodeIfPresent([UInt32].self, forKey: .glyphIDs) ?? []
         pointSizePixels = try container.decodeIfPresent(Int.self, forKey: .pointSizePixels)
         scale = try container.decodeIfPresent(Int.self, forKey: .scale)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(diagnosticValue, forKey: .value)
+        try container.encodeIfPresent(fontIdentifier, forKey: .fontIdentifier)
+        try container.encodeIfPresent(presentation, forKey: .presentation)
+        try container.encode(glyphIDs, forKey: .glyphIDs)
+        try container.encodeIfPresent(pointSizePixels, forKey: .pointSizePixels)
+        try container.encodeIfPresent(scale, forKey: .scale)
+    }
+
+    private var diagnosticValue: String {
+        guard sourceFingerprint != nil else {
+            return value
+        }
+
+        let glyphComponent = glyphIDs.map(String.init).joined(separator: ",")
+        guard
+            let fontIdentifier,
+            let presentation,
+            let pointSizePixels,
+            let scale
+        else {
+            return "source-redacted/\(glyphIDs.count)-glyphs"
+        }
+
+        return [
+            fontIdentifier,
+            presentation.rawValue,
+            "source-redacted",
+            glyphComponent,
+            "\(pointSizePixels)px",
+            "\(scale)x",
+        ].joined(separator: "/")
     }
 
     public static func separated(

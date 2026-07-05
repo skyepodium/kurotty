@@ -56,14 +56,14 @@
 
 현재 남은 큰 축:
 
-- [~] Swift scaffold와 Zig terminal core의 단일 source-of-truth 통합: metadata/diagnostics는 보강됨. 실제 runtime mutation path 통합은 남음.
-- [~] 실제 PTY/parser/screen/render event ledger를 하나의 디버깅 타임라인으로 묶기: correlation report, timeline summary, source-of-truth completeness 기반은 완료. live viewer/production wiring은 남음.
-- [~] renderer damage/scissor 최적화를 production path에서 완성: redraw/coalescing policy contract는 완료. 실제 repaint scheduling 최적화와 live measurement는 남음.
-- [~] glyph shaping/fallback/font atlas contract의 full implementation: backend readiness contract는 완료. CoreText/atlas production implementation은 남음.
-- [~] segmented scrollback store와 대용량 stress/performance 기준: retained range/coordinate/stress/export-window/live-access 기준은 보강됨. disk-backed/off-main-thread store는 남음.
-- [~] shell integration opt-in script, command folding/replay/search UX: backend metadata, evidence 분리, command action vocabulary는 완료. 실제 UX와 install-free onboarding은 남음.
-- [~] browser-like UI polish, non-developer onboarding, DESIGN.md 업데이트.
-- [~] AI agent UX layer: secret-safe backend action API와 command span locator는 강화됨. context reference UI와 approval presentation은 남음.
+- [~] Swift scaffold와 Zig terminal core의 단일 source-of-truth 통합: metadata/diagnostics와 Zig PTY runtime ownership ledger는 보강됨. 실제 runtime mutation path 단일화는 남음.
+- [~] 실제 PTY/parser/screen/render event ledger를 하나의 디버깅 타임라인으로 묶기: correlation report, timeline summary, source-of-truth completeness, live PTY/parser/screen/render metadata wiring은 완료. live viewer UI는 남음.
+- [~] renderer damage/scissor 최적화를 production path에서 완성: redraw/coalescing policy contract, submitted-area live measurement, full-redraw fallback metadata는 완료. installed-app visual/performance QA와 deeper scheduling tuning은 남음.
+- [~] glyph shaping/fallback/font atlas contract의 full implementation: backend readiness contract와 CoreText/atlas production diagnostic model은 완료. cross-machine visual atlas baseline은 남음.
+- [~] segmented scrollback store와 대용량 stress/performance 기준: retained range/coordinate/stress/export-window/live-access 기준과 bounded head advancement는 보강됨. disk-backed/off-main-thread store는 남음.
+- [~] shell integration opt-in script, command folding/replay/search UX: backend metadata, evidence 분리, command action vocabulary, registry-backed command-span palette/dispatch는 완료. full interactive command folding/search/replay views는 남음.
+- [~] browser-like UI polish, non-developer onboarding, DESIGN.md 업데이트: toolbar/search/copy-mode/quick-terminal entry points와 docs는 추가됨. installed-app visual polish는 남음.
+- [~] AI agent UX layer: secret-safe backend action API, command span locator, visible approval dialog-flow model, approval-gated dispatch integration은 강화됨. 실제 AppKit dialog presentation은 남음.
 
 ## 1. 바로 넣어야 할 것
 
@@ -457,25 +457,29 @@
 
 - [~] `kurotty/src/pty.zig` stub 상태와 Swift `ShellSession` runtime boundary를 정리한다.
   - 완료: PTY boundary/adapter 기반과 metadata 중심 진단 일부 추가.
+  - 완료: Zig PTY runtime ownership ledger로 Swift scaffold/Zig core ownership handoff와 dimension divergence를 payload 없이 진단.
   - 남음: Swift/Zig runtime ownership을 단일 실행 경로로 정리.
 - [~] parser event와 screen mutation을 분리한 테스트 fixture를 추가한다.
   - 완료: screen/escape/parser 관련 regression test와 command/OSC bridge 테스트 일부 추가.
   - 완료: trace correlation report에 metadata-only timeline summary 추가.
   - 완료: PTY bytes -> parser event -> screen mutation -> render frame stage completeness와 missing stage metadata를 raw payload 없이 진단.
-  - 남음: Swift scaffold/Zig core source-of-truth 차이를 live runtime fixture로 드러내기.
+  - 완료: live PTY read, parser, screen mutation, render frame metadata를 `TerminalSurfaceView` runtime ledger에 연결.
+  - 남음: Swift scaffold/Zig core source-of-truth 차이를 installed-app live viewer로 드러내기.
 - [~] `PtyResizeTrace` 구조와 metadata-only logging을 추가한다.
   - 완료: resize diagnostics 기반 일부 추가.
   - 완료: PTY winsize, screen size, renderer grid/drawable/frame size를 한 ledger summary로 연결.
-  - 남음: 실제 resize live path에서 해당 summary를 지속적으로 채집.
+  - 완료: 실제 resize live path에서 bounded `TerminalResizeLedger`로 snapshot을 지속적으로 채집.
 - [x] IME marked text overlay를 screen mutation과 분리하고 Korean IME test matrix를 문서화한다.
   - 완료: marked text가 PTY/core로 commit 전 전송되지 않는 회귀 테스트와 input router 기반 추가.
 - [~] renderer scissor/dirty rect debug overlay와 pixel probe를 추가한다.
   - 완료: pixel probe, clipping diagnostics, full redraw/dirty invalidation 회귀 테스트, redraw/coalescing policy contract 추가.
-  - 남음: render coalescing, production damage/scissor path 최적화, live debug overlay polish.
+  - 완료: production damage diagnostics에 submitted/full display area, ratio, full-redraw fallback metadata 추가.
+  - 남음: installed-app visual/performance QA와 live debug overlay polish.
 - [~] glyph shaping/fallback contract를 설계하고 CoreText/Metal atlas ownership을 문서화한다.
   - 완료: `TerminalGlyphRun` 기반, glyph atlas/fallback/clipping 회귀 테스트 일부 추가.
   - 완료: shaping/fallback/atlas/clipping readiness를 backend contract로 노출.
-  - 남음: CoreText/Metal atlas production implementation으로 확장.
+  - 완료: CoreText glyph IDs, fallback chain, atlas slot metadata를 production diagnostic model로 확장.
+  - 남음: cross-machine glyph atlas visual baseline과 deeper production rendering QA.
 - [x] shell integration v1에서 OSC 7/133만 먼저 지원한다.
   - 완료: OSC 7 cwd, OSC 133 prompt/command/output/end, exit code, command span/history, live OSC dispatcher hook.
 - [x] shell opt-in metadata를 passive OSC metadata와 분리한다.
@@ -495,6 +499,7 @@
   - 남음: AppKit menu item wiring과 실제 fold/search/copy/replay 화면 동작 연결.
 - [~] workspace/session snapshot을 layout-only로 먼저 저장한다.
   - 완료: `WorkspaceSnapshot`, atomic store, `WorkspaceSnapshotCoordinator`, app menu save flow.
+  - 완료: restore plan에서 layout과 process/command actions를 분리하고 command replay candidates를 inspectable opt-in으로 유지.
   - 남음: process restore, command replay, session restore UX는 explicit opt-in 이후.
 - [x] OSC 52 보안 정책을 runtime OSC 경로에 연결한다.
   - 완료: `TerminalOSC52Policy`, `TerminalOSCDispatcher`, live `TerminalSurfaceView` dispatch hook. Clipboard mutation은 아직 하지 않음.
@@ -503,12 +508,18 @@
 - [~] segmented scrollback store와 million-line stress test를 구현한다.
   - 완료: segmented/bounded scrollback 기반, export window metadata summary, million-line stress target.
   - 완료: search/copy/AI context reference live access window availability summary 추가.
-  - 남음: live scrollback path 전체를 segmented store 중심으로 정리하고 UI/search/copy mode와 연결.
-- [ ] command folding/search/replay UI를 구현한다.
-- [ ] browser-like toolbar/search/copy mode/quick terminal UX를 다듬는다.
+  - 완료: live access summary와 stable scrollback selection references를 search/copy/AI anchors로 연결.
+  - 남음: disk-backed/off-main-thread store와 full interactive search/copy mode.
+- [~] command folding/search/replay UI를 구현한다.
+  - 완료: command registry 기반 fold/search/copy-reference/replay palette/action dispatch 모델과 replay explicit confirmation metadata.
+  - 남음: 실제 AppKit command span UI, search panel, copy-reference pasteboard 연결, replay confirmation presentation.
+- [~] browser-like toolbar/search/copy mode/quick terminal UX를 다듬는다.
+  - 완료: toolbar entry points for new tab, search, copy mode, quick terminal, command palette.
+  - 남음: installed-app visual polish and full search/copy mode behavior.
 - [~] `kurotty/DESIGN.md`에 native UI, 브랜드, non-developer onboarding 가이드를 업데이트한다.
   - 완료: native UI, command UX, AI action boundary, diagnostics 방향 일부 업데이트.
-  - 남음: 실제 toolbar/search/copy mode/quick terminal 화면 설계와 non-developer onboarding polish.
+  - 완료: toolbar/search/copy mode/quick terminal 방향과 non-developer onboarding polish를 DESIGN/docs에 반영.
+  - 남음: installed-app screenshot/UX QA.
 - [~] AI agent approval/action API와 context reference UI를 구현한다.
   - 완료: redacted context references, copyable command span locator, action request/approval metadata, audit metadata, terminal core direct mutation 금지 검증.
   - 완료: visible context reference dialog-flow model, approve/deny decision model, approval-gated action dispatch integration.

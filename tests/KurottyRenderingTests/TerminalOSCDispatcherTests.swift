@@ -75,6 +75,54 @@ final class TerminalOSCDispatcherTests: XCTestCase {
         XCTAssertEqual(dispatcher.shellIntegration.sessionEvidence.observedPassiveOSCSequences, [.osc133])
     }
 
+    func testOSC9RoutesToDesktopNotificationPayload() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        let event = dispatcher.dispatch("9;Codex task finished", origin: .local)
+
+        XCTAssertEqual(
+            event,
+            .desktopNotification(
+                TerminalDesktopNotificationPayload(
+                    title: AppConstants.Notifications.terminalAlertTitle,
+                    body: "Codex task finished"
+                )
+            )
+        )
+    }
+
+    func testOSC9ProgressExtensionIsIgnoredAsDesktopNotification() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        XCTAssertEqual(dispatcher.dispatch("9;4", origin: .local), .ignored)
+        XCTAssertEqual(dispatcher.dispatch("9;4;1;50", origin: .local), .ignored)
+        XCTAssertEqual(dispatcher.dispatch("9;1;ignored", origin: .local), .ignored)
+    }
+
+    func testOSC777RoutesToDesktopNotificationPayload() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        let event = dispatcher.dispatch("777;notify;Codex task finished;Summarize recent commits", origin: .local)
+
+        XCTAssertEqual(
+            event,
+            .desktopNotification(
+                TerminalDesktopNotificationPayload(
+                    title: "Codex task finished",
+                    body: "Summarize recent commits"
+                )
+            )
+        )
+    }
+
+    func testOSC777RejectsUnknownExtension() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        let event = dispatcher.dispatch("777;toast;Title;Body", origin: .local)
+
+        XCTAssertEqual(event, .ignored)
+    }
+
     func testUnknownOSCIsIgnored() {
         var dispatcher = TerminalOSCDispatcher(
             osc52Policy: TerminalOSC52Policy(policy: .default),

@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let paneDragCoordinator = TerminalPaneDragCoordinator()
     private let updateController = UpdateController()
+    private let notificationBridge = KurottyNotificationBridgeServer()
     private var windowController: TerminalWindowController?
     private var preferencesController: PreferencesWindowController?
     private var commandPaletteController: CommandPaletteWindowController?
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
         TerminalNotifier.shared.requestAuthorization()
+        notificationBridge.start()
         if DebugOptions.testNotification {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Application.initialNotificationDelaySeconds) {
                 TerminalNotifier.shared.notifyTestNotification()
@@ -25,8 +27,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        notificationBridge.stop()
+    }
+
     @objc func openNewWindow() {
+        showTerminalWindow(makeTerminalWindowController())
+    }
+
+    private func makeTerminalWindowController() -> TerminalWindowController {
         let controller = TerminalWindowController(paneDragCoordinator: paneDragCoordinator)
+        controller.openCommandPaletteRequested = { [weak self] in
+            self?.openCommandPalette()
+        }
+        return controller
+    }
+
+    private func showTerminalWindow(_ controller: TerminalWindowController) {
         controller.showWindow(nil)
         windowController = controller
     }
@@ -130,6 +147,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func splitHorizontally() {
         activeTerminalWindowController?.splitHorizontally()
+    }
+
+    @objc func showSearch() {
+        activeTerminalWindowController?.showSearch()
+    }
+
+    @objc func enterCopyMode() {
+        activeTerminalWindowController?.enterCopyMode()
+    }
+
+    @objc func openQuickTerminal() {
+        guard let controller = activeTerminalWindowController else {
+            showTerminalWindow(makeTerminalWindowController())
+            return
+        }
+        controller.openQuickTerminal()
     }
 
     @objc func tmuxAttachOrCreateSession() {

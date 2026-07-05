@@ -222,10 +222,10 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testBackgroundTaskTrackingRejectsInteractiveCodexTuiConversationInput() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "hello",
+    func testBackgroundTaskTrackingTreatsInteractiveTuiInputAsTerminalAlert() {
+        XCTAssertEqual(
+            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
+                for: "hello",
                 visibleText: """
                 › hello
 
@@ -239,7 +239,30 @@ final class TerminalDiagnosticsTests: XCTestCase {
                 › Summarize recent commits
                 gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
                 """
-            )
+            ),
+            .terminalAlert
+        )
+    }
+
+    func testBackgroundTaskTrackingDoesNotPromoteInteractiveTuiInputToTaskCompletion() {
+        XCTAssertNotEqual(
+            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
+                for: "hello",
+                visibleText: """
+                › hello
+
+                • I'll load the required startup skill, then respond normally.
+
+                • Explored
+                  └ Read SKILL.md (superpowers:using-superpowers skill)
+
+                • Hello. How can I help?
+
+                › Summarize recent commits
+                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
+                """
+            ),
+            .generic
         )
     }
 
@@ -274,15 +297,29 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testBackgroundTaskTrackingRejectsCodexPromptDrafts() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "Summarize recent commits",
+    func testBackgroundTaskTrackingTreatsInteractiveTuiPromptsAsTerminalAlert() {
+        XCTAssertEqual(
+            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
+                for: "hello",
+                visibleText: """
+                › hello
+                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
+                """
+            ),
+            .terminalAlert
+        )
+    }
+
+    func testBackgroundTaskTrackingTreatsAllInteractiveTuiPromptsAsTerminalAlerts() {
+        XCTAssertEqual(
+            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
+                for: "Summarize recent commits",
                 visibleText: """
                 › Summarize recent commits
                 gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
                 """
-            )
+            ),
+            .terminalAlert
         )
     }
 
@@ -322,7 +359,7 @@ final class TerminalDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testGenericBackgroundNotificationDoesNotPromoteCodexLikeOutputToCodexCompletion() {
+    func testGenericBackgroundNotificationDoesNotPromoteInteractiveTuiOutputToCodexCompletion() {
         let content = TerminalBackgroundTaskNotificationContent.make(
             submittedCommand: "hello",
             outputText: """
@@ -352,6 +389,149 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(content.body.contains("gpt-5.5"))
     }
 
+    func testTerminalAlertContentUsesIterm2StyleSessionOutputMessage() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "hello",
+            outputText: """
+            › hello
+
+            • I’m loading the required startup skill, then I’ll
+              answer normally.
+
+            • Explored
+              └ Read SKILL.md (superpowers:using-superpowers skill)
+
+            ────────────────────────────────────
+
+            • Hi. What would you like to work on?
+
+            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval
+            """,
+            source: .terminalAlert(sessionDescription: "dev (codex)", tabIndex: 1)
+        )
+
+        XCTAssertEqual(content.title, "Alert")
+        XCTAssertEqual(content.subtitle, "")
+        XCTAssertEqual(content.body, "Session dev (codex) #1: Hi. What would you like to work on?")
+        XCTAssertFalse(content.body.contains("hello"))
+        XCTAssertFalse(content.body.contains("Explored"))
+        XCTAssertFalse(content.body.contains("SKILL.md"))
+        XCTAssertFalse(content.body.contains("gpt-5.5"))
+    }
+
+    func testTerminalAlertContentRemovesTrailingWorkingRepaintStatus() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "hello",
+            outputText: """
+            › hello
+
+            • Hi. What would you like to work on?\u{1b}[38;2;200;169;238mWorking
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+
+        XCTAssertEqual(content.body, "Session dev #1: Hi. What would you like to work on?")
+        XCTAssertFalse(content.body.contains("Working"))
+    }
+
+    func testTerminalAlertContentRemovesShortTrailingStatusRepaintRemainder() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "hello",
+            outputText: """
+            › hello
+
+            • Hello. I’m in /Users/skyepodium/dev and ready to work.\u{1b}[38;2;200;169;238mW5
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+
+        XCTAssertEqual(
+            content.body,
+            "Session dev #1: Hello. I’m in /Users/skyepodium/dev and ready to work."
+        )
+        XCTAssertFalse(content.body.contains("W5"))
+    }
+
+    func testTerminalAlertContentAcceptsBulletWithoutFollowingSpace() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "안녕",
+            outputText: """
+            ›안녕
+
+            2026I2
+
+            •안녕하세요. 무엇을 도와드릴까요?
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+
+        XCTAssertEqual(content.body, "Session dev #1: 안녕하세요. 무엇을 도와드릴까요?")
+        XCTAssertFalse(content.body.contains("2026I2"))
+        XCTAssertFalse(content.body.contains("›안녕"))
+    }
+
+    func testTerminalAlertContentAcceptsSubsequentNoSpaceKoreanAndEnglishAnswers() {
+        let korean = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "안녕",
+            outputText: """
+            ›안녕
+
+            •안녕하세요.무엇을  도와드릴까요?
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+        XCTAssertEqual(korean.body, "Session dev #1: 안녕하세요.무엇을  도와드릴까요?")
+
+        let english = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "what is your name?",
+            outputText: """
+            › what is your name?
+
+            • My name is Codex.
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+        XCTAssertEqual(english.body, "Session dev #1: My name is Codex.")
+    }
+
+    func testTerminalAlertIsNotDeliverableWhenOnlyControlFragmentsAreAvailable() {
+        let content = TerminalBackgroundTaskNotificationContent.makeIfDeliverable(
+            submittedCommand: "안녕",
+            outputText: """
+            ›안녕
+
+            2026I2
+            """,
+            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
+        )
+
+        XCTAssertNil(content)
+    }
+
+    func testTerminalAlertIdleKeepsTrackingWhenOnlyControlFragmentsAreAvailable() throws {
+        let source = try terminalSurfaceViewSource()
+        guard let start = source.range(of: "private func notifyBackgroundTaskIfIdle")?.lowerBound,
+              let end = source.range(of: "private func backgroundTaskNotificationContent")?.lowerBound else {
+            XCTFail("missing background task idle source region")
+            return
+        }
+        let idleSource = String(source[start..<end])
+
+        XCTAssertTrue(idleSource.contains("let outputText = backgroundTaskOutputText"))
+        XCTAssertNotNil(idleSource.range(
+            of: #"guard let content = backgroundTaskNotificationContent\(outputText: outputText\) else \{[\s\S]*?backgroundTaskHasOutput = false\s+backgroundTaskNotificationWorkItem = nil\s+return\s+\}"#,
+            options: .regularExpression
+        ))
+        XCTAssertFalse(idleSource.contains("""
+        backgroundTaskInputSequence = nil
+        backgroundTaskHasOutput = false
+        backgroundTaskNotificationWorkItem = nil
+        let outputText = backgroundTaskOutputText
+        backgroundTaskOutputText = ""
+        guard let content = backgroundTaskNotificationContent(outputText: outputText)
+        """))
+    }
+
     func testExplicitCodexCommandCanUseCodexCompletionTitle() {
         let content = TerminalBackgroundTaskNotificationContent.make(
             submittedCommand: "codex exec inspect tree",
@@ -365,6 +545,36 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(content.title, "Codex task finished")
         XCTAssertEqual(content.subtitle, "codex exec inspect tree")
         XCTAssertEqual(content.body, "I checked the working tree and found no changes.")
+    }
+
+    func testExplicitCodexCommandUsesPromptAndNeedsInputStatus() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex exec summarize recent commits",
+            outputText: """
+            • I found three recent commits and need approval to inspect the diff.
+
+            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval · Context 99% left
+            """
+        )
+
+        XCTAssertEqual(content.title, "Codex needs input")
+        XCTAssertEqual(content.subtitle, "codex exec summarize recent commits")
+        XCTAssertEqual(content.body, "I found three recent commits and need approval to inspect the diff.")
+    }
+
+    func testExplicitCodexCommandDoesNotTreatApprovalPolicyStatusAsNeedsInput() {
+        let content = TerminalBackgroundTaskNotificationContent.make(
+            submittedCommand: "codex exec summarize recent commits",
+            outputText: """
+            • I found three recent commits.
+
+            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval · Context 99% left
+            """
+        )
+
+        XCTAssertEqual(content.title, "Codex task finished")
+        XCTAssertEqual(content.subtitle, "codex exec summarize recent commits")
+        XCTAssertEqual(content.body, "I found three recent commits.")
     }
 
     func testCodexNotificationContentDetectsFailureAndInputRequired() {
@@ -679,6 +889,45 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(source.contains("UInt16(max(1, columns))"))
     }
 
+    func testTerminalSessionProtocolExposesMetadataOnlyRuntimeHooks() throws {
+        let source = try terminalSessionSource()
+
+        XCTAssertTrue(source.contains("var onRuntimeEvent: ((TerminalSessionRuntimeEvent) -> Void)? { get set }"))
+        XCTAssertTrue(source.contains("var onResizeTrace: ((TerminalResizeTrace) -> Void)? { get set }"))
+        XCTAssertTrue(source.contains("enum TerminalSessionRuntimeEvent"))
+        XCTAssertTrue(source.contains("case ptyRead(TerminalRawPtyLogMetadata)"))
+        XCTAssertFalse(source.contains("case ptyRead(Data)"))
+    }
+
+    func testDarwinPtyReadAndResizeEmitMetadataHooksWithoutDebugFlagGate() throws {
+        let source = try shellSessionSource()
+
+        XCTAssertTrue(source.contains("onRuntimeEvent?(.ptyRead(metadata))"))
+        XCTAssertTrue(source.contains("onResizeTrace?(completedTrace)"))
+        XCTAssertTrue(source.contains("onRawOutput?(chunk)"))
+        XCTAssertTrue(source.contains("if DebugOptions.ptyLog"))
+        XCTAssertLessThan(
+            try XCTUnwrap(source.range(of: "onRuntimeEvent?(.ptyRead(metadata))")?.lowerBound),
+            try XCTUnwrap(source.range(of: "pendingOutput.append(chunk)")?.lowerBound)
+        )
+        XCTAssertFalse(source.contains("onRuntimeEvent?(.ptyRead(chunk))"))
+    }
+
+    func testTerminalSurfaceWiresLiveTimelineAndResizeLedgersWithMetadataOnly() throws {
+        let source = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(source.contains("private var runtimeEventLedger = TerminalEventLedger(capacity:"))
+        XCTAssertTrue(source.contains("private var runtimeResizeLedger = TerminalResizeLedger(capacity:"))
+        XCTAssertTrue(source.contains("shell.onRuntimeEvent ="))
+        XCTAssertTrue(source.contains("runtimeEventLedger.recordPtyRead(traceID: traceID, byteCount: metadata.byteCount)"))
+        XCTAssertTrue(source.contains("runtimeEventLedger.recordParserEvent("))
+        XCTAssertTrue(source.contains("runtimeEventLedger.recordScreenMutation("))
+        XCTAssertTrue(source.contains("runtimeEventLedger.recordRenderFrame("))
+        XCTAssertTrue(source.contains("runtimeResizeLedger.record(TerminalResizeCycleSnapshot("))
+        XCTAssertFalse(source.contains("runtimeEventLedger.recordPtyRead(traceID: traceID, data:"))
+        XCTAssertFalse(source.contains("runtimeResizeLedger.record(text"))
+    }
+
     func testStyleRunSummaryReportsRangesWithoutCellText() {
         let red = TerminalTextStyle(
             foreground: SIMD4<Float>(1, 0, 0, 1),
@@ -762,6 +1011,14 @@ private func shellSessionSource() throws -> String {
     try String(
         contentsOf: sourceRoot()
             .appendingPathComponent("Sources/KurottyApp/ShellSession.swift"),
+        encoding: .utf8
+    )
+}
+
+private func terminalSessionSource() throws -> String {
+    try String(
+        contentsOf: sourceRoot()
+            .appendingPathComponent("Sources/KurottyApp/TerminalSession.swift"),
         encoding: .utf8
     )
 }

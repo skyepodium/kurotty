@@ -84,17 +84,20 @@ struct WorkspaceSnapshotCoordinator {
         var title: String?
         var workingDirectory: String?
         var profileName: String?
+        var restoreSafety: TerminalRestoreSafetyMetadata
 
         init(
             id: String,
             title: String? = nil,
             workingDirectory: String? = nil,
-            profileName: String? = nil
+            profileName: String? = nil,
+            restoreSafety: TerminalRestoreSafetyMetadata = .layoutOnly
         ) {
             self.id = id
             self.title = title
             self.workingDirectory = workingDirectory
             self.profileName = profileName
+            self.restoreSafety = restoreSafety
         }
     }
 

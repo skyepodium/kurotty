@@ -121,6 +121,21 @@ struct BoundedScrollbackRows {
         )
     }
 
+    func liveAccessSummary(
+        purpose: SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessPurpose,
+        absoluteStartIndex: Int,
+        rowCount: Int,
+        materializationLimit: Int
+    ) -> SegmentedScrollbackStore<[TerminalScreenCell]>.LiveAccessSummary {
+        SegmentedScrollbackStore<[TerminalScreenCell]>.liveAccessSummary(
+            purpose: purpose,
+            absoluteStartIndex: absoluteStartIndex,
+            rowCount: rowCount,
+            materializationLimit: materializationLimit,
+            retainedRowSummary: retainedRowSummary
+        )
+    }
+
     mutating func remapStyle(from previousStyle: TerminalTextStyle, to nextStyle: TerminalTextStyle) {
         guard previousStyle != nextStyle else { return }
         remapRows { row in

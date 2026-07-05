@@ -20,6 +20,15 @@ struct WorkspaceSnapshot: Codable, Equatable {
     var unsafeCommandReplayPaneIDs: [WorkspacePaneSnapshot.ID] {
         windows.flatMap(\.unsafeCommandReplayPaneIDs)
     }
+
+    var restorePlan: WorkspaceRestorePlan {
+        let panes = windows.flatMap(\.panes)
+        return WorkspaceRestorePlan(
+            layoutPaneIDs: panes.map(\.id),
+            processRestorePaneIDs: [],
+            commandReplayCandidates: panes.compactMap(WorkspaceCommandReplayCandidate.init(pane:))
+        )
+    }
 }
 
 struct WorkspaceWindowSnapshot: Codable, Equatable {
@@ -61,6 +70,10 @@ struct WorkspaceWindowSnapshot: Codable, Equatable {
 
     var unsafeCommandReplayPaneIDs: [WorkspacePaneSnapshot.ID] {
         tabs.flatMap(\.unsafeCommandReplayPaneIDs)
+    }
+
+    var panes: [WorkspacePaneSnapshot] {
+        tabs.flatMap(\.panes)
     }
 }
 
@@ -114,6 +127,10 @@ struct WorkspaceTabSnapshot: Codable, Equatable {
 
     var unsafeCommandReplayPaneIDs: [WorkspacePaneSnapshot.ID] {
         root.unsafeCommandReplayPaneIDs
+    }
+
+    var panes: [WorkspacePaneSnapshot] {
+        root.panes
     }
 }
 
@@ -171,6 +188,52 @@ enum WorkspaceSplitTreeSnapshot: Codable, Equatable {
             return split.children.flatMap(\.unsafeCommandReplayPaneIDs)
         }
     }
+
+    var panes: [WorkspacePaneSnapshot] {
+        switch self {
+        case let .pane(pane):
+            return [pane]
+        case let .split(split):
+            return split.children.flatMap(\.panes)
+        }
+    }
+}
+
+struct WorkspaceRestorePlan: Equatable {
+    var layoutPaneIDs: [WorkspacePaneSnapshot.ID]
+    var processRestorePaneIDs: [WorkspacePaneSnapshot.ID]
+    var commandReplayCandidates: [WorkspaceCommandReplayCandidate]
+
+    var canAutomaticallyRestoreProcesses: Bool {
+        processRestorePaneIDs.isEmpty == false
+    }
+}
+
+struct WorkspaceCommandReplayCandidate: Equatable {
+    var paneID: WorkspacePaneSnapshot.ID
+    var commandLine: String
+    var approval: WorkspaceCommandReplayApproval
+    var risk: TerminalCommandReplayRisk
+
+    init?(pane: WorkspacePaneSnapshot) {
+        guard let commandLine = pane.restoreSafety.commandLine,
+              !commandLine.isEmpty,
+              pane.restoreSafety.commandReplay != .disabled
+        else {
+            return nil
+        }
+        self.paneID = pane.id
+        self.commandLine = commandLine
+        self.approval = pane.restoreSafety.commandReplay == .optedIn
+            ? .alreadyOptedIn
+            : .requiresExplicitOptIn
+        self.risk = pane.restoreSafety.commandReplayRisk
+    }
+}
+
+enum WorkspaceCommandReplayApproval: String, Codable, Equatable {
+    case alreadyOptedIn
+    case requiresExplicitOptIn
 }
 
 struct WorkspaceSplitSnapshot: Codable, Equatable {
