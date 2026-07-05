@@ -9,7 +9,6 @@ struct AppSettings: Codable, Equatable {
     var terminal: TerminalSettings
     var window: WindowSettings
     var shell: ShellSettings
-    var notifications: NotificationSettings
 
     static let `default` = AppSettings(
         schemaVersion: Defaults.schemaVersion,
@@ -26,8 +25,7 @@ struct AppSettings: Codable, Equatable {
         ),
         shell: ShellSettings(
             workingDirectory: Defaults.shellWorkingDirectory
-        ),
-        notifications: NotificationSettings.default
+        )
     )
 
     private enum Defaults {
@@ -45,21 +43,18 @@ struct AppSettings: Codable, Equatable {
         case terminal
         case window
         case shell
-        case notifications
     }
 
     init(
         schemaVersion: Int?,
         terminal: TerminalSettings,
         window: WindowSettings,
-        shell: ShellSettings,
-        notifications: NotificationSettings
+        shell: ShellSettings
     ) {
         self.schemaVersion = schemaVersion
         self.terminal = terminal
         self.window = window
         self.shell = shell
-        self.notifications = notifications
     }
 
     init(from decoder: Decoder) throws {
@@ -68,7 +63,6 @@ struct AppSettings: Codable, Equatable {
         terminal = try container.decode(TerminalSettings.self, forKey: .terminal)
         window = try container.decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default
         shell = try container.decodeIfPresent(ShellSettings.self, forKey: .shell) ?? .default
-        notifications = try container.decodeIfPresent(NotificationSettings.self, forKey: .notifications) ?? .default
     }
 }
 
@@ -140,13 +134,6 @@ struct ShellSettings: Codable, Equatable {
         }
         return expanded
     }
-}
-
-/// Live-applied notification privacy preferences.
-struct NotificationSettings: Codable, Equatable {
-    var exposeBackgroundTaskOutputSummary: Bool
-
-    static let `default` = NotificationSettings(exposeBackgroundTaskOutputSummary: true)
 }
 
 struct TerminalColorSettings: Codable, Equatable {
@@ -258,7 +245,6 @@ struct AppSettingsNormalizer {
         next.schemaVersion = currentSchemaVersion
         if sourceSchemaVersion < currentSchemaVersion {
             migrateLegacyDefaults(&next)
-            migrateNotificationDefaults(&next, sourceSchemaVersion: sourceSchemaVersion)
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -336,13 +322,6 @@ struct AppSettingsNormalizer {
         settings.terminal.colors.background = TerminalColorSettings.default.background
         settings.terminal.colors.cursor = TerminalColorSettings.default.cursor
         settings.terminal.colors.ansi = TerminalColorSettings.default.ansi
-    }
-
-    private static func migrateNotificationDefaults(_ settings: inout AppSettings, sourceSchemaVersion: Int) {
-        guard sourceSchemaVersion < 9 else {
-            return
-        }
-        settings.notifications.exposeBackgroundTaskOutputSummary = true
     }
 
     private enum LegacyDefaults {

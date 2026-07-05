@@ -75,6 +75,22 @@ final class TerminalOSCDispatcherTests: XCTestCase {
         XCTAssertEqual(dispatcher.shellIntegration.sessionEvidence.observedPassiveOSCSequences, [.osc133])
     }
 
+    func testOSC133CommandEndRoutesCompletionContext() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        _ = dispatcher.dispatch("133;B", origin: .local)
+        dispatcher.shellIntegration.setActiveCommandText("swift test")
+        _ = dispatcher.dispatch("133;C", origin: .local)
+        let event = dispatcher.dispatch("133;D;0", origin: .local)
+
+        guard case .shellIntegration(.commandEnd(let context)) = event else {
+            return XCTFail("Expected command completion context, got \(event)")
+        }
+        XCTAssertEqual(context.commandText, "swift test")
+        XCTAssertEqual(context.exitCode, 0)
+        XCTAssertEqual(context.span.reference.spanID, 1)
+    }
+
     func testUnknownOSCIsIgnored() {
         var dispatcher = TerminalOSCDispatcher(
             osc52Policy: TerminalOSC52Policy(policy: .default),

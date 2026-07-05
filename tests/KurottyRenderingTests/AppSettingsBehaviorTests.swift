@@ -396,66 +396,6 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.terminal.colors.ansi.last, "#000010")
     }
 
-    @MainActor
-    func testNotificationDefaultsExposeBackgroundTaskOutputSummary() throws {
-        let store = AppSettingsStore(settingsURL: settingsURL())
-
-        try store.save(rawJSON: settingsJSON(
-            schemaVersion: 5,
-            theme: TerminalThemePreset.darkName,
-            colors: defaultColorsJSON()
-        ))
-        let settings = try store.load()
-
-        XCTAssertEqual(settings.schemaVersion, AppSettings.default.schemaVersion)
-        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
-    }
-
-    @MainActor
-    func testNotificationPrivacyOptInIsPreserved() throws {
-        let store = AppSettingsStore(settingsURL: settingsURL())
-
-        try store.save(rawJSON: settingsJSON(
-            schemaVersion: 6,
-            theme: TerminalThemePreset.darkName,
-            colors: defaultColorsJSON(),
-            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":true}"#
-        ))
-        let settings = try store.load()
-
-        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
-    }
-
-    @MainActor
-    func testLegacyNotificationPrivacyDefaultMigratesToVisibleSummary() throws {
-        let store = AppSettingsStore(settingsURL: settingsURL())
-
-        try store.save(rawJSON: settingsJSON(
-            schemaVersion: 8,
-            theme: TerminalThemePreset.darkName,
-            colors: defaultColorsJSON(),
-            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":false}"#
-        ))
-        let settings = try store.load()
-
-        XCTAssertTrue(settings.notifications.exposeBackgroundTaskOutputSummary)
-    }
-
-    @MainActor
-    func testCurrentNotificationPrivacyOptOutIsPreserved() throws {
-        let store = AppSettingsStore(settingsURL: settingsURL())
-
-        try store.save(rawJSON: settingsJSON(
-            schemaVersion: AppSettings.default.schemaVersion ?? 9,
-            theme: TerminalThemePreset.darkName,
-            colors: defaultColorsJSON(),
-            notifications: #","notifications":{"exposeBackgroundTaskOutputSummary":false}"#
-        ))
-        let settings = try store.load()
-
-        XCTAssertFalse(settings.notifications.exposeBackgroundTaskOutputSummary)
-    }
-
     private func settingsURL() -> URL {
         temporaryDirectory.appendingPathComponent("settings.json")
     }

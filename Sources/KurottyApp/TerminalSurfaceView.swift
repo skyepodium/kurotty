@@ -63,13 +63,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
     private var scrollbackRowsAppendedDuringOutput = 0
-    private var submittedInputSequence = 0
-    private var backgroundTaskInputSequence: Int?
-    private var backgroundTaskHasOutput = false
     private var pendingSubmittedInputText = ""
-    private var backgroundTaskDescription: String?
-    private var backgroundTaskOutputText = ""
-    private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
+    private var lastSubmittedCommandText: String?
     private var debugFrameIndex: UInt64 = 0
     private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
     private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
@@ -949,28 +944,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         pendingMarkedTextAnchor = nil
         keyboardSelectionInputStart = nil
-        guard TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-            backgroundTaskDescription ?? "",
-            visibleText: visibleText()
-        ) else {
-            clearBackgroundTaskTracking()
-            return
-        }
-        submittedInputSequence &+= 1
-        backgroundTaskInputSequence = submittedInputSequence
-        backgroundTaskHasOutput = false
-        backgroundTaskOutputText = ""
-        backgroundTaskNotificationWorkItem?.cancel()
-        backgroundTaskNotificationWorkItem = nil
-    }
-
-    private func clearBackgroundTaskTracking() {
-        backgroundTaskInputSequence = nil
-        backgroundTaskHasOutput = false
-        backgroundTaskDescription = nil
-        backgroundTaskOutputText = ""
-        backgroundTaskNotificationWorkItem?.cancel()
-        backgroundTaskNotificationWorkItem = nil
     }
 
     @discardableResult
@@ -978,7 +951,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         var didSubmit = false
         for character in text {
             if character == "\r" || character == "\n" {
-                didSubmit = submitBackgroundTaskDescriptionIfNeeded() || didSubmit
+                didSubmit = captureSubmittedCommandTextIfNeeded() || didSubmit
                 continue
             }
             if character == "\u{7f}" {
@@ -1001,20 +974,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @discardableResult
-    private func submitBackgroundTaskDescriptionIfNeeded() -> Bool {
+    private func captureSubmittedCommandTextIfNeeded() -> Bool {
         defer {
             pendingSubmittedInputText.removeAll(keepingCapacity: true)
         }
         guard let body = TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText) else {
-            backgroundTaskDescription = nil
+            lastSubmittedCommandText = nil
             return false
         }
-        backgroundTaskDescription = body
+        lastSubmittedCommandText = body
         return true
     }
 
     private func trimPendingSubmittedInputTextIfNeeded() {
-        let maxCharacters = AppConstants.Notifications.backgroundTaskInputCaptureMaxCharacters
+        let maxCharacters = AppConstants.Notifications.commandInputCaptureMaxCharacters
         guard pendingSubmittedInputText.count > maxCharacters else {
             return
         }
@@ -1034,78 +1007,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
-    private func recordOutputForBackgroundTask(_ text: String) {
-        guard backgroundTaskInputSequence != nil else {
-            return
-        }
-        guard !text.isEmpty else {
-            return
-        }
-        backgroundTaskHasOutput = true
-        appendBackgroundTaskOutputText(text)
-        scheduleBackgroundTaskIdleCheck()
-    }
-
-    private func appendBackgroundTaskOutputText(_ text: String) {
-        backgroundTaskOutputText.append(text)
-        let maxCharacters = AppConstants.Notifications.backgroundTaskOutputCaptureMaxCharacters
-        guard backgroundTaskOutputText.count > maxCharacters else {
-            return
-        }
-        let startIndex = backgroundTaskOutputText.index(
-            backgroundTaskOutputText.endIndex,
-            offsetBy: -maxCharacters
-        )
-        backgroundTaskOutputText = String(backgroundTaskOutputText[startIndex...])
-    }
-
-    private func scheduleBackgroundTaskIdleCheck() {
-        guard let inputSequence = backgroundTaskInputSequence else {
-            return
-        }
-        backgroundTaskNotificationWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor in
-                self?.notifyBackgroundTaskIfIdle(inputSequence: inputSequence)
-            }
-        }
-        backgroundTaskNotificationWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + AppConstants.Notifications.backgroundTaskIdleSeconds,
-            execute: workItem
-        )
-    }
-
-    private func notifyBackgroundTaskIfIdle(inputSequence: Int) {
-        guard backgroundTaskInputSequence == inputSequence, backgroundTaskHasOutput else {
-            return
-        }
-        backgroundTaskInputSequence = nil
-        backgroundTaskHasOutput = false
-        backgroundTaskNotificationWorkItem = nil
-        let outputText = backgroundTaskOutputText
-        backgroundTaskOutputText = ""
-        let content = backgroundTaskNotificationContent(outputText: outputText)
-        backgroundTaskDescription = nil
-        guard shouldDeliverUserNotification else {
-            return
-        }
-        notifier.notifyBackgroundTaskCompleted(content: content)
-    }
-
     private var isTerminalFocusedForUser: Bool {
         NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
     }
 
     private var shouldDeliverUserNotification: Bool {
         !isTerminalFocusedForUser
-    }
-
-    private func backgroundTaskNotificationContent(outputText: String) -> TerminalBackgroundTaskNotificationContent {
-        TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: backgroundTaskDescription,
-            outputText: outputText
-        )
     }
 
     private func enqueueOutput(_ text: String) {
@@ -1179,7 +1086,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        recordOutputForBackgroundTask(text)
         pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
@@ -1939,9 +1845,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             publishTitle()
         case "9":
             notifyItermOsc9(payload)
+        case "777":
+            notifyOSC777(payload)
         default:
             break
         }
+
+        handleTerminalIntegrationEvent(integrationEvent)
     }
 
     private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
@@ -1954,11 +1864,41 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return event
     }
 
+    private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
+        guard case .shellIntegration(let shellEvent) = event else {
+            return
+        }
+
+        switch shellEvent {
+        case .commandStart:
+            shellIntegration.setActiveCommandText(lastSubmittedCommandText)
+        case .commandEnd(let context):
+            notifyCommandFinishedIfNeeded(context)
+        default:
+            break
+        }
+    }
+
+    private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
+        lastSubmittedCommandText = nil
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))
+    }
+
     private func notifyItermOsc9(_ payload: String) {
         guard shouldDeliverUserNotification else {
             return
         }
         notifier.notifyItermOsc9(message: payload)
+    }
+
+    private func notifyOSC777(_ payload: String) {
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyOSC777(payload: payload)
     }
 
     private func respondToOscQuery(_ code: String) {

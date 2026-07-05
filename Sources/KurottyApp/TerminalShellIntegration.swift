@@ -50,6 +50,20 @@ struct TerminalCommandSearchMetadata: Equatable {
     let isReplayable: Bool
 }
 
+struct TerminalCommandCompletionContext: Equatable {
+    let span: TerminalCommandSpan
+    let exitCode: Int?
+    let duration: TimeInterval?
+
+    var commandText: String? {
+        span.commandText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    var cwd: String? {
+        span.cwd?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+}
+
 struct TerminalShellIntegrationCapabilityDescriptor: Equatable {
     enum PassiveOSCSequence: Equatable, Hashable {
         case osc7
@@ -303,7 +317,7 @@ struct TerminalShellIntegration: Equatable {
         case promptStart
         case commandStart
         case outputStart
-        case commandEnd(exitCode: Int?)
+        case commandEnd(TerminalCommandCompletionContext)
     }
 
     var currentWorkingDirectoryCandidate: String?
@@ -317,6 +331,7 @@ struct TerminalShellIntegration: Equatable {
     private var lastPromptBoundarySequence: Int?
     private var nextCommandSpanID: Int
     private var recentCommandSpanLimit: Int
+    private var activeCommandStartDate: Date?
 
     var capabilityDescriptor: TerminalShellIntegrationCapabilityDescriptor {
         TerminalShellIntegrationCapabilityDescriptor(
@@ -463,7 +478,8 @@ struct TerminalShellIntegration: Equatable {
         boundarySequence: Int = 0,
         lastPromptBoundarySequence: Int? = nil,
         nextCommandSpanID: Int = 1,
-        recentCommandSpanLimit: Int = 100
+        recentCommandSpanLimit: Int = 100,
+        activeCommandStartDate: Date? = nil
     ) {
         self.currentWorkingDirectoryCandidate = currentWorkingDirectoryCandidate
         self.currentBoundary = currentBoundary
@@ -476,6 +492,7 @@ struct TerminalShellIntegration: Equatable {
         self.lastPromptBoundarySequence = lastPromptBoundarySequence
         self.nextCommandSpanID = nextCommandSpanID
         self.recentCommandSpanLimit = max(0, recentCommandSpanLimit)
+        self.activeCommandStartDate = activeCommandStartDate
     }
 
     @discardableResult
@@ -544,6 +561,7 @@ struct TerminalShellIntegration: Equatable {
             currentBoundary = .promptStart
             isCommandActive = false
             activeCommandSpan = nil
+            activeCommandStartDate = nil
             lastPromptBoundarySequence = boundarySequence
             return .promptStart
         case "B":
@@ -551,6 +569,7 @@ struct TerminalShellIntegration: Equatable {
             boundarySequence += 1
             currentBoundary = .commandStart
             isCommandActive = true
+            activeCommandStartDate = Date()
             activeCommandSpan = TerminalCommandSpan(
                 id: nextCommandSpanID,
                 cwd: currentWorkingDirectoryCandidate,
@@ -572,14 +591,20 @@ struct TerminalShellIntegration: Equatable {
             currentBoundary = .commandEnd
             isCommandActive = false
             lastExitCode = exitCode
+            let duration = activeCommandStartDate.map { Date().timeIntervalSince($0) }
             activeCommandSpan?.endBoundarySequence = boundarySequence
             activeCommandSpan?.exitCode = exitCode
-            if let completedSpan = activeCommandSpan {
-                appendRecentCommandSpan(completedSpan)
-                sessionEvidence.replaceCompletedCommandSpanReferences(recentCommandSpans.map(\.reference))
+            guard let completedSpan = activeCommandSpan else {
+                activeCommandStartDate = nil
+                return nil
             }
+            appendRecentCommandSpan(completedSpan)
+            sessionEvidence.replaceCompletedCommandSpanReferences(recentCommandSpans.map(\.reference))
             activeCommandSpan = nil
-            return .commandEnd(exitCode: exitCode)
+            activeCommandStartDate = nil
+            return .commandEnd(
+                TerminalCommandCompletionContext(span: completedSpan, exitCode: exitCode, duration: duration)
+            )
         default:
             return nil
         }
@@ -601,5 +626,11 @@ struct TerminalShellIntegration: Equatable {
         if overflow > 0 {
             recentCommandSpans.removeFirst(overflow)
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
