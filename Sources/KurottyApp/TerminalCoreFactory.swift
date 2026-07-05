@@ -17,4 +17,31 @@ enum TerminalCoreFactory {
         }
         return diagnosticCore.compatibilityDiagnostic
     }
+
+    static func mutationSourceDiagnostic(for core: any TerminalCore) -> TerminalCoreMutationSourceDiagnostic {
+        guard let diagnosticCore = core as? TerminalCoreMutationSourceDiagnosing else {
+            return TerminalCoreMutationSourceDiagnostic(
+                sessionMutationOwner: .unknown,
+                frameMutationOwner: .unknown,
+                zigBridgeActive: false,
+                reason: "diagnostic-unavailable"
+            )
+        }
+        return diagnosticCore.mutationSourceDiagnostic
+    }
+
+    static func runtimeBoundaryDiagnostic(for core: any TerminalCore) -> TerminalCoreRuntimeBoundaryDiagnostic {
+        guard let diagnosticCore = core as? TerminalCoreRuntimeBoundaryDiagnosing else {
+            return TerminalCoreRuntimeBoundaryDiagnostic(
+                feedBridgeParticipant: .unknown,
+                parserMutationOwner: .unknown,
+                screenMutationOwner: .unknown,
+                renderMutationOwner: .unknown,
+                mutationHandoffReady: false,
+                dualWriteRisk: .unknown,
+                reason: "diagnostic-unavailable"
+            )
+        }
+        return diagnosticCore.runtimeBoundaryDiagnostic
+    }
 }

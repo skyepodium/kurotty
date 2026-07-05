@@ -50,6 +50,17 @@ struct TerminalRenderingDiagnostics {
     let linearGlyphSamplingEnabled: Bool
 }
 
+struct TerminalRenderScissorRect: Equatable, CustomStringConvertible {
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+
+    var description: String {
+        "{x:\(x),y:\(y),w:\(width),h:\(height)}"
+    }
+}
+
 struct TerminalRenderDamageDiagnostics {
     enum RedrawDecision: CustomStringConvertible {
         case full
@@ -108,37 +119,44 @@ struct TerminalRenderDamageDiagnostics {
         }
     }
 
+    enum ScissorReadiness: Equatable, CustomStringConvertible {
+        case ready
+        case fullRedrawFallback
+        case scissorDisabled
+        case unstablePixelBounds
+
+        var description: String {
+            switch self {
+            case .ready:
+                "ready"
+            case .fullRedrawFallback:
+                "full-redraw-fallback"
+            case .scissorDisabled:
+                "scissor-disabled"
+            case .unstablePixelBounds:
+                "unstable-pixel-bounds"
+            }
+        }
+    }
+
     let redrawDecision: RedrawDecision
     let schedulingPolicy: SchedulingPolicy
     let dirtyRectCount: Int
     let scissorDisabled: Bool
     let submittedDisplayRects: [CGRect]
+    let uncoalescedSubmittedDisplayRectCount: Int
+    let scheduledDisplayRectCount: Int
+    let coalescedDisplayRectCount: Int
     let canCoalesceAtDisplayCadence: Bool
     let coalescingFallbackReason: CoalescingFallbackReason
     let stablePixelBounds: [TerminalFramePixelRect]
     let stablePixelBoundCount: Int
-    let submittedDisplayArea: CGFloat
-    let fullDisplayArea: CGFloat
-    let submittedDisplayAreaRatio: CGFloat
+    let scissorReadiness: ScissorReadiness
+    let scissorRects: [TerminalRenderScissorRect]
+    let scissorRectCount: Int
 
-    var usedFullRedrawFallback: Bool {
-        redrawDecision == .full && coalescingFallbackReason != .none
-    }
-
-    var debugMetadataSummary: String {
-        String(
-            format: "decision=%@ policy=%@ fallback=%@ dirtyRects=%d submittedRects=%d submittedArea=%.2f/%.2f ratio=%.4f stablePixelBounds=%d scissorDisabled=%@",
-            redrawDecision.description,
-            schedulingPolicy.description,
-            coalescingFallbackReason.description,
-            dirtyRectCount,
-            submittedDisplayRects.count,
-            submittedDisplayArea,
-            fullDisplayArea,
-            submittedDisplayAreaRatio,
-            stablePixelBoundCount,
-            scissorDisabled ? "true" : "false"
-        )
+    var scissorPlanIsReady: Bool {
+        scissorReadiness == .ready && !scissorRects.isEmpty
     }
 
     static let empty = TerminalRenderDamageDiagnostics(
@@ -147,13 +165,16 @@ struct TerminalRenderDamageDiagnostics {
         dirtyRectCount: 0,
         scissorDisabled: false,
         submittedDisplayRects: [],
+        uncoalescedSubmittedDisplayRectCount: 0,
+        scheduledDisplayRectCount: 0,
+        coalescedDisplayRectCount: 0,
         canCoalesceAtDisplayCadence: false,
         coalescingFallbackReason: .emptyDirtyRects,
         stablePixelBounds: [],
         stablePixelBoundCount: 0,
-        submittedDisplayArea: 0,
-        fullDisplayArea: 0,
-        submittedDisplayAreaRatio: 0
+        scissorReadiness: .fullRedrawFallback,
+        scissorRects: [],
+        scissorRectCount: 0
     )
 
     static func make(
@@ -170,26 +191,72 @@ struct TerminalRenderDamageDiagnostics {
             diagnosticFullRedrawEnabled: diagnosticFullRedrawEnabled,
             scissorDisabled: scissorDisabled
         )
-        let submittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\.cgRect)
-        let fullDisplayArea = max(0, bounds.width) * max(0, bounds.height)
-        let submittedDisplayArea = submittedDisplayRects.reduce(CGFloat(0)) { area, rect in
-            area + max(0, rect.width) * max(0, rect.height)
-        }
-        let submittedDisplayAreaRatio = fullDisplayArea > 0 ? submittedDisplayArea / fullDisplayArea : 0
+        let uncoalescedSubmittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\.cgRect)
+        let submittedDisplayRects = policy.canCoalesceAtDisplayCadence
+            ? coalescedDisplayRects(uncoalescedSubmittedDisplayRects)
+            : uncoalescedSubmittedDisplayRects
+        let scissorReadiness = scissorReadiness(from: policy)
+        let scissorRects = scissorReadiness == .ready
+            ? makeScissorRects(
+                from: policy.stablePixelBounds,
+                drawableSize: CGSize(
+                    width: ceil(bounds.width * backingScale),
+                    height: ceil(bounds.height * backingScale)
+                )
+            )
+            : []
         return TerminalRenderDamageDiagnostics(
             redrawDecision: redrawDecision(from: policy.redrawDecision),
             schedulingPolicy: schedulingPolicy(from: policy.schedulingPolicy),
             dirtyRectCount: frame.dirtyRects.count,
             scissorDisabled: scissorDisabled,
             submittedDisplayRects: submittedDisplayRects,
+            uncoalescedSubmittedDisplayRectCount: uncoalescedSubmittedDisplayRects.count,
+            scheduledDisplayRectCount: submittedDisplayRects.count,
+            coalescedDisplayRectCount: max(0, uncoalescedSubmittedDisplayRects.count - submittedDisplayRects.count),
             canCoalesceAtDisplayCadence: policy.canCoalesceAtDisplayCadence,
             coalescingFallbackReason: coalescingFallbackReason(from: policy.coalescingFallbackReason),
             stablePixelBounds: policy.stablePixelBounds,
             stablePixelBoundCount: policy.stablePixelBoundCount,
-            submittedDisplayArea: submittedDisplayArea,
-            fullDisplayArea: fullDisplayArea,
-            submittedDisplayAreaRatio: submittedDisplayAreaRatio
+            scissorReadiness: scissorRects.isEmpty && scissorReadiness == .ready ? .unstablePixelBounds : scissorReadiness,
+            scissorRects: scissorRects,
+            scissorRectCount: scissorRects.count
         )
+    }
+
+    private static func scissorReadiness(from policy: TerminalFrameDamageRedrawPolicy) -> ScissorReadiness {
+        switch policy.coalescingFallbackReason {
+        case .none:
+            policy.redrawDecision == .partial ? .ready : .fullRedrawFallback
+        case .scissorDisabled:
+            .scissorDisabled
+        case .unstablePixelBounds:
+            .unstablePixelBounds
+        case .diagnosticFullRedraw, .fullDamageFrame, .emptyDirtyRects:
+            .fullRedrawFallback
+        }
+    }
+
+    private static func makeScissorRects(
+        from pixelBounds: [TerminalFramePixelRect],
+        drawableSize: CGSize
+    ) -> [TerminalRenderScissorRect] {
+        let drawableWidth = max(0, Int(drawableSize.width.rounded(.up)))
+        let drawableHeight = max(0, Int(drawableSize.height.rounded(.up)))
+        guard drawableWidth > 0, drawableHeight > 0 else { return [] }
+        return pixelBounds.compactMap { rect in
+            let (rectMaxX, overflowX) = rect.x.addingReportingOverflow(rect.width)
+            let (rectMaxY, overflowY) = rect.y.addingReportingOverflow(rect.height)
+            guard !overflowX, !overflowY else { return nil }
+            let minX = max(0, min(drawableWidth, rect.x))
+            let minY = max(0, min(drawableHeight, rect.y))
+            let maxX = max(0, min(drawableWidth, rectMaxX))
+            let maxY = max(0, min(drawableHeight, rectMaxY))
+            let width = maxX - minX
+            let height = maxY - minY
+            guard width > 0, height > 0 else { return nil }
+            return TerminalRenderScissorRect(x: minX, y: minY, width: width, height: height)
+        }
     }
 
     private static func redrawDecision(from decision: TerminalFrameRedrawDecision) -> RedrawDecision {
@@ -229,6 +296,35 @@ struct TerminalRenderDamageDiagnostics {
         case .unstablePixelBounds:
             .unstablePixelBounds
         }
+    }
+
+    private static func coalescedDisplayRects(_ rects: [CGRect]) -> [CGRect] {
+        let sortedRects = rects
+            .filter { !$0.isNull && !$0.isEmpty }
+            .sorted {
+                if $0.minY != $1.minY { return $0.minY < $1.minY }
+                return $0.minX < $1.minX
+            }
+        guard var current = sortedRects.first else { return [] }
+
+        var coalescedRects: [CGRect] = []
+        for rect in sortedRects.dropFirst() {
+            if Self.canCoalesceDisplayRects(current, rect) {
+                current = current.union(rect)
+            } else {
+                coalescedRects.append(current)
+                current = rect
+            }
+        }
+        coalescedRects.append(current)
+        return coalescedRects
+    }
+
+    private static func canCoalesceDisplayRects(_ first: CGRect, _ second: CGRect) -> Bool {
+        first.maxX >= second.minX &&
+            second.maxX >= first.minX &&
+            first.maxY >= second.minY &&
+            second.maxY >= first.minY
     }
 }
 
@@ -332,7 +428,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
     private var lastDamageDiagnostics = TerminalRenderDamageDiagnostics.empty
     private var lastPixelProbeDiagnostics: [TerminalPixelProbe] = []
-    private var lastAtlasGlyphRunsForDiagnostics: [TerminalGlyphRun] = []
 
     override var isOpaque: Bool {
         true
@@ -585,10 +680,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
     }
 
-    var atlasGlyphRunsForDiagnostics: [TerminalGlyphRun] {
-        lastAtlasGlyphRunsForDiagnostics
-    }
-
     var diagnosticCPUTextureIsAllocated: Bool {
         texture != nil
     }
@@ -653,6 +744,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         lastDamageDiagnostics.stablePixelBoundCount
     }
 
+    var lastFrameScissorReadinessForDiagnostics: String {
+        lastDamageDiagnostics.scissorReadiness.description
+    }
+
+    var lastFrameScissorPlanIsReadyForDiagnostics: Bool {
+        lastDamageDiagnostics.scissorPlanIsReady
+    }
+
+    var lastFrameScissorRectsForDiagnostics: [TerminalRenderScissorRect] {
+        lastDamageDiagnostics.scissorRects
+    }
+
     private var atlasInstanceCount: Int {
         guard let atlasInstanceBuffer else { return 0 }
         return atlasInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
@@ -684,7 +787,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard diagnosticRenderingLogEnabled else { return }
         let colorAttachment = descriptor.colorAttachments[0]
         NSLog(
-            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ coalescingFallbackReason=%@ dirtyRects=%d submittedDisplayRects=%@ stablePixelBoundCount=%d stablePixelBounds=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
+            "Kurotty render frame: index=%llu fullRedraw=%@ redrawDecision=%@ schedulingPolicy=%@ coalesceAtDisplayCadence=%@ coalescingFallbackReason=%@ dirtyRects=%d submittedDisplayRects=%@ uncoalescedSubmittedDisplayRects=%d scheduledDisplayRects=%d coalescedDisplayRects=%d stablePixelBoundCount=%d stablePixelBounds=%@ scissorReadiness=%@ scissorPlanReady=%@ scissorRects=%@ noScissor=%@ drawable=%@ viewport=%@ loadAction=%@ storeAction=%@ clearColor=(%0.4f,%0.4f,%0.4f,%0.4f) background=(%0.4f,%0.4f,%0.4f,%0.4f) colorPixelFormat=%@ layerColorSpace=%@ solidBlend=disabled glyphBlend=straight-alpha",
             renderFrameIndex,
             diagnosticFullRedrawEnabled ? "yes" : "no",
             damageDiagnostics.redrawDecision.description,
@@ -693,8 +796,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             damageDiagnostics.coalescingFallbackReason.description,
             damageDiagnostics.dirtyRectCount,
             damageDiagnostics.submittedDisplayRects.map { NSStringFromRect($0) }.joined(separator: " | "),
+            damageDiagnostics.uncoalescedSubmittedDisplayRectCount,
+            damageDiagnostics.scheduledDisplayRectCount,
+            damageDiagnostics.coalescedDisplayRectCount,
             damageDiagnostics.stablePixelBoundCount,
             damageDiagnostics.stablePixelBounds.map { "{x:\($0.x),y:\($0.y),w:\($0.width),h:\($0.height)}" }.joined(separator: " | "),
+            damageDiagnostics.scissorReadiness.description,
+            damageDiagnostics.scissorPlanIsReady ? "yes" : "no",
+            damageDiagnostics.scissorRects.map(\.description).joined(separator: " | "),
             damageDiagnostics.scissorDisabled ? "yes" : "no",
             NSStringFromSize(drawableSize),
             NSStringFromSize(drawableSize),
@@ -946,7 +1055,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
         )
         updateSharedBuffer(&uniformsBuffer, with: &uniforms)
-        lastAtlasGlyphRunsForDiagnostics = glyphs.values.map(\.productionRun)
         lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)
     }
 
@@ -1333,10 +1441,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let slotsPerRow = atlasSize / glyphSlotWidth
         let x = (atlasSlot % slotsPerRow) * glyphSlotWidth
         let y = (atlasSlot / slotsPerRow) * glyphSlotHeight
-        let slotIndex = atlasSlot
         atlasSlot += 1
         if y + glyphSlotHeight > atlasSize {
-            return GlyphAtlasEntry.empty(character: character, metrics: fontCellMetrics)
+            return GlyphAtlasEntry.empty(metrics: fontCellMetrics)
         }
 
         let rasterized = rasterizeGlyph(character, x: x, y: y)
@@ -1357,62 +1464,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         lastGlyphUVOrigin = uvOrigin
         lastGlyphUVSize = uvSize
         lastGlyphDrawOffsetPoints = rasterized.drawOffset
-        let sourceText = String(character)
-        let glyphBounds = TerminalGlyphBounds(
-            x: Double(rasterized.bearingXPixels),
-            y: -Double(rasterized.bearingYPixels),
-            width: Double(rasterized.pixelSize.width),
-            height: Double(rasterized.pixelSize.height)
-        )
-        let productionRun: TerminalGlyphRun
-        if rasterized.glyphs.isEmpty || rasterized.pixelSize.width <= 0 || rasterized.pixelSize.height <= 0 {
-            productionRun = TerminalGlyphRun.diagnosticModel(
-                sourceText: sourceText,
-                sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: sourceText.utf16.count),
-                fallbackFont: rasterized.fallbackFont,
-                fallbackChain: rasterized.fallbackChain,
-                glyphs: rasterized.glyphs,
-                advance: TerminalGlyphAdvance(x: Double(rasterized.advancePixels), y: 0),
-                bounds: glyphBounds,
-                atlasKey: TerminalGlyphAtlasKey(
-                    value: "missing-glyph/scalars-\(sourceText.unicodeScalars.count)/utf16-\(sourceText.utf16.count)"
-                ),
-                shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: .missingGlyph),
-                diagnosticFlags: [.missingGlyph]
-            )
-        } else {
-            productionRun = TerminalGlyphRun.productionModel(
-                sourceText: sourceText,
-                sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: sourceText.utf16.count),
-                fallbackFont: rasterized.fallbackFont,
-                fallbackChain: rasterized.fallbackChain,
-                glyphs: rasterized.glyphs,
-                advance: TerminalGlyphAdvance(x: Double(rasterized.advancePixels), y: 0),
-                bounds: glyphBounds,
-                atlasSlot: TerminalGlyphAtlasSlotMetadata(index: slotIndex, x: x, y: y, width: glyphSlotWidth, height: glyphSlotHeight),
-                pointSizePixels: Int((font.pointSize * backingScale).rounded()),
-                scale: max(1, Int(backingScale.rounded())),
-                shapingStatus: .fallbackResolved,
-                clipping: TerminalGlyphClippingMetrics(
-                    inkBounds: TerminalGlyphBounds(
-                        x: Double(rasterized.bearingXPixels),
-                        y: -Double(rasterized.bearingYPixels),
-                        width: Double(rasterized.pixelSize.width),
-                        height: Double(rasterized.pixelSize.height)
-                    ),
-                    cellBounds: TerminalGlyphBounds(
-                        x: 0,
-                        y: 0,
-                        width: Double(rasterized.cellWidthPixels),
-                        height: Double(rasterized.cellHeightPixels)
-                    ),
-                    overhang: .zero,
-                    clippedEdges: []
-                )
-            )
-        }
         let entry = GlyphAtlasEntry(
-            productionRun: productionRun,
             uvOrigin: uvOrigin,
             uvSize: uvSize,
             drawOffset: rasterized.drawOffset,
@@ -1436,7 +1488,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let logicalHeight = terminalFrame.cellSize.cgHeight
         let scale = atlasScale(forLogicalWidth: logicalAdvanceWidth, logicalHeight: logicalHeight)
         let scaledFont = scaledFont(for: character, scale: scale)
-        let fallbackFont = terminalGlyphFallbackFont(for: scaledFont, character: character)
         let string = NSAttributedString(
             string: String(character),
             attributes: [
@@ -1474,22 +1525,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let bitmapBottomPixels = glyphSlotHeight - pixelHeight
         let bearingXPixels = Int(round(desiredInkLeft * scale - baselineX))
         let bearingYPixels = max(0, Int(round(baselineY - CGFloat(bitmapBottomPixels))))
-        let sourceText = String(character)
-        let sourceRange = TerminalGlyphSourceRange(utf16Location: 0, utf16Length: sourceText.utf16.count)
-        let glyphIDs = Self.glyphIDs(from: line)
-        let glyphs = glyphIDs.map {
-            TerminalGlyph(
-                glyphID: $0,
-                sourceRange: sourceRange,
-                terminalCellWidth: character.terminalColumnWidth,
-                advance: TerminalGlyphAdvance(x: Double(canonicalMetrics.cellWidthPixels * columnWidth), y: 0),
-                bounds: TerminalGlyphBounds(x: Double(bearingXPixels), y: -Double(bearingYPixels), width: Double(pixelWidth), height: Double(pixelHeight))
-            )
-        }
         let result = RasterizedGlyph(
-            glyphs: glyphs,
-            fallbackFont: fallbackFont,
-            fallbackChain: terminalGlyphFallbackChain(primaryFont: font, resolvedFont: scaledFont, character: character),
             drawOffset: SIMD2<Float>(
                 Float(desiredInkLeft + baselineDeltaX - CGFloat(paddingPixels) / scale),
                 Float((CGFloat(glyphCanvasBaselineY - bearingYPixels)) / scale)
@@ -1625,69 +1661,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         return mapped && glyphs.contains { $0 != 0 }
     }
 
-    private static func glyphIDs(from line: CTLine) -> [UInt32] {
-        let runs = CTLineGetGlyphRuns(line) as NSArray
-        var ids: [UInt32] = []
-        for runValue in runs {
-            guard CFGetTypeID(runValue as CFTypeRef) == CTRunGetTypeID() else { continue }
-            let run = unsafeDowncast(runValue as AnyObject, to: CTRun.self)
-            let glyphCount = CTRunGetGlyphCount(run)
-            guard glyphCount > 0 else { continue }
-            var glyphs = [CGGlyph](repeating: 0, count: glyphCount)
-            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
-            ids.append(contentsOf: glyphs.map { UInt32($0) })
-        }
-        return ids
-    }
-
-    private func terminalGlyphFallbackFont(for resolvedFont: CTFont, character: Character) -> TerminalGlyphFallbackFont {
-        let name = Self.fontDisplayName(resolvedFont)
-        let identifier = Self.fontIdentifier(resolvedFont)
-        let presentation = Self.presentation(for: character)
-        if identifier == Self.fontIdentifier(CTFontCreateWithName(font.fontName as CFString, CTFontGetSize(resolvedFont), nil)) {
-            return .primary(name: name, identifier: identifier, requestedPresentation: presentation)
-        }
-        return .systemCascade(name: name, identifier: identifier, requestedPresentation: presentation)
-    }
-
-    private func terminalGlyphFallbackChain(
-        primaryFont: NSFont,
-        resolvedFont: CTFont,
-        character: Character
-    ) -> [TerminalGlyphFallbackFont] {
-        let presentation = Self.presentation(for: character)
-        let primary = CTFontCreateWithName(primaryFont.fontName as CFString, CTFontGetSize(resolvedFont), nil)
-        let primaryRun = TerminalGlyphFallbackFont.primary(
-            name: Self.fontDisplayName(primary),
-            identifier: Self.fontIdentifier(primary),
-            requestedPresentation: presentation
-        )
-        let resolved = terminalGlyphFallbackFont(for: resolvedFont, character: character)
-        return primaryRun.identifier == resolved.identifier ? [primaryRun] : [primaryRun, resolved]
-    }
-
-    private static func fontDisplayName(_ font: CTFont) -> String {
-        CTFontCopyDisplayName(font) as String
-    }
-
-    private static func fontIdentifier(_ font: CTFont) -> String {
-        let postScriptName = CTFontCopyPostScriptName(font) as String
-        let allowed = postScriptName.lowercased().map { character -> Character in
-            character.isLetter || character.isNumber ? character : "-"
-        }
-        return String(allowed).split(separator: "-").joined(separator: "-")
-    }
-
-    private static func presentation(for character: Character) -> TerminalGlyphPresentation {
-        if character.terminalColumnWidth > 1 {
-            if character.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.value == 0xfe0f }) {
-                return .emoji
-            }
-            return .cjk
-        }
-        return .unspecified
-    }
-
     private func resetAtlasIfCellMetricsChanged() {
         guard terminalFrame.cellSize != .zero, terminalFrame.cellSize != atlasCellSize else { return }
         atlasCellSize = terminalFrame.cellSize
@@ -1705,7 +1678,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
 
     private func resetAtlas() {
         glyphs.removeAll(keepingCapacity: true)
-        lastAtlasGlyphRunsForDiagnostics = []
         atlasSlot = 0
         atlasPixels = [UInt8](repeating: 0, count: atlasSize * atlasSize * 4)
         uploadAtlas()
@@ -2043,7 +2015,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             return false
         }
 
-        let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns
+        let markedTextEndColumn = min(
+            terminalFrame.columns,
+            terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)
+        )
+        let markedTextRange = terminalFrame.markedTextColumn..<markedTextEndColumn
         guard !markedTextRange.isEmpty else { return false }
 
         let cellEndColumn = min(
@@ -2156,7 +2132,6 @@ private struct TerminalUniforms {
 }
 
 private struct GlyphAtlasEntry {
-    let productionRun: TerminalGlyphRun
     let uvOrigin: SIMD2<Float>
     let uvSize: SIMD2<Float>
     let drawOffset: SIMD2<Float>
@@ -2169,20 +2144,8 @@ private struct GlyphAtlasEntry {
     let cellHeightPixels: Int
     let baselineOffsetPixels: Int
 
-    static func empty(character: Character, metrics: FontCellMetrics) -> GlyphAtlasEntry {
-        let source = String(character)
-        return GlyphAtlasEntry(
-            productionRun: TerminalGlyphRun.diagnosticModel(
-                sourceText: source,
-                sourceRange: TerminalGlyphSourceRange(utf16Location: 0, utf16Length: source.utf16.count),
-                fallbackFont: .primary(name: "", identifier: ""),
-                glyphs: [],
-                advance: TerminalGlyphAdvance(x: Double(metrics.cellWidthPixels), y: 0),
-                bounds: TerminalGlyphBounds(x: 0, y: 0, width: 0, height: 0),
-                atlasKey: TerminalGlyphAtlasKey(value: "atlas/full"),
-                shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: .missingGlyph),
-                diagnosticFlags: [.missingGlyph]
-            ),
+    static func empty(metrics: FontCellMetrics) -> GlyphAtlasEntry {
+        GlyphAtlasEntry(
             uvOrigin: .zero,
             uvSize: .zero,
             drawOffset: .zero,
@@ -2199,9 +2162,6 @@ private struct GlyphAtlasEntry {
 }
 
 private struct RasterizedGlyph {
-    let glyphs: [TerminalGlyph]
-    let fallbackFont: TerminalGlyphFallbackFont
-    let fallbackChain: [TerminalGlyphFallbackFont]
     let drawOffset: SIMD2<Float>
     let drawSize: SIMD2<Float>
     let pixelSize: PixelSize
@@ -2214,9 +2174,6 @@ private struct RasterizedGlyph {
 
     static func empty(metrics: FontCellMetrics) -> RasterizedGlyph {
         RasterizedGlyph(
-            glyphs: [],
-            fallbackFont: .primary(name: "", identifier: ""),
-            fallbackChain: [],
             drawOffset: .zero,
             drawSize: .zero,
             pixelSize: PixelSize(width: 0, height: 0),

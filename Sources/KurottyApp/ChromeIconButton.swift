@@ -43,12 +43,20 @@ final class ChromeIconButton: NSButton {
         super.updateTrackingAreas()
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard isEnabled else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
         updateAppearance()
     }
 
     override func mouseExited(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard !bounds.contains(location) else { return }
         isHovered = false
         updateAppearance()
     }

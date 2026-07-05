@@ -48,29 +48,47 @@ final class TerminalNotifier: NSObject {
 
     @MainActor
     func notifyItermOsc9(message: String) {
-        guard let payload = TerminalDesktopNotificationPayload.itermOsc9(message: message) else {
+        guard let content = TerminalNotificationPayload.contentFromOSC9Payload(message) else {
             return
         }
-        notifyDesktopNotification(payload)
-    }
-
-    @MainActor
-    func notifyDesktopNotification(_ payload: TerminalDesktopNotificationPayload) {
         deliver(
-            title: payload.title,
+            title: content.title,
             subtitle: "",
-            body: payload.body,
+            body: content.body,
             identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
         )
     }
 
     @MainActor
-    func notifyBackgroundTaskCompleted(content: TerminalBackgroundTaskNotificationContent) {
+    func notifyOSC777(payload: String) {
+        guard let content = TerminalNotificationPayload.contentFromOSC777Payload(payload) else {
+            return
+        }
+        deliver(
+            title: content.title,
+            subtitle: "",
+            body: content.body,
+            identifierPrefix: AppConstants.Notifications.osc777IdentifierPrefix
+        )
+    }
+
+    @MainActor
+    func notifyBridgeNotification(title: String, subtitle: String, body: String) {
+        deliver(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
+        )
+    }
+
+    @MainActor
+    func notifyCommandFinished(content: TerminalCommandCompletionNotificationContent) {
         deliver(
             title: content.title,
             subtitle: content.subtitle,
             body: content.body,
-            identifierPrefix: AppConstants.Notifications.backgroundTaskIdentifierPrefix
+            identifierPrefix: AppConstants.Notifications.commandCompletionIdentifierPrefix
         )
     }
 

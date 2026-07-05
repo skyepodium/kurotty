@@ -3,27 +3,6 @@ import XCTest
 @testable import KurottyApp
 
 final class TerminalResizeLedgerTests: XCTestCase {
-    func testLedgerRetainsContinuousLiveResizeSnapshotsWithoutRawState() {
-        var ledger = TerminalResizeLedger(capacity: 2)
-        let first = makeSnapshot(traceID: "resize-1", source: "surface")
-        let second = makeSnapshot(traceID: "resize-2", source: "surface", ptyColumns: 119)
-        let third = makeSnapshot(traceID: "resize-secret", source: "surface", screenRows: 39)
-
-        ledger.record(first)
-        ledger.record(second)
-        ledger.record(third)
-
-        XCTAssertEqual(ledger.snapshots.map(\.traceID), ["resize-2", "resize-secret"])
-        XCTAssertEqual(ledger.latestSnapshot, third)
-        XCTAssertEqual(ledger.diagnostics.capacity, 2)
-        XCTAssertEqual(ledger.diagnostics.retainedSnapshotCount, 2)
-        XCTAssertEqual(ledger.diagnostics.droppedSnapshotCount, 1)
-        XCTAssertEqual(ledger.diagnostics.issueCount, 2)
-        XCTAssertEqual(ledger.snapshots(for: "resize-secret"), [third])
-        XCTAssertFalse(ledger.description.contains("secret-token"))
-        XCTAssertFalse(ledger.description.contains("/Users/"))
-    }
-
     func testMatchedCycleHasNoValidationIssues() {
         let snapshot = makeSnapshot()
 

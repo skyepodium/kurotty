@@ -1,7 +1,7 @@
 struct TerminalOSCDispatcher {
     enum Event: Equatable {
         case ignored
-        case desktopNotification(TerminalDesktopNotificationPayload)
+        case desktopNotification(TerminalNotificationPayload.Content)
         case shellIntegration(TerminalShellIntegration.Event)
         case osc52(TerminalOSC52Policy.Evaluation)
     }
@@ -30,7 +30,7 @@ struct TerminalOSCDispatcher {
         switch commandNumber {
         case "9":
             guard parts.count == 2,
-                  let payload = TerminalDesktopNotificationPayload.itermOsc9(message: String(parts[1])) else {
+                  let payload = TerminalNotificationPayload.contentFromOSC9Payload(String(parts[1])) else {
                 return .ignored
             }
             return .desktopNotification(payload)
@@ -43,7 +43,7 @@ struct TerminalOSCDispatcher {
             return .shellIntegration(event)
         case "777":
             guard parts.count == 2,
-                  let payload = TerminalDesktopNotificationPayload.rxvtOsc777(payload: String(parts[1])) else {
+                  let payload = TerminalNotificationPayload.contentFromOSC777Payload(String(parts[1])) else {
                 return .ignored
             }
             return .desktopNotification(payload)

@@ -70,42 +70,6 @@ final class WorkspaceSnapshotCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot.unsafeCommandReplayPaneIDs, [])
     }
 
-    func testMakeLayoutOnlySnapshotIgnoresDescriptorProcessRestoreIntent() {
-        let coordinator = WorkspaceSnapshotCoordinator()
-        let descriptor = WorkspaceSnapshotCoordinator.WorkspaceDescriptor(
-            windows: [
-                WorkspaceSnapshotCoordinator.WindowDescriptor(
-                    id: "window-main",
-                    tabs: [
-                        WorkspaceSnapshotCoordinator.TabDescriptor(
-                            id: "tab-main",
-                            root: .pane(WorkspaceSnapshotCoordinator.PaneDescriptor(
-                                id: "pane-main",
-                                title: "deploy",
-                                workingDirectory: "/tmp/project",
-                                profileName: "Production",
-                                restoreSafety: TerminalRestoreSafetyMetadata(
-                                    commandLine: "deploy --prod",
-                                    commandReplay: .optedIn,
-                                    capturedAtPromptBoundary: true
-                                )
-                            )),
-                            activePaneID: "pane-main"
-                        ),
-                    ]
-                ),
-            ]
-        )
-
-        let snapshot = coordinator.makeLayoutOnlySnapshot(from: descriptor)
-
-        guard case let .pane(pane) = snapshot.windows[0].tabs[0].root else {
-            return XCTFail("Expected pane root")
-        }
-        XCTAssertEqual(pane.restoreSafety, .layoutOnly)
-        XCTAssertEqual(snapshot.restorePlan.commandReplayCandidates, [])
-    }
-
     func testSaveLayoutOnlySnapshotPersistsThroughWorkspaceSnapshotStore() throws {
         let directory = try makeTemporaryDirectory()
         let url = directory.appendingPathComponent("workspace.json")

@@ -146,6 +146,88 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertEqual(Set(ledger.traceSummariesByTraceID.keys), [traceID, otherTraceID])
     }
 
+    func testTimelineSummariesExposeDeterministicLiveSummaryWithoutPayloadText() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let traceID = TerminalEventTraceID("live-summary")
+        let otherTraceID = TerminalEventTraceID("other-live-summary")
+        let secretBytes = Data("secret-token".utf8)
+
+        ledger.recordPtyRead(traceID: traceID, data: secretBytes)
+        ledger.recordParserEvent(traceID: traceID, event: .printable(byteCount: secretBytes.count))
+        ledger.recordScreenMutation(traceID: traceID, mutation: .writeCells(cellCount: 12))
+        ledger.recordRenderFrame(traceID: traceID, frame: .init(frameIndex: 5, dirtyRegionCount: 2, fullRedraw: false))
+        ledger.recordPtyRead(traceID: otherTraceID, byteCount: 3)
+
+        let summary = ledger.timelineSummary(for: traceID)
+        let summaries = ledger.timelineSummariesByTraceID
+
+        XCTAssertEqual(summary.traceID, traceID)
+        XCTAssertEqual(summary.stagePath, "ptyRead>parserEvent>screenMutation>renderFrame")
+        XCTAssertTrue(summary.hasCompleteRenderPath)
+        XCTAssertEqual(summary.ptyReadByteCount, secretBytes.count)
+        XCTAssertEqual(summary.parserEventByteCount, secretBytes.count)
+        XCTAssertEqual(summary.screenMutationCount, 1)
+        XCTAssertEqual(summary.renderFrameCount, 1)
+        XCTAssertEqual(summary.dirtyRegionCount, 2)
+        XCTAssertEqual(Set(summaries.keys), [traceID, otherTraceID])
+        XCTAssertEqual(summaries[traceID], summary)
+        XCTAssertFalse(summary.description.contains("secret-token"))
+    }
+
+    func testLivePtyReadMetadataIsWiredIntoRuntimeLedgerWithoutRawPayload() throws {
+        let sessionSource = try sourceFile("Sources/KurottyApp/TerminalSession.swift")
+        let shellSource = try sourceFile("Sources/KurottyApp/ShellSession.swift")
+        let surfaceSource = try sourceFile("Sources/KurottyApp/TerminalSurfaceView.swift")
+
+        XCTAssertTrue(sessionSource.contains("var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)? { get set }"))
+        XCTAssertTrue(shellSource.contains("var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?"))
+        XCTAssertTrue(shellSource.contains("private var ptyReadTraceSequence: UInt64 = 0"))
+        XCTAssertTrue(shellSource.contains("emitRuntimePtyRead(byteCount: chunk.count)"))
+        XCTAssertTrue(shellSource.contains(".ptyRead(traceID: traceID, byteCount: byteCount)"))
+        XCTAssertTrue(shellSource.contains("onRuntimeEvent?(event)"))
+        XCTAssertTrue(surfaceSource.contains("private static let runtimeEventLedgerCapacity = 4_096"))
+        XCTAssertTrue(surfaceSource.contains("private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)"))
+        XCTAssertTrue(surfaceSource.contains("shell.onRuntimeEvent = { [weak self] event in"))
+        XCTAssertTrue(surfaceSource.contains("self?.recordRuntimeEvent(event)"))
+        XCTAssertTrue(surfaceSource.contains("private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent)"))
+        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.append(event)"))
+        XCTAssertTrue(surfaceSource.contains("beginOutputRuntimeEventBatch(byteCount: text.utf8.count)"))
+        XCTAssertTrue(surfaceSource.contains("let traceID = nextOutputFlushTraceID()"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordPtyRead(byteCount: ptyByteCount)"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordParserEvent(.printable(byteCount: byteCount))"))
+        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordRenderFrame(.init("))
+        XCTAssertTrue(surfaceSource.contains("dirtyRegionCount: damage.rects.count"))
+        XCTAssertTrue(surfaceSource.contains("batch.commit(to: &runtimeEventLedger)"))
+        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.reduce(0)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalEventTraceID(\"output-flush-\\(outputFlushTraceSequence)\")"))
+        XCTAssertFalse(surfaceSource.contains("pendingRuntimeOutputTraceIDs.removeAll"))
+        XCTAssertFalse(surfaceSource.contains("runtimeEventLedger.recordPtyRead(traceID: event.traceID, data:"))
+        XCTAssertFalse(surfaceSource.contains("recordParserEvent(traceID: traceID, event: .printable(data:"))
+    }
+
+    func testRuntimeOutputFlushUsesSyntheticTraceWithoutCompletingIndividualPtyReads() {
+        var ledger = TerminalEventLedger(capacity: 10)
+        let firstRead = TerminalEventTraceID("pty-read-1")
+        let secondRead = TerminalEventTraceID("pty-read-2")
+        let flush = TerminalEventTraceID("output-flush-0")
+
+        ledger.recordPtyRead(traceID: firstRead, byteCount: 4)
+        ledger.recordPtyRead(traceID: secondRead, byteCount: 6)
+        var batch = TerminalRuntimeEventBatch(traceID: flush)
+        batch.recordPtyRead(byteCount: 10)
+        batch.recordParserEvent(.printable(byteCount: 10))
+        batch.recordRenderFrame(.init(frameIndex: 3, dirtyRegionCount: 1, fullRedraw: false))
+        batch.commit(to: &ledger)
+
+        XCTAssertEqual(ledger.events(for: firstRead).map(\.kind), [.ptyRead])
+        XCTAssertEqual(ledger.events(for: secondRead).map(\.kind), [.ptyRead])
+        XCTAssertFalse(ledger.traceCorrelationReport(for: firstRead).hasCompleteRenderPath)
+        XCTAssertFalse(ledger.traceCorrelationReport(for: secondRead).hasCompleteRenderPath)
+        XCTAssertEqual(ledger.traceCorrelationReport(for: flush).stageSequence, [.ptyRead, .parserEvent, .renderFrame])
+        XCTAssertEqual(ledger.summary(for: flush).ptyReadByteCount, 10)
+        XCTAssertEqual(ledger.summary(for: flush).parserEventByteCount, 10)
+    }
+
     func testRuntimeBatchCorrelatesLiveBoundaryMetadataUnderStableTraceID() {
         var ledger = TerminalEventLedger(capacity: 10)
         let traceID = TerminalEventTraceID("runtime-42")
@@ -302,4 +384,19 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertTrue(report.description.contains("resize=source=view-measurement derived=120x40 pty=120x40 screen=119x40 renderer=120x40 drawable=unavailable frame=unavailable disagree=screen valid=false issueCount=1"))
         XCTAssertFalse(report.description.contains("CSI"))
     }
+}
+
+private func sourceFile(_ relativePath: String) throws -> String {
+    try String(
+        contentsOf: sourceRoot().appendingPathComponent(relativePath),
+        encoding: .utf8
+    )
+}
+
+private func sourceRoot() -> URL {
+    var url = URL(fileURLWithPath: #filePath)
+    for _ in 0..<3 {
+        url.deleteLastPathComponent()
+    }
+    return url
 }

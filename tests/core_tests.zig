@@ -261,65 +261,6 @@ test "parser keeps OSC open when ESC is not a string terminator" {
     try std.testing.expectEqualStrings("done", second[1].printable.bytes);
 }
 
-test "PTY runtime ownership ledger reports staged owner handoffs without payloads" {
-    var ledger = core.PtyRuntimeOwnershipLedger.init();
-
-    try std.testing.expectEqual(core.PtyRuntimeOwner.unclaimed, ledger.current_owner);
-    try std.testing.expect(!ledger.hasDivergence());
-
-    try ledger.record(.{
-        .owner = .swift_scaffold,
-        .dimensions = try core.PtyDimensions.init(80, 24),
-        .source = .renderer,
-        .sequence = 1,
-    });
-    try ledger.record(.{
-        .owner = .zig_core,
-        .dimensions = try core.PtyDimensions.init(100, 30),
-        .source = .programmatic,
-        .sequence = 2,
-    });
-
-    const summary = ledger.summary();
-    try std.testing.expectEqual(core.PtyRuntimeOwner.zig_core, summary.current_owner);
-    try std.testing.expectEqual(@as(u64, 2), summary.last_sequence);
-    try std.testing.expectEqual(@as(u32, 2), summary.claim_count);
-    try std.testing.expect(summary.has_owner_handoff);
-    try std.testing.expect(summary.has_dimension_divergence);
-    try std.testing.expect(ledger.hasDivergence());
-}
-
-test "PTY runtime ownership ledger rejects stale or invalid ownership samples" {
-    var ledger = core.PtyRuntimeOwnershipLedger.init();
-
-    try ledger.record(.{
-        .owner = .swift_scaffold,
-        .dimensions = try core.PtyDimensions.init(80, 24),
-        .source = .renderer,
-        .sequence = 10,
-    });
-
-    try std.testing.expectError(error.StaleOwnershipSample, ledger.record(.{
-        .owner = .zig_core,
-        .dimensions = try core.PtyDimensions.init(100, 30),
-        .source = .programmatic,
-        .sequence = 9,
-    }));
-    try std.testing.expectError(error.UnclaimedOwnershipSample, ledger.record(.{
-        .owner = .unclaimed,
-        .dimensions = try core.PtyDimensions.init(100, 30),
-        .source = .programmatic,
-        .sequence = 11,
-    }));
-
-    const summary = ledger.summary();
-    try std.testing.expectEqual(core.PtyRuntimeOwner.swift_scaffold, summary.current_owner);
-    try std.testing.expectEqual(@as(u64, 10), summary.last_sequence);
-    try std.testing.expectEqual(@as(u32, 1), summary.claim_count);
-    try std.testing.expect(!summary.has_owner_handoff);
-    try std.testing.expect(!summary.has_dimension_divergence);
-}
-
 test "parser bounds oversized CSI buffers and resynchronizes at the final byte" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

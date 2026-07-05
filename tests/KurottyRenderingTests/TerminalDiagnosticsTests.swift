@@ -22,577 +22,44 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertFalse(source.contains("text=\\("))
     }
 
-    func testNotificationSummarySkipsMetadataStatusLines() {
-        let statusLine = "gpt-5.5 medium · ~/dev/kurotty · gpt-5.5 · medium · kurotty · develop · No changes · Ready · Workspace · Ask fo..."
-        let answerLine = "• 안녕하세요. 무엇을 도와드릴까요?"
+    func testExplicitTerminalNotificationPayloadUsesOnlyPayloadText() {
+        let payload = "  gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload  "
 
         XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                answerLine,
-                statusLine,
-            ]),
-            answerLine
+            TerminalNotificationPayload.body(fromExplicitPayload: payload),
+            "gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload"
         )
     }
 
-    func testNotificationSummarySkipsCodexContextStatusLines() {
-        let answerLine = "작업 완료: 알림 본문은 마지막 완료 요약을 보여줍니다."
-        let statusLine = "gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Full Access · never · Context 100% left · Context 0% used · 5h 7..."
+    func testExplicitTerminalNotificationPayloadStripsControlsAndBoundsLength() {
+        let payload = "\u{1b}Build finished\u{7f}\n" + String(repeating: "x", count: AppConstants.Notifications.terminalNotificationMaxCharacters + 10)
+        let body = TerminalNotificationPayload.body(fromExplicitPayload: payload)
 
+        XCTAssertEqual(body?.count, AppConstants.Notifications.terminalNotificationMaxCharacters)
+        XCTAssertFalse(body?.contains("\u{1b}") ?? true)
+        XCTAssertFalse(body?.contains("\u{7f}") ?? true)
+        XCTAssertTrue(body?.hasPrefix("Build finished\n") ?? false)
+    }
+
+    func testOSC777NotificationPayloadUsesNotifyTitleAndBodyFields() {
+        let content = TerminalNotificationPayload.contentFromOSC777Payload(
+            "notify;Build finished;All tests passed"
+        )
+
+        XCTAssertEqual(content?.title, "Build finished")
+        XCTAssertEqual(content?.body, "All tests passed")
+    }
+
+    func testOSC777NotificationPayloadRejectsNonNotifyShape() {
+        XCTAssertNil(TerminalNotificationPayload.contentFromOSC777Payload("progress;50"))
+        XCTAssertNil(TerminalNotificationPayload.contentFromOSC777Payload("notify;Missing body"))
+    }
+
+    func testSubmittedCommandSummaryNormalizesOnlySubmittedInput() {
         XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                statusLine,
-            ]),
-            answerLine
+            TerminalSubmittedCommandSummary.notificationBody(from: "  swift test\n--filter TerminalDiagnosticsTests  "),
+            "swift test --filter TerminalDiagnosticsTests"
         )
-    }
-
-    func testNotificationSummarySkipsPromptPlaceholderLines() {
-        let answerLine = "원인 잡아서 고쳤습니다."
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                answerLine,
-                "› Explain this codebase",
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummarySkipsShellPromptLines() {
-        let answerLine = "작업 완료: 알림 본문은 이 줄이어야 합니다."
-        let promptLine = "\(NSUserName()) ~/dev kurotty"
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                promptLine,
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyShellPrompt() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "\(NSUserName()) ~/dev",
-                "\(NSUserName()) /Users/\(NSUserName())/dev/kurotty",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyPromptPlaceholder() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "› Explain this codebase",
-                "> Ask anything",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyStatusOrDecoration() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "────────────────────────────────────────",
-                "gpt-5.5 medium · ~/dev/kurotty · gpt-5.5 · medium · kurotty · develop · No changes · Ready · Workspace",
-            ])
-        )
-    }
-
-    func testNotificationSummarySkipsSeparatorVariantsAfterAnswer() {
-        let answerLine = "안녕. 오늘은 Kurotty 작업 도와줄까, 아니면 다른 얘기할까?"
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                answerLine,
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
-                "⎯⎯⎯⎯⎯⎯⎯⎯",
-                "╭────────────────────────╮",
-            ]),
-            answerLine
-        )
-    }
-
-    func testNotificationSummaryUsesLatestAnswerFromOutputText() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            \u{1b}[2m•\u{1b}[0m 안녕하세요. 무엇을 도와드릴까요?
-
-            ────────────────────────────────────────
-
-            › 아녕
-
-            • 안녕! 편하게 말씀해 주세요.
-            """),
-            "• 안녕! 편하게 말씀해 주세요."
-        )
-    }
-
-    func testNotificationSummaryUsesLatestMeaningfulOutputBlock() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            build step 1 passed
-            build step 2 passed
-            tests failed: 2 regressions
-
-            ────────────────────────────────────────
-
-            \(NSUserName()) ~/dev/kurotty
-            """),
-            """
-            build step 1 passed
-            build step 2 passed
-            tests failed: 2 regressions
-            """
-        )
-    }
-
-    func testNotificationSummaryUsesLatestCodexAnswerBlockInsteadOfSubmittedPrompt() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            Tip: Use /side to start a side conversation in a temporary fork
-
-            • You have 4 usage limit resets available. Run /usage to use one.
-
-            ⚠ failed to parse hooks config /Users/skyepodium/.codex/hooks.json
-              column 9
-
-            › 안녕하세요
-
-            • superpowers:using-superpowers 지침을 먼저 확인한 뒤, 간단히 응답
-
-            • Explored
-              └ Read SKILL.md (superpowers:using-superpowers skill)
-
-            • 안녕하세요. 무엇을 도와드릴까요?
-
-            ────────────────────────────────────────
-
-            › Summarize recent commits
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-    }
-
-    func testNotificationSummaryRemovesInlineCodexStatusFragments() {
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            • 안녕하세요. 무엇을 도와드릴까요?•Work55
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-
-        XCTAssertEqual(
-            TerminalNotificationSummary.latestMeaningfulText(fromOutputText: """
-            • 안녕하세요. 무엇을 도와드릴까요? · Ready · Workspace
-            """),
-            "• 안녕하세요. 무엇을 도와드릴까요?"
-        )
-    }
-
-    func testNotificationSummarySkipsUsageStatusFromOutputText() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            Weekly limit:
-            [██████████████████████████████]
-            100% left (resets 05:23 on 8 Jul) |
-            """)
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlySeparatorVariants() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: [
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…",
-                "⎯⎯⎯⎯⎯⎯⎯⎯",
-                "╰────────────────────────╯",
-                "••••••••••",
-            ])
-        )
-    }
-
-    func testNotificationSummaryDoesNotReturnOnlyShellPercentPrompt() {
-        XCTAssertNil(
-            TerminalNotificationSummary.latestMeaningfulLine(fromOutputText: """
-            %
-            """)
-        )
-    }
-
-    func testBackgroundTaskTrackingTreatsInteractiveTuiInputAsTerminalAlert() {
-        XCTAssertEqual(
-            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
-                for: "hello",
-                visibleText: """
-                › hello
-
-                • I'll load the required startup skill, then respond normally.
-
-                • Explored
-                  └ Read SKILL.md (superpowers:using-superpowers skill)
-
-                • Hello. How can I help?
-
-                › Summarize recent commits
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            ),
-            .terminalAlert
-        )
-    }
-
-    func testBackgroundTaskTrackingDoesNotPromoteInteractiveTuiInputToTaskCompletion() {
-        XCTAssertNotEqual(
-            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
-                for: "hello",
-                visibleText: """
-                › hello
-
-                • I'll load the required startup skill, then respond normally.
-
-                • Explored
-                  └ Read SKILL.md (superpowers:using-superpowers skill)
-
-                • Hello. How can I help?
-
-                › Summarize recent commits
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            ),
-            .generic
-        )
-    }
-
-    func testBackgroundTaskTrackingAllowsShellCommandsOutsideInteractiveTui() {
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "swift test",
-                visibleText: """
-                skyepodium ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingRejectsInteractiveCodexCommandLaunch() {
-        XCTAssertFalse(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "codex",
-                visibleText: """
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "codex exec summarize recent commits",
-                visibleText: """
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testBackgroundTaskTrackingTreatsInteractiveTuiPromptsAsTerminalAlert() {
-        XCTAssertEqual(
-            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
-                for: "hello",
-                visibleText: """
-                › hello
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            ),
-            .terminalAlert
-        )
-    }
-
-    func testBackgroundTaskTrackingTreatsAllInteractiveTuiPromptsAsTerminalAlerts() {
-        XCTAssertEqual(
-            TerminalBackgroundTaskTrackingPolicy.trackingDecision(
-                for: "Summarize recent commits",
-                visibleText: """
-                › Summarize recent commits
-                gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval
-                """
-            ),
-            .terminalAlert
-        )
-    }
-
-    func testBackgroundTaskTrackingAllowsShellCommandAfterCodexTranscriptWhenShellPromptIsCurrent() {
-        XCTAssertTrue(
-            TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput(
-                "ls",
-                visibleText: """
-                › hello
-
-                • Hello. How can I help?
-
-                \(NSUserName()) ~/dev/kurotty
-                """
-            )
-        )
-    }
-
-    func testCodexNotificationContentUsesSpecificTitleAndMeaningfulBody() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec create pr",
-            outputText: """
-            develop → main PR 올렸습니다.
-
-            PR: https://github.com/skyepodium/kurotty/pull/57
-            상태: `OPEN`, `MERGEABLE`
-
-            %
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex exec create pr")
-        XCTAssertEqual(
-            content.body,
-            "develop → main PR 올렸습니다.\n\nPR: https://github.com/skyepodium/kurotty/pull/57\n상태: `OPEN`, `MERGEABLE`"
-        )
-    }
-
-    func testGenericBackgroundNotificationDoesNotPromoteInteractiveTuiOutputToCodexCompletion() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "hello",
-            outputText: """
-            \u{1b}[38;2;200;169;238;49mAsk for approval
-
-            • I'll load the required startup skill first, then I'll answer normally.
-
-            • Explored
-              └ Read SKILL.md (superpowers:using-superpowers skill)
-
-            ────────────────────────────────────────
-
-            • Hello. What are we working on?\u{1b}[38;2;200;169;238;49mWorki55
-
-            gpt-5.5 medium · ~/dev · gpt-5.5 · medium · Ready · Workspace · Ask for approval · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Task finished")
-        XCTAssertEqual(content.subtitle, "hello")
-        XCTAssertEqual(content.body, "Hello. What are we working on?")
-        XCTAssertFalse(content.body.contains("38;2"))
-        XCTAssertFalse(content.body.contains("Ask for approval"))
-        XCTAssertFalse(content.body.contains("Explored"))
-        XCTAssertFalse(content.body.contains("SKILL.md"))
-        XCTAssertFalse(content.body.contains("Worki55"))
-        XCTAssertFalse(content.body.contains("gpt-5.5"))
-    }
-
-    func testTerminalAlertContentUsesIterm2StyleSessionOutputMessage() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "hello",
-            outputText: """
-            › hello
-
-            • I’m loading the required startup skill, then I’ll
-              answer normally.
-
-            • Explored
-              └ Read SKILL.md (superpowers:using-superpowers skill)
-
-            ────────────────────────────────────
-
-            • Hi. What would you like to work on?
-
-            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval
-            """,
-            source: .terminalAlert(sessionDescription: "dev (codex)", tabIndex: 1)
-        )
-
-        XCTAssertEqual(content.title, "Alert")
-        XCTAssertEqual(content.subtitle, "")
-        XCTAssertEqual(content.body, "Session dev (codex) #1: Hi. What would you like to work on?")
-        XCTAssertFalse(content.body.contains("hello"))
-        XCTAssertFalse(content.body.contains("Explored"))
-        XCTAssertFalse(content.body.contains("SKILL.md"))
-        XCTAssertFalse(content.body.contains("gpt-5.5"))
-    }
-
-    func testTerminalAlertContentRemovesTrailingWorkingRepaintStatus() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "hello",
-            outputText: """
-            › hello
-
-            • Hi. What would you like to work on?\u{1b}[38;2;200;169;238mWorking
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-
-        XCTAssertEqual(content.body, "Session dev #1: Hi. What would you like to work on?")
-        XCTAssertFalse(content.body.contains("Working"))
-    }
-
-    func testTerminalAlertContentRemovesShortTrailingStatusRepaintRemainder() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "hello",
-            outputText: """
-            › hello
-
-            • Hello. I’m in /Users/skyepodium/dev and ready to work.\u{1b}[38;2;200;169;238mW5
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-
-        XCTAssertEqual(
-            content.body,
-            "Session dev #1: Hello. I’m in /Users/skyepodium/dev and ready to work."
-        )
-        XCTAssertFalse(content.body.contains("W5"))
-    }
-
-    func testTerminalAlertContentAcceptsBulletWithoutFollowingSpace() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "안녕",
-            outputText: """
-            ›안녕
-
-            2026I2
-
-            •안녕하세요. 무엇을 도와드릴까요?
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-
-        XCTAssertEqual(content.body, "Session dev #1: 안녕하세요. 무엇을 도와드릴까요?")
-        XCTAssertFalse(content.body.contains("2026I2"))
-        XCTAssertFalse(content.body.contains("›안녕"))
-    }
-
-    func testTerminalAlertContentAcceptsSubsequentNoSpaceKoreanAndEnglishAnswers() {
-        let korean = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "안녕",
-            outputText: """
-            ›안녕
-
-            •안녕하세요.무엇을  도와드릴까요?
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-        XCTAssertEqual(korean.body, "Session dev #1: 안녕하세요.무엇을  도와드릴까요?")
-
-        let english = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "what is your name?",
-            outputText: """
-            › what is your name?
-
-            • My name is Codex.
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-        XCTAssertEqual(english.body, "Session dev #1: My name is Codex.")
-    }
-
-    func testTerminalAlertIsNotDeliverableWhenOnlyControlFragmentsAreAvailable() {
-        let content = TerminalBackgroundTaskNotificationContent.makeIfDeliverable(
-            submittedCommand: "안녕",
-            outputText: """
-            ›안녕
-
-            2026I2
-            """,
-            source: .terminalAlert(sessionDescription: "dev", tabIndex: 1)
-        )
-
-        XCTAssertNil(content)
-    }
-
-    func testTerminalAlertIdleKeepsTrackingWhenOnlyControlFragmentsAreAvailable() throws {
-        let source = try terminalSurfaceViewSource()
-        guard let start = source.range(of: "private func notifyBackgroundTaskIfIdle")?.lowerBound,
-              let end = source.range(of: "private func backgroundTaskNotificationContent")?.lowerBound else {
-            XCTFail("missing background task idle source region")
-            return
-        }
-        let idleSource = String(source[start..<end])
-
-        XCTAssertTrue(idleSource.contains("let outputText = backgroundTaskOutputText"))
-        XCTAssertNotNil(idleSource.range(
-            of: #"guard let content = backgroundTaskNotificationContent\(outputText: outputText\) else \{[\s\S]*?backgroundTaskHasOutput = false\s+backgroundTaskNotificationWorkItem = nil\s+return\s+\}"#,
-            options: .regularExpression
-        ))
-        XCTAssertFalse(idleSource.contains("""
-        backgroundTaskInputSequence = nil
-        backgroundTaskHasOutput = false
-        backgroundTaskNotificationWorkItem = nil
-        let outputText = backgroundTaskOutputText
-        backgroundTaskOutputText = ""
-        guard let content = backgroundTaskNotificationContent(outputText: outputText)
-        """))
-    }
-
-    func testExplicitCodexCommandCanUseCodexCompletionTitle() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec inspect tree",
-            outputText: """
-            • I checked the working tree and found no changes.
-
-            gpt-5.5 medium · ~/dev · Ready · Workspace · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex exec inspect tree")
-        XCTAssertEqual(content.body, "I checked the working tree and found no changes.")
-    }
-
-    func testExplicitCodexCommandUsesPromptAndNeedsInputStatus() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec summarize recent commits",
-            outputText: """
-            • I found three recent commits and need approval to inspect the diff.
-
-            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex needs input")
-        XCTAssertEqual(content.subtitle, "codex exec summarize recent commits")
-        XCTAssertEqual(content.body, "I found three recent commits and need approval to inspect the diff.")
-    }
-
-    func testExplicitCodexCommandDoesNotTreatApprovalPolicyStatusAsNeedsInput() {
-        let content = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec summarize recent commits",
-            outputText: """
-            • I found three recent commits.
-
-            gpt-5.5 medium · ~/dev · Ready · Workspace · Ask for approval · Context 99% left
-            """
-        )
-
-        XCTAssertEqual(content.title, "Codex task finished")
-        XCTAssertEqual(content.subtitle, "codex exec summarize recent commits")
-        XCTAssertEqual(content.body, "I found three recent commits.")
-    }
-
-    func testCodexNotificationContentDetectsFailureAndInputRequired() {
-        let failed = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec release",
-            outputText: "error: release build failed\nSee logs for details."
-        )
-        XCTAssertEqual(failed.title, "Codex task failed")
-        XCTAssertEqual(failed.subtitle, "codex exec release")
-        XCTAssertEqual(failed.body, "error: release build failed\nSee logs for details.")
-
-        let needsInput = TerminalBackgroundTaskNotificationContent.make(
-            submittedCommand: "codex exec release",
-            outputText: "Approval required: allow shell command?\n❯ Yes\n  No"
-        )
-        XCTAssertEqual(needsInput.title, "Codex needs input")
-        XCTAssertEqual(needsInput.subtitle, "codex exec release")
-        XCTAssertEqual(needsInput.body, "Approval required: allow shell command?\n❯ Yes\n  No")
     }
 
     func testNotificationLogMetadataDoesNotExposeTitleOrBody() {
@@ -822,6 +289,109 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostic.render, .swiftScaffold)
     }
 
+    func testCoreBridgeReportsMutationSourceContractWhenZigCoreIsUnavailable() {
+        let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = bridge.mutationSourceDiagnostic
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+        XCTAssertTrue(diagnostic.description.contains("sessionMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("frameMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("zigBridgeActive=false"))
+        XCTAssertTrue(diagnostic.description.contains("reason=zig-core-unavailable"))
+    }
+
+    func testCoreBridgeKeepsSwiftMutationOwnerWhenZigFeedBridgeIsActive() {
+        let bridge = CoreBridge(cols: 2, rows: 1)
+        let diagnostic = bridge.mutationSourceDiagnostic
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.zigBridgeActive, diagnostic.reason == "swift-runtime-mutation-with-zig-feed-active")
+    }
+
+    func testTerminalCoreFactoryExposesMutationSourceDiagnosticForTypeErasedCore() {
+        let core: any TerminalCore = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = TerminalCoreFactory.mutationSourceDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+    }
+
+    func testTerminalCoreFactoryReportsUnknownMutationSourceForNonDiagnosingCore() {
+        let core: any TerminalCore = NonDiagnosingTerminalCore()
+        let diagnostic = TerminalCoreFactory.mutationSourceDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.sessionMutationOwner, .unknown)
+        XCTAssertEqual(diagnostic.frameMutationOwner, .unknown)
+        XCTAssertFalse(diagnostic.zigBridgeActive)
+        XCTAssertEqual(diagnostic.reason, "diagnostic-unavailable")
+    }
+
+    func testCoreBridgeReportsRuntimeBoundaryContractWhenZigCoreIsUnavailable() {
+        let bridge = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = bridge.runtimeBoundaryDiagnostic
+
+        XCTAssertEqual(diagnostic.feedBridgeParticipant, .swiftScaffold)
+        XCTAssertEqual(diagnostic.parserMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.screenMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.renderMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.mutationHandoffReady)
+        XCTAssertEqual(diagnostic.dualWriteRisk, .none)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+        XCTAssertTrue(diagnostic.description.contains("feedBridgeParticipant=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("parserMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("screenMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("renderMutationOwner=swift-scaffold"))
+        XCTAssertTrue(diagnostic.description.contains("mutationHandoffReady=false"))
+        XCTAssertTrue(diagnostic.description.contains("dualWriteRisk=none"))
+        XCTAssertFalse(diagnostic.description.contains("token=secret"))
+    }
+
+    func testCoreBridgeRuntimeBoundaryKeepsSwiftMutationOwnersWhenZigFeedBridgeIsActive() {
+        let bridge = CoreBridge(cols: 2, rows: 1)
+        let diagnostic = bridge.runtimeBoundaryDiagnostic
+
+        XCTAssertEqual(diagnostic.parserMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.screenMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.renderMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.mutationHandoffReady)
+        XCTAssertEqual(
+            diagnostic.feedBridgeParticipant == .zigCore,
+            diagnostic.dualWriteRisk == .feedBridgeOnly
+        )
+    }
+
+    func testTerminalCoreFactoryExposesRuntimeBoundaryDiagnosticForTypeErasedCore() {
+        let core: any TerminalCore = CoreBridge(cols: 2, rows: 1, loadSymbols: false)
+        let diagnostic = TerminalCoreFactory.runtimeBoundaryDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.feedBridgeParticipant, .swiftScaffold)
+        XCTAssertEqual(diagnostic.parserMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.screenMutationOwner, .swiftScaffold)
+        XCTAssertEqual(diagnostic.renderMutationOwner, .swiftScaffold)
+        XCTAssertFalse(diagnostic.mutationHandoffReady)
+        XCTAssertEqual(diagnostic.dualWriteRisk, .none)
+        XCTAssertEqual(diagnostic.reason, "zig-core-unavailable")
+    }
+
+    func testTerminalCoreFactoryReportsUnknownRuntimeBoundaryForNonDiagnosingCore() {
+        let core: any TerminalCore = NonDiagnosingTerminalCore()
+        let diagnostic = TerminalCoreFactory.runtimeBoundaryDiagnostic(for: core)
+
+        XCTAssertEqual(diagnostic.feedBridgeParticipant, .unknown)
+        XCTAssertEqual(diagnostic.parserMutationOwner, .unknown)
+        XCTAssertEqual(diagnostic.screenMutationOwner, .unknown)
+        XCTAssertEqual(diagnostic.renderMutationOwner, .unknown)
+        XCTAssertFalse(diagnostic.mutationHandoffReady)
+        XCTAssertEqual(diagnostic.dualWriteRisk, .unknown)
+        XCTAssertEqual(diagnostic.reason, "diagnostic-unavailable")
+    }
+
     func testTerminalCoreFactoryReportsUnknownForNonDiagnosingCore() {
         let core: any TerminalCore = NonDiagnosingTerminalCore()
         let diagnostic = TerminalCoreFactory.compatibilityDiagnostic(for: core)
@@ -887,45 +457,6 @@ final class TerminalDiagnosticsTests: XCTestCase {
         XCTAssertTrue(source.contains("Kurotty PTY resize"))
         XCTAssertFalse(source.contains("UInt16(max(1, rows))"))
         XCTAssertFalse(source.contains("UInt16(max(1, columns))"))
-    }
-
-    func testTerminalSessionProtocolExposesMetadataOnlyRuntimeHooks() throws {
-        let source = try terminalSessionSource()
-
-        XCTAssertTrue(source.contains("var onRuntimeEvent: ((TerminalSessionRuntimeEvent) -> Void)? { get set }"))
-        XCTAssertTrue(source.contains("var onResizeTrace: ((TerminalResizeTrace) -> Void)? { get set }"))
-        XCTAssertTrue(source.contains("enum TerminalSessionRuntimeEvent"))
-        XCTAssertTrue(source.contains("case ptyRead(TerminalRawPtyLogMetadata)"))
-        XCTAssertFalse(source.contains("case ptyRead(Data)"))
-    }
-
-    func testDarwinPtyReadAndResizeEmitMetadataHooksWithoutDebugFlagGate() throws {
-        let source = try shellSessionSource()
-
-        XCTAssertTrue(source.contains("onRuntimeEvent?(.ptyRead(metadata))"))
-        XCTAssertTrue(source.contains("onResizeTrace?(completedTrace)"))
-        XCTAssertTrue(source.contains("onRawOutput?(chunk)"))
-        XCTAssertTrue(source.contains("if DebugOptions.ptyLog"))
-        XCTAssertLessThan(
-            try XCTUnwrap(source.range(of: "onRuntimeEvent?(.ptyRead(metadata))")?.lowerBound),
-            try XCTUnwrap(source.range(of: "pendingOutput.append(chunk)")?.lowerBound)
-        )
-        XCTAssertFalse(source.contains("onRuntimeEvent?(.ptyRead(chunk))"))
-    }
-
-    func testTerminalSurfaceWiresLiveTimelineAndResizeLedgersWithMetadataOnly() throws {
-        let source = try terminalSurfaceViewSource()
-
-        XCTAssertTrue(source.contains("private var runtimeEventLedger = TerminalEventLedger(capacity:"))
-        XCTAssertTrue(source.contains("private var runtimeResizeLedger = TerminalResizeLedger(capacity:"))
-        XCTAssertTrue(source.contains("shell.onRuntimeEvent ="))
-        XCTAssertTrue(source.contains("runtimeEventLedger.recordPtyRead(traceID: traceID, byteCount: metadata.byteCount)"))
-        XCTAssertTrue(source.contains("runtimeEventLedger.recordParserEvent("))
-        XCTAssertTrue(source.contains("runtimeEventLedger.recordScreenMutation("))
-        XCTAssertTrue(source.contains("runtimeEventLedger.recordRenderFrame("))
-        XCTAssertTrue(source.contains("runtimeResizeLedger.record(TerminalResizeCycleSnapshot("))
-        XCTAssertFalse(source.contains("runtimeEventLedger.recordPtyRead(traceID: traceID, data:"))
-        XCTAssertFalse(source.contains("runtimeResizeLedger.record(text"))
     }
 
     func testStyleRunSummaryReportsRangesWithoutCellText() {
@@ -1011,14 +542,6 @@ private func shellSessionSource() throws -> String {
     try String(
         contentsOf: sourceRoot()
             .appendingPathComponent("Sources/KurottyApp/ShellSession.swift"),
-        encoding: .utf8
-    )
-}
-
-private func terminalSessionSource() throws -> String {
-    try String(
-        contentsOf: sourceRoot()
-            .appendingPathComponent("Sources/KurottyApp/TerminalSession.swift"),
         encoding: .utf8
     )
 }

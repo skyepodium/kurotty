@@ -50,7 +50,7 @@ Use this smaller set for `feature/non-ui-runtime-next-slice` changes. Run only t
 | Source-of-truth diagnostics | `swift test --filter TerminalEventLedgerTests`<br>`swift test --filter TerminalResizeLedgerTests`<br>`zig build test` |
 | Trace timeline summaries | `swift test --filter TerminalDiagnosticsTests`<br>`swift test --filter TerminalEventLedgerTests` |
 | Render coalescing and damage evidence | `swift test --filter TerminalRenderFrameDiagnosticsTests`<br>`swift test --filter TerminalRenderDamageDiagnosticsTests`<br>`swift test --filter TerminalPixelProbeTests`<br>`swift test --filter GlyphRenderingRegressionTests` |
-| Scrollback export metadata | `swift test --filter SegmentedScrollbackStoreTests`<br>`swift test --filter BoundedScrollbackRowsTests`<br>`swift test --filter TerminalScrollbackDiagnosticsTests` |
+| Scrollback export/persistence metadata | `swift test --filter SegmentedScrollbackStoreTests`<br>`swift test --filter BoundedScrollbackRowsTests`<br>`swift test --filter TerminalScrollbackDiagnosticsTests` |
 | Shell opt-in metadata | `swift test --filter TerminalOSCDispatcherTests`<br>`swift test --filter TerminalShellIntegrationTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
 | Command UX | `swift test --filter TerminalCommandRegistryTests`<br>`swift test --filter TerminalCommandPaletteTests`<br>`swift test --filter CommandPaletteWindowControllerTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
 | Browser chrome and workspace restore UX | `swift build`<br>`swift test --filter WorkspaceSnapshotTests`<br>`swift test --filter WorkspaceSnapshotCoordinatorTests`<br>`swift test --filter GlyphRenderingRegressionTests/testTerminalWindowChromeDoesNotReserveToolbarRowAboveTerminal` |

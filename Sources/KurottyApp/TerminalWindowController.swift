@@ -84,11 +84,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func splitVertically() {
-        currentSplitView()?.split(axis: .vertical)
+        split(direction: .right)
     }
 
     func splitHorizontally() {
-        currentSplitView()?.split(axis: .horizontal)
+        split(direction: .down)
+    }
+
+    func split(direction: TerminalPaneSplitDirection) {
+        currentSplitView()?.split(direction: direction)
     }
 
     func focusPane(_ direction: TerminalPaneFocusDirection) {
@@ -367,7 +371,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
         addButton.normalTintColor = chromeTheme.textSecondary
         addButton.hoverTintColor = chromeTheme.textPrimary
-        addButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
+        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
@@ -502,18 +506,6 @@ final class TerminalPaneDropTargetView: NSView {
 }
 
 @MainActor
-enum TerminalTabMouseAction: Equatable {
-    case select
-    case close
-}
-
-enum TerminalTabMouseActionResolver {
-    static func action(for location: NSPoint, closeButtonFrame: NSRect) -> TerminalTabMouseAction {
-        closeButtonFrame.contains(location) ? .close : .select
-    }
-}
-
-@MainActor
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
@@ -544,12 +536,11 @@ private final class TerminalTabItemView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        switch TerminalTabMouseActionResolver.action(for: location, closeButtonFrame: closeButton.frame) {
-        case .close:
+        if closeButton.frame.contains(location) {
             onClose()
-        case .select:
-            onSelect()
+            return
         }
+        onSelect()
     }
 
     override func updateTrackingAreas() {
@@ -568,6 +559,8 @@ private final class TerminalTabItemView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard !bounds.contains(location) else { return }
         isHovered = false
         updateAppearance()
     }
@@ -610,7 +603,7 @@ private final class TerminalTabItemView: NSView {
         closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
         closeButton.normalTintColor = selected ? chromeTheme.textSecondary : chromeTheme.textMuted
         closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
+        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([

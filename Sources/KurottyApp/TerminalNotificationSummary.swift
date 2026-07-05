@@ -9,721 +9,97 @@ enum TerminalSubmittedCommandSummary {
         guard !summary.isEmpty else {
             return nil
         }
-        guard summary.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
+        guard summary.count > AppConstants.Notifications.commandSummaryMaxCharacters else {
             return summary
         }
-        return String(summary.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
+        return String(summary.prefix(AppConstants.Notifications.commandSummaryMaxCharacters))
     }
 }
 
-enum TerminalBackgroundTaskTrackingPolicy {
-    enum Decision: Equatable {
-        case reject
-        case generic
-        case terminalAlert
+enum TerminalNotificationPayload {
+    struct Content: Equatable {
+        let title: String
+        let body: String
     }
 
-    static func shouldTrackSubmittedInput(_ submittedInput: String, visibleText: String) -> Bool {
-        trackingDecision(for: submittedInput, visibleText: visibleText) != .reject
-    }
-
-    static func trackingDecision(for submittedInput: String, visibleText: String) -> Decision {
-        guard let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedInput) else {
-            return .reject
-        }
-
-        if TerminalNotificationSummary.isActiveInteractiveTuiVisible(visibleText) {
-            return .terminalAlert
-        }
-
-        guard isTrackableCommand(command) else {
-            return .reject
-        }
-        return .generic
-    }
-
-    private static func isTrackableCommand(_ command: String) -> Bool {
-        let tokens = command.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard let executable = tokens.first else {
-            return false
-        }
-        if executable == "codex" {
-            return tokens.dropFirst().first == "exec"
-        }
-        return true
-    }
-
-}
-
-enum TerminalNotificationDeliveryPolicy {
-    static func shouldDeliverUserNotification(isTerminalFocusedForUser: Bool) -> Bool {
-        true
-    }
-}
-
-struct TerminalDesktopNotificationPayload: Equatable {
-    let title: String
-    let body: String
-
-    static func itermOsc9(message: String) -> TerminalDesktopNotificationPayload? {
-        guard !isItermOsc9NumericExtension(message) else {
+    static func body(fromExplicitPayload payload: String) -> String? {
+        let body = stripTerminalControls(from: payload)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else {
             return nil
         }
-        guard let body = TerminalNotificationSummary.notificationProtocolText(from: message) else {
+        guard body.count > AppConstants.Notifications.terminalNotificationMaxCharacters else {
+            return body
+        }
+        return String(body.prefix(AppConstants.Notifications.terminalNotificationMaxCharacters))
+    }
+
+    static func contentFromOSC9Payload(_ payload: String) -> Content? {
+        guard let body = body(fromExplicitPayload: payload) else {
             return nil
         }
-        return TerminalDesktopNotificationPayload(
-            title: AppConstants.Notifications.terminalAlertTitle,
-            body: body
-        )
+        return Content(title: AppConstants.Notifications.terminalNotificationTitle, body: body)
     }
 
-    private static func isItermOsc9NumericExtension(_ message: String) -> Bool {
-        let firstParameter = message
-            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
-            .first
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return Int(firstParameter) != nil
-    }
-
-    static func rxvtOsc777(payload: String) -> TerminalDesktopNotificationPayload? {
+    static func contentFromOSC777Payload(_ payload: String) -> Content? {
         let parts = payload.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3, parts[0] == "notify" else {
             return nil
         }
-
-        let title = TerminalNotificationSummary.notificationProtocolText(from: String(parts[1]))
+        let title = body(fromExplicitPayload: String(parts[1]))
             ?? AppConstants.Notifications.terminalNotificationTitle
-        let body = TerminalNotificationSummary.notificationProtocolText(from: String(parts[2])) ?? ""
-        guard !body.isEmpty || title != AppConstants.Notifications.terminalNotificationTitle else {
-            return nil
-        }
-        return TerminalDesktopNotificationPayload(title: title, body: body)
-    }
-}
-
-struct TerminalBackgroundTaskNotificationContent: Equatable {
-    enum Source: Equatable {
-        case generic
-        case terminalAlert(sessionDescription: String, tabIndex: Int)
-    }
-
-    let title: String
-    let subtitle: String
-    let body: String
-
-    static func make(
-        submittedCommand: String?,
-        outputText: String,
-        source: Source = .generic
-    ) -> TerminalBackgroundTaskNotificationContent {
-        make(
-            submittedCommand: submittedCommand,
-            outputText: outputText,
-            source: source,
-            requireTerminalAlertMessage: false
-        )!
-    }
-
-    static func makeIfDeliverable(
-        submittedCommand: String?,
-        outputText: String,
-        source: Source = .generic
-    ) -> TerminalBackgroundTaskNotificationContent? {
-        make(
-            submittedCommand: submittedCommand,
-            outputText: outputText,
-            source: source,
-            requireTerminalAlertMessage: true
-        )
-    }
-
-    private static func make(
-        submittedCommand: String?,
-        outputText: String,
-        source: Source,
-        requireTerminalAlertMessage: Bool
-    ) -> TerminalBackgroundTaskNotificationContent? {
-        let command = TerminalSubmittedCommandSummary.notificationBody(from: submittedCommand ?? "")
-        if case let .terminalAlert(sessionDescription, tabIndex) = source {
-            let body: String
-            if let terminalAlertMessage = terminalAlertNotificationBody(outputText: outputText) {
-                body = terminalAlertMessage
-            } else if requireTerminalAlertMessage {
-                return nil
-            } else {
-                body = notificationBody(command: command, outputText: outputText)
-            }
-            return TerminalBackgroundTaskNotificationContent(
-                title: AppConstants.Notifications.terminalAlertTitle,
-                subtitle: "",
-                body: terminalAlertBody(
-                    message: body,
-                    sessionDescription: sessionDescription,
-                    tabIndex: tabIndex
-                )
-            )
-        }
-        let body = notificationBody(command: command, outputText: outputText)
-        let isCodex = command.map(TerminalBackgroundTaskNotificationContent.isExplicitCodexTaskCommand) ?? false
-        let title: String
-        if isCodex {
-            title = codexTitle(for: body, outputText: outputText)
-        } else {
-            title = AppConstants.Notifications.backgroundTaskTitle
-        }
-        return TerminalBackgroundTaskNotificationContent(
-            title: title,
-            subtitle: command ?? "",
-            body: body
-        )
-    }
-
-    private static func terminalAlertNotificationBody(outputText: String) -> String? {
-        guard let bulletSummary = TerminalNotificationSummary.terminalBulletNotificationBodyText(
-            fromOutputText: outputText
-        ) else {
-            return nil
-        }
-        return trimmed(bulletSummary)
-    }
-
-    private static func notificationBody(command: String?, outputText: String) -> String {
-        if let bulletSummary = TerminalNotificationSummary.terminalBulletNotificationBodyText(fromOutputText: outputText) {
-            return trimmed(bulletSummary)
-        }
-        if let outputSummary = TerminalNotificationSummary.notificationBodyText(fromOutputText: outputText) {
-            return trimmed(outputSummary)
-        }
-        if let command {
-            return trimmed(command)
-        }
-        return AppConstants.Notifications.backgroundTaskFinishedBody
-    }
-
-    private static func codexTitle(for body: String, outputText: String) -> String {
-        if TerminalNotificationSummary.containsNeedsInputStatus(outputText) {
-            return AppConstants.Notifications.codexNeedsInputTitle
-        }
-        let lowercasedBody = body.lowercased()
-        if lowercasedBody.contains("approval required")
-            || lowercasedBody.contains("requires approval")
-            || lowercasedBody.contains("need approval")
-            || lowercasedBody.contains("needs input")
-            || lowercasedBody.contains("waiting for input") {
-            return AppConstants.Notifications.codexNeedsInputTitle
-        }
-        if lowercasedBody.contains("error:")
-            || lowercasedBody.contains("failed")
-            || lowercasedBody.contains("failure") {
-            return AppConstants.Notifications.codexFailedTitle
-        }
-        return AppConstants.Notifications.codexFinishedTitle
-    }
-
-    private static func isExplicitCodexTaskCommand(_ command: String) -> Bool {
-        let tokens = command.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard tokens.first == "codex" else {
-            return false
-        }
-        return tokens.dropFirst().first == "exec"
-    }
-
-    private static func trimmed(_ body: String) -> String {
-        guard body.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
-            return body
-        }
-        return String(body.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
-    }
-
-    static func terminalAlertBody(message: String, sessionDescription: String, tabIndex: Int) -> String {
-        let session = sessionDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeSession = session.isEmpty ? AppConstants.Notifications.terminalAlertDefaultSessionDescription : session
-        return "Session \(safeSession) #\(max(1, tabIndex)): \(trimmed(message))"
-    }
-}
-
-enum TerminalNotificationSummary {
-    static func notificationProtocolText(from text: String) -> String? {
-        let normalized = normalizedTerminalText(from: text)
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            return nil
-        }
-        guard normalized.count > AppConstants.Notifications.backgroundTaskSummaryMaxCharacters else {
-            return normalized
-        }
-        return String(normalized.prefix(AppConstants.Notifications.backgroundTaskSummaryMaxCharacters))
-    }
-
-    static func containsNeedsInputStatus(_ text: String) -> Bool {
-        let normalizedText = normalizedTerminalText(from: text)
-        return normalizedText
-            .components(separatedBy: .newlines)
-            .contains { line in
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !isMetadataStatusLine(trimmed) else {
-                    return false
-                }
-                let lowercased = trimmed.lowercased()
-                return lowercased.contains("approval required")
-                    || lowercased.contains("requires approval")
-                    || lowercased.contains("need approval")
-                    || lowercased.contains("needs input")
-                    || lowercased.contains("waiting for input")
-            }
-    }
-
-    static func isActiveInteractiveTuiVisible(_ text: String) -> Bool {
-        let normalizedText = normalizedTerminalText(from: text)
-        let tailLines = normalizedText
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .suffix(6)
-
-        guard let lastLine = tailLines.last else {
-            return false
-        }
-        if isShellPromptLine(lastLine) {
-            return false
-        }
-        if isPromptInputLine(lastLine) || isMetadataStatusLine(lastLine) {
-            return true
-        }
-        return tailLines.suffix(2).contains { line in
-            isMetadataStatusLine(line)
-        }
-    }
-
-    static func terminalBulletNotificationBodyText(fromOutputText text: String) -> String? {
-        let normalizedText = normalizedTerminalText(from: text)
-        for line in normalizedText.components(separatedBy: .newlines).reversed() {
-            guard let meaningfulLine = meaningfulContentLine(from: line) else {
-                continue
-            }
-            guard let answer = terminalBulletAnswer(from: meaningfulLine) else {
-                continue
-            }
-            return answer
-        }
-        return nil
-    }
-
-    static func latestMeaningfulLine(fromVisibleLines lines: [String]) -> String? {
-        for line in lines.reversed() {
-            guard let meaningfulLine = meaningfulContentLine(from: line) else {
-                continue
-            }
-            return meaningfulLine
-        }
-        return nil
-    }
-
-    static func latestMeaningfulLine(fromOutputText text: String) -> String? {
-        let normalizedText = normalizedTerminalText(from: text)
-        return latestMeaningfulLine(fromVisibleLines: normalizedText.components(separatedBy: .newlines))
-    }
-
-    static func latestMeaningfulText(fromOutputText text: String) -> String? {
-        let normalizedText = normalizedTerminalText(from: text)
-        let lines = normalizedText.components(separatedBy: .newlines)
-        var block = [String]()
-        for line in lines.reversed() {
-            if let meaningfulLine = meaningfulContentLine(from: line) {
-                block.append(meaningfulLine)
-                continue
-            }
-            if !block.isEmpty {
-                break
-            }
-        }
-
-        guard !block.isEmpty else {
-            return nil
-        }
-        return block.reversed().joined(separator: "\n")
-    }
-
-    static func notificationBodyText(fromOutputText text: String) -> String? {
-        let normalizedText = normalizedTerminalText(from: text)
-        var lines = [String]()
-        var previousWasBlank = false
-        for line in normalizedText.components(separatedBy: .newlines) {
-            guard let meaningfulLine = meaningfulNotificationLine(from: line) else {
-                if !lines.isEmpty {
-                    previousWasBlank = true
-                }
-                continue
-            }
-            if previousWasBlank, !lines.isEmpty {
-                lines.append("")
-            }
-            lines.append(meaningfulLine)
-            previousWasBlank = false
-        }
-        while lines.last == "" {
-            lines.removeLast()
-        }
-        guard !lines.isEmpty else {
-            return nil
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func normalizedTerminalText(from text: String) -> String {
-        stripTerminalControls(from: text)
-            .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(
-                of: #"(?:\d{1,3};){2,}\d{1,3}[A-Za-z]?"#,
-                with: "",
-                options: .regularExpression
-            )
-    }
-
-    private static func terminalBulletAnswer(from line: String) -> String? {
-        guard line.first == "•" else {
-            return nil
-        }
-        let answer = removingTerminalStatusSuffix(from: String(line.dropFirst()))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !answer.isEmpty else {
-            return nil
-        }
-        guard !isToolStatusAnswer(String(answer)) else {
-            return nil
-        }
-        return String(answer)
-    }
-
-    private static func isToolStatusAnswer(_ answer: String) -> Bool {
-        answer == "Explored"
-            || answer == "Edited"
-            || answer == "Ran"
-            || answer == "Read"
-            || answer == "Searched"
-            || answer == "Thinking"
-            || answer.hasPrefix("Explored ")
-            || answer.hasPrefix("Edited ")
-            || answer.hasPrefix("Ran ")
-            || answer.hasPrefix("Read ")
-            || answer.hasPrefix("Searched ")
-    }
-
-    private static func meaningfulNotificationLine(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isMeaningfulLine(trimmed) else {
-            return nil
-        }
-        let cleaned = removingInlineStatusFragment(from: trimmed)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isMeaningfulLine(cleaned) else {
-            return nil
-        }
-        if cleaned == trimmed {
-            return line.trimmingCharacters(in: .newlines)
-        }
-        return cleaned
-    }
-
-    private static func meaningfulContentLine(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isMeaningfulLine(trimmed) else {
-            return nil
-        }
-
-        let cleaned = removingInlineStatusFragment(from: trimmed)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isMeaningfulLine(cleaned) else {
-            return nil
-        }
-        return cleaned
-    }
-
-    private static func isMeaningfulLine(_ line: String) -> Bool {
-        guard !line.isEmpty else {
-            return false
-        }
-        guard !isDecorativeLine(line) else {
-            return false
-        }
-        guard !isMetadataStatusLine(line) else {
-            return false
-        }
-        guard !isUsageStatusLine(line) else {
-            return false
-        }
-        guard !isPromptInputLine(line) else {
-            return false
-        }
-        guard !isShellPromptLine(line) else {
-            return false
-        }
-        return true
-    }
-
-    private static func removingInlineStatusFragment(from line: String) -> String {
-        guard line.count > 1 else {
-            return line
-        }
-
-        var searchIndex = line.index(after: line.startIndex)
-        while searchIndex < line.endIndex {
-            guard let markerRange = line.range(
-                of: #"[·•]"#,
-                options: .regularExpression,
-                range: searchIndex..<line.endIndex
-            ) else {
-                return line
-            }
-
-            let suffix = String(line[markerRange.upperBound...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if isInlineStatusFragment(suffix) {
-                return String(line[..<markerRange.lowerBound])
-            }
-            searchIndex = markerRange.upperBound
-        }
-
-        return removingTerminalStatusSuffix(from: line)
-    }
-
-    private static func removingTerminalStatusSuffix(from line: String) -> String {
-        let withoutNamedStatus = line.replacingOccurrences(
-            of: #"(?<=\S)(?:Working|Worki|Work|Ready|Thinking)[0-9]*$"#,
-            with: "",
-            options: .regularExpression
-        )
-        return withoutNamedStatus.replacingOccurrences(
-            of: #"(?<=[.!?。？！])(?:W|Wo|Wor|Work|Worki|Working|R|Re|Rea|Read|Ready|T|Th|Thi|Thin|Think|Thinking)[0-9]+$"#,
-            with: "",
-            options: [.regularExpression, .caseInsensitive]
-        )
-    }
-
-    private static func isInlineStatusFragment(_ suffix: String) -> Bool {
-        guard !suffix.isEmpty else {
-            return false
-        }
-
-        let firstSegment = suffix
-            .components(separatedBy: CharacterSet(charactersIn: "·•"))
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !firstSegment.isEmpty else {
-            return false
-        }
-
-        if firstSegment == "Ready"
-            || firstSegment == "Workspace"
-            || firstSegment == "No changes"
-            || firstSegment == "Clean"
-            || firstSegment == "Full Access"
-            || firstSegment == "never"
-            || firstSegment == "medium"
-            || firstSegment == "high"
-            || firstSegment == "low"
-            || firstSegment.hasPrefix("Context ") {
-            return true
-        }
-
-        if firstSegment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        if firstSegment.range(of: #"^Work(?:space)?[0-9]*$"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        return false
+        let body = body(fromExplicitPayload: String(parts[2])) ?? title
+        return Content(title: title, body: body)
     }
 
     private static func stripTerminalControls(from text: String) -> String {
         var result = ""
-        var index = text.startIndex
-        while index < text.endIndex {
-            let character = text[index]
-            if character == "\u{1b}" {
-                index = Self.index(afterSkippingEscapeSequenceIn: text, from: index)
+        for scalar in text.unicodeScalars {
+            if scalar.value == 0x09 || scalar.value == 0x0A || scalar.value == 0x0D {
+                result.unicodeScalars.append(scalar)
                 continue
             }
-            if character.unicodeScalars.allSatisfy({ $0.value < 32 && $0 != "\n" && $0 != "\r" && $0 != "\t" }) {
-                index = text.index(after: index)
+            if scalar.value < 0x20 || scalar.value == 0x7F {
                 continue
             }
-            result.append(character)
-            index = text.index(after: index)
+            result.unicodeScalars.append(scalar)
         }
         return result
     }
+}
 
-    private static func index(afterSkippingEscapeSequenceIn text: String, from escapeIndex: String.Index) -> String.Index {
-        var index = text.index(after: escapeIndex)
-        guard index < text.endIndex else {
-            return index
+struct TerminalCommandCompletionNotificationContent: Equatable {
+    let title: String
+    let subtitle: String
+    let body: String
+    let exitCode: Int?
+    let duration: TimeInterval?
+    let cwd: String?
+
+    static func make(from context: TerminalCommandCompletionContext) -> TerminalCommandCompletionNotificationContent {
+        let exitCode = context.exitCode
+        let title = exitCode.map {
+            $0 == 0 ? AppConstants.Notifications.commandFinishedTitle : AppConstants.Notifications.commandFailedTitle
+        } ?? AppConstants.Notifications.commandFinishedTitle
+        var bodyLines = [exitCode.map { "Exit code: \($0)" } ?? "Exit code: unknown"]
+        if let duration = context.duration {
+            bodyLines.append("Duration: \(formattedDuration(duration))")
+        }
+        if let cwd = context.cwd {
+            bodyLines.append("Directory: \(cwd)")
         }
 
-        if text[index] == "]" {
-            index = text.index(after: index)
-            while index < text.endIndex {
-                if text[index] == "\u{7}" {
-                    return text.index(after: index)
-                }
-                if text[index] == "\u{1b}" {
-                    let nextIndex = text.index(after: index)
-                    if nextIndex < text.endIndex, text[nextIndex] == "\\" {
-                        return text.index(after: nextIndex)
-                    }
-                }
-                index = text.index(after: index)
-            }
-            return index
-        }
-
-        if text[index] == "[" {
-            index = text.index(after: index)
-            while index < text.endIndex {
-                let scalar = text[index].unicodeScalars.first?.value ?? 0
-                if (0x40...0x7E).contains(scalar) {
-                    return text.index(after: index)
-                }
-                index = text.index(after: index)
-            }
-            return index
-        }
-
-        return text.index(after: index)
+        return TerminalCommandCompletionNotificationContent(
+            title: title,
+            subtitle: context.commandText ?? "",
+            body: bodyLines.joined(separator: "\n"),
+            exitCode: exitCode,
+            duration: context.duration,
+            cwd: context.cwd
+        )
     }
 
-    private static func isDecorativeLine(_ line: String) -> Bool {
-        let scalars = line.unicodeScalars.filter { !$0.properties.isWhitespace }
-        guard !scalars.isEmpty else {
-            return true
-        }
-
-        guard !scalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else {
-            return false
-        }
-
-        return scalars.allSatisfy { scalar in
-            decorativeCharacterScalars().contains(scalar)
-                || isBoxDrawingOrBlockElement(scalar)
-                || isDashLikeScalar(scalar)
-        }
-    }
-
-    private static func decorativeCharacterScalars() -> CharacterSet {
-        CharacterSet(charactersIn: "-_=+|\\/.:,;`'\"~^·•*…⎯")
-    }
-
-    private static func isBoxDrawingOrBlockElement(_ scalar: UnicodeScalar) -> Bool {
-        (0x2500...0x259F).contains(Int(scalar.value))
-            || (0x2800...0x28FF).contains(Int(scalar.value))
-    }
-
-    private static func isDashLikeScalar(_ scalar: UnicodeScalar) -> Bool {
-        (0x2010...0x2015).contains(Int(scalar.value))
-            || scalar.value == 0x2212
-    }
-
-    private static func isMetadataStatusLine(_ line: String) -> Bool {
-        let segments = line
-            .components(separatedBy: "·")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard segments.count >= 5 else {
-            return false
-        }
-
-        let hasModelSegment = segments.contains { segment in
-            segment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil
-        }
-        let hasInteractiveStatusSegment = segments.contains { segment in
-            segment == "Ready"
-                || segment == "Workspace"
-                || segment == "No changes"
-                || segment == "Clean"
-                || segment == "Full Access"
-                || segment == "never"
-                || segment.hasPrefix("Context ")
-        }
-        if hasModelSegment && hasInteractiveStatusSegment {
-            return true
-        }
-
-        let statusKeywordCount = segments.filter { segment in
-            segment == "Ready"
-                || segment == "Workspace"
-                || segment == "No changes"
-                || segment == "Clean"
-        }.count
-        guard statusKeywordCount >= 2 else {
-            return false
-        }
-
-        return segments.contains { segment in
-            segment.range(of: #"^gpt-[0-9]"#, options: .regularExpression) != nil
-                || segment == "medium"
-                || segment == "high"
-                || segment == "low"
-        }
-    }
-
-    private static func isUsageStatusLine(_ line: String) -> Bool {
-        if line == "Weekly limit:" || line == "5h limit:" || line == "Context window:" {
-            return true
-        }
-        if line.range(of: #"^[0-9]+% left \(resets .+\) \|?$"#, options: .regularExpression) != nil {
-            return true
-        }
-        if line.range(of: #"^\[[\s\u{2580}-\u{259F}\u{2800}-\u{28FF}|]+\]\|?$"#, options: .regularExpression) != nil {
-            return true
-        }
-        return false
-    }
-
-    private static func isPromptInputLine(_ line: String) -> Bool {
-        line.range(of: #"^[›>]\s*\S"#, options: .regularExpression) != nil
-    }
-
-    private static func isShellPromptLine(_ line: String) -> Bool {
-        if line == "%" || line == "$" || line == "#" {
-            return true
-        }
-        let normalizedLine = line
-            .replacingOccurrences(of: "\u{fffd}", with: " ")
-            .replacingOccurrences(of: "\u{00a0}", with: " ")
-        let parts = normalizedLine
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        guard parts.count >= 2 else {
-            return false
-        }
-
-        guard promptUsernames().contains(parts[0]) else {
-            return false
-        }
-
-        return parts.dropFirst().contains { part in
-            part == "~" || part.hasPrefix("~/") || part.hasPrefix("/")
-        }
-    }
-
-    private static func promptUsernames() -> Set<String> {
-        var names = Set<String>()
-        let userName = NSUserName()
-        if !userName.isEmpty {
-            names.insert(userName)
-        }
-        if let environmentUser = ProcessInfo.processInfo.environment["USER"], !environmentUser.isEmpty {
-            names.insert(environmentUser)
-        }
-        return names
+    private static func formattedDuration(_ duration: TimeInterval) -> String {
+        String(format: "%.1fs", max(0, duration))
     }
 }

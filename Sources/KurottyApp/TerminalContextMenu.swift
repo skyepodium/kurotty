@@ -1,10 +1,41 @@
 import AppKit
 
+enum TerminalPaneSplitDirection: Equatable {
+    case right
+    case left
+    case down
+    case up
+
+    var axis: NSLayoutConstraint.Orientation {
+        switch self {
+        case .right, .left:
+            return .vertical
+        case .down, .up:
+            return .horizontal
+        }
+    }
+
+    var insertsAfterActivePane: Bool {
+        switch self {
+        case .right, .down:
+            return true
+        case .left, .up:
+            return false
+        }
+    }
+}
+
 enum TerminalContextMenuAction: Equatable {
     case copySelection
     case paste
-    case splitRight
-    case splitDown
+    case split(TerminalPaneSplitDirection)
+
+    var splitDirection: TerminalPaneSplitDirection? {
+        guard case let .split(direction) = self else {
+            return nil
+        }
+        return direction
+    }
 
     var iconSymbolName: String {
         switch self {
@@ -12,9 +43,9 @@ enum TerminalContextMenuAction: Equatable {
             return "doc.on.doc"
         case .paste:
             return "doc.on.clipboard"
-        case .splitRight:
+        case .split(.right), .split(.left):
             return "rectangle.split.2x1"
-        case .splitDown:
+        case .split(.down), .split(.up):
             return "rectangle.split.1x2"
         }
     }
@@ -57,7 +88,9 @@ enum TerminalContextMenuBuilder {
         static let copy = "Copy"
         static let paste = "Paste"
         static let splitRight = "Split Right"
+        static let splitLeft = "Split Left"
         static let splitDown = "Split Down"
+        static let splitUp = "Split Up"
     }
 
     static func entries(for state: TerminalContextMenuState) -> [TerminalContextMenuEntry] {
@@ -67,8 +100,10 @@ enum TerminalContextMenuBuilder {
         }
         entries.append(.item(title: Title.paste, action: .paste, isEnabled: state.hasPasteboardText))
         entries.append(.separator)
-        entries.append(.item(title: Title.splitRight, action: .splitRight))
-        entries.append(.item(title: Title.splitDown, action: .splitDown))
+        entries.append(.item(title: Title.splitRight, action: .split(.right)))
+        entries.append(.item(title: Title.splitLeft, action: .split(.left)))
+        entries.append(.item(title: Title.splitDown, action: .split(.down)))
+        entries.append(.item(title: Title.splitUp, action: .split(.up)))
         return entries
     }
 }

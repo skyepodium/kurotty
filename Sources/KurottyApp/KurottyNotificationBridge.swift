@@ -84,19 +84,15 @@ struct KurottyNotificationBridgePayload: Equatable {
     }
 
     init(title: String, subtitle: String, body: String) throws {
-        let normalizedTitle = TerminalNotificationSummary.notificationProtocolText(from: title)
+        let normalizedTitle = TerminalNotificationPayload.body(fromExplicitPayload: title)
             ?? AppConstants.Notifications.terminalAlertTitle
-        let normalizedSubtitle = TerminalNotificationSummary.notificationProtocolText(from: subtitle) ?? ""
-        guard let normalizedBody = TerminalNotificationSummary.notificationProtocolText(from: body) else {
+        let normalizedSubtitle = TerminalNotificationPayload.body(fromExplicitPayload: subtitle) ?? ""
+        guard let normalizedBody = TerminalNotificationPayload.body(fromExplicitPayload: body) else {
             throw KurottyNotificationBridgeError.emptyPayload
         }
         self.title = normalizedTitle
         self.subtitle = normalizedSubtitle
         self.body = normalizedBody
-    }
-
-    var desktopNotificationPayload: TerminalDesktopNotificationPayload {
-        TerminalDesktopNotificationPayload(title: title, body: subtitle.isEmpty ? body : "\(subtitle): \(body)")
     }
 
     private static func jsonObject(from text: String) -> [String: Any]? {
@@ -214,7 +210,11 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
             let payload = try KurottyNotificationBridgePayload.fromIncomingText(text)
             notificationBridgeLogger.info("bridge payload received titleChars=\(payload.title.count, privacy: .public) bodyChars=\(payload.body.count, privacy: .public)")
             Task { @MainActor in
-                TerminalNotifier.shared.notifyDesktopNotification(payload.desktopNotificationPayload)
+                TerminalNotifier.shared.notifyBridgeNotification(
+                    title: payload.title,
+                    subtitle: payload.subtitle,
+                    body: payload.body
+                )
             }
         } catch {
             notificationBridgeLogger.error("bridge payload rejected error=\(String(describing: error), privacy: .public)")

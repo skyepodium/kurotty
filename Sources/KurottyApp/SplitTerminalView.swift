@@ -112,8 +112,12 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func split(axis: NSLayoutConstraint.Orientation) {
-        if !splitGroupAsUnit(axis: axis), !splitActivePane(axis: axis) {
-            splitFallback(axis: axis)
+        split(direction: axis == .vertical ? .right : .down)
+    }
+
+    func split(direction: TerminalPaneSplitDirection) {
+        if !splitGroupAsUnit(direction: direction), !splitActivePane(direction: direction) {
+            splitFallback(direction: direction)
         }
         rebalanceDividers()
         refreshPaneChrome()
@@ -222,14 +226,14 @@ final class SplitTerminalView: NSSplitView {
         refreshPaneChrome()
     }
 
-    private func splitActivePane(axis: NSLayoutConstraint.Orientation) -> Bool {
+    private func splitActivePane(direction: TerminalPaneSplitDirection) -> Bool {
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView, pane.ownsFirstResponder {
-                split(pane, axis: axis)
+                split(pane, direction: direction)
                 return true
             }
             if let splitView = subview as? SplitTerminalView,
-               splitView.splitActivePane(axis: axis) {
+               splitView.splitActivePane(direction: direction) {
                 splitView.rebalanceDividers()
                 return true
             }
@@ -252,7 +256,8 @@ final class SplitTerminalView: NSSplitView {
         return lengths.map { Double($0 / total) }
     }
 
-    private func splitGroupAsUnit(axis: NSLayoutConstraint.Orientation) -> Bool {
+    private func splitGroupAsUnit(direction: TerminalPaneSplitDirection) -> Bool {
+        let axis = direction.axis
         guard arrangedSubviews.count > 1, isVertical != (axis == .vertical) else {
             return false
         }
@@ -270,8 +275,13 @@ final class SplitTerminalView: NSSplitView {
         isVertical = axis == .vertical
         let newPane = TerminalPaneView()
         configurePane(newPane)
-        addArrangedSubview(existingGroup)
-        addArrangedSubview(newPane)
+        if direction.insertsAfterActivePane {
+            addArrangedSubview(existingGroup)
+            addArrangedSubview(newPane)
+        } else {
+            addArrangedSubview(newPane)
+            addArrangedSubview(existingGroup)
+        }
 
         // Orthogonal splits should preserve the current pane group as one unit:
         // left/right + horizontal split becomes top row with two panes, bottom row with one.
@@ -290,14 +300,16 @@ final class SplitTerminalView: NSSplitView {
         }
     }
 
-    private func split(_ pane: TerminalPaneView, axis: NSLayoutConstraint.Orientation) {
+    private func split(_ pane: TerminalPaneView, direction: TerminalPaneSplitDirection) {
+        let axis = direction.axis
         let newPane = TerminalPaneView()
         configurePane(newPane)
         if isVertical == (axis == .vertical),
            let paneIndex = arrangedSubviews.firstIndex(of: pane) {
-            insertArrangedSubview(newPane, at: paneIndex + 1)
+            let insertionIndex = direction.insertsAfterActivePane ? paneIndex + 1 : paneIndex
+            insertArrangedSubview(newPane, at: insertionIndex)
         } else {
-            replace(pane, withNestedSplitFor: axis, newPane: newPane)
+            replace(pane, withNestedSplitFor: direction, newPane: newPane)
         }
         newPane.focusTerminal()
         rebalanceDividers()
@@ -305,7 +317,7 @@ final class SplitTerminalView: NSSplitView {
 
     private func replace(
         _ pane: TerminalPaneView,
-        withNestedSplitFor axis: NSLayoutConstraint.Orientation,
+        withNestedSplitFor direction: TerminalPaneSplitDirection,
         newPane: TerminalPaneView
     ) {
         guard let paneIndex = arrangedSubviews.firstIndex(of: pane) else {
@@ -314,9 +326,15 @@ final class SplitTerminalView: NSSplitView {
         removeArrangedSubview(pane)
         pane.removeFromSuperview()
 
-        let nestedSplit = SplitTerminalView(axis: axis, pane: pane, paneDragCoordinator: paneDragCoordinator)
+        let nestedSplit = SplitTerminalView(axis: direction.axis, pane: nil, paneDragCoordinator: paneDragCoordinator)
         configurePane(newPane)
-        nestedSplit.addArrangedSubview(newPane)
+        if direction.insertsAfterActivePane {
+            nestedSplit.addArrangedSubview(pane)
+            nestedSplit.addArrangedSubview(newPane)
+        } else {
+            nestedSplit.addArrangedSubview(newPane)
+            nestedSplit.addArrangedSubview(pane)
+        }
         insertArrangedSubview(nestedSplit, at: paneIndex)
         // A nested split starts with zero or stale bounds until AppKit lays it
         // out inside the parent. Mark it for one post-layout rebalance so a
@@ -327,13 +345,18 @@ final class SplitTerminalView: NSSplitView {
         nestedSplit.refreshPaneChrome()
     }
 
-    private func splitFallback(axis: NSLayoutConstraint.Orientation) {
+    private func splitFallback(direction: TerminalPaneSplitDirection) {
+        let axis = direction.axis
         let newPane = TerminalPaneView()
         configurePane(newPane)
         if arrangedSubviews.isEmpty || isVertical == (axis == .vertical) {
-            addArrangedSubview(newPane)
+            if direction.insertsAfterActivePane {
+                addArrangedSubview(newPane)
+            } else {
+                insertArrangedSubview(newPane, at: 0)
+            }
         } else if let pane = arrangedSubviews.first as? TerminalPaneView {
-            replace(pane, withNestedSplitFor: axis, newPane: newPane)
+            replace(pane, withNestedSplitFor: direction, newPane: newPane)
         } else {
             addArrangedSubview(newPane)
         }

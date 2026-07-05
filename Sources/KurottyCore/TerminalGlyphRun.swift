@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreText)
+import CoreText
+#endif
 
 public struct TerminalGlyphRun: Codable, Equatable, Sendable {
     public let source: TerminalGlyphSourceCluster
@@ -128,54 +131,189 @@ public struct TerminalGlyphRun: Codable, Equatable, Sendable {
         )
     }
 
-    public static func productionModel(
+#if canImport(CoreText)
+    public static func coreTextModel(
         sourceText: String,
         sourceRange: TerminalGlyphSourceRange,
-        fallbackFont: TerminalGlyphFallbackFont,
-        fallbackChain: [TerminalGlyphFallbackFont]? = nil,
-        glyphs: [TerminalGlyph],
-        advance: TerminalGlyphAdvance,
-        bounds: TerminalGlyphBounds,
-        atlasSlot: TerminalGlyphAtlasSlotMetadata,
-        atlasOwnership: TerminalGlyphAtlasMetadata.Ownership = .glyphCache,
+        fontName: String,
         pointSizePixels: Int,
         scale: Int,
-        shapingStatus: TerminalGlyphShapingDiagnostics.Status = .fallbackResolved,
-        clipping: TerminalGlyphClippingMetrics? = nil,
-        diagnosticFlags explicitDiagnosticFlags: Set<TerminalGlyphDiagnosticFlag> = []
+        cellSizePixels: TerminalGlyphCellSize
     ) -> TerminalGlyphRun {
-        let glyphIDs = glyphs.map(\.glyphID)
-        let sourceFingerprint = sourceText.unicodeScalars
-            .map { String(format: "U+%04X", $0.value) }
-            .joined(separator: "-")
+        let pointSize = max(1, CGFloat(pointSizePixels)) / max(1, CGFloat(scale))
+        let baseFont = CTFontCreateWithName(fontName as CFString, pointSize, nil)
+        let attributed = NSAttributedString(
+            string: sourceText,
+            attributes: [NSAttributedString.Key(kCTFontAttributeName as String): baseFont]
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        let runs = CTLineGetGlyphRuns(line) as NSArray
+
+        var glyphs: [TerminalGlyph] = []
+        var fallbackChain: [TerminalGlyphFallbackFont] = []
+        struct CoreTextGlyphRecord {
+            let glyphID: UInt32
+            let stringIndex: Int
+            let advance: CGSize
+            let fallbackFont: TerminalGlyphFallbackFont
+        }
+        var glyphRecords: [CoreTextGlyphRecord] = []
+        var typographicAscent: CGFloat = 0
+        var typographicDescent: CGFloat = 0
+        var typographicLeading: CGFloat = 0
+        let typographicWidth = CTLineGetTypographicBounds(line, &typographicAscent, &typographicDescent, &typographicLeading)
+        let imageBounds = CTLineGetImageBounds(line, nil)
+
+        for runValue in runs {
+            guard CFGetTypeID(runValue as CFTypeRef) == CTRunGetTypeID() else {
+                continue
+            }
+            let run = unsafeDowncast(runValue as AnyObject, to: CTRun.self)
+            let glyphCount = CTRunGetGlyphCount(run)
+            guard glyphCount > 0 else {
+                continue
+            }
+
+            let runFont = TerminalGlyphRun.coreTextFont(from: run) ?? baseFont
+            let fallbackFont = TerminalGlyphFallbackFont.coreTextFont(
+                runFont,
+                primaryFontName: fontName,
+                requestedPresentation: TerminalGlyphPresentation(sourceText: sourceText)
+            )
+            if fallbackChain.last != fallbackFont {
+                fallbackChain.append(fallbackFont)
+            }
+
+            var runGlyphs = [CGGlyph](repeating: 0, count: glyphCount)
+            var advances = [CGSize](repeating: .zero, count: glyphCount)
+            var stringIndices = [CFIndex](repeating: 0, count: glyphCount)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &runGlyphs)
+            CTRunGetAdvances(run, CFRange(location: 0, length: 0), &advances)
+            CTRunGetStringIndices(run, CFRange(location: 0, length: 0), &stringIndices)
+
+            for index in 0..<glyphCount {
+                let glyphID = UInt32(runGlyphs[index])
+                glyphRecords.append(CoreTextGlyphRecord(
+                    glyphID: glyphID,
+                    stringIndex: max(0, stringIndices[index]),
+                    advance: advances[index],
+                    fallbackFont: fallbackFont
+                ))
+            }
+        }
+
+        glyphRecords.sort {
+            if $0.stringIndex == $1.stringIndex {
+                return $0.glyphID < $1.glyphID
+            }
+            return $0.stringIndex < $1.stringIndex
+        }
+        for index in glyphRecords.indices {
+            let record = glyphRecords[index]
+            let localLocation = min(record.stringIndex, sourceText.utf16.count)
+            let nextLocation = glyphRecords[(index + 1)...]
+                .map(\.stringIndex)
+                .first(where: { $0 > localLocation })
+                ?? sourceText.utf16.count
+            let utf16Length = max(1, nextLocation - localLocation)
+            glyphs.append(TerminalGlyph(
+                glyphID: record.glyphID,
+                sourceRange: TerminalGlyphSourceRange(
+                    utf16Location: sourceRange.utf16Location + localLocation,
+                    utf16Length: utf16Length
+                ),
+                advance: TerminalGlyphAdvance(
+                    x: Double(record.advance.width * CGFloat(scale)),
+                    y: Double(record.advance.height * CGFloat(scale))
+                )
+            ))
+        }
+
+        let terminalCellWidth = sourceText.terminalColumnWidth
+        let fallbackFont = fallbackChain.last ?? TerminalGlyphFallbackFont.coreTextFont(
+            baseFont,
+            primaryFontName: fontName,
+            requestedPresentation: TerminalGlyphPresentation(sourceText: sourceText)
+        )
+        if fallbackChain.isEmpty {
+            fallbackChain = [fallbackFont]
+        }
+        let atlasFont = TerminalGlyphRun.atlasFontIdentity(for: fallbackChain)
+
+        let bounds = TerminalGlyphBounds(
+            x: Double(imageBounds.origin.x * CGFloat(scale)),
+            y: Double(imageBounds.origin.y * CGFloat(scale)),
+            width: Double(imageBounds.width * CGFloat(scale)),
+            height: Double(imageBounds.height * CGFloat(scale))
+        )
+        let cellBounds = TerminalGlyphBounds(
+            x: 0,
+            y: -Double(typographicDescent * CGFloat(scale)),
+            width: Double(max(1, terminalCellWidth) * cellSizePixels.width),
+            height: Double(cellSizePixels.height)
+        )
+        let clipping = TerminalGlyphClippingMetrics.classified(inkBounds: bounds, cellBounds: cellBounds)
+        let sourceFingerprint = TerminalGlyphAtlasKey.sourceFingerprint(for: sourceText)
         let atlasKey = TerminalGlyphAtlasKey.separated(
-            fontIdentifier: fallbackFont.identifier,
-            presentation: fallbackFont.requestedPresentation,
+            fontIdentifier: atlasFont.identifier,
+            presentation: atlasFont.requestedPresentation,
             sourceFingerprint: sourceFingerprint,
-            glyphIDs: glyphIDs,
+            glyphIDs: glyphRecords.map(\.glyphID),
             pointSizePixels: pointSizePixels,
             scale: scale
         )
-        var flags = explicitDiagnosticFlags
-        if fallbackFont.decision != .primary || (fallbackChain?.count ?? 1) > 1 {
-            flags.insert(.fallbackFontSelected)
-        }
 
-        return diagnosticModel(
+        return TerminalGlyphRun.diagnosticModel(
             sourceText: sourceText,
             sourceRange: sourceRange,
             fallbackFont: fallbackFont,
             fallbackChain: fallbackChain,
             glyphs: glyphs,
-            advance: advance,
+            advance: TerminalGlyphAdvance(x: Double(typographicWidth * CGFloat(scale)), y: 0),
             bounds: bounds,
             atlasKey: atlasKey,
-            shaping: TerminalGlyphShapingDiagnostics(engine: .platformShaper, status: shapingStatus),
-            atlas: TerminalGlyphAtlasMetadata(ownership: atlasOwnership, slot: atlasSlot),
+            shaping: TerminalGlyphShapingDiagnostics(
+                engine: .platformShaper,
+                status: glyphs.contains(where: { $0.glyphID == 0 }) ? .missingGlyph : (fallbackChain.count > 1 ? .fallbackResolved : .shaped)
+            ),
+            atlas: TerminalGlyphAtlasMetadata(ownership: .sharedFontAtlas),
             clipping: clipping,
-            diagnosticFlags: flags
+            diagnosticFlags: glyphs.count == 1 && sourceText.count > 1 ? [.ligatureCluster] : []
         )
     }
+
+    private static func atlasFontIdentity(for fallbackChain: [TerminalGlyphFallbackFont]) -> TerminalGlyphFallbackFont {
+        guard let first = fallbackChain.first else {
+            return TerminalGlyphFallbackFont.primary(
+                name: "unknown",
+                identifier: "unknown",
+                requestedPresentation: .unspecified
+            )
+        }
+        let identifiers = fallbackChain.map(\.identifier)
+        guard Set(identifiers).count > 1 else {
+            return first
+        }
+        let mixedIdentifier = "mixed(\(identifiers.joined(separator: "+")))"
+        let presentation = fallbackChain.reduce(TerminalGlyphPresentation.unspecified) { current, font in
+            current == .unspecified ? font.requestedPresentation : current
+        }
+        return TerminalGlyphFallbackFont.systemCascade(
+            name: "Mixed CoreText runs",
+            identifier: mixedIdentifier,
+            requestedPresentation: presentation
+        )
+    }
+
+    private static func coreTextFont(from run: CTRun) -> CTFont? {
+        let attributes = CTRunGetAttributes(run) as NSDictionary
+        guard let fontValue = attributes[kCTFontAttributeName as String],
+              CFGetTypeID(fontValue as CFTypeRef) == CTFontGetTypeID() else {
+            return nil
+        }
+        return unsafeDowncast(fontValue as AnyObject, to: CTFont.self)
+    }
+#endif
 }
 
 public struct TerminalGlyphSourceCluster: Codable, Equatable, Sendable {
@@ -201,32 +339,16 @@ public struct TerminalGlyphSourceCluster: Codable, Equatable, Sendable {
         case unicodeScalarValues
     }
 
-    enum EncodedCodingKeys: String, CodingKey {
-        case range
-        case graphemeClusterCount
-        case graphemeClusters
-        case unicodeScalarCount
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: EncodedCodingKeys.self)
-        try container.encode(range, forKey: .range)
-        try container.encode(graphemeClusterCount, forKey: .graphemeClusterCount)
-        try container.encode(graphemeClusters, forKey: .graphemeClusters)
-        try container.encode(unicodeScalarValues.count, forKey: .unicodeScalarCount)
-    }
-
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
         range = try container.decode(TerminalGlyphSourceRange.self, forKey: .range)
         graphemeClusterCount = try container.decode(Int.self, forKey: .graphemeClusterCount)
-        unicodeScalarValues = try container.decodeIfPresent([UInt32].self, forKey: .unicodeScalarValues) ?? []
-        text = try container.decodeIfPresent(String.self, forKey: .text)
-            ?? String(unicodeScalarValues: unicodeScalarValues)
         graphemeClusters = try container.decodeIfPresent(
             [TerminalGlyphSourceGraphemeCluster].self,
             forKey: .graphemeClusters
         ) ?? TerminalGlyphSourceGraphemeCluster.clusters(in: text, startingAt: range.utf16Location)
+        unicodeScalarValues = try container.decode([UInt32].self, forKey: .unicodeScalarValues)
     }
 }
 
@@ -241,35 +363,6 @@ public struct TerminalGlyphSourceGraphemeCluster: Codable, Equatable, Sendable {
         self.range = range
         self.terminalCellWidth = terminalCellWidth
         self.unicodeScalarValues = unicodeScalarValues
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case text
-        case range
-        case terminalCellWidth
-        case unicodeScalarValues
-    }
-
-    enum EncodedCodingKeys: String, CodingKey {
-        case range
-        case terminalCellWidth
-        case unicodeScalarCount
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: EncodedCodingKeys.self)
-        try container.encode(range, forKey: .range)
-        try container.encode(terminalCellWidth, forKey: .terminalCellWidth)
-        try container.encode(unicodeScalarValues.count, forKey: .unicodeScalarCount)
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        range = try container.decode(TerminalGlyphSourceRange.self, forKey: .range)
-        terminalCellWidth = try container.decode(Int.self, forKey: .terminalCellWidth)
-        unicodeScalarValues = try container.decodeIfPresent([UInt32].self, forKey: .unicodeScalarValues) ?? []
-        text = try container.decodeIfPresent(String.self, forKey: .text)
-            ?? String(unicodeScalarValues: unicodeScalarValues)
     }
 
     fileprivate static func clusters(in text: String, startingAt utf16Location: Int) -> [TerminalGlyphSourceGraphemeCluster] {
@@ -287,17 +380,6 @@ public struct TerminalGlyphSourceGraphemeCluster: Codable, Equatable, Sendable {
                 unicodeScalarValues: character.unicodeScalars.map(\.value)
             )
         }
-    }
-}
-
-private extension String {
-    init(unicodeScalarValues: [UInt32]) {
-        var scalars = String.UnicodeScalarView()
-        for value in unicodeScalarValues {
-            guard let scalar = UnicodeScalar(value) else { continue }
-            scalars.append(scalar)
-        }
-        self = String(scalars)
     }
 }
 
@@ -398,11 +480,63 @@ public struct TerminalGlyphFallbackFont: Codable, Equatable, Sendable {
     }
 }
 
+#if canImport(CoreText)
+private extension TerminalGlyphFallbackFont {
+    static func coreTextFont(
+        _ font: CTFont,
+        primaryFontName: String,
+        requestedPresentation: TerminalGlyphPresentation
+    ) -> TerminalGlyphFallbackFont {
+        let displayName = (CTFontCopyDisplayName(font) as String?) ?? primaryFontName
+        let postScriptName = (CTFontCopyPostScriptName(font) as String?) ?? displayName
+        let identifier = stableIdentifier(for: postScriptName)
+        let primaryIdentifier = stableIdentifier(for: primaryFontName)
+        let decision: Decision = identifier == primaryIdentifier ? .primary : .systemCascade
+
+        return TerminalGlyphFallbackFont(
+            decision: decision,
+            name: displayName,
+            identifier: identifier,
+            requestedPresentation: requestedPresentation
+        )
+    }
+
+    static func stableIdentifier(for name: String) -> String {
+        let folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        var scalars: [Character] = []
+        var previousWasSeparator = false
+        for character in folded {
+            if character.isLetter || character.isNumber {
+                scalars.append(character)
+                previousWasSeparator = false
+            } else if !previousWasSeparator {
+                scalars.append("-")
+                previousWasSeparator = true
+            }
+        }
+        return String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+#endif
+
 public enum TerminalGlyphPresentation: String, Codable, Equatable, Sendable {
     case unspecified
     case text
     case emoji
     case cjk
+
+    fileprivate init(sourceText: String) {
+        if sourceText.unicodeScalars.contains(where: { (0x1f300...0x1faff).contains($0.value) }) {
+            self = .emoji
+        } else if sourceText.unicodeScalars.contains(where: { scalar in
+            let value = scalar.value
+            return (0x2e80...0xa4cf).contains(value) || (0xac00...0xd7a3).contains(value) || (0xf900...0xfaff).contains(value)
+        }) {
+            self = .cjk
+        } else {
+            self = .text
+        }
+    }
 }
 
 public struct TerminalGlyphAdvance: Codable, Equatable, Sendable {
@@ -463,13 +597,6 @@ public struct TerminalGlyphBackendContract: Codable, Equatable, Sendable {
     public let atlasOwnership: TerminalGlyphAtlasMetadata.Ownership
     public let clippingRisk: ClippingRisk
     public let validationFlags: Set<ValidationFlag>
-
-    public var isProductionReady: Bool {
-        shapingReadiness == .ready &&
-            fallbackResolution != .unresolved &&
-            atlasReadiness == .resident &&
-            clippingRisk != .clipped
-    }
 
     public init(
         shapingReadiness: ShapingReadiness,
@@ -656,41 +783,6 @@ public struct TerminalGlyphAtlasKey: Codable, Equatable, Hashable, Sendable {
         scale = try container.decodeIfPresent(Int.self, forKey: .scale)
     }
 
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(diagnosticValue, forKey: .value)
-        try container.encodeIfPresent(fontIdentifier, forKey: .fontIdentifier)
-        try container.encodeIfPresent(presentation, forKey: .presentation)
-        try container.encode(glyphIDs, forKey: .glyphIDs)
-        try container.encodeIfPresent(pointSizePixels, forKey: .pointSizePixels)
-        try container.encodeIfPresent(scale, forKey: .scale)
-    }
-
-    private var diagnosticValue: String {
-        guard sourceFingerprint != nil else {
-            return value
-        }
-
-        let glyphComponent = glyphIDs.map(String.init).joined(separator: ",")
-        guard
-            let fontIdentifier,
-            let presentation,
-            let pointSizePixels,
-            let scale
-        else {
-            return "source-redacted/\(glyphIDs.count)-glyphs"
-        }
-
-        return [
-            fontIdentifier,
-            presentation.rawValue,
-            "source-redacted",
-            glyphComponent,
-            "\(pointSizePixels)px",
-            "\(scale)x",
-        ].joined(separator: "/")
-    }
-
     public static func separated(
         fontIdentifier: String,
         presentation: TerminalGlyphPresentation,
@@ -718,6 +810,22 @@ public struct TerminalGlyphAtlasKey: Codable, Equatable, Hashable, Sendable {
             pointSizePixels: pointSizePixels,
             scale: scale
         )
+    }
+
+    public static func sourceFingerprint(for text: String) -> String {
+        text.unicodeScalars
+            .map { String(format: "U+%04X", $0.value) }
+            .joined(separator: "-")
+    }
+}
+
+public struct TerminalGlyphCellSize: Codable, Equatable, Sendable {
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
     }
 }
 
@@ -791,6 +899,29 @@ public struct TerminalGlyphClippingMetrics: Codable, Equatable, Sendable {
             cellBounds: cellBounds,
             overhang: .zero,
             clippedEdges: []
+        )
+    }
+
+    public static func classified(
+        inkBounds: TerminalGlyphBounds,
+        cellBounds: TerminalGlyphBounds
+    ) -> TerminalGlyphClippingMetrics {
+        let left = max(0, cellBounds.x - inkBounds.x)
+        let top = max(0, cellBounds.y - inkBounds.y)
+        let right = max(0, (inkBounds.x + inkBounds.width) - (cellBounds.x + cellBounds.width))
+        let bottom = max(0, (inkBounds.y + inkBounds.height) - (cellBounds.y + cellBounds.height))
+        let overhang = TerminalGlyphOverhang(left: left, right: right, top: top, bottom: bottom)
+        var clippedEdges: Set<TerminalGlyphClippedEdge> = []
+        if left > 0 { clippedEdges.insert(.left) }
+        if right > 0 { clippedEdges.insert(.right) }
+        if top > 0 { clippedEdges.insert(.top) }
+        if bottom > 0 { clippedEdges.insert(.bottom) }
+
+        return TerminalGlyphClippingMetrics(
+            inkBounds: inkBounds,
+            cellBounds: cellBounds,
+            overhang: overhang,
+            clippedEdges: clippedEdges
         )
     }
 }

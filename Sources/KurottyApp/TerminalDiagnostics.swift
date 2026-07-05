@@ -60,6 +60,58 @@ protocol TerminalCoreCompatibilityDiagnosing {
     var compatibilityDiagnostic: TerminalCoreCompatibilityDiagnostic { get }
 }
 
+struct TerminalCoreMutationSourceDiagnostic: Equatable, CustomStringConvertible {
+    let sessionMutationOwner: TerminalCoreStateSource
+    let frameMutationOwner: TerminalCoreStateSource
+    let zigBridgeActive: Bool
+    let reason: String
+
+    var description: String {
+        [
+            "sessionMutationOwner=\(sessionMutationOwner.rawValue)",
+            "frameMutationOwner=\(frameMutationOwner.rawValue)",
+            "zigBridgeActive=\(zigBridgeActive)",
+            "reason=\(reason)",
+        ].joined(separator: " ")
+    }
+}
+
+protocol TerminalCoreMutationSourceDiagnosing {
+    var mutationSourceDiagnostic: TerminalCoreMutationSourceDiagnostic { get }
+}
+
+enum TerminalCoreDualWriteRiskStatus: String {
+    case none = "none"
+    case feedBridgeOnly = "feed-bridge-only"
+    case unknown = "unknown"
+}
+
+struct TerminalCoreRuntimeBoundaryDiagnostic: Equatable, CustomStringConvertible {
+    let feedBridgeParticipant: TerminalCoreStateSource
+    let parserMutationOwner: TerminalCoreStateSource
+    let screenMutationOwner: TerminalCoreStateSource
+    let renderMutationOwner: TerminalCoreStateSource
+    let mutationHandoffReady: Bool
+    let dualWriteRisk: TerminalCoreDualWriteRiskStatus
+    let reason: String
+
+    var description: String {
+        [
+            "feedBridgeParticipant=\(feedBridgeParticipant.rawValue)",
+            "parserMutationOwner=\(parserMutationOwner.rawValue)",
+            "screenMutationOwner=\(screenMutationOwner.rawValue)",
+            "renderMutationOwner=\(renderMutationOwner.rawValue)",
+            "mutationHandoffReady=\(mutationHandoffReady)",
+            "dualWriteRisk=\(dualWriteRisk.rawValue)",
+            "reason=\(reason)",
+        ].joined(separator: " ")
+    }
+}
+
+protocol TerminalCoreRuntimeBoundaryDiagnosing {
+    var runtimeBoundaryDiagnostic: TerminalCoreRuntimeBoundaryDiagnostic { get }
+}
+
 struct TerminalTraceCorrelationReport: Equatable, CustomStringConvertible {
     let traceID: TerminalEventTraceID
     let eventSummary: TerminalEventLedger.TraceSummary

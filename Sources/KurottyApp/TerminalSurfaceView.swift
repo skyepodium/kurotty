@@ -1,14 +1,12 @@
 import AppKit
 import KurottyCore
-import os
-
-private let terminalBackgroundTaskLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
 @MainActor
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
     static let titleNotificationKey = "title"
+    private static let runtimeEventLedgerCapacity = 4_096
 
     private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore(
         cols: UInt32(AppConstants.Terminal.defaultColumns),
@@ -64,20 +62,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingFullDamage = true
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
-    private var runtimeEventLedger = TerminalEventLedger(capacity: 4_096)
-    private var runtimeResizeLedger = TerminalResizeLedger(capacity: 256)
-    private var runtimeTraceSequence = 0
-    private var activeRuntimeTraceID: TerminalEventTraceID?
     private var scrollbackRowsAppendedDuringOutput = 0
-    private var submittedInputSequence = 0
-    private var backgroundTaskInputSequence: Int?
-    private var backgroundTaskHasOutput = false
     private var pendingSubmittedInputText = ""
-    private var backgroundTaskDescription: String?
-    private var backgroundTaskNotificationSource: TerminalBackgroundTaskNotificationContent.Source = .generic
-    private var backgroundTaskOutputText = ""
-    private var backgroundTaskNotificationWorkItem: DispatchWorkItem?
+    private var lastSubmittedCommandText: String?
     private var debugFrameIndex: UInt64 = 0
+    private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
+    private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
+    private var outputFlushTraceSequence: UInt64 = 0
+    private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
@@ -129,12 +121,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         shell.onRuntimeEvent = { [weak self] event in
             Task { @MainActor in
-                self?.recordTerminalSessionRuntimeEvent(event)
-            }
-        }
-        shell.onResizeTrace = { [weak self] trace in
-            Task { @MainActor in
-                self?.recordTerminalResizeTrace(trace)
+                self?.recordRuntimeEvent(event)
             }
         }
         if DebugOptions.ptyLog {
@@ -158,6 +145,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         observeInputSourceChanges()
         shell.start(workingDirectory: settings.shell.workingDirectory)
+    }
+
+    private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent) {
+        runtimeEventLedger.record(event)
+        if event.payload.kind == .ptyRead {
+            pendingRuntimeOutputEvents.append(event)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -225,7 +219,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let position = cellPosition(for: event)
-        if event.modifierFlags.contains(.command), let link = linkRange(at: position) {
+        if let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
             presentOpenLinkDialog(for: link)
@@ -334,11 +328,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @objc private func splitRightFromContextMenu(_ sender: Any?) {
-        splitVerticallyFromContextMenu()
+        splitFromContextMenu(.right)
+    }
+
+    @objc private func splitLeftFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.left)
     }
 
     @objc private func splitDownFromContextMenu(_ sender: Any?) {
-        splitHorizontallyFromContextMenu()
+        splitFromContextMenu(.down)
+    }
+
+    @objc private func splitUpFromContextMenu(_ sender: Any?) {
+        splitFromContextMenu(.up)
     }
 
     @objc func cut(_ sender: Any?) {
@@ -378,25 +380,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return #selector(copySelectionFromContextMenu(_:))
         case .paste:
             return #selector(paste(_:))
-        case .splitRight:
+        case .split(.right):
             return #selector(splitRightFromContextMenu(_:))
-        case .splitDown:
+        case .split(.left):
+            return #selector(splitLeftFromContextMenu(_:))
+        case .split(.down):
             return #selector(splitDownFromContextMenu(_:))
+        case .split(.up):
+            return #selector(splitUpFromContextMenu(_:))
         }
     }
 
-    private func splitVerticallyFromContextMenu() {
+    private func splitFromContextMenu(_ direction: TerminalPaneSplitDirection) {
         guard let controller = window?.windowController as? TerminalWindowController else {
             return
         }
-        controller.splitVertically()
-    }
-
-    private func splitHorizontallyFromContextMenu() {
-        guard let controller = window?.windowController as? TerminalWindowController else {
-            return
-        }
-        controller.splitHorizontally()
+        controller.split(direction: direction)
     }
 
     private func handleCommandKey(_ event: NSEvent) -> Bool {
@@ -437,13 +436,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return true
         }
 
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-              event.charactersIgnoringModifiers == "\t"
-        else {
-            return false
-        }
-        send("\t")
-        return true
+        return false
     }
 
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
@@ -559,7 +552,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             lastSentSize = metrics.size
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
             core.resize(cols: UInt32(metrics.size.columns), rows: UInt32(metrics.size.rows))
-            recordResizeCycle(metrics: metrics, source: "surface")
             markFullDamage()
         }
     }
@@ -576,6 +568,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let selectedCells = selectedCellSet()
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
+            let linkRanges = TerminalLinkRange.findAll(in: sourceRow, row: row)
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
                 let position = TerminalCellPosition(row: visibleStartRow + row, column: column)
@@ -603,6 +596,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         row: row,
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .strikethrough,
+                        color: cell.style.effectiveForeground
+                    ))
+                }
+                if linkRanges.contains(where: { $0.contains(row: row, column: column) }) {
+                    decorations.append(TerminalDecoration(
+                        column: column,
+                        row: row,
+                        width: max(1, cell.character.terminalColumnWidth),
+                        kind: .underline,
                         color: cell.style.effectiveForeground
                     ))
                 }
@@ -668,7 +670,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cellSize: metrics.cellSize,
             padding: TerminalFramePoint(x: Double(padding.left), y: Double(padding.top))
         ))
-        recordRenderFrame(damage: damage)
+        activeOutputRuntimeEventBatch?.recordRenderFrame(.init(
+            frameIndex: Int(debugFrameIndex),
+            dirtyRegionCount: damage.rects.count,
+            fullRedraw: damage.isFull
+        ))
         logScreenDumpIfNeeded(rows: rowsToRender, damage: damage, metrics: metrics)
         debugFrameIndex &+= 1
     }
@@ -804,60 +810,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func doCommand(by selector: Selector) {
-        switch selector {
-        case #selector(insertNewline(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\r")
-        case #selector(insertTab(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\t")
-        case #selector(cancelOperation(_:)):
+        if selector == #selector(cancelOperation(_:)) {
             resetMarkedTextForInputSourceChange()
-            send("\u{1b}")
-        case #selector(deleteBackward(_:)):
+        }
+        if let sequence = TerminalKeyEncoder.sequence(for: selector) {
             pendingMarkedTextAnchor = nil
-            send("\u{7f}")
-        case #selector(deleteForward(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[3~")
-        case #selector(moveToBeginningOfLine(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[H")
-        case #selector(moveToEndOfLine(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[F")
-        case #selector(moveUp(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[A")
-        case #selector(moveDown(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[B")
-        case #selector(moveLeft(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[D")
-        case #selector(moveRight(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[C")
-        case #selector(moveUpAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: -1, columnDelta: 0)
-        case #selector(moveDownAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 1, columnDelta: 0)
-        case #selector(moveRightAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 0, columnDelta: 1)
-        case #selector(moveLeftAndModifySelection(_:)):
-            pendingMarkedTextAnchor = nil
-            extendKeyboardSelection(rowDelta: 0, columnDelta: -1)
-        case #selector(scrollPageUp(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[5~")
-        case #selector(scrollPageDown(_:)):
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[6~")
-        default:
-            break
+            send(sequence)
         }
     }
 
@@ -986,81 +944,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         pendingMarkedTextAnchor = nil
         keyboardSelectionInputStart = nil
-        let visibleSnapshot = visibleText()
-        let trackingDecision = TerminalBackgroundTaskTrackingPolicy.trackingDecision(
-            for: backgroundTaskDescription ?? "",
-            visibleText: visibleSnapshot
-        )
-        let trackingDecisionName = notificationTrackingDecisionName(trackingDecision)
-        let submittedInputCharacterCount = backgroundTaskDescription?.count ?? 0
-        terminalBackgroundTaskLogger.info(
-            "background tracking decision=\(trackingDecisionName, privacy: .public) inputChars=\(submittedInputCharacterCount, privacy: .public) visibleChars=\(visibleSnapshot.count, privacy: .public)"
-        )
-        guard trackingDecision != .reject else {
-            clearBackgroundTaskTracking()
-            return
-        }
-        guard let notificationSource = notificationSource(for: trackingDecision) else {
-            clearBackgroundTaskTracking()
-            return
-        }
-        submittedInputSequence &+= 1
-        backgroundTaskInputSequence = submittedInputSequence
-        backgroundTaskHasOutput = false
-        backgroundTaskNotificationSource = notificationSource
-        backgroundTaskOutputText = ""
-        backgroundTaskNotificationWorkItem?.cancel()
-        backgroundTaskNotificationWorkItem = nil
-    }
-
-    private func clearBackgroundTaskTracking() {
-        backgroundTaskInputSequence = nil
-        backgroundTaskHasOutput = false
-        backgroundTaskDescription = nil
-        backgroundTaskNotificationSource = .generic
-        backgroundTaskOutputText = ""
-        backgroundTaskNotificationWorkItem?.cancel()
-        backgroundTaskNotificationWorkItem = nil
-    }
-
-    private func notificationTrackingDecisionName(
-        _ decision: TerminalBackgroundTaskTrackingPolicy.Decision
-    ) -> String {
-        switch decision {
-        case .reject:
-            return "reject"
-        case .generic:
-            return "generic"
-        case .terminalAlert:
-            return "terminalAlert"
-        }
-    }
-
-    private func backgroundTaskNotificationSourceName(
-        _ source: TerminalBackgroundTaskNotificationContent.Source
-    ) -> String {
-        switch source {
-        case .generic:
-            return "generic"
-        case .terminalAlert:
-            return "terminalAlert"
-        }
-    }
-
-    private func notificationSource(
-        for decision: TerminalBackgroundTaskTrackingPolicy.Decision
-    ) -> TerminalBackgroundTaskNotificationContent.Source? {
-        switch decision {
-        case .reject:
-            nil
-        case .generic:
-            .generic
-        case .terminalAlert:
-            .terminalAlert(
-                sessionDescription: terminalAlertSessionDescription(),
-                tabIndex: AppConstants.Notifications.terminalAlertDefaultTabIndex
-            )
-        }
     }
 
     @discardableResult
@@ -1068,7 +951,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         var didSubmit = false
         for character in text {
             if character == "\r" || character == "\n" {
-                didSubmit = submitBackgroundTaskDescriptionIfNeeded() || didSubmit
+                didSubmit = captureSubmittedCommandTextIfNeeded() || didSubmit
                 continue
             }
             if character == "\u{7f}" {
@@ -1091,20 +974,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @discardableResult
-    private func submitBackgroundTaskDescriptionIfNeeded() -> Bool {
+    private func captureSubmittedCommandTextIfNeeded() -> Bool {
         defer {
             pendingSubmittedInputText.removeAll(keepingCapacity: true)
         }
         guard let body = TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText) else {
-            backgroundTaskDescription = nil
+            lastSubmittedCommandText = nil
             return false
         }
-        backgroundTaskDescription = body
+        lastSubmittedCommandText = body
         return true
     }
 
     private func trimPendingSubmittedInputTextIfNeeded() {
-        let maxCharacters = AppConstants.Notifications.backgroundTaskInputCaptureMaxCharacters
+        let maxCharacters = AppConstants.Notifications.commandInputCaptureMaxCharacters
         guard pendingSubmittedInputText.count > maxCharacters else {
             return
         }
@@ -1124,81 +1007,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
-    private func recordOutputForBackgroundTask(_ text: String) {
-        guard backgroundTaskInputSequence != nil else {
-            return
-        }
-        guard !text.isEmpty else {
-            return
-        }
-        backgroundTaskHasOutput = true
-        appendBackgroundTaskOutputText(text)
-        scheduleBackgroundTaskIdleCheck()
+    private var isTerminalFocusedForUser: Bool {
+        NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
     }
 
-    private func appendBackgroundTaskOutputText(_ text: String) {
-        backgroundTaskOutputText.append(text)
-        let maxCharacters = AppConstants.Notifications.backgroundTaskOutputCaptureMaxCharacters
-        guard backgroundTaskOutputText.count > maxCharacters else {
-            return
-        }
-        let startIndex = backgroundTaskOutputText.index(
-            backgroundTaskOutputText.endIndex,
-            offsetBy: -maxCharacters
-        )
-        backgroundTaskOutputText = String(backgroundTaskOutputText[startIndex...])
-    }
-
-    private func scheduleBackgroundTaskIdleCheck() {
-        guard let inputSequence = backgroundTaskInputSequence else {
-            return
-        }
-        backgroundTaskNotificationWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor in
-                self?.notifyBackgroundTaskIfIdle(inputSequence: inputSequence)
-            }
-        }
-        backgroundTaskNotificationWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + AppConstants.Notifications.backgroundTaskIdleSeconds,
-            execute: workItem
-        )
-    }
-
-    private func notifyBackgroundTaskIfIdle(inputSequence: Int) {
-        guard backgroundTaskInputSequence == inputSequence, backgroundTaskHasOutput else {
-            return
-        }
-        let outputText = backgroundTaskOutputText
-        guard let content = backgroundTaskNotificationContent(outputText: outputText) else {
-            let sourceName = backgroundTaskNotificationSourceName(backgroundTaskNotificationSource)
-            terminalBackgroundTaskLogger.info(
-                "background notification waiting source=\(sourceName, privacy: .public) outputChars=\(outputText.count, privacy: .public)"
-            )
-            backgroundTaskHasOutput = false
-            backgroundTaskNotificationWorkItem = nil
-            return
-        }
-        let sourceName = backgroundTaskNotificationSourceName(backgroundTaskNotificationSource)
-        terminalBackgroundTaskLogger.info(
-            "background notification deliver source=\(sourceName, privacy: .public) outputChars=\(outputText.count, privacy: .public)"
-        )
-        backgroundTaskInputSequence = nil
-        backgroundTaskHasOutput = false
-        backgroundTaskNotificationWorkItem = nil
-        backgroundTaskOutputText = ""
-        backgroundTaskDescription = nil
-        backgroundTaskNotificationSource = .generic
-        notifier.notifyBackgroundTaskCompleted(content: content)
-    }
-
-    private func backgroundTaskNotificationContent(outputText: String) -> TerminalBackgroundTaskNotificationContent? {
-        TerminalBackgroundTaskNotificationContent.makeIfDeliverable(
-            submittedCommand: backgroundTaskDescription,
-            outputText: outputText,
-            source: backgroundTaskNotificationSource
-        )
+    private var shouldDeliverUserNotification: Bool {
+        !isTerminalFocusedForUser
     }
 
     private func enqueueOutput(_ text: String) {
@@ -1227,12 +1041,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func appendOutput(_ text: String) {
-        let traceID = activeRuntimeTraceID ?? nextRuntimeTraceID(source: "output")
-        activeRuntimeTraceID = traceID
-        runtimeEventLedger.recordParserEvent(
-            traceID: traceID,
-            event: .printable(byteCount: text.utf8.count)
-        )
+        beginOutputRuntimeEventBatch(byteCount: text.utf8.count)
+        defer {
+            commitOutputRuntimeEventBatch()
+        }
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
         scrollbackRowsAppendedDuringOutput = 0
@@ -1274,11 +1086,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        runtimeEventLedger.recordScreenMutation(
-            traceID: traceID,
-            mutation: .writeCells(cellCount: text.terminalColumnWidth)
-        )
-        recordOutputForBackgroundTask(text)
         pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
@@ -1291,59 +1098,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         updateRendererFrame()
     }
 
-    private func recordTerminalSessionRuntimeEvent(_ event: TerminalSessionRuntimeEvent) {
-        switch event {
-        case let .ptyRead(metadata):
-            let traceID = nextRuntimeTraceID(source: "pty")
-            activeRuntimeTraceID = traceID
-            runtimeEventLedger.recordPtyRead(traceID: traceID, byteCount: metadata.byteCount)
+    private func beginOutputRuntimeEventBatch(byteCount: Int) {
+        let ptyByteCount = consumeRuntimeOutputBatchByteCount(fallbackByteCount: byteCount)
+        let traceID = nextOutputFlushTraceID()
+        activeOutputRuntimeEventBatch = TerminalRuntimeEventBatch(traceID: traceID)
+        activeOutputRuntimeEventBatch?.recordPtyRead(byteCount: ptyByteCount)
+        activeOutputRuntimeEventBatch?.recordParserEvent(.printable(byteCount: byteCount))
+    }
+
+    private func commitOutputRuntimeEventBatch() {
+        guard let batch = activeOutputRuntimeEventBatch else { return }
+        batch.commit(to: &runtimeEventLedger)
+        activeOutputRuntimeEventBatch = nil
+    }
+
+    private func consumeRuntimeOutputBatchByteCount(fallbackByteCount: Int) -> Int {
+        let byteCount = pendingRuntimeOutputEvents.reduce(0) { count, event in
+            guard case let .ptyRead(byteCount) = event.payload else {
+                return count
+            }
+            return count + byteCount
         }
+        pendingRuntimeOutputEvents.removeAll(keepingCapacity: true)
+        return byteCount > 0 ? byteCount : fallbackByteCount
     }
 
-    private func recordTerminalResizeTrace(_ trace: TerminalResizeTrace) {
-        guard DebugOptions.ptyLog else { return }
-        NSLog("Kurotty PTY resize trace: %@", trace.description)
-    }
-
-    private func recordResizeCycle(metrics: TerminalMetrics, source: String) {
-        let traceID = nextRuntimeTraceID(source: "resize")
-        activeRuntimeTraceID = traceID
-        runtimeEventLedger.recordScreenMutation(
-            traceID: traceID,
-            mutation: .resize(columns: metrics.size.columns, rows: metrics.size.rows)
-        )
-        runtimeResizeLedger.record(TerminalResizeCycleSnapshot(
-            traceID: traceID.description,
-            source: source,
-            timestamp: Date().timeIntervalSince1970,
-            viewportSize: terminalViewportSize(),
-            cellSize: metrics.cellSize,
-            ptyColumns: metrics.size.columns,
-            ptyRows: metrics.size.rows,
-            screenColumns: screen.columns,
-            screenRows: screen.rows,
-            rendererColumns: metrics.size.columns,
-            rendererRows: metrics.size.rows,
-            rendererFrameSize: TerminalFrameSize(width: Double(renderer.rendererView.bounds.width), height: Double(renderer.rendererView.bounds.height))
-        ))
-    }
-
-    private func recordRenderFrame(damage: TerminalFrameDamage) {
-        guard let traceID = activeRuntimeTraceID else { return }
-        runtimeEventLedger.recordRenderFrame(
-            traceID: traceID,
-            frame: .init(
-                frameIndex: Int(debugFrameIndex),
-                dirtyRegionCount: damage.rects.count,
-                fullRedraw: damage.isFull
-            )
-        )
-        activeRuntimeTraceID = nil
-    }
-
-    private func nextRuntimeTraceID(source: String) -> TerminalEventTraceID {
-        runtimeTraceSequence += 1
-        return TerminalEventTraceID("\(source)-\(runtimeTraceSequence)")
+    private func nextOutputFlushTraceID() -> TerminalEventTraceID {
+        let traceID = TerminalEventTraceID("output-flush-\(outputFlushTraceSequence)")
+        outputFlushTraceSequence &+= 1
+        return traceID
     }
 
     private func visibleText() -> String {
@@ -1567,10 +1350,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func updateHoveredLinkRange(with event: NSEvent) {
-        guard event.modifierFlags.contains(.command) else {
-            setHoveredLinkRange(nil)
-            return
-        }
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
     }
 
@@ -1689,13 +1468,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return TerminalMetrics(
             size: TerminalSize(columns: columns, rows: rows),
             cellSize: TerminalFrameSize(width: Double(width), height: Double(lineHeight))
-        )
-    }
-
-    private func terminalViewportSize() -> TerminalFrameSize {
-        TerminalFrameSize(
-            width: Double(max(0, bounds.width - padding.left - padding.right)),
-            height: Double(max(0, bounds.height - padding.top - padding.bottom))
         )
     }
 
@@ -2061,11 +1833,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
 
         let integrationEvent = dispatchTerminalIntegrationOsc(command)
-        if case let .desktopNotification(payload) = integrationEvent {
-            let notificationPayload = terminalDesktopNotificationPayload(payload, oscCode: code)
-            notifier.notifyDesktopNotification(notificationPayload)
-            clearBackgroundTaskTracking()
-        }
 
         switch code {
         case "0", "1", "2":
@@ -2076,9 +1843,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 currentWorkingDirectory = path
             }
             publishTitle()
+        case "9":
+            notifyItermOsc9(payload)
+        case "777":
+            notifyOSC777(payload)
         default:
             break
         }
+
+        handleTerminalIntegrationEvent(integrationEvent)
     }
 
     private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
@@ -2091,29 +1864,41 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return event
     }
 
-    private func terminalDesktopNotificationPayload(
-        _ payload: TerminalDesktopNotificationPayload,
-        oscCode: String
-    ) -> TerminalDesktopNotificationPayload {
-        guard oscCode == "9", payload.title == AppConstants.Notifications.terminalAlertTitle else {
-            return payload
+    private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
+        guard case .shellIntegration(let shellEvent) = event else {
+            return
         }
-        return TerminalDesktopNotificationPayload(
-            title: payload.title,
-            body: TerminalBackgroundTaskNotificationContent.terminalAlertBody(
-                message: payload.body,
-                sessionDescription: terminalAlertSessionDescription(),
-                tabIndex: AppConstants.Notifications.terminalAlertDefaultTabIndex
-            )
-        )
+
+        switch shellEvent {
+        case .commandStart:
+            shellIntegration.setActiveCommandText(lastSubmittedCommandText)
+        case .commandEnd(let context):
+            notifyCommandFinishedIfNeeded(context)
+        default:
+            break
+        }
     }
 
-    private func terminalAlertSessionDescription() -> String {
-        let title = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else {
-            return AppConstants.Notifications.terminalAlertDefaultSessionDescription
+    private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
+        lastSubmittedCommandText = nil
+        guard shouldDeliverUserNotification else {
+            return
         }
-        return title
+        notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))
+    }
+
+    private func notifyItermOsc9(_ payload: String) {
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyItermOsc9(message: payload)
+    }
+
+    private func notifyOSC777(_ payload: String) {
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyOSC777(payload: payload)
     }
 
     private func respondToOscQuery(_ code: String) {

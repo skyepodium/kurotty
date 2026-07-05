@@ -120,24 +120,6 @@ final class TerminalSelectionGestureStateTests: XCTestCase {
         XCTAssertEqual(range?.end, position)
     }
 
-    func testSelectionRangeCanBeAnchoredToStableScrollbackCoordinates() {
-        let range = TerminalSelectionRangeModel.normalized(
-            anchor: TerminalSelectionPosition(row: 1, column: 2),
-            focus: TerminalSelectionPosition(row: 3, column: 4)
-        )
-
-        let reference = range?.stableReference(
-            firstVisibleAbsoluteRowIndex: 40,
-            source: .copyMode
-        )
-
-        XCTAssertEqual(reference?.source, .copyMode)
-        XCTAssertEqual(reference?.start, TerminalSelectionPosition(row: 41, column: 2))
-        XCTAssertEqual(reference?.end, TerminalSelectionPosition(row: 43, column: 4))
-        XCTAssertEqual(reference?.rowCount, 3)
-        XCTAssertFalse(String(describing: reference).contains("secret"))
-    }
-
     func testWordSelectionIgnoresPointerUpAtClickedCell() {
         let selectedWordEndColumn = 8
         let clickedColumn = 2

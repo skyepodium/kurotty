@@ -67,7 +67,10 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let event = integration.consumeOsc("133;D;42")
 
-        XCTAssertEqual(event, .commandEnd(exitCode: 42))
+        guard case .commandEnd(let context)? = event else {
+            return XCTFail("Expected commandEnd event, got \(String(describing: event))")
+        }
+        XCTAssertEqual(context.exitCode, 42)
         XCTAssertEqual(integration.currentBoundary, .commandEnd)
         XCTAssertEqual(integration.lastExitCode, 42)
         XCTAssertFalse(integration.isCommandActive)
@@ -79,9 +82,58 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let event = integration.consumeOsc("133;D;not-a-number")
 
-        XCTAssertEqual(event, .commandEnd(exitCode: nil))
+        guard case .commandEnd(let context)? = event else {
+            return XCTFail("Expected commandEnd event, got \(String(describing: event))")
+        }
+        XCTAssertNil(context.exitCode)
         XCTAssertNil(integration.lastExitCode)
         XCTAssertFalse(integration.isCommandActive)
+    }
+
+    func testOsc133CommandEndReturnsCompletionContextFromCommandSpan() throws {
+        var integration = TerminalShellIntegration(currentWorkingDirectoryCandidate: "/Users/skye/project")
+
+        _ = integration.consumeOsc("133;A")
+        _ = integration.consumeOsc("133;B")
+        integration.setActiveCommandText("swift test")
+        _ = integration.consumeOsc("133;C")
+        let event = integration.consumeOsc("133;D;0")
+
+        guard case .commandEnd(let context)? = event else {
+            return XCTFail("Expected commandEnd event, got \(String(describing: event))")
+        }
+        XCTAssertEqual(context.commandText, "swift test")
+        XCTAssertEqual(context.cwd, "/Users/skye/project")
+        XCTAssertEqual(context.exitCode, 0)
+        XCTAssertNotNil(context.duration)
+        XCTAssertEqual(context.span.reference.spanID, 1)
+        XCTAssertEqual(context.span.outputRange, TerminalCommandOutputRange(startBoundarySequence: 3, endBoundarySequence: 4))
+    }
+
+    func testCommandCompletionNotificationContentUsesCommandMetadata() {
+        let context = TerminalCommandCompletionContext(
+            span: TerminalCommandSpan(
+                id: 9,
+                cwd: "/Users/skye/project",
+                startBoundarySequence: 2,
+                endBoundarySequence: 4,
+                exitCode: 1,
+                promptBoundarySequence: 1,
+                outputBoundarySequence: 3,
+                commandText: "swift test"
+            ),
+            exitCode: 1,
+            duration: 2.5
+        )
+
+        let content = TerminalCommandCompletionNotificationContent.make(from: context)
+
+        XCTAssertEqual(content.title, "Command failed")
+        XCTAssertEqual(content.subtitle, "swift test")
+        XCTAssertEqual(content.body, "Exit code: 1\nDuration: 2.5s\nDirectory: /Users/skye/project")
+        XCTAssertEqual(content.exitCode, 1)
+        XCTAssertEqual(content.duration, 2.5)
+        XCTAssertEqual(content.cwd, "/Users/skye/project")
     }
 
     func testUnknownOscSequencesDoNotMutateState() {
@@ -171,6 +223,28 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.capabilityDescriptor.passiveOSCSequences, [.osc7, .osc133])
         XCTAssertFalse(integration.capabilityDescriptor.optInSnippetDescriptors.contains { $0.isEnabledByDefault })
         XCTAssertEqual(integration.sessionEvidence, TerminalShellIntegrationSessionEvidence())
+    }
+
+    func testCapabilityDescriptorExposesInstallFreeOnboardingSteps() {
+        let descriptor = TerminalShellIntegration().capabilityDescriptor
+
+        XCTAssertEqual(
+            descriptor.onboardingSteps,
+            [
+                TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+                    title: "Works without setup",
+                    detail: "Kurotty passively detects OSC 7 working-directory updates and OSC 133 command boundaries when your shell already emits them.",
+                    commandID: nil,
+                    requiresInstaller: false
+                ),
+                TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
+                    title: "Enable richer command UX",
+                    detail: "Copy an opt-in shell snippet for fold, replay, search, and command-reference actions without installing a helper.",
+                    commandID: .showShellIntegrationSnippets,
+                    requiresInstaller: false
+                ),
+            ]
+        )
     }
 
     func testSessionEvidenceRecordsObservedOptInSignalsSeparatelyFromDescriptors() {

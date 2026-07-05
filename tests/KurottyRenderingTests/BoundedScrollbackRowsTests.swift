@@ -135,42 +135,82 @@ final class BoundedScrollbackRowsTests: XCTestCase {
         XCTAssertFalse(String(describing: summary).contains("tail"))
     }
 
-    func testLiveAccessSummaryForwardsSearchCopyAndAIWindowsWithoutRawRows() {
+    func testLiveReadWindowDescriptorRoutesSearchAndCopyThroughRetainedCoordinates() {
         var rows = BoundedScrollbackRows()
 
         rows.append(
-            contentsOf: makeRows(["secret zero", "secret one", "normal two", "tail three"]),
-            limit: 2
+            contentsOf: makeRows(["secret zero", "secret one", "normal two", "tail three", "tail four"]),
+            limit: 3
         )
 
-        let copySummary = rows.liveAccessSummary(
+        let copyDescriptor = rows.liveReadWindowDescriptor(
             purpose: .copyMode,
             absoluteStartIndex: 2,
             rowCount: 2,
+            materializationLimit: 4
+        )
+        let searchDescriptor = rows.liveReadWindowDescriptor(
+            purpose: .search,
+            absoluteStartIndex: 1,
+            rowCount: 6,
             materializationLimit: 2
         )
-        let searchSummary = rows.liveAccessSummary(
+
+        XCTAssertEqual(copyDescriptor.purpose, .copyMode)
+        XCTAssertEqual(copyDescriptor.availability, .fullyAvailable)
+        XCTAssertEqual(copyDescriptor.firstAvailableVisibleRowIndex, 0)
+        XCTAssertEqual(copyDescriptor.availableVisibleRowCount, 2)
+        XCTAssertEqual(copyDescriptor.boundedMaterializedVisibleRowCount, 2)
+        XCTAssertTrue(copyDescriptor.canServeSynchronously)
+        XCTAssertFalse(copyDescriptor.requiresUserVisibleWarning)
+
+        XCTAssertEqual(searchDescriptor.purpose, .search)
+        XCTAssertEqual(searchDescriptor.availability, .partiallyDroppedAndFuture)
+        XCTAssertEqual(searchDescriptor.firstAvailableVisibleRowIndex, 0)
+        XCTAssertEqual(searchDescriptor.availableVisibleRowCount, 3)
+        XCTAssertEqual(searchDescriptor.boundedMaterializedVisibleRowCount, 2)
+        XCTAssertFalse(searchDescriptor.canServeSynchronously)
+        XCTAssertTrue(searchDescriptor.requiresUserVisibleWarning)
+        XCTAssertFalse(String(describing: searchDescriptor).contains("secret"))
+        XCTAssertFalse(String(describing: searchDescriptor).contains("normal"))
+        XCTAssertFalse(String(describing: searchDescriptor).contains("tail"))
+    }
+
+    func testLiveReadWindowDescriptorKeepsAbsoluteCoordinatesAfterRemapStorageReset() {
+        var rows = BoundedScrollbackRows()
+        rows.append(
+            contentsOf: makeRows(["secret zero", "normal one", "tail two", "tail three"]),
+            limit: 2
+        )
+        rows.remapStyle(
+            from: .default,
+            to: TerminalTextStyle(
+                foreground: TerminalTextStyle.default.foreground,
+                background: TerminalTextStyle.default.background,
+                bold: true
+            )
+        )
+
+        let descriptor = rows.liveReadWindowDescriptor(
             purpose: .search,
             absoluteStartIndex: 1,
             rowCount: 4,
-            materializationLimit: 1
-        )
-        let aiSummary = rows.liveAccessSummary(
-            purpose: .aiContextReference,
-            absoluteStartIndex: 3,
-            rowCount: 3,
-            materializationLimit: 1
+            materializationLimit: 8
         )
 
-        XCTAssertEqual(copySummary.availability, .fullyAvailable)
-        XCTAssertTrue(copySummary.canServeSynchronously)
-        XCTAssertEqual(searchSummary.availability, .partiallyDroppedAndFuture)
-        XCTAssertFalse(searchSummary.canServeSynchronously)
-        XCTAssertEqual(aiSummary.availability, .partiallyFuture)
-        XCTAssertTrue(aiSummary.requiresUserVisibleWarning)
-        XCTAssertFalse(String(describing: searchSummary).contains("secret"))
-        XCTAssertFalse(String(describing: searchSummary).contains("normal"))
-        XCTAssertFalse(String(describing: searchSummary).contains("tail"))
+        XCTAssertEqual(rows.retainedRowSummary, .init(
+            firstRetainedRowIndex: 2,
+            retainedRowCount: 2,
+            droppedRowCount: 2
+        ))
+        XCTAssertEqual(descriptor.availability, .partiallyDroppedAndFuture)
+        XCTAssertEqual(descriptor.accessSummary.exportWindow.firstAvailableAbsoluteRowIndex, 2)
+        XCTAssertEqual(descriptor.firstAvailableVisibleRowIndex, 0)
+        XCTAssertEqual(descriptor.availableVisibleRowCount, 2)
+        XCTAssertEqual(descriptor.boundedMaterializedVisibleRowCount, 2)
+        XCTAssertFalse(String(describing: descriptor).contains("secret"))
+        XCTAssertFalse(String(describing: descriptor).contains("normal"))
+        XCTAssertFalse(String(describing: descriptor).contains("tail"))
     }
 
     func testRemappingStylesAndColorsDoesNotChangeDiagnostics() {
