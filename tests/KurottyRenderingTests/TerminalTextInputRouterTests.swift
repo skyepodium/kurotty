@@ -64,14 +64,16 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertTrue(insertTextSource.contains("send(text)"))
     }
 
-    func testPromptInputViewNewlineCommandSendsCarriageReturn() throws {
+    func testPromptInputViewNewlineCommandUsesTerminalKeyEncoder() throws {
         let source = try terminalInputViewSource()
         let doCommandStart = try XCTUnwrap(source.range(of: "override func doCommand"))
         let setMarkedTextStart = try XCTUnwrap(source.range(of: "func setMarkedText"))
         let doCommandSource = source[doCommandStart.lowerBound..<setMarkedTextStart.lowerBound]
+        let encoderSource = try terminalKeyEncoderSource()
 
-        XCTAssertTrue(doCommandSource.contains("case #selector(insertNewline(_:)):\n            core.feed(\"\\r\")"))
-        XCTAssertFalse(doCommandSource.contains("case #selector(insertNewline(_:)):\n            core.feed(\"\\n\")"))
+        XCTAssertTrue(doCommandSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
+        XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.insertNewline(_:)):\n            return \"\\r\""))
+        XCTAssertFalse(encoderSource.contains("case #selector(NSResponder.insertNewline(_:)):\n            return \"\\n\""))
     }
 
     func testReturnUsesTerminalEnterAction() throws {
@@ -300,6 +302,12 @@ final class TerminalTextInputRouterTests: XCTestCase {
     private func terminalSurfaceViewSource() throws -> String {
         let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+        return try String(contentsOf: path, encoding: .utf8)
+    }
+
+    private func terminalKeyEncoderSource() throws -> String {
+        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/KurottyApp/TerminalKeyEncoder.swift")
         return try String(contentsOf: path, encoding: .utf8)
     }
 
