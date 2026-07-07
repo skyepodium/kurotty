@@ -109,6 +109,36 @@ struct TerminalCommandPalette {
     }
 }
 
+enum TerminalCommandSpanPaletteActions {
+    static func executableCommands(
+        for span: TerminalCommandSpan?,
+        registry: TerminalCommandRegistry = .default
+    ) -> [TerminalCommandSpanCommand] {
+        guard let span else {
+            return []
+        }
+
+        var commandIDs: [TerminalCommandSpanCommandID] = [.copyReference]
+        if span.replayCandidate != nil {
+            commandIDs.append(.replay)
+        }
+
+        return commandIDs.compactMap { id in
+            registry.commandSpanCommand(for: id)
+        }
+    }
+
+    static func registryForPalette(
+        commandSpanCommands: [TerminalCommandSpanCommand],
+        registry: TerminalCommandRegistry = .default
+    ) -> TerminalCommandRegistry {
+        TerminalCommandRegistry(
+            windowCommands: registry.windowCommands,
+            commandSpanCommands: commandSpanCommands
+        )
+    }
+}
+
 private struct RankedCommandPaletteEntry {
     let entry: TerminalCommandPaletteEntry
     let rank: Int

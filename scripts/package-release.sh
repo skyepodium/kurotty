@@ -132,6 +132,7 @@ lipo -info "$APP_BUNDLE/Contents/MacOS/kurotty"
 lipo -create "${zig_dylib_paths[@]}" -output "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
 "$STRIP_TOOL" -x "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
 lipo -info "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
+cp "$ROOT_DIR/scripts/kurotty-codex-notify.mjs" "$APP_BUNDLE/Contents/Resources/kurotty-codex-notify.mjs"
 
 create_kurotty_iconset "$ROOT_DIR/kurotty.png" "$ICONSET_DIR"
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/kurotty.icns"

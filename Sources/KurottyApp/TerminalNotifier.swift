@@ -122,7 +122,7 @@ final class TerminalNotifier: NSObject {
         content.categoryIdentifier = AppConstants.Notifications.categoryIdentifier
         content.sound = .default
         if #available(macOS 12.0, *) {
-            content.interruptionLevel = .active
+            content.interruptionLevel = .timeSensitive
         }
 
         let request = UNNotificationRequest(

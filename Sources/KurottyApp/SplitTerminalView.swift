@@ -146,6 +146,20 @@ final class SplitTerminalView: NSSplitView {
         pane.sendText(text)
     }
 
+    func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
+        guard let pane = activePane() ?? firstPane() else {
+            return []
+        }
+        return pane.commandSpanPaletteCommands()
+    }
+
+    func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool {
+        guard let pane = activePane() ?? firstPane() else {
+            return false
+        }
+        return pane.executeCommandSpanPaletteCommand(command)
+    }
+
     func layoutOnlyDescriptor(idPrefix: String) -> WorkspaceSnapshotCoordinator.SplitTreeDescriptor {
         if arrangedSubviews.count == 1,
            let pane = arrangedSubviews.first as? TerminalPaneView {

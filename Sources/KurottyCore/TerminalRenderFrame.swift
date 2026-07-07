@@ -26,6 +26,14 @@ public struct TerminalFrame: Sendable {
         )
     }
 
+    public var markedTextRenderRange: TerminalPreeditRenderRange? {
+        TerminalPreeditRenderRange.resolve(
+            text: markedText,
+            anchorColumn: markedTextColumn,
+            columns: columns
+        )
+    }
+
     public init(
         cells: [TerminalCell],
         backgrounds: [TerminalBackground],
@@ -237,6 +245,123 @@ public struct TerminalFramePixelRect: Equatable, Sendable {
         self.y = y
         self.width = width
         self.height = height
+    }
+}
+
+public struct TerminalPreeditRenderRange: Equatable, Sendable {
+    public let startColumn: Int
+    public let endColumn: Int
+    public let sourceCharacterOffset: Int
+
+    public var cellRange: Range<Int> {
+        startColumn..<endColumn
+    }
+
+    public init(startColumn: Int, endColumn: Int, sourceCharacterOffset: Int) {
+        self.startColumn = startColumn
+        self.endColumn = endColumn
+        self.sourceCharacterOffset = sourceCharacterOffset
+    }
+
+    public func cursorColumn(in text: String, selectedUTF16Location: Int) -> Int {
+        guard !text.isEmpty else {
+            return startColumn
+        }
+
+        let visibleStartUTF16Offset = text
+            .prefix(sourceCharacterOffset)
+            .reduce(0) { offset, character in
+                offset + String(character).utf16.count
+            }
+        let clampedLocation = max(
+            visibleStartUTF16Offset,
+            min(selectedUTF16Location, text.utf16.count)
+        )
+        var column = startColumn
+        var characterOffset = 0
+        var utf16Offset = 0
+
+        for character in text {
+            let nextUTF16Offset = utf16Offset + String(character).utf16.count
+            defer {
+                characterOffset += 1
+                utf16Offset = nextUTF16Offset
+            }
+
+            guard characterOffset >= sourceCharacterOffset else {
+                continue
+            }
+            guard clampedLocation >= nextUTF16Offset else {
+                break
+            }
+
+            column += character.terminalColumnWidth
+            if column >= endColumn {
+                return endColumn
+            }
+        }
+
+        return min(max(startColumn, column), endColumn)
+    }
+
+    public static func resolve(
+        text: String,
+        anchorColumn: Int,
+        columns: Int
+    ) -> TerminalPreeditRenderRange? {
+        guard columns > 0 else {
+            return nil
+        }
+
+        let visibleCharacters = text.enumerated().compactMap { offset, character -> (offset: Int, width: Int)? in
+            let width = character.terminalColumnWidth
+            guard width > 0 else {
+                return nil
+            }
+            return (offset: offset, width: width)
+        }
+        guard !visibleCharacters.isEmpty else {
+            return nil
+        }
+
+        let totalWidth = visibleCharacters.reduce(0) { width, character in
+            width + character.width
+        }
+        let sourceCharacterOffset: Int
+        let renderedWidth: Int
+        if totalWidth > columns {
+            var suffixWidth = 0
+            var firstVisibleOffset = visibleCharacters.last?.offset ?? 0
+            for character in visibleCharacters.reversed() {
+                guard suffixWidth + character.width <= columns else {
+                    break
+                }
+                suffixWidth += character.width
+                firstVisibleOffset = character.offset
+            }
+            sourceCharacterOffset = firstVisibleOffset
+            renderedWidth = suffixWidth
+        } else {
+            sourceCharacterOffset = 0
+            renderedWidth = totalWidth
+        }
+
+        guard renderedWidth > 0 else {
+            return nil
+        }
+
+        let clampedAnchor = min(max(0, anchorColumn), columns - 1)
+        let startColumn = max(0, min(clampedAnchor, columns - renderedWidth))
+        let endColumn = min(columns, startColumn + renderedWidth)
+        guard startColumn < endColumn else {
+            return nil
+        }
+
+        return TerminalPreeditRenderRange(
+            startColumn: startColumn,
+            endColumn: endColumn,
+            sourceCharacterOffset: sourceCharacterOffset
+        )
     }
 }
 

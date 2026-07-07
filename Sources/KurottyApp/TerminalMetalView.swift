@@ -36,6 +36,11 @@ private struct BackgroundRun {
     let color: SIMD4<Float>
 }
 
+private struct MarkedTextRenderPlan {
+    let range: TerminalPreeditRenderRange
+    let characters: [(character: Character, utf16Offset: Int)]
+}
+
 struct TerminalRenderingDiagnostics {
     let backingScaleFactor: CGFloat
     let drawableSize: CGSize
@@ -331,6 +336,14 @@ struct TerminalRenderDamageDiagnostics {
 final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
+    private static let cjkGlyphFallbackFontNames = [
+        "Apple SD Gothic Neo",
+        "AppleGothic",
+        "Noto Sans CJK KR",
+        "Noto Sans KR",
+        "PingFang SC",
+        "Hiragino Sans",
+    ]
     private static let glyphFallbackFontNames = [
         "MesloLGS NF",
         "MesloLGS Nerd Font Mono",
@@ -945,10 +958,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 color: cell.foreground
             )
         }
-        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = terminalFrame.markedTextColumn
-            var utf16Offset = 0
-            for character in terminalFrame.markedText {
+        if let markedTextPlan = markedTextRenderPlan() {
+            var column = markedTextPlan.range.startColumn
+            for (character, utf16Offset) in markedTextPlan.characters {
                 appendGlyphInstance(
                     character: character,
                     column: column,
@@ -959,7 +971,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                     color: markedTextColor(for: character, utf16Offset: utf16Offset)
                 )
                 column += character.terminalColumnWidth
-                utf16Offset += String(character).utf16.count
             }
         }
         updateSharedBuffer(&atlasInstanceBuffer, with: instances)
@@ -1038,7 +1049,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         updateSharedBuffer(&decorationInstanceBuffer, with: decorations)
 
         var cursor = solidInstance(
-            column: max(0, terminalFrame.cursorColumn),
+            column: max(0, terminalCursorColumn),
             row: max(0, terminalFrame.cursorRow),
             width: 1,
             height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels)),
@@ -1180,10 +1191,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let entry = glyphEntry(for: character)
         let cellOrigin = physicalPixelCellOrigin(column: column, row: row)
         let pixelSize = entry.pixelSize
+        let renderPixelWidth = glyphRenderPixelWidth(for: character, entry: entry)
         let glyphRect = CGRect(
             x: CGFloat(cellOrigin.x + entry.bearingXPixels),
             y: CGFloat(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels),
-            width: CGFloat(pixelSize.width),
+            width: CGFloat(renderPixelWidth),
             height: CGFloat(pixelSize.height)
         )
         let cellRect = CGRect(
@@ -1209,11 +1221,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         instances.append(GlyphInstance(
             origin: SIMD2<Float>(Float(cellOrigin.x + entry.bearingXPixels), Float(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels)),
-            size: SIMD2<Float>(Float(pixelSize.width), Float(pixelSize.height)),
+            size: SIMD2<Float>(Float(renderPixelWidth), Float(pixelSize.height)),
             uvOrigin: entry.uvOrigin,
             uvSize: entry.uvSize,
             color: color
         ))
+    }
+
+    private func glyphRenderPixelWidth(for character: Character, entry: GlyphAtlasEntry) -> Int {
+        guard Self.isCJKGlyph(character), character.terminalColumnWidth > 1 else {
+            return entry.pixelSize.width
+        }
+        return max(entry.pixelSize.width, entry.cellWidthPixels)
     }
 
     private func diagnosticDirtyRectPixels(for probeRect: CGRect) -> CGRect? {
@@ -1635,7 +1654,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             return baseFont
         }
 
-        for fontName in Self.glyphFallbackFontNames {
+        let fallbackFontNames = Self.isCJKGlyph(character) ? Self.cjkGlyphFallbackFontNames + Self.glyphFallbackFontNames : Self.glyphFallbackFontNames
+        for fontName in fallbackFontNames {
             let candidate = CTFontCreateWithName(fontName as CFString, pointSize, nil)
             if Self.fontSupports(character, font: candidate) {
                 return candidate
@@ -1650,6 +1670,15 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
 
         return baseFont
+    }
+
+    private static func isCJKGlyph(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            let value = scalar.value
+            return (0x2e80...0xa4cf).contains(value) ||
+                (0xac00...0xd7a3).contains(value) ||
+                (0xf900...0xfaff).contains(value)
+        }
     }
 
     private static func fontSupports(_ character: Character, font: CTFont) -> Bool {
@@ -1961,10 +1990,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             (String(cell.character) as NSString).draw(in: rect, withAttributes: attrs)
         }
 
-        if !terminalFrame.markedText.isEmpty && terminalFrame.cursorRow >= 0 {
-            var column = terminalFrame.markedTextColumn
-            var utf16Offset = 0
-            for character in terminalFrame.markedText {
+        if let markedTextPlan = markedTextRenderPlan() {
+            var column = markedTextPlan.range.startColumn
+            for (character, utf16Offset) in markedTextPlan.characters {
                 let color = markedTextColor(for: character, utf16Offset: utf16Offset)
                 let markedAttrs: [NSAttributedString.Key: Any] = [
                     .font: font,
@@ -1977,14 +2005,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 ]
                 (String(character) as NSString).draw(in: cellRect(column: column, row: terminalFrame.cursorRow, width: character.terminalColumnWidth), withAttributes: markedAttrs)
                 column += character.terminalColumnWidth
-                utf16Offset += String(character).utf16.count
             }
         }
 
         if terminalFrame.cursorBlinkOn, terminalFrame.cursorRow >= 0 {
             NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
             NSRect(
-                x: terminalFrame.padding.cgX + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.cgWidth,
+                x: terminalFrame.padding.cgX + CGFloat(max(0, terminalCursorColumn)) * terminalFrame.cellSize.cgWidth,
                 y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(max(0, terminalFrame.cursorRow) + 1),
                 width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
                 height: terminalFrame.cellSize.cgHeight
@@ -2001,10 +2028,39 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
     }
 
-    private func terminalColumnWidth(of text: String) -> Int {
-        text.reduce(0) { width, character in
-            width + character.terminalColumnWidth
+    private var terminalCursorColumn: Int {
+        markedTextCursorColumn ?? terminalFrame.cursorColumn
+    }
+
+    private var markedTextCursorColumn: Int? {
+        guard let range = terminalFrame.markedTextRenderRange else {
+            return nil
         }
+        return range.cursorColumn(in: terminalFrame.markedText, selectedUTF16Location: terminalFrame.markedTextSelectedRange.location)
+    }
+
+    private func markedTextRenderPlan() -> MarkedTextRenderPlan? {
+        guard let range = terminalFrame.markedTextRenderRange,
+              terminalFrame.cursorRow >= 0
+        else {
+            return nil
+        }
+
+        var characters: [(character: Character, utf16Offset: Int)] = []
+        var characterOffset = 0
+        var utf16Offset = 0
+        for character in terminalFrame.markedText {
+            if characterOffset >= range.sourceCharacterOffset {
+                characters.append((character: character, utf16Offset: utf16Offset))
+            }
+            characterOffset += 1
+            utf16Offset += String(character).utf16.count
+        }
+
+        guard !characters.isEmpty else {
+            return nil
+        }
+        return MarkedTextRenderPlan(range: range, characters: characters)
     }
 
     private func isCellCoveredByMarkedText(_ cell: TerminalCell) -> Bool {
@@ -2015,12 +2071,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             return false
         }
 
-        let markedTextEndColumn = min(
-            terminalFrame.columns,
-            terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)
-        )
-        let markedTextRange = terminalFrame.markedTextColumn..<markedTextEndColumn
-        guard !markedTextRange.isEmpty else { return false }
+        let markedTextRange = terminalFrame.markedTextRenderRange?.cellRange
+        guard let markedTextRange, !markedTextRange.isEmpty else { return false }
 
         let cellEndColumn = min(
             terminalFrame.columns,

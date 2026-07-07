@@ -144,6 +144,14 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView.sendText(text)
     }
 
+    func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
+        terminalSurfaceView.commandSpanPaletteCommands()
+    }
+
+    func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool {
+        terminalSurfaceView.executeCommandSpanPaletteCommand(command)
+    }
+
     func layoutOnlyDescriptor(id: String) -> WorkspaceSnapshotCoordinator.PaneDescriptor {
         WorkspaceSnapshotCoordinator.PaneDescriptor(
             id: id

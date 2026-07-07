@@ -3,10 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_KUROTTY_BINARY = '/Applications/kurotty.app/Contents/MacOS/kurotty';
 const DEFAULT_OMX_NOTIFY_HOOK = '/opt/homebrew/lib/node_modules/oh-my-codex/dist/scripts/notify-hook.js';
 const MAX_BODY_CHARACTERS = 240;
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const LOG_PATH = process.env.KUROTTY_CODEX_NOTIFY_LOG_PATH
   || join(homedir(), 'Library', 'Logs', 'Kurotty', 'codex-notify.jsonl');
 
@@ -47,6 +49,41 @@ function parsePayload(rawPayload) {
   } catch {
     return null;
   }
+}
+
+function parseArguments(argv) {
+  const previousNotifyCommands = [];
+  let rawPayload = '';
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = safeString(argv[index]);
+    if (value === '--previous-notify') {
+      const command = safeString(argv[index + 1]);
+      if (command) previousNotifyCommands.push(command);
+      index += 1;
+      continue;
+    }
+    rawPayload = value;
+  }
+
+  return { rawPayload, previousNotifyCommands };
+}
+
+function parsePreviousNotifyCommand(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      Array.isArray(parsed)
+      && parsed.length > 0
+      && parsed.every((item) => typeof item === 'string')
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to the shared failure log below.
+  }
+  logEvent({ type: 'previous_notify_invalid', command: value });
+  return null;
 }
 
 function shouldNotify(payload) {
@@ -97,7 +134,17 @@ function logEvent(event) {
 function kurottyCommand() {
   const configured = safeString(process.env.KUROTTY_NOTIFY_COMMAND).trim();
   if (configured) return configured;
+  const bundled = bundledKurottyCommand();
+  if (bundled) return bundled;
   return DEFAULT_KUROTTY_BINARY;
+}
+
+function bundledKurottyCommand() {
+  const resourcesDirectory = dirname(SCRIPT_PATH);
+  if (!resourcesDirectory.endsWith('/Contents/Resources')) return '';
+  const contentsDirectory = dirname(resourcesDirectory);
+  const bundledCommand = join(contentsDirectory, 'MacOS', 'kurotty');
+  return existsSync(bundledCommand) ? bundledCommand : '';
 }
 
 function deliverToKurotty(payload) {
@@ -152,8 +199,32 @@ function chainOmxNotify(rawPayload) {
   }
 }
 
+function chainPreviousNotify(rawPayload, encodedCommand) {
+  if (process.env.KUROTTY_NOTIFY_CHAIN_PREVIOUS === '0') return;
+  const command = parsePreviousNotifyCommand(encodedCommand);
+  if (!command) return;
+
+  const [executable, ...args] = command;
+  const result = spawnSync(executable, [...args, rawPayload], {
+    stdio: 'ignore',
+    env: process.env,
+  });
+  if (result.status === 0) {
+    logEvent({ type: 'previous_notify_sent', command: executable });
+    return;
+  }
+
+  logEvent({
+    type: 'previous_notify_failed',
+    command: executable,
+    status: result.status,
+    signal: result.signal || null,
+    error: result.error ? result.error.message : null,
+  });
+}
+
 function main() {
-  const rawPayload = process.argv[process.argv.length - 1] || '';
+  const { rawPayload, previousNotifyCommands } = parseArguments(process.argv.slice(2));
   const payload = parsePayload(rawPayload);
   if (payload && shouldNotify(payload)) {
     const notification = buildKurottyPayload(payload);
@@ -165,6 +236,9 @@ function main() {
   }
 
   chainOmxNotify(rawPayload);
+  for (const previousNotifyCommand of previousNotifyCommands) {
+    chainPreviousNotify(rawPayload, previousNotifyCommand);
+  }
 }
 
 main();
