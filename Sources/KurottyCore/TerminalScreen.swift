@@ -57,7 +57,8 @@ public struct TerminalScreen: Sendable {
         let lower = max(0, min(start, columns - 1))
         let upper = max(0, min(end, columns - 1))
         guard lower <= upper else { return }
-        for column in lower...upper {
+        let range = wideCellExpandedClearRange(row: row, from: lower, through: upper)
+        for column in range {
             cells[row][column] = TerminalScreenCell(style: style)
         }
     }
@@ -65,13 +66,14 @@ public struct TerminalScreen: Sendable {
     public mutating func set(character: Character, row: Int, column: Int, width: Int, style: TerminalTextStyle = .default) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        clearWideCellIfNeeded(row: row, column: column, style: style)
+        let occupiedEnd = min(columns - 1, column + max(1, width) - 1)
+        let clearRange = wideCellExpandedClearRange(row: row, from: column, through: occupiedEnd)
+        for clearColumn in clearRange {
+            cells[row][clearColumn] = TerminalScreenCell(style: style)
+        }
         cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style)
         if width == 2 && column + 1 < columns {
             cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
-        }
-        if width == 1 && column + 1 < columns && cells[row][column + 1].isContinuation {
-            cells[row][column + 1] = TerminalScreenCell(style: style)
         }
     }
 
@@ -122,19 +124,44 @@ public struct TerminalScreen: Sendable {
         return writableCount
     }
 
-    private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle) {
-        guard cells.indices.contains(row), column >= 0, column < columns else { return }
-        guard cells[row][column].isContinuation else { return }
-        var leadColumn = column
+    private func wideCellExpandedClearRange(row: Int, from start: Int, through end: Int) -> ClosedRange<Int> {
+        guard cells.indices.contains(row), start <= end else { return start...end }
+        var lower = max(0, min(start, columns - 1))
+        var upper = max(0, min(end, columns - 1))
+
+        var column = lower
+        while column <= upper {
+            if cells[row][column].isContinuation {
+                let leadColumn = wideLeadColumn(row: row, continuationColumn: column)
+                lower = min(lower, leadColumn)
+                upper = max(upper, wideEndColumn(row: row, leadColumn: leadColumn))
+            } else {
+                upper = max(upper, wideEndColumn(row: row, leadColumn: column))
+            }
+            column += 1
+        }
+
+        return lower...min(upper, columns - 1)
+    }
+
+    private func wideLeadColumn(row: Int, continuationColumn: Int) -> Int {
+        var leadColumn = max(0, min(continuationColumn, columns - 1))
         while leadColumn > 0 && cells[row][leadColumn].isContinuation {
             leadColumn -= 1
         }
-        cells[row][leadColumn] = TerminalScreenCell(style: style)
-        var nextColumn = leadColumn + 1
-        while nextColumn < columns && cells[row][nextColumn].isContinuation {
-            cells[row][nextColumn] = TerminalScreenCell(style: style)
-            nextColumn += 1
+        return leadColumn
+    }
+
+    private func wideEndColumn(row: Int, leadColumn: Int) -> Int {
+        guard cells.indices.contains(row),
+              leadColumn >= 0,
+              leadColumn < columns,
+              !cells[row][leadColumn].isContinuation
+        else {
+            return leadColumn
         }
+        let width = max(1, cells[row][leadColumn].character.terminalColumnWidth)
+        return min(columns - 1, leadColumn + width - 1)
     }
 
     @discardableResult

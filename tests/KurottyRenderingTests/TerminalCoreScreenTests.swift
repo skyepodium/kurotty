@@ -32,6 +32,42 @@ final class TerminalCoreScreenTests: XCTestCase {
         XCTAssertTrue(screen.cells[0][3].isContinuation)
     }
 
+    func testClearLeadCellClearsWideContinuation() {
+        var screen = TerminalScreen(rows: 1, columns: 4)
+
+        screen.set(character: "한", row: 0, column: 1, width: 2)
+        screen.clear(row: 0, from: 1, through: 1)
+
+        XCTAssertEqual(String(screen.cells[0][1].character), " ")
+        XCTAssertFalse(screen.cells[0][1].isContinuation)
+        XCTAssertEqual(String(screen.cells[0][2].character), " ")
+        XCTAssertFalse(screen.cells[0][2].isContinuation)
+    }
+
+    func testClearContinuationCellClearsWideLead() {
+        var screen = TerminalScreen(rows: 1, columns: 4)
+
+        screen.set(character: "한", row: 0, column: 1, width: 2)
+        screen.clear(row: 0, from: 2, through: 2)
+
+        XCTAssertEqual(String(screen.cells[0][1].character), " ")
+        XCTAssertFalse(screen.cells[0][1].isContinuation)
+        XCTAssertEqual(String(screen.cells[0][2].character), " ")
+        XCTAssertFalse(screen.cells[0][2].isContinuation)
+    }
+
+    func testWideOverwriteClearsIntersectingWideCellTail() {
+        var screen = TerminalScreen(rows: 1, columns: 5)
+
+        screen.set(character: "한", row: 0, column: 1, width: 2)
+        screen.set(character: "界", row: 0, column: 0, width: 2)
+
+        XCTAssertEqual(String(screen.cells[0][0].character), "界")
+        XCTAssertTrue(screen.cells[0][1].isContinuation)
+        XCTAssertEqual(String(screen.cells[0][2].character), " ")
+        XCTAssertFalse(screen.cells[0][2].isContinuation)
+    }
+
     func testInsertCharactersPreservesWideCellWhenInsertedBeforeLeadCell() {
         var screen = TerminalScreen(rows: 1, columns: 5)
         screen.set(character: "한", row: 0, column: 1, width: 2)
