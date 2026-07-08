@@ -70,9 +70,6 @@ public struct TerminalScreen: Sendable {
         if width == 2 && column + 1 < columns {
             cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
         }
-        if column > 0 && cells[row][column - 1].isContinuation {
-            cells[row][column - 1] = TerminalScreenCell(style: style)
-        }
         if width == 1 && column + 1 < columns && cells[row][column + 1].isContinuation {
             cells[row][column + 1] = TerminalScreenCell(style: style)
         }
@@ -212,6 +209,7 @@ public struct TerminalScreen: Sendable {
         var line = cells[row]
         line.removeSubrange((columns - amount)..<columns)
         line.insert(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount), at: column)
+        TerminalScreen.normalizeWideCells(in: &line, style: style)
         cells[row] = line
     }
 
@@ -222,6 +220,7 @@ public struct TerminalScreen: Sendable {
         var line = cells[row]
         line.removeSubrange(column..<(column + amount))
         line.append(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount))
+        TerminalScreen.normalizeWideCells(in: &line, style: style)
         cells[row] = line
     }
 
@@ -276,13 +275,56 @@ public struct TerminalScreen: Sendable {
     }
 
     private static func resize(row: [TerminalScreenCell], columns: Int) -> [TerminalScreenCell] {
+        var resized: [TerminalScreenCell]
         if row.count == columns {
-            return row
+            resized = row
+        } else if row.count > columns {
+            resized = Array(row.prefix(columns))
+        } else {
+            resized = row + Array(repeating: TerminalScreenCell(), count: columns - row.count)
         }
-        if row.count > columns {
-            return Array(row.prefix(columns))
+        normalizeWideCells(in: &resized, style: .default)
+        return resized
+    }
+
+    private static func normalizeWideCells(in line: inout [TerminalScreenCell], style: TerminalTextStyle) {
+        guard !line.isEmpty else { return }
+        let blank = TerminalScreenCell(style: style)
+
+        for column in line.indices where !line[column].isContinuation {
+            let width = line[column].character.terminalColumnWidth
+            guard width > 1 else { continue }
+            let endColumn = column + width
+            guard endColumn <= line.count else {
+                line[column] = blank
+                continue
+            }
+            let continuationRange = (column + 1)..<endColumn
+            guard continuationRange.allSatisfy({ line[$0].isContinuation }) else {
+                line[column] = blank
+                continue
+            }
         }
-        return row + Array(repeating: TerminalScreenCell(), count: columns - row.count)
+
+        for column in line.indices where line[column].isContinuation {
+            var leadColumn = column - 1
+            while leadColumn >= 0, line[leadColumn].isContinuation {
+                leadColumn -= 1
+            }
+            guard leadColumn >= 0 else {
+                line[column] = blank
+                continue
+            }
+            let width = line[leadColumn].character.terminalColumnWidth
+            let endColumn = leadColumn + width
+            guard width > 1,
+                  endColumn <= line.count,
+                  column < endColumn
+            else {
+                line[column] = blank
+                continue
+            }
+        }
     }
 }
 
