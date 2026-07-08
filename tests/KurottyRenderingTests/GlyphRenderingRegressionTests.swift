@@ -1160,8 +1160,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)"))
         XCTAssertTrue(screenSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
         XCTAssertTrue(screenSource.contains("guard cells[row][column].isContinuation else { return }"))
-        XCTAssertTrue(screenSource.contains("cells[row][column - 1] = TerminalScreenCell(style: style)"))
         XCTAssertTrue(screenSource.contains("cells[row][column + 1] = TerminalScreenCell(style: style)"))
+        XCTAssertFalse(screenSource.contains("if column > 0 && cells[row][column - 1].isContinuation"))
         XCTAssertTrue(screenSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
     }
 
