@@ -55,6 +55,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
     private var pendingMarkedTextAnchor: TerminalCellPosition?
+    private var committedMarkedTextPrefix = ""
+    private var committedMarkedTextPrefixAnchor: TerminalCellPosition?
+    private var textInputEventDepth = 0
+    private var needsDeferredTextInputFrame = false
+    private var isTextInputRendererFrameScheduled = false
+    private var keyTextAccumulator: [String]?
     private var keyboardSelectionInputStart: TerminalCellPosition?
     private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
@@ -278,13 +284,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
-        if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {
+        if performTextInputTransaction({
+            TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText())
+        }) {
             return
         }
         if handleTerminalControlKey(event) {
             return
         }
-        interpretKeyEvents([event])
+        performTextInputTransaction {
+            interpretKeyEvents([event])
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -349,6 +359,52 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     func sendText(_ text: String) {
         send(text)
+    }
+
+    func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
+        TerminalCommandSpanPaletteActions.executableCommands(for: latestCompletedCommandSpan())
+    }
+
+    func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool {
+        guard let span = latestCompletedCommandSpan() else {
+            return false
+        }
+
+        switch command.action {
+        case .copyReference:
+            copyCommandSpanReference(span.locatorString)
+            return true
+        case .replay:
+            guard let candidate = span.replayCandidate,
+                  confirmCommandReplay(candidate)
+            else {
+                return false
+            }
+            sendText("\(candidate.commandText)\n")
+            return true
+        case .foldOutput, .searchOutput:
+            return false
+        }
+    }
+
+    private func latestCompletedCommandSpan() -> TerminalCommandSpan? {
+        shellIntegration.recentCommandSpans.last
+    }
+
+    private func copyCommandSpanReference(_ locatorString: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(locatorString, forType: .string)
+    }
+
+    private func confirmCommandReplay(_ candidate: TerminalCommandReplayCandidate) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Replay Command?"
+        alert.informativeText = candidate.commandText
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Replay")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func makeTerminalContextMenu() -> NSMenu {
@@ -523,12 +579,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func resetMarkedTextForInputSourceChange() {
-        guard hasMarkedText() else { return }
+        guard hasMarkedText() || !committedMarkedTextPrefix.isEmpty else { return }
         markMarkedTextDirty()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
         pendingMarkedTextAnchor = nil
+        clearCommittedMarkedTextPrefix()
         markDirty(row: cursorRow)
         updateRendererFrame()
     }
@@ -646,7 +703,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             }
         }
-        let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow)
+        let compositionText = textInputOverlayText()
+        let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow, compositionText: compositionText)
         let displayCursorRow = markedTextPosition?.row ?? cursorRow
         let displayCursorColumn = markedTextPosition?.column ?? cursorColumn
         renderer.update(frame: TerminalFrame(
@@ -658,13 +716,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
             isFullDamage: damage.isFull,
-            cursorColumn: min(displayCursorColumn + markedText.string.terminalColumnWidth, metrics.size.columns - 1),
+            cursorColumn: min(displayCursorColumn + compositionText.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(displayCursorRow, metrics.size.rows - 1) : -1,
             // Inactive panes keep a steady cursor; focus only controls blink.
-            cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn,
+            cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn || hasMarkedText(),
             markedTextColumn: displayCursorColumn,
-            markedText: markedText.string,
-            markedTextSelectedRange: .none,
+            markedText: compositionText,
+            markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix),
             columns: metrics.size.columns,
             visibleRows: metrics.size.rows,
             cellSize: metrics.cellSize,
@@ -679,9 +737,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         debugFrameIndex &+= 1
     }
 
-    private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition? {
-        guard markedText.length > 0 else { return nil }
-        let anchor = markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
+    private func renderedMarkedTextPosition(visibleStartRow: Int, compositionText: String) -> TerminalCellPosition? {
+        guard !compositionText.isEmpty else { return nil }
+        let anchor = committedMarkedTextPrefixAnchor ?? markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
         let contentRow = scrollbackRows.count + anchor.row
         return TerminalCellPosition(row: contentRow - visibleStartRow, column: anchor.column)
     }
@@ -802,11 +860,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
+        appendCommittedMarkedTextPrefix(text)
         recordPendingMarkedTextAnchor(afterCommitting: text)
-        unmarkText()
+        clearMarkedText(renderFrame: false)
         guard !text.isEmpty else { return }
-        TerminalTextInputRouter.logPTYWrite(text, source: "insertText")
-        send(text)
+        if var committedText = keyTextAccumulator {
+            committedText.append(text)
+            keyTextAccumulator = committedText
+        } else {
+            sendCommittedText(text, source: "insertText")
+        }
     }
 
     override func doCommand(by selector: Selector) {
@@ -814,6 +877,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             resetMarkedTextForInputSourceChange()
         }
         if let sequence = TerminalKeyEncoder.sequence(for: selector) {
+            clearCommittedMarkedTextPrefix()
             pendingMarkedTextAnchor = nil
             send(sequence)
         }
@@ -824,6 +888,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markMarkedTextDirty()
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
+        guard !attr.string.isEmpty else {
+            clearMarkedText(renderFrame: true)
+            return
+        }
         if markedText.length == 0 {
             markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
             pendingMarkedTextAnchor = nil
@@ -831,17 +899,50 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
         markMarkedTextDirty()
-        updateRendererFrame()
+        requestTextInputRendererFrame()
     }
 
     func unmarkText() {
         TerminalTextInputRouter.logUnmarkText()
+        clearMarkedText(renderFrame: true)
+    }
+
+    private func clearMarkedText(renderFrame: Bool) {
         markMarkedTextDirty()
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
         markDirty(row: cursorRow)
-        updateRendererFrame()
+        if renderFrame {
+            requestTextInputRendererFrame()
+        }
+    }
+
+    private func appendCommittedMarkedTextPrefix(_ text: String) {
+        guard !text.isEmpty, hasMarkedText() else { return }
+        if committedMarkedTextPrefixAnchor == nil {
+            committedMarkedTextPrefixAnchor = markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
+        }
+        committedMarkedTextPrefix.append(text)
+        if let anchor = committedMarkedTextPrefixAnchor {
+            markDirty(row: anchor.row)
+        }
+    }
+
+    private func clearCommittedMarkedTextPrefix() {
+        guard !committedMarkedTextPrefix.isEmpty || committedMarkedTextPrefixAnchor != nil else { return }
+        if let anchor = committedMarkedTextPrefixAnchor {
+            markDirty(row: anchor.row)
+        }
+        committedMarkedTextPrefix.removeAll(keepingCapacity: true)
+        committedMarkedTextPrefixAnchor = nil
+    }
+
+    private func textInputOverlayText() -> String {
+        guard hasMarkedText() else {
+            return markedText.string
+        }
+        return committedMarkedTextPrefix + markedText.string
     }
 
     private func recordPendingMarkedTextAnchor(afterCommitting text: String) {
@@ -884,6 +985,62 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if anchor.row != cursorRow {
             markDirty(row: cursorRow)
         }
+    }
+
+    private func performTextInputTransaction<Result>(_ body: () -> Result) -> Result {
+        textInputEventDepth += 1
+        if textInputEventDepth == 1 {
+            keyTextAccumulator = []
+        }
+        let result = body()
+        textInputEventDepth -= 1
+        if textInputEventDepth == 0 {
+            let committedText = keyTextAccumulator ?? []
+            keyTextAccumulator = nil
+            for text in committedText where !text.isEmpty {
+                sendCommittedText(text, source: "keyTextAccumulator")
+            }
+            if needsDeferredTextInputFrame {
+                needsDeferredTextInputFrame = false
+                if committedText.isEmpty || hasMarkedText() {
+                    requestTextInputRendererFrame()
+                }
+            }
+        }
+        return result
+    }
+
+    private func requestTextInputRendererFrame() {
+        if textInputEventDepth > 0 {
+            needsDeferredTextInputFrame = true
+            return
+        }
+        guard !isTextInputRendererFrameScheduled else {
+            return
+        }
+        isTextInputRendererFrameScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isTextInputRendererFrameScheduled = false
+                self.updateRendererFrame()
+            }
+        }
+    }
+
+    private func sendCommittedText(_ text: String, source: String) {
+        TerminalTextInputRouter.logPTYWrite(text, source: source)
+        send(text)
+    }
+
+    private func markedTextSelectionRange(committedPrefix: String) -> TerminalTextSelectionRange {
+        guard inputSelectedRange.location != NSNotFound else {
+            return .none
+        }
+        return TerminalTextSelectionRange(
+            location: committedPrefix.utf16.count + inputSelectedRange.location,
+            length: inputSelectedRange.length
+        )
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
@@ -1045,6 +1202,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         defer {
             commitOutputRuntimeEventBatch()
         }
+        clearCommittedMarkedTextPrefix()
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
         scrollbackRowsAppendedDuringOutput = 0
@@ -1223,6 +1381,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func toggleCursorBlink() {
         guard window?.firstResponder === self else {
             stopCursorBlinking(showCursor: true)
+            return
+        }
+        guard !hasMarkedText() else {
+            cursorBlinkOn = true
+            markFullDamage()
+            updateRendererFrame()
             return
         }
         cursorBlinkOn.toggle()
@@ -1562,11 +1726,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func currentCursorCellRectInViewCoordinates() -> NSRect {
         let metrics = terminalMetrics()
+        let imeAnchorPosition = currentIMEAnchorPosition()
         return Self.cursorCellRectInViewCoordinates(
             boundsHeight: bounds.height,
             padding: padding,
-            cursorRow: cursorRow,
-            cursorColumn: cursorColumn,
+            cursorRow: imeAnchorPosition.row,
+            cursorColumn: imeAnchorPosition.column,
             cellSize: CGSize(
                 width: CGFloat(metrics.cellSize.width),
                 height: CGFloat(metrics.cellSize.height)
@@ -1574,6 +1739,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             columns: metrics.size.columns,
             rows: metrics.size.rows
         )
+    }
+
+    private func currentIMEAnchorPosition() -> TerminalCellPosition {
+        markedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
     }
 
     static func cursorCellRectInViewCoordinates(

@@ -247,6 +247,17 @@ extension TerminalCommandSpan {
         )
     }
 
+    var locatorString: String {
+        var queryItems = ["start=\(startBoundarySequence)"]
+        if let outputBoundarySequence {
+            queryItems.append("output=\(outputBoundarySequence)")
+        }
+        if let endBoundarySequence {
+            queryItems.append("end=\(endBoundarySequence)")
+        }
+        return "kurotty-command-span://\(id)?\(queryItems.joined(separator: "&"))"
+    }
+
     var outputRange: TerminalCommandOutputRange? {
         guard let outputBoundarySequence,
               let endBoundarySequence,

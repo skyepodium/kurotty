@@ -2,6 +2,42 @@
 import XCTest
 
 final class TerminalRenderFrameDiagnosticsTests: XCTestCase {
+    func testPreeditRangeKeepsWideHangulInsideRightEdge() {
+        let range = TerminalPreeditRenderRange.resolve(
+            text: "가",
+            anchorColumn: 9,
+            columns: 10
+        )
+
+        XCTAssertEqual(range?.startColumn, 8)
+        XCTAssertEqual(range?.endColumn, 10)
+        XCTAssertEqual(range?.sourceCharacterOffset, 0)
+    }
+
+    func testPreeditRangeDropsLeadingCharactersOnlyWhenTextExceedsScreenWidth() {
+        let range = TerminalPreeditRenderRange.resolve(
+            text: "abcdef",
+            anchorColumn: 2,
+            columns: 4
+        )
+
+        XCTAssertEqual(range?.startColumn, 0)
+        XCTAssertEqual(range?.endColumn, 4)
+        XCTAssertEqual(range?.sourceCharacterOffset, 2)
+    }
+
+    func testPreeditRangeMapsSelectedUTF16LocationToCursorColumn() throws {
+        let range = try XCTUnwrap(TerminalPreeditRenderRange.resolve(
+            text: "안녕",
+            anchorColumn: 4,
+            columns: 20
+        ))
+
+        XCTAssertEqual(range.cursorColumn(in: "안녕", selectedUTF16Location: 0), 4)
+        XCTAssertEqual(range.cursorColumn(in: "안녕", selectedUTF16Location: 1), 6)
+        XCTAssertEqual(range.cursorColumn(in: "안녕", selectedUTF16Location: 2), 8)
+    }
+
     func testDamageMetadataDistinguishesFullRowAndRectDamage() {
         XCTAssertEqual(
             makeFrame(dirtyRows: [0, 1], dirtyRects: [rowRect(0), rowRect(1)], isFullDamage: true)
