@@ -42,11 +42,13 @@ final class KurottyCodexNotifyScriptTests: XCTestCase {
     func testInstalledAppBundlesCodexNotifyWrapperAtStableResourcePath() throws {
         let installSource = try repositoryFile("scripts/install-app.sh")
         let packageSource = try repositoryFile("scripts/package-release.sh")
+        let verifySource = try repositoryFile("scripts/verify-icon-bundle.sh")
         let readme = try repositoryFile("README.md")
 
         XCTAssertTrue(installSource.contains("CODEX_NOTIFY_WRAPPER=\"$APP_BUNDLE/Contents/Resources/kurotty-codex-notify.mjs\""))
         XCTAssertTrue(installSource.contains("cp \"$ROOT_DIR/scripts/kurotty-codex-notify.mjs\" \"$CODEX_NOTIFY_WRAPPER\""))
         XCTAssertTrue(packageSource.contains("cp \"$ROOT_DIR/scripts/kurotty-codex-notify.mjs\" \"$APP_BUNDLE/Contents/Resources/kurotty-codex-notify.mjs\""))
+        XCTAssertTrue(verifySource.contains("Contents/Resources/kurotty-codex-notify.mjs"))
         XCTAssertTrue(readme.contains("/Applications/kurotty.app/Contents/Resources/kurotty-codex-notify.mjs"))
         XCTAssertFalse(readme.contains("/path/to/kurotty/scripts/kurotty-codex-notify.mjs"))
     }

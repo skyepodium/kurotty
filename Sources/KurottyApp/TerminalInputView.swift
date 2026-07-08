@@ -123,8 +123,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
-        let shouldRenderClearFrame = keyTextAccumulator == nil
-        clearMarkedText(renderFrame: shouldRenderClearFrame)
+        clearMarkedText(renderFrame: false)
         guard !text.isEmpty else { return }
         if var committedText = keyTextAccumulator {
             committedText.append(text)

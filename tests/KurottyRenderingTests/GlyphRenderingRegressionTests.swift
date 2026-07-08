@@ -681,6 +681,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(insertTextSource.contains("committedText.append(text)"))
         XCTAssertTrue(insertTextSource.contains("clearMarkedText(renderFrame: false)"))
         XCTAssertFalse(insertTextSource.contains("clearMarkedText(renderFrame: shouldRenderClearFrame)"))
+        XCTAssertTrue(surfaceSource.contains("guard !committedMarkedTextPrefix.isEmpty else"))
         XCTAssertFalse(insertTextSource.contains("unmarkText()"))
         XCTAssertTrue(metalSource.contains("private var markedTextCursorColumn: Int?"))
         XCTAssertTrue(metalSource.contains("range.cursorColumn(in: terminalFrame.markedText"))

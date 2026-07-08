@@ -144,6 +144,8 @@ enum AppConstants {
         static let bridgePayloadMaxBytes = 64 * 1024
         static let bridgeSocketPermissions = 0o600
         static let bridgeSocketDirectoryPermissions = 0o700
+        static let bridgeClaimRetryIntervalSeconds: TimeInterval = 1
+        static let commandLineNotificationTimeoutMS = 2_000
     }
 
     enum Diagnostics {
