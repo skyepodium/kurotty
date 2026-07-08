@@ -99,8 +99,22 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertTrue(source.contains("private var committedMarkedTextPrefixAnchor: TerminalCellPosition?"))
         XCTAssertTrue(insertTextSource.contains("appendCommittedMarkedTextPrefix(text)"))
         XCTAssertTrue(frameSource.contains("let compositionText = textInputOverlayText()"))
+        XCTAssertTrue(source.contains("guard !committedMarkedTextPrefix.isEmpty else"))
+        XCTAssertFalse(source.contains("guard hasMarkedText() else {\n            return markedText.string\n        }"))
         XCTAssertTrue(frameSource.contains("markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix)"))
         XCTAssertTrue(outputSource.contains("clearCommittedMarkedTextPrefix()"))
+    }
+
+    func testPromptInputViewCommitDoesNotRenderBlankMarkedTextFrameBeforeEcho() throws {
+        let source = try terminalInputViewSource()
+        let insertTextSource = try sourceSlice(
+            in: source,
+            from: "func insertText",
+            to: "override func doCommand"
+        )
+
+        XCTAssertTrue(insertTextSource.contains("clearMarkedText(renderFrame: false)"))
+        XCTAssertFalse(insertTextSource.contains("shouldRenderClearFrame"))
     }
 
     func testCJKGlyphsRenderAcrossTheirTerminalCellWidth() throws {

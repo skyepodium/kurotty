@@ -84,7 +84,19 @@ final class KurottyNotificationBridgeTests: XCTestCase {
         let removeRange = try XCTUnwrap(source.range(of: "FileManager.default.removeItem(at: path)"))
 
         XCTAssertLessThan(probeRange.lowerBound, removeRange.lowerBound)
-        XCTAssertTrue(source.contains("bridge socket already active path="))
+        XCTAssertTrue(source.contains("bridge socket active elsewhere path="))
+        XCTAssertTrue(source.contains("scheduleBridgeClaimRetry()"))
+    }
+
+    func testBridgeClientHasCommandLineFallbackWhenSocketIsUnavailable() throws {
+        let source = try String(contentsOf: repositoryRoot().appendingPathComponent("Sources/KurottyApp/KurottyNotificationBridge.swift"), encoding: .utf8)
+        let sendRange = try XCTUnwrap(source.range(of: "try KurottyNotificationBridgeClient.send(text)"))
+        let fallbackRange = try XCTUnwrap(source.range(of: "KurottyCommandLineNotificationFallback.deliver(payload)"))
+
+        XCTAssertLessThan(sendRange.lowerBound, fallbackRange.lowerBound)
+        XCTAssertTrue(source.contains("command-line fallback delivered"))
+        XCTAssertTrue(source.contains("UNUserNotificationCenter.current()"))
+        XCTAssertTrue(source.contains("commandLineNotificationTimeoutMS"))
     }
 
     private func makeListeningSocket(at path: String) throws -> Int32 {

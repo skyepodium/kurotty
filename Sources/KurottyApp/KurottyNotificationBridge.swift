@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os
+@preconcurrency import UserNotifications
 
 private let notificationBridgeLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
@@ -121,15 +122,25 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.kurotty.notification-bridge")
     private let stateLock = NSLock()
     private var socketDescriptor: Int32 = -1
+    private var claimRetryTimer: DispatchSourceTimer?
     private(set) var socketPath: URL?
 
     func start() {
         installEnvironment()
+        claimBridgeSocketOrRetry()
+    }
+
+    private func claimBridgeSocketOrRetry() {
         do {
             _ = try KurottyNotificationBridgeSocketLocation.ensureSocketDirectoryExists()
             let path = try KurottyNotificationBridgeSocketLocation.defaultSocketPath()
+            guard currentSocketDescriptor() < 0 else {
+                cancelBridgeClaimRetry()
+                return
+            }
             if KurottyNotificationBridgeSocketProbe.isReachable(path: path.path) {
-                notificationBridgeLogger.info("bridge socket already active path=\(path.path, privacy: .public)")
+                notificationBridgeLogger.info("bridge socket active elsewhere path=\(path.path, privacy: .public)")
+                scheduleBridgeClaimRetry()
                 return
             }
             try? FileManager.default.removeItem(at: path)
@@ -137,29 +148,40 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
             let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
             guard descriptor >= 0 else {
                 notificationBridgeLogger.error("bridge socket create failed errno=\(errno, privacy: .public)")
+                scheduleBridgeClaimRetry()
                 return
             }
-            setCloseOnExec(descriptor)
 
-            try bindSocket(descriptor, to: path.path)
-            guard Darwin.listen(descriptor, AppConstants.Notifications.bridgeSocketBacklog) == 0 else {
-                notificationBridgeLogger.error("bridge socket listen failed errno=\(errno, privacy: .public)")
+            do {
+                setCloseOnExec(descriptor)
+                try bindSocket(descriptor, to: path.path)
+                guard Darwin.listen(descriptor, AppConstants.Notifications.bridgeSocketBacklog) == 0 else {
+                    notificationBridgeLogger.error("bridge socket listen failed errno=\(errno, privacy: .public)")
+                    Darwin.close(descriptor)
+                    scheduleBridgeClaimRetry()
+                    return
+                }
+            } catch {
                 Darwin.close(descriptor)
-                return
+                throw error
             }
+
             _ = Darwin.chmod(path.path, mode_t(AppConstants.Notifications.bridgeSocketPermissions))
             setSocketState(descriptor: descriptor, path: path)
             setenv(AppConstants.Notifications.bridgeSocketEnvironmentName, path.path, 1)
+            cancelBridgeClaimRetry()
             notificationBridgeLogger.info("bridge socket listening path=\(path.path, privacy: .public)")
             queue.async { [weak self] in
                 self?.acceptLoop(descriptor)
             }
         } catch {
             notificationBridgeLogger.error("bridge socket start failed error=\(String(describing: error), privacy: .public)")
+            scheduleBridgeClaimRetry()
         }
     }
 
     func stop() {
+        cancelBridgeClaimRetry()
         let previousState = clearSocketState()
         if previousState.descriptor >= 0 {
             Darwin.close(previousState.descriptor)
@@ -175,6 +197,40 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
         }
         setenv(AppConstants.Notifications.bridgeSocketEnvironmentName, path, 1)
         setenv(AppConstants.Notifications.bridgeCommandEnvironmentName, Bundle.main.executablePath ?? "", 1)
+    }
+
+    private func scheduleBridgeClaimRetry() {
+        stateLock.lock()
+        let hasTimer = claimRetryTimer != nil
+        stateLock.unlock()
+        guard !hasTimer else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now() + AppConstants.Notifications.bridgeClaimRetryIntervalSeconds,
+            repeating: AppConstants.Notifications.bridgeClaimRetryIntervalSeconds
+        )
+        timer.setEventHandler { [weak self] in
+            self?.claimBridgeSocketOrRetry()
+        }
+
+        stateLock.lock()
+        if claimRetryTimer == nil {
+            claimRetryTimer = timer
+            stateLock.unlock()
+            timer.resume()
+        } else {
+            stateLock.unlock()
+            timer.cancel()
+        }
+    }
+
+    private func cancelBridgeClaimRetry() {
+        stateLock.lock()
+        let timer = claimRetryTimer
+        claimRetryTimer = nil
+        stateLock.unlock()
+        timer?.cancel()
     }
 
     private func acceptLoop(_ descriptor: Int32) {
@@ -333,6 +389,15 @@ enum KurottyNotificationBridgeCommandLine {
                 try KurottyNotificationBridgeClient.send(text)
                 return true
             } catch {
+                do {
+                    let payload = try KurottyNotificationBridgePayload.fromIncomingText(text)
+                    if KurottyCommandLineNotificationFallback.deliver(payload) {
+                        notificationBridgeLogger.info("bridge client fallback delivered after error=\(String(describing: error), privacy: .public)")
+                        return true
+                    }
+                } catch {
+                    notificationBridgeLogger.error("bridge client fallback payload rejected error=\(String(describing: error), privacy: .public)")
+                }
                 fputs("kurotty notify failed: \(error)\n", stderr)
                 exit(1)
             }
@@ -348,6 +413,107 @@ enum KurottyNotificationBridgeCommandLine {
         default:
             return false
         }
+    }
+}
+
+private enum KurottyCommandLineNotificationFallback {
+    static func deliver(_ payload: KurottyNotificationBridgePayload) -> Bool {
+        if Bundle.main.bundleURL.pathExtension == "app", deliverUserNotification(payload) {
+            return true
+        }
+        return deliverAppleScriptNotification(payload)
+    }
+
+    private static func deliverUserNotification(_ payload: KurottyNotificationBridgePayload) -> Bool {
+        let result = NotificationFallbackResult()
+        let semaphore = DispatchSemaphore(value: 0)
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                notificationBridgeLogger.error("command-line fallback authorization failed error=\(error.localizedDescription, privacy: .public)")
+                result.set(false)
+                semaphore.signal()
+                return
+            }
+            guard granted else {
+                notificationBridgeLogger.error("command-line fallback authorization denied")
+                result.set(false)
+                semaphore.signal()
+                return
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = payload.title
+            content.subtitle = payload.subtitle
+            content.body = payload.body
+            content.categoryIdentifier = AppConstants.Notifications.categoryIdentifier
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: "\(AppConstants.Notifications.osc9IdentifierPrefix).bridge-fallback.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            center.add(request) { error in
+                if let error {
+                    notificationBridgeLogger.error("command-line fallback delivery failed error=\(error.localizedDescription, privacy: .public)")
+                    result.set(false)
+                } else {
+                    notificationBridgeLogger.info("command-line fallback delivered identifier=\(request.identifier, privacy: .public)")
+                    result.set(true)
+                }
+                semaphore.signal()
+            }
+        }
+
+        let timeout = DispatchTime.now() + .milliseconds(AppConstants.Notifications.commandLineNotificationTimeoutMS)
+        guard semaphore.wait(timeout: timeout) == .success else {
+            notificationBridgeLogger.error("command-line fallback delivery timed out")
+            return false
+        }
+        return result.get()
+    }
+
+    private static func deliverAppleScriptNotification(_ payload: KurottyNotificationBridgePayload) -> Bool {
+        var script = "display notification \(appleScriptString(payload.body)) with title \(appleScriptString(payload.title))"
+        if !payload.subtitle.isEmpty {
+            script += " subtitle \(appleScriptString(payload.subtitle))"
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: AppConstants.Notifications.developmentNotificationExecutablePath)
+        process.arguments = ["-e", script]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            notificationBridgeLogger.error("command-line applescript fallback failed error=\(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    private static func appleScriptString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+}
+
+private final class NotificationFallbackResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set(_ value: Bool) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+
+    func get() -> Bool {
+        lock.lock()
+        let value = self.value
+        lock.unlock()
+        return value
     }
 }
 

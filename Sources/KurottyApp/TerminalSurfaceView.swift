@@ -939,7 +939,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func textInputOverlayText() -> String {
-        guard hasMarkedText() else {
+        guard !committedMarkedTextPrefix.isEmpty else {
             return markedText.string
         }
         return committedMarkedTextPrefix + markedText.string
