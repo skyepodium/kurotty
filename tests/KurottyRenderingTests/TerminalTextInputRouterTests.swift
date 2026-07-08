@@ -117,7 +117,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertFalse(insertTextSource.contains("shouldRenderClearFrame"))
     }
 
-    func testCJKGlyphsRenderAcrossTheirTerminalCellWidth() throws {
+    func testCJKGlyphsKeepTerminalCellWidthWithoutStretchingBitmap() throws {
         let source = try terminalMetalViewSource()
         let appendGlyphSource = try sourceSlice(
             in: source,
@@ -125,11 +125,12 @@ final class TerminalTextInputRouterTests: XCTestCase {
             to: "private func diagnosticDirtyRectPixels"
         )
 
-        XCTAssertTrue(source.contains("private func glyphRenderPixelWidth(for character: Character, entry: GlyphAtlasEntry) -> Int"))
         XCTAssertTrue(source.contains("Self.isCJKGlyph(character)"))
-        XCTAssertTrue(appendGlyphSource.contains("let renderPixelWidth = glyphRenderPixelWidth(for: character, entry: entry)"))
-        XCTAssertTrue(appendGlyphSource.contains("width: CGFloat(renderPixelWidth)"))
-        XCTAssertTrue(appendGlyphSource.contains("size: SIMD2<Float>(Float(renderPixelWidth), Float(pixelSize.height))"))
+        XCTAssertTrue(source.contains("cellWidthPixels: canonicalMetrics.cellWidthPixels * columnWidth"))
+        XCTAssertTrue(appendGlyphSource.contains("width: CGFloat(pixelSize.width)"))
+        XCTAssertTrue(appendGlyphSource.contains("size: SIMD2<Float>(Float(pixelSize.width), Float(pixelSize.height))"))
+        XCTAssertFalse(source.contains("glyphRenderPixelWidth(for character: Character, entry: GlyphAtlasEntry)"))
+        XCTAssertFalse(source.contains("max(entry.pixelSize.width, entry.cellWidthPixels)"))
     }
 
     func testPromptInputViewNewlineCommandUsesTerminalKeyEncoder() throws {
@@ -140,8 +141,36 @@ final class TerminalTextInputRouterTests: XCTestCase {
         let encoderSource = try terminalKeyEncoderSource()
 
         XCTAssertTrue(doCommandSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
+        XCTAssertTrue(doCommandSource.contains("flushAccumulatedCommittedText()"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.insertNewline(_:)):\n            return \"\\r\""))
         XCTAssertFalse(encoderSource.contains("case #selector(NSResponder.insertNewline(_:)):\n            return \"\\n\""))
+    }
+
+    func testCommittedIMETextFlushesBeforeTerminalCommand() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let inputSource = try terminalInputViewSource()
+
+        let surfaceDoCommandSource = try sourceSlice(
+            in: surfaceSource,
+            from: "override func doCommand",
+            to: "func setMarkedText"
+        )
+        let inputDoCommandSource = try sourceSlice(
+            in: inputSource,
+            from: "override func doCommand",
+            to: "func setMarkedText"
+        )
+
+        let surfaceFlush = try XCTUnwrap(surfaceDoCommandSource.range(of: "flushAccumulatedCommittedText()"))
+        let surfaceSend = try XCTUnwrap(surfaceDoCommandSource.range(of: "send(sequence)"))
+        XCTAssertLessThan(surfaceFlush.lowerBound, surfaceSend.lowerBound)
+
+        let inputFlush = try XCTUnwrap(inputDoCommandSource.range(of: "flushAccumulatedCommittedText()"))
+        let inputFeed = try XCTUnwrap(inputDoCommandSource.range(of: "core.feed(sequence)"))
+        XCTAssertLessThan(inputFlush.lowerBound, inputFeed.lowerBound)
+
+        XCTAssertTrue(surfaceSource.contains("private func flushAccumulatedCommittedText() -> Bool"))
+        XCTAssertTrue(inputSource.contains("private func flushAccumulatedCommittedText() -> Bool"))
     }
 
     func testReturnUsesTerminalEnterAction() throws {
@@ -194,6 +223,24 @@ final class TerminalTextInputRouterTests: XCTestCase {
         ))
 
         XCTAssertFalse(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
+    }
+
+    @MainActor
+    func testPlainTextKeyWithHiddenCharactersStillUsesTextInputContext() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 2
+        ))
+
+        XCTAssertTrue(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
     }
 
     @MainActor

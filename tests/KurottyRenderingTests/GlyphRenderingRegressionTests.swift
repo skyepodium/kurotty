@@ -637,7 +637,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil\n        markDirty(row: cursorRow)"))
-        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            clearCommittedMarkedTextPrefix()\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
+        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            flushAccumulatedCommittedText()\n            clearCommittedMarkedTextPrefix()\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.deleteBackward(_:)):\n            return \"\\u{7f}\""))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
@@ -740,8 +740,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
             XCTAssertTrue(source.contains("sendCommittedText(text, source: \"keyTextAccumulator\")"))
             XCTAssertFalse(source.contains("TerminalTextInputRouter.consumePendingText"))
         }
-        XCTAssertFalse(routerSource.contains("inputContext?.handleEvent"))
+        XCTAssertTrue(routerSource.contains("view.inputContext?.handleEvent(event)"))
         XCTAssertTrue(routerSource.contains("view.interpretKeyEvents([event])"))
+        XCTAssertLessThan(
+            try XCTUnwrap(routerSource.range(of: "view.inputContext?.handleEvent(event)")).lowerBound,
+            try XCTUnwrap(routerSource.range(of: "view.interpretKeyEvents([event])")).lowerBound
+        )
+        XCTAssertTrue(routerSource.contains("static let textInputKeys: Set<UInt16>"))
+        XCTAssertTrue(routerSource.contains("return KeyCode.textInputKeys.contains(event.keyCode)"))
         XCTAssertTrue(routerSource.contains("if hasMarkedText {\n            return true\n        }"))
         XCTAssertTrue(routerSource.contains("flags.contains(.command) || flags.contains(.control)"))
         XCTAssertTrue(routerSource.contains("Kurotty input-client:"))
@@ -1158,9 +1164,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let screenSource = try terminalScreenSource()
 
         XCTAssertTrue(surfaceSource.contains("screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)"))
-        XCTAssertTrue(screenSource.contains("private mutating func clearWideCellIfNeeded(row: Int, column: Int, style: TerminalTextStyle)"))
-        XCTAssertTrue(screenSource.contains("guard cells[row][column].isContinuation else { return }"))
-        XCTAssertTrue(screenSource.contains("cells[row][column + 1] = TerminalScreenCell(style: style)"))
+        XCTAssertTrue(screenSource.contains("private func wideCellExpandedClearRange(row: Int, from start: Int, through end: Int) -> ClosedRange<Int>"))
+        XCTAssertTrue(screenSource.contains("let clearRange = wideCellExpandedClearRange(row: row, from: column, through: occupiedEnd)"))
+        XCTAssertTrue(screenSource.contains("let range = wideCellExpandedClearRange(row: row, from: lower, through: upper)"))
+        XCTAssertTrue(screenSource.contains("private func wideLeadColumn(row: Int, continuationColumn: Int) -> Int"))
+        XCTAssertTrue(screenSource.contains("private func wideEndColumn(row: Int, leadColumn: Int) -> Int"))
         XCTAssertFalse(screenSource.contains("if column > 0 && cells[row][column - 1].isContinuation"))
         XCTAssertTrue(screenSource.contains("let merged = String(cells[row][leadColumn].character) + String(character)"))
     }

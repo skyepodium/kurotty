@@ -1191,11 +1191,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let entry = glyphEntry(for: character)
         let cellOrigin = physicalPixelCellOrigin(column: column, row: row)
         let pixelSize = entry.pixelSize
-        let renderPixelWidth = glyphRenderPixelWidth(for: character, entry: entry)
         let glyphRect = CGRect(
             x: CGFloat(cellOrigin.x + entry.bearingXPixels),
             y: CGFloat(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels),
-            width: CGFloat(renderPixelWidth),
+            width: CGFloat(pixelSize.width),
             height: CGFloat(pixelSize.height)
         )
         let cellRect = CGRect(
@@ -1221,18 +1220,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         instances.append(GlyphInstance(
             origin: SIMD2<Float>(Float(cellOrigin.x + entry.bearingXPixels), Float(canonicalBaselinePixelY(forRow: row) - entry.bearingYPixels)),
-            size: SIMD2<Float>(Float(renderPixelWidth), Float(pixelSize.height)),
+            size: SIMD2<Float>(Float(pixelSize.width), Float(pixelSize.height)),
             uvOrigin: entry.uvOrigin,
             uvSize: entry.uvSize,
             color: color
         ))
-    }
-
-    private func glyphRenderPixelWidth(for character: Character, entry: GlyphAtlasEntry) -> Int {
-        guard Self.isCJKGlyph(character), character.terminalColumnWidth > 1 else {
-            return entry.pixelSize.width
-        }
-        return max(entry.pixelSize.width, entry.cellWidthPixels)
     }
 
     private func diagnosticDirtyRectPixels(for probeRect: CGRect) -> CGRect? {

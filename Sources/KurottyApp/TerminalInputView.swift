@@ -138,6 +138,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             resetMarkedTextForInputSourceChange()
         }
         if let sequence = TerminalKeyEncoder.sequence(for: selector) {
+            flushAccumulatedCommittedText()
             core.feed(sequence)
         }
     }
@@ -175,19 +176,28 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         let result = body()
         textInputEventDepth -= 1
         if textInputEventDepth == 0 {
-            let committedText = keyTextAccumulator ?? []
+            let didSendCommittedText = flushAccumulatedCommittedText()
             keyTextAccumulator = nil
-            for text in committedText where !text.isEmpty {
-                sendCommittedText(text, source: "keyTextAccumulator")
-            }
             if needsDeferredTextInputFrame {
                 needsDeferredTextInputFrame = false
-                if committedText.isEmpty || hasMarkedText() {
+                if !didSendCommittedText || hasMarkedText() {
                     requestTextInputRendererFrame()
                 }
             }
         }
         return result
+    }
+
+    @discardableResult
+    private func flushAccumulatedCommittedText() -> Bool {
+        guard let committedText = keyTextAccumulator else { return false }
+        keyTextAccumulator = []
+        var didSendCommittedText = false
+        for text in committedText where !text.isEmpty {
+            sendCommittedText(text, source: "keyTextAccumulator")
+            didSendCommittedText = true
+        }
+        return didSendCommittedText
     }
 
     private func requestTextInputRendererFrame() {

@@ -2,6 +2,12 @@ import AppKit
 
 enum TerminalTextInputRouter {
     private enum KeyCode {
+        static let textInputKeys: Set<UInt16> = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+            31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+            46, 47, 49, 50,
+        ]
         static let leftArrow: UInt16 = 123
         static let rightArrow: UInt16 = 124
         static let downArrow: UInt16 = 125
@@ -14,10 +20,18 @@ enum TerminalTextInputRouter {
             return false
         }
 
-        // NSTextInputContext owns IME composition; interpretKeyEvents is the
-        // NSTextInputClient path that delivers setMarkedText/insertText callbacks.
+        // NSTextInputContext owns IME composition; handleEvent lets AppKit/IMK
+        // commit active marked text before terminal control fallback runs.
+        if view.inputContext?.handleEvent(event) == true {
+            log("keyDown inputContext handled marked=\(hasMarkedText) event=\(describe(event))")
+            return true
+        }
+
+        // Some AppKit test/runtime contexts do not expose an input context.
+        // Keep the NSTextInputClient path as the fallback that delivers
+        // setMarkedText/insertText callbacks.
         view.interpretKeyEvents([event])
-        log("keyDown interpreted marked=\(hasMarkedText) event=\(describe(event))")
+        log("keyDown interpreted fallback marked=\(hasMarkedText) event=\(describe(event))")
         return true
     }
 
@@ -79,8 +93,12 @@ enum TerminalTextInputRouter {
             return false
         }
 
-        return !(event.characters ?? "").isEmpty ||
-            !(event.charactersIgnoringModifiers ?? "").isEmpty
+        if !(event.characters ?? "").isEmpty ||
+            !(event.charactersIgnoringModifiers ?? "").isEmpty {
+            return true
+        }
+
+        return KeyCode.textInputKeys.contains(event.keyCode)
     }
 
     private static func isNavigationCommandKey(_ event: NSEvent) -> Bool {
