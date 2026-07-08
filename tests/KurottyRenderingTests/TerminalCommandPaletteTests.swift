@@ -131,6 +131,34 @@ final class TerminalCommandPaletteTests: XCTestCase {
         XCTAssertEqual(palette.commandSpanResults(for: "rerun safely").first?.command.id, .replay)
     }
 
+    func testExecutableCommandSpanPaletteCommandsHideRowsWithoutRuntimeSupport() {
+        XCTAssertTrue(TerminalCommandSpanPaletteActions.executableCommands(for: nil).isEmpty)
+
+        let spanWithoutReplay = Self.span(id: 1, commandText: nil)
+        XCTAssertEqual(
+            TerminalCommandSpanPaletteActions.executableCommands(for: spanWithoutReplay).map(\.id),
+            [.copyReference]
+        )
+
+        let replayableSpan = Self.span(id: 2, commandText: "swift test")
+        XCTAssertEqual(
+            TerminalCommandSpanPaletteActions.executableCommands(for: replayableSpan).map(\.id),
+            [.copyReference, .replay]
+        )
+    }
+
+    func testCommandSpanLocatorIncludesStableBoundaryCoordinates() {
+        let span = Self.span(
+            id: 42,
+            startBoundarySequence: 10,
+            outputBoundarySequence: 12,
+            endBoundarySequence: 14,
+            commandText: "swift test"
+        )
+
+        XCTAssertEqual(span.locatorString, "kurotty-command-span://42?start=10&output=12&end=14")
+    }
+
     private static func command(
         id: TerminalWindowCommandID,
         title: String,
@@ -142,6 +170,25 @@ final class TerminalCommandPaletteTests: XCTestCase {
             category: category,
             shortcut: nil,
             action: .newTab
+        )
+    }
+
+    private static func span(
+        id: Int,
+        startBoundarySequence: Int = 1,
+        outputBoundarySequence: Int? = 2,
+        endBoundarySequence: Int? = 3,
+        commandText: String?
+    ) -> TerminalCommandSpan {
+        TerminalCommandSpan(
+            id: id,
+            cwd: "/repo",
+            startBoundarySequence: startBoundarySequence,
+            endBoundarySequence: endBoundarySequence,
+            exitCode: 0,
+            promptBoundarySequence: 0,
+            outputBoundarySequence: outputBoundarySequence,
+            commandText: commandText
         )
     }
 }

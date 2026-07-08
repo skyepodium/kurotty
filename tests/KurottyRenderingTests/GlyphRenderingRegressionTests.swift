@@ -589,15 +589,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let surfaceSource = try terminalSurfaceViewSource()
 
         XCTAssertTrue(frameSource.contains("let markedTextColumn: Int"))
-        XCTAssertTrue(source.contains("var column = terminalFrame.markedTextColumn"))
-        XCTAssertTrue(surfaceSource.contains("private func renderedMarkedTextPosition(visibleStartRow: Int) -> TerminalCellPosition?"))
-        XCTAssertTrue(surfaceSource.contains("let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow)"))
+        XCTAssertTrue(frameSource.contains("public struct TerminalPreeditRenderRange: Equatable, Sendable"))
+        XCTAssertTrue(frameSource.contains("public var markedTextRenderRange: TerminalPreeditRenderRange?"))
+        XCTAssertTrue(source.contains("private func markedTextRenderPlan()"))
+        XCTAssertTrue(source.contains("var column = markedTextPlan.range.startColumn"))
+        XCTAssertTrue(surfaceSource.contains("private func renderedMarkedTextPosition(visibleStartRow: Int, compositionText: String) -> TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("let compositionText = textInputOverlayText()"))
+        XCTAssertTrue(surfaceSource.contains("let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow, compositionText: compositionText)"))
         XCTAssertTrue(surfaceSource.contains("let contentRow = scrollbackRows.count + anchor.row"))
         XCTAssertTrue(surfaceSource.contains("row: contentRow - visibleStartRow"))
         XCTAssertTrue(surfaceSource.contains("let displayCursorColumn = markedTextPosition?.column ?? cursorColumn"))
         XCTAssertTrue(surfaceSource.contains("markedTextColumn: displayCursorColumn"))
-        XCTAssertTrue(surfaceSource.contains("cursorColumn: min(displayCursorColumn + markedText.string.terminalColumnWidth"))
+        XCTAssertTrue(surfaceSource.contains("cursorColumn: min(displayCursorColumn + compositionText.terminalColumnWidth"))
         XCTAssertFalse(source.contains("terminalFrame.cursorColumn - terminalColumnWidth(of: terminalFrame.markedText)"))
+        XCTAssertFalse(source.contains("var column = terminalFrame.markedTextColumn"))
     }
 
     func testMarkedTextMasksOnlyCompositionCells() throws {
@@ -605,9 +610,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("private func isCellCoveredByMarkedText(_ cell: TerminalCell) -> Bool"))
         XCTAssertTrue(source.contains("guard !isCellCoveredByMarkedText(cell) else { continue }"))
-        XCTAssertTrue(source.contains("let markedTextEndColumn = min(\n            terminalFrame.columns,\n            terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)\n        )"))
-        XCTAssertTrue(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<markedTextEndColumn"))
+        XCTAssertTrue(source.contains("let markedTextRange = terminalFrame.markedTextRenderRange?.cellRange"))
         XCTAssertFalse(source.contains("let markedTextRange = terminalFrame.markedTextColumn..<terminalFrame.columns"))
+        XCTAssertFalse(source.contains("terminalFrame.markedTextColumn + terminalColumnWidth(of: terminalFrame.markedText)"))
         XCTAssertTrue(source.contains("return cellRange.overlaps(markedTextRange)"))
     }
 
@@ -621,22 +626,85 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(frameSource.contains("let markedTextSelectedRange: TerminalTextSelectionRange"))
         XCTAssertTrue(source.contains("markedTextColor(for: character, utf16Offset: utf16Offset)"))
         XCTAssertTrue(source.contains("Self.intersects(characterRange, terminalFrame.markedTextSelectedRange)"))
-        XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: .none"))
+        XCTAssertTrue(surfaceSource.contains("markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix)"))
         XCTAssertTrue(surfaceSource.contains("private var markedTextAnchor: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("private var pendingMarkedTextAnchor: TerminalCellPosition?"))
+        XCTAssertTrue(surfaceSource.contains("private var committedMarkedTextPrefix = \"\""))
+        XCTAssertTrue(surfaceSource.contains("private var committedMarkedTextPrefixAnchor: TerminalCellPosition?"))
         XCTAssertTrue(surfaceSource.contains("private func markMarkedTextDirty()"))
         XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)"))
         XCTAssertTrue(surfaceSource.contains("private func advancedTerminalPosition(from position: TerminalCellPosition, by text: String) -> TerminalCellPosition"))
         XCTAssertTrue(surfaceSource.contains("markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil\n        markDirty(row: cursorRow)"))
-        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
+        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            clearCommittedMarkedTextPrefix()\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.deleteBackward(_:)):\n            return \"\\u{7f}\""))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
-        XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)\n        unmarkText()\n        guard !text.isEmpty else { return }\n        TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")\n        send(text)"))
+        XCTAssertTrue(surfaceSource.contains("recordPendingMarkedTextAnchor(afterCommitting: text)\n        clearMarkedText(renderFrame: false)\n        guard !text.isEmpty else { return }"))
         XCTAssertFalse(surfaceSource.contains("appendMarkedTextSelectionBackgrounds(to: &backgrounds)"))
         XCTAssertFalse(surfaceSource.contains("private func selectedMarkedTextRange()"))
+    }
+
+    func testMarkedTextFramesAreCoalescedDuringKeyDownLikeGhostty() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        let metalSource = try terminalMetalViewSource()
+        let keyDownSource = try sourceSlice(
+            in: surfaceSource,
+            from: "override func keyDown(with event: NSEvent)",
+            to: "override func performKeyEquivalent"
+        )
+        let setMarkedTextSource = try sourceSlice(
+            in: surfaceSource,
+            from: "func setMarkedText",
+            to: "func unmarkText"
+        )
+        let insertTextSource = try sourceSlice(
+            in: surfaceSource,
+            from: "func insertText",
+            to: "override func doCommand"
+        )
+
+        XCTAssertTrue(surfaceSource.contains("private var textInputEventDepth = 0"))
+        XCTAssertTrue(surfaceSource.contains("private var needsDeferredTextInputFrame = false"))
+        XCTAssertTrue(surfaceSource.contains("private var isTextInputRendererFrameScheduled = false"))
+        XCTAssertTrue(surfaceSource.contains("private var keyTextAccumulator: [String]?"))
+        XCTAssertTrue(surfaceSource.contains("private func performTextInputTransaction<Result>(_ body: () -> Result) -> Result"))
+        XCTAssertTrue(surfaceSource.contains("private func requestTextInputRendererFrame()"))
+        XCTAssertTrue(surfaceSource.contains("DispatchQueue.main.async"))
+        XCTAssertTrue(surfaceSource.contains("sendCommittedText(text, source: \"keyTextAccumulator\")"))
+        XCTAssertTrue(keyDownSource.contains("performTextInputTransaction"))
+        XCTAssertTrue(setMarkedTextSource.contains("guard !attr.string.isEmpty else"))
+        XCTAssertTrue(setMarkedTextSource.contains("requestTextInputRendererFrame()"))
+        XCTAssertFalse(setMarkedTextSource.contains("updateRendererFrame()"))
+        XCTAssertTrue(insertTextSource.contains("if var committedText = keyTextAccumulator"))
+        XCTAssertTrue(insertTextSource.contains("committedText.append(text)"))
+        XCTAssertTrue(insertTextSource.contains("clearMarkedText(renderFrame: false)"))
+        XCTAssertFalse(insertTextSource.contains("clearMarkedText(renderFrame: shouldRenderClearFrame)"))
+        XCTAssertFalse(insertTextSource.contains("unmarkText()"))
+        XCTAssertTrue(metalSource.contains("private var markedTextCursorColumn: Int?"))
+        XCTAssertTrue(metalSource.contains("range.cursorColumn(in: terminalFrame.markedText"))
+    }
+
+    func testCommandPaletteWiresExecutableCommandSpanActionsToActiveSurface() throws {
+        let appDelegateSource = try appDelegateSource()
+        let windowSource = try terminalWindowControllerSource()
+        let splitSource = try splitTerminalViewSource()
+        let paneSource = try terminalPaneViewSource()
+        let surfaceSource = try terminalSurfaceViewSource()
+
+        XCTAssertTrue(appDelegateSource.contains("TerminalCommandSpanPaletteActions.registryForPalette"))
+        XCTAssertTrue(appDelegateSource.contains("commandSpanExecutor: { [weak terminalController] command in"))
+        XCTAssertTrue(windowSource.contains("func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand]"))
+        XCTAssertTrue(windowSource.contains("func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool"))
+        XCTAssertTrue(splitSource.contains("func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand]"))
+        XCTAssertTrue(splitSource.contains("func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool"))
+        XCTAssertTrue(paneSource.contains("func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand]"))
+        XCTAssertTrue(paneSource.contains("func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand]"))
+        XCTAssertTrue(surfaceSource.contains("func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool"))
+        XCTAssertTrue(surfaceSource.contains("copyCommandSpanReference(span.locatorString)"))
+        XCTAssertTrue(surfaceSource.contains("sendText(\"\\(candidate.commandText)\\n\")"))
     }
 
     func testCommittedTextUsesOnlyConfirmedIMETextBeforePtySend() throws {
@@ -665,12 +733,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let routerSource = try terminalTextInputRouterSource()
 
         for source in [surfaceSource, inputSource] {
-            XCTAssertTrue(source.contains("if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {\n            return\n        }\n        if handleTerminalControlKey(event)"))
+            XCTAssertTrue(source.contains("if performTextInputTransaction({\n            TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText())\n        }) {\n            return\n        }\n        if handleTerminalControlKey(event)"))
             XCTAssertTrue(source.contains("TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)"))
-            XCTAssertTrue(source.contains("TerminalTextInputRouter.logPTYWrite(text, source: \"insertText\")"))
+            XCTAssertTrue(source.contains("sendCommittedText(text, source: \"insertText\")"))
+            XCTAssertTrue(source.contains("sendCommittedText(text, source: \"keyTextAccumulator\")"))
             XCTAssertFalse(source.contains("TerminalTextInputRouter.consumePendingText"))
         }
-        XCTAssertTrue(routerSource.contains("if view.inputContext?.handleEvent(event) == true"))
+        XCTAssertFalse(routerSource.contains("inputContext?.handleEvent"))
         XCTAssertTrue(routerSource.contains("view.interpretKeyEvents([event])"))
         XCTAssertTrue(routerSource.contains("if hasMarkedText {\n            return true\n        }"))
         XCTAssertTrue(routerSource.contains("flags.contains(.command) || flags.contains(.control)"))
@@ -788,9 +857,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testGlyphAtlasUsesFontFallbackForPromptSymbols() throws {
         let source = try terminalMetalViewSource()
         XCTAssertTrue(source.contains("private static let glyphFallbackFontNames"))
+        XCTAssertTrue(source.contains("private static let cjkGlyphFallbackFontNames"))
         XCTAssertTrue(source.contains("private func scaledFont(for character: Character, scale: CGFloat) -> CTFont"))
         XCTAssertTrue(source.contains("CTFontCreateForString"))
         XCTAssertTrue(source.contains("fontSupports(character"))
+        XCTAssertTrue(source.contains("isCJKGlyph(character) ? Self.cjkGlyphFallbackFontNames + Self.glyphFallbackFontNames"))
+        XCTAssertTrue(source.contains("\"Apple SD Gothic Neo\""))
+        XCTAssertTrue(source.contains("\"AppleGothic\""))
         XCTAssertTrue(source.contains("Symbols Nerd Font Mono"))
         XCTAssertTrue(source.contains("MesloLGS NF"))
     }
@@ -2129,7 +2202,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(notifierSource.contains("shellExitSuccessBody"))
         XCTAssertFalse(notifierSource.contains("func notifyCodexTaskCompleted"))
         XCTAssertFalse(notifierSource.contains("Session \\(sessionTitle): \\(trimmedPrompt)"))
-        XCTAssertTrue(notifierSource.contains("content.interruptionLevel = .active"))
+        XCTAssertTrue(notifierSource.contains("content.interruptionLevel = .timeSensitive"))
         XCTAssertFalse(notifierSource.contains("guard !NSApp.isActive"))
         XCTAssertTrue(notifierSource.contains("willPresent notification: UNNotification"))
         XCTAssertTrue(notifierSource.contains("will present identifier="))
@@ -2869,6 +2942,12 @@ private func terminalTextInputRouterSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalTextInputRouter.swift")
     return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func sourceSlice(in source: String, from startPattern: String, to endPattern: String) throws -> Substring {
+    let start = try XCTUnwrap(source.range(of: startPattern))
+    let end = try XCTUnwrap(source.range(of: endPattern, range: start.upperBound..<source.endIndex))
+    return source[start.lowerBound..<end.lowerBound]
 }
 
 private func terminalKeyEncoderSource() throws -> String {

@@ -6,6 +6,10 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     private let core: any TerminalCore
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
+    private var textInputEventDepth = 0
+    private var needsDeferredTextInputFrame = false
+    private var isTextInputRendererFrameScheduled = false
+    private var keyTextAccumulator: [String]?
 
     init(core: any TerminalCore) {
         self.core = core
@@ -28,13 +32,17 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
-        if TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText()) {
+        if performTextInputTransaction({
+            TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText())
+        }) {
             return
         }
         if handleTerminalControlKey(event) {
             return
         }
-        interpretKeyEvents([event])
+        performTextInputTransaction {
+            interpretKeyEvents([event])
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -115,10 +123,15 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
-        unmarkText()
+        let shouldRenderClearFrame = keyTextAccumulator == nil
+        clearMarkedText(renderFrame: shouldRenderClearFrame)
         guard !text.isEmpty else { return }
-        TerminalTextInputRouter.logPTYWrite(text, source: "insertText")
-        core.feed(text)
+        if var committedText = keyTextAccumulator {
+            committedText.append(text)
+            keyTextAccumulator = committedText
+        } else {
+            sendCommittedText(text, source: "insertText")
+        }
     }
 
     override func doCommand(by selector: Selector) {
@@ -133,16 +146,72 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let attr = string as? NSAttributedString ?? NSAttributedString(string: string as? String ?? "")
         TerminalTextInputRouter.logMarkedText(attr.string, selectedRange: selectedRange, replacementRange: replacementRange)
+        guard !attr.string.isEmpty else {
+            clearMarkedText(renderFrame: true)
+            return
+        }
         markedText = NSMutableAttributedString(attributedString: attr)
         self.inputSelectedRange = selectedRange
-        needsDisplay = true
+        requestTextInputRendererFrame()
     }
 
     func unmarkText() {
         TerminalTextInputRouter.logUnmarkText()
+        clearMarkedText(renderFrame: true)
+    }
+
+    private func clearMarkedText(renderFrame: Bool) {
         markedText = NSMutableAttributedString()
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
-        needsDisplay = true
+        if renderFrame {
+            requestTextInputRendererFrame()
+        }
+    }
+
+    private func performTextInputTransaction<Result>(_ body: () -> Result) -> Result {
+        textInputEventDepth += 1
+        if textInputEventDepth == 1 {
+            keyTextAccumulator = []
+        }
+        let result = body()
+        textInputEventDepth -= 1
+        if textInputEventDepth == 0 {
+            let committedText = keyTextAccumulator ?? []
+            keyTextAccumulator = nil
+            for text in committedText where !text.isEmpty {
+                sendCommittedText(text, source: "keyTextAccumulator")
+            }
+            if needsDeferredTextInputFrame {
+                needsDeferredTextInputFrame = false
+                if committedText.isEmpty || hasMarkedText() {
+                    requestTextInputRendererFrame()
+                }
+            }
+        }
+        return result
+    }
+
+    private func requestTextInputRendererFrame() {
+        if textInputEventDepth > 0 {
+            needsDeferredTextInputFrame = true
+            return
+        }
+        guard !isTextInputRendererFrameScheduled else {
+            return
+        }
+        isTextInputRendererFrameScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isTextInputRendererFrameScheduled = false
+                self.needsDisplay = true
+            }
+        }
+    }
+
+    private func sendCommittedText(_ text: String, source: String) {
+        TerminalTextInputRouter.logPTYWrite(text, source: source)
+        core.feed(text)
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }

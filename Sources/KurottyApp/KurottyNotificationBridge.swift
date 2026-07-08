@@ -128,6 +128,10 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
         do {
             _ = try KurottyNotificationBridgeSocketLocation.ensureSocketDirectoryExists()
             let path = try KurottyNotificationBridgeSocketLocation.defaultSocketPath()
+            if KurottyNotificationBridgeSocketProbe.isReachable(path: path.path) {
+                notificationBridgeLogger.info("bridge socket already active path=\(path.path, privacy: .public)")
+                return
+            }
             try? FileManager.default.removeItem(at: path)
 
             let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -202,6 +206,9 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
                 break
             }
         }
+        guard !data.isEmpty else {
+            return
+        }
         guard let text = String(data: data, encoding: .utf8) else {
             notificationBridgeLogger.error("bridge payload is not utf8 bytes=\(data.count, privacy: .public)")
             return
@@ -242,6 +249,23 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
         let descriptor = socketDescriptor
         stateLock.unlock()
         return descriptor
+    }
+}
+
+enum KurottyNotificationBridgeSocketProbe {
+    static func isReachable(path: String) -> Bool {
+        let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            return false
+        }
+        defer { Darwin.close(descriptor) }
+
+        do {
+            try connectSocket(descriptor, to: path)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

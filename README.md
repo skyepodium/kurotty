@@ -58,10 +58,16 @@ When Kurotty launches a shell it exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NO
 For Codex/OMX task-completion alerts, configure Codex's top-level `notify` entry to use Kurotty's wrapper. The wrapper reads the explicit Codex notify payload, sends it through Kurotty's bridge, then chains to the normal OMX notify hook so existing OMX behavior still runs:
 
 ```toml
-notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/path/to/kurotty/scripts/kurotty-codex-notify.mjs"]
+notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/Applications/kurotty.app/Contents/Resources/kurotty-codex-notify.mjs"]
 ```
 
-This path works even when the active Codex working directory is not an OMX-managed repo. Do not replace it with `/dev/tty`, `/dev/ttys*`, parent-TTY guessing, or rendered-screen scraping.
+If another notification wrapper also needs to run, keep Kurotty first and pass the other command as `--previous-notify`. Kurotty posts immediately, then invokes the chained command with the same Codex payload:
+
+```toml
+notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/Applications/kurotty.app/Contents/Resources/kurotty-codex-notify.mjs", "--previous-notify", "[\"/path/to/other-notify\", \"turn-ended\"]"]
+```
+
+The installed wrapper path works even when the active Codex working directory is not an OMX-managed repo or a Kurotty checkout. Do not replace it with `/dev/tty`, `/dev/ttys*`, parent-TTY guessing, or rendered-screen scraping.
 
 ## Build From Source
 

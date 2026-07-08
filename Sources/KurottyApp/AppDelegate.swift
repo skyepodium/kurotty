@@ -64,12 +64,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let controller = CommandPaletteWindowController { [weak terminalController] command in
-            guard let terminalController else {
-                return
+        let registry = TerminalCommandSpanPaletteActions.registryForPalette(
+            commandSpanCommands: terminalController.commandSpanPaletteCommands()
+        )
+        let palette = TerminalCommandPalette(registry: registry, includesCommandSpanCommands: true)
+        let controller = CommandPaletteWindowController(
+            palette: palette,
+            commandExecutor: { [weak terminalController] command in
+                guard let terminalController else {
+                    return
+                }
+                TerminalCommandDispatcher.execute(command, on: terminalController)
+            },
+            commandSpanExecutor: { [weak terminalController] command in
+                guard let terminalController else {
+                    return false
+                }
+                return terminalController.executeCommandSpanPaletteCommand(command)
             }
-            TerminalCommandDispatcher.execute(command, on: terminalController)
-        }
+        )
         commandPaletteController = controller
         controller.showWindow(nil)
     }

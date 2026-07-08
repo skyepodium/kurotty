@@ -103,6 +103,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.sendTextToActivePane(text)
     }
 
+    func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
+        currentSplitView()?.commandSpanPaletteCommands() ?? []
+    }
+
+    func executeCommandSpanPaletteCommand(_ command: TerminalCommandSpanCommand) -> Bool {
+        currentSplitView()?.executeCommandSpanPaletteCommand(command) ?? false
+    }
+
     func showSearch() {
         currentSplitView()?.focusFirstPane()
     }

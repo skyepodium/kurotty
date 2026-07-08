@@ -36,7 +36,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
         let setMarkedTextStart = try XCTUnwrap(source.range(of: "func setMarkedText"))
         let unmarkTextStart = try XCTUnwrap(source.range(of: "func unmarkText"))
         let setMarkedTextSource = source[setMarkedTextStart.lowerBound..<unmarkTextStart.lowerBound]
-        XCTAssertTrue(setMarkedTextSource.contains("needsDisplay = true"))
+        XCTAssertTrue(setMarkedTextSource.contains("requestTextInputRendererFrame()"))
     }
 
     func testTerminalSurfaceMarkedTextDoesNotSendToPtyOrCoreBeforeCommit() throws {
@@ -54,14 +54,68 @@ final class TerminalTextInputRouterTests: XCTestCase {
 
         XCTAssertTrue(setMarkedTextSource.contains("markedText = NSMutableAttributedString(attributedString: attr)"))
         XCTAssertTrue(setMarkedTextSource.contains("inputSelectedRange = selectedRange"))
-        XCTAssertTrue(setMarkedTextSource.contains("updateRendererFrame()"))
+        XCTAssertTrue(setMarkedTextSource.contains("requestTextInputRendererFrame()"))
+        XCTAssertFalse(setMarkedTextSource.contains("updateRendererFrame()"))
         XCTAssertFalse(setMarkedTextSource.contains("send("))
         XCTAssertFalse(setMarkedTextSource.contains("shell.write"))
         XCTAssertFalse(setMarkedTextSource.contains("core.feed"))
 
-        XCTAssertTrue(insertTextSource.contains("unmarkText()"))
+        XCTAssertTrue(insertTextSource.contains("clearMarkedText(renderFrame: false)"))
         XCTAssertTrue(insertTextSource.contains("guard !text.isEmpty else { return }"))
-        XCTAssertTrue(insertTextSource.contains("send(text)"))
+        XCTAssertTrue(insertTextSource.contains("sendCommittedText(text, source: \"insertText\")"))
+    }
+
+    func testTerminalSurfaceCommitDoesNotRenderBlankMarkedTextFrameBeforeEcho() throws {
+        let source = try terminalSurfaceViewSource()
+        let insertTextSource = try sourceSlice(
+            in: source,
+            from: "func insertText",
+            to: "override func doCommand"
+        )
+
+        XCTAssertFalse(insertTextSource.contains("clearMarkedText(renderFrame: shouldRenderClearFrame)"))
+        XCTAssertTrue(insertTextSource.contains("clearMarkedText(renderFrame: false)"))
+    }
+
+    func testTerminalSurfaceKeepsCommittedIMEPrefixVisibleUntilEchoWhenCompositionContinues() throws {
+        let source = try terminalSurfaceViewSource()
+        let insertTextSource = try sourceSlice(
+            in: source,
+            from: "func insertText",
+            to: "override func doCommand"
+        )
+        let frameSource = try sourceSlice(
+            in: source,
+            from: "private func updateRendererFrame()",
+            to: "private func renderedMarkedTextPosition"
+        )
+        let outputSource = try sourceSlice(
+            in: source,
+            from: "private func appendOutput(_ text: String)",
+            to: "private func beginOutputRuntimeEventBatch"
+        )
+
+        XCTAssertTrue(source.contains("private var committedMarkedTextPrefix = \"\""))
+        XCTAssertTrue(source.contains("private var committedMarkedTextPrefixAnchor: TerminalCellPosition?"))
+        XCTAssertTrue(insertTextSource.contains("appendCommittedMarkedTextPrefix(text)"))
+        XCTAssertTrue(frameSource.contains("let compositionText = textInputOverlayText()"))
+        XCTAssertTrue(frameSource.contains("markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix)"))
+        XCTAssertTrue(outputSource.contains("clearCommittedMarkedTextPrefix()"))
+    }
+
+    func testCJKGlyphsRenderAcrossTheirTerminalCellWidth() throws {
+        let source = try terminalMetalViewSource()
+        let appendGlyphSource = try sourceSlice(
+            in: source,
+            from: "private func appendGlyphInstance",
+            to: "private func diagnosticDirtyRectPixels"
+        )
+
+        XCTAssertTrue(source.contains("private func glyphRenderPixelWidth(for character: Character, entry: GlyphAtlasEntry) -> Int"))
+        XCTAssertTrue(source.contains("Self.isCJKGlyph(character)"))
+        XCTAssertTrue(appendGlyphSource.contains("let renderPixelWidth = glyphRenderPixelWidth(for: character, entry: entry)"))
+        XCTAssertTrue(appendGlyphSource.contains("width: CGFloat(renderPixelWidth)"))
+        XCTAssertTrue(appendGlyphSource.contains("size: SIMD2<Float>(Float(renderPixelWidth), Float(pixelSize.height))"))
     }
 
     func testPromptInputViewNewlineCommandUsesTerminalKeyEncoder() throws {
@@ -302,6 +356,12 @@ final class TerminalTextInputRouterTests: XCTestCase {
     private func terminalSurfaceViewSource() throws -> String {
         let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+        return try String(contentsOf: path, encoding: .utf8)
+    }
+
+    private func terminalMetalViewSource() throws -> String {
+        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
         return try String(contentsOf: path, encoding: .utf8)
     }
 

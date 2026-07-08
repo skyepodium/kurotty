@@ -14,16 +14,10 @@ enum TerminalTextInputRouter {
             return false
         }
 
-        // NSTextInputContext owns IME composition. Offering text events here
-        // first keeps input-source switches inside AppKit's IME lifecycle instead
-        // of leaking Korean intermediate jamo as committed terminal input.
-        if view.inputContext?.handleEvent(event) == true {
-            log("keyDown inputContext marked=\(hasMarkedText) event=\(describe(event))")
-            return true
-        }
-
+        // NSTextInputContext owns IME composition; interpretKeyEvents is the
+        // NSTextInputClient path that delivers setMarkedText/insertText callbacks.
         view.interpretKeyEvents([event])
-        log("keyDown interpreted fallback marked=\(hasMarkedText) event=\(describe(event))")
+        log("keyDown interpreted marked=\(hasMarkedText) event=\(describe(event))")
         return true
     }
 
