@@ -446,6 +446,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         true
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     var rendererView: NSView { self }
 
     init(

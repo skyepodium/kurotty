@@ -37,7 +37,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var cursorBlinkTimer: Timer?
     private var isUsingAlternateScreen = false
     private var bracketedPasteEnabled = false
+    private var mouseReportingState = TerminalMouseReportingState()
+    private var pressedMouseButton: TerminalMouseButton?
     private var currentStyle: TerminalTextStyle
+    private var activeHyperlinkURL: String?
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var oscBuffer = ""
@@ -224,6 +227,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if reportTerminalMouseEvent(.press(.left), with: event) {
+            pressedMouseButton = .left
+            return
+        }
         let position = cellPosition(for: event)
         if let link = linkRange(at: position) {
             clearSelection()
@@ -243,6 +250,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        if reportTerminalMouseEvent(.move, with: event) {
+            return
+        }
+        if mouseReportingState.isEnabled, !event.modifierFlags.contains(.shift) {
+            setHoveredLinkRange(nil)
+            return
+        }
         updateHoveredLinkRange(with: event)
     }
 
@@ -256,14 +270,85 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let pressedMouseButton {
+            if reportTerminalMouseEvent(.drag(pressedMouseButton), with: event) {
+                return
+            }
+            if mouseReportingState.isEnabled, !event.modifierFlags.contains(.shift) {
+                return
+            }
+        }
         updateSelectionFocus(with: event, autoscroll: true)
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let pressedMouseButton {
+            self.pressedMouseButton = nil
+            if reportTerminalMouseEvent(.release(pressedMouseButton), with: event) {
+                return
+            }
+        }
         updateSelectionFocus(with: event, autoscroll: false)
     }
 
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        if reportTerminalMouseEvent(.press(.right), with: event) {
+            pressedMouseButton = .right
+        } else {
+            super.rightMouseDown(with: event)
+        }
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        if reportTerminalMouseEvent(.drag(.right), with: event) {
+            return
+        }
+        if mouseReportingState.isEnabled, !event.modifierFlags.contains(.shift) {
+            return
+        }
+        super.rightMouseDragged(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        pressedMouseButton = nil
+        if reportTerminalMouseEvent(.release(.right), with: event) {
+            return
+        }
+        super.rightMouseUp(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        if reportTerminalMouseEvent(.press(.middle), with: event) {
+            pressedMouseButton = .middle
+        } else {
+            super.otherMouseDown(with: event)
+        }
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        if reportTerminalMouseEvent(.drag(.middle), with: event) {
+            return
+        }
+        if mouseReportingState.isEnabled, !event.modifierFlags.contains(.shift) {
+            return
+        }
+        super.otherMouseDragged(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        pressedMouseButton = nil
+        if reportTerminalMouseEvent(.release(.middle), with: event) {
+            return
+        }
+        super.otherMouseUp(with: event)
+    }
+
     override func scrollWheel(with event: NSEvent) {
+        if reportTerminalMouseWheel(with: event) {
+            return
+        }
         let lineDelta = max(1, Int(abs(event.scrollingDeltaY) / 8))
         let maxOffset = maxScrollbackOffset()
         let previousOffset = scrollbackOffset
@@ -808,52 +893,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         color: SIMD4<Float>,
         to decorations: inout [TerminalDecoration]
     ) -> Bool {
-        let rect: (x: Double, y: Double, width: Double, height: Double)
-        switch character {
-        case "█":
-            rect = (0, 0, 1, 1)
-        case "▉":
-            rect = (0, 0, 7.0 / 8.0, 1)
-        case "▊":
-            rect = (0, 0, 6.0 / 8.0, 1)
-        case "▋":
-            rect = (0, 0, 5.0 / 8.0, 1)
-        case "▌":
-            rect = (0, 0, 0.5, 1)
-        case "▍":
-            rect = (0, 0, 3.0 / 8.0, 1)
-        case "▎":
-            rect = (0, 0, 2.0 / 8.0, 1)
-        case "▏":
-            rect = (0, 0, 1.0 / 8.0, 1)
-        case "▐":
-            rect = (0.5, 0, 0.5, 1)
-        case "▀":
-            rect = (0, 0.5, 1, 0.5)
-        case "▄":
-            rect = (0, 0, 1, 0.5)
-        case "▁":
-            rect = (0, 0, 1, 1.0 / 8.0)
-        case "▂":
-            rect = (0, 0, 1, 2.0 / 8.0)
-        case "▃":
-            rect = (0, 0, 1, 3.0 / 8.0)
-        case "▅":
-            rect = (0, 0, 1, 5.0 / 8.0)
-        case "▆":
-            rect = (0, 0, 1, 6.0 / 8.0)
-        case "▇":
-            rect = (0, 0, 1, 7.0 / 8.0)
-        default:
+        guard let rects = TerminalBlockElementGeometry.rects(for: character) else {
             return false
         }
-        decorations.append(TerminalDecoration(
-            column: column,
-            row: row,
-            width: 1,
-            kind: .blockElement(x: rect.x, y: rect.y, width: rect.width, height: rect.height),
-            color: color
-        ))
+        for rect in rects {
+            decorations.append(TerminalDecoration(
+                column: column,
+                row: row,
+                width: 1,
+                kind: .blockElement(x: rect.x, y: rect.y, width: rect.width, height: rect.height),
+                color: color
+            ))
+        }
         return true
     }
 
@@ -1103,6 +1154,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
         send(text, recordsUserActivity: false)
+    }
+
+    private func sendTerminalMouseSequence(_ text: String) {
+        clearSelection()
+        followLiveOutputForUserInput()
+        shell.write(text)
     }
 
     private func recordUserInput(_ text: String) {
@@ -1469,6 +1526,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func cellPosition(for event: NSEvent) -> TerminalCellPosition {
+        let visiblePosition = visibleCellPosition(for: event)
+        let maxContentRow = max(0, contentRowCount - 1)
+        let row = min(maxContentRow, visibleRowStartIndex(limit: terminalMetrics().size.rows) + visiblePosition.row)
+        return TerminalCellPosition(row: row, column: visiblePosition.column)
+    }
+
+    private func visibleCellPosition(for event: NSEvent) -> TerminalCellPosition {
         let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
         let cellWidth = CGFloat(metrics.cellSize.width)
@@ -1477,9 +1541,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rawRow = Int(floor((bounds.height - location.y - padding.top) / cellHeight))
         let column = max(0, min(metrics.size.columns - 1, rawColumn))
         let visibleRow = max(0, min(metrics.size.rows - 1, rawRow))
-        let maxContentRow = max(0, contentRowCount - 1)
-        let row = min(maxContentRow, visibleRowStartIndex(limit: metrics.size.rows) + visibleRow)
-        return TerminalCellPosition(row: row, column: column)
+        return TerminalCellPosition(row: visibleRow, column: column)
     }
 
     private func extendKeyboardSelection(rowDelta: Int, columnDelta: Int) {
@@ -1525,6 +1587,48 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func updateHoveredLinkRange(with event: NSEvent) {
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
+    }
+
+    private func reportTerminalMouseWheel(with event: NSEvent) -> Bool {
+        guard mouseReportingState.isEnabled,
+              !event.modifierFlags.contains(.shift),
+              event.scrollingDeltaY != 0 else {
+            return false
+        }
+        let kind: TerminalMouseEventKind = event.scrollingDeltaY > 0 ? .wheelUp : .wheelDown
+        return reportTerminalMouseEvent(kind, with: event)
+    }
+
+    private func reportTerminalMouseEvent(_ kind: TerminalMouseEventKind, with event: NSEvent) -> Bool {
+        guard mouseReportingState.isEnabled, !event.modifierFlags.contains(.shift) else {
+            return false
+        }
+        let position = visibleCellPosition(for: event)
+        guard let sequence = TerminalMouseEventEncoder.sequence(
+            for: kind,
+            column: position.column,
+            row: position.row,
+            modifiers: terminalMouseModifiers(for: event),
+            reportingState: mouseReportingState
+        ) else {
+            return false
+        }
+        sendTerminalMouseSequence(sequence)
+        return true
+    }
+
+    private func terminalMouseModifiers(for event: NSEvent) -> TerminalMouseModifiers {
+        var modifiers: TerminalMouseModifiers = []
+        if event.modifierFlags.contains(.shift) {
+            modifiers.insert(.shift)
+        }
+        if event.modifierFlags.contains(.option) {
+            modifiers.insert(.option)
+        }
+        if event.modifierFlags.contains(.control) {
+            modifiers.insert(.control)
+        }
+        return modifiers
     }
 
     private func setHoveredLinkRange(_ nextRange: TerminalLinkRange?) {
@@ -1816,7 +1920,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 carriageReturnLineFeed()
             }
 
-            screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)
+            screen.set(
+                character: character,
+                row: cursorRow,
+                column: cursorColumn,
+                width: width,
+                style: currentStyle,
+                linkURL: activeHyperlinkURL
+            )
             markDirty(row: cursorRow)
             cursorColumn += width
         }
@@ -2022,6 +2133,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 currentWorkingDirectory = path
             }
             publishTitle()
+        case "8":
+            applyHyperlinkControl(payload)
         case "9":
             notifyItermOsc9(payload)
         case "777":
@@ -2031,6 +2144,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
 
         handleTerminalIntegrationEvent(integrationEvent)
+    }
+
+    private func applyHyperlinkControl(_ payload: String) {
+        switch TerminalHyperlinkControl.update(fromOSC8Payload: payload) {
+        case .activate(let urlString):
+            activeHyperlinkURL = urlString
+        case .clear:
+            activeHyperlinkURL = nil
+        case .ignore:
+            break
+        }
     }
 
     private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
@@ -2266,6 +2390,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             case 2004:
                 bracketedPasteEnabled = enabled
+            case 1000, 1002, 1003, 1006:
+                mouseReportingState.set(decPrivateMode: value, enabled: enabled)
             default:
                 break
             }
@@ -2360,7 +2486,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorColumn = 0
         cursorVisible = true
         bracketedPasteEnabled = false
+        mouseReportingState.reset()
+        pressedMouseButton = nil
         currentStyle = terminalDefaultStyle
+        activeHyperlinkURL = nil
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
         resetScrollRegion()
