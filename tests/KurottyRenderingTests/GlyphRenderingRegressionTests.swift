@@ -576,7 +576,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testPrintableWritesReplacePreviousCellStyleInsteadOfPreservingPromptFragments() throws {
         let surfaceSource = try terminalSurfaceViewSource()
 
-        XCTAssertTrue(surfaceSource.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
+        XCTAssertTrue(surfaceSource.contains("style: currentStyle,\n                linkURL: activeHyperlinkURL"))
         XCTAssertFalse(surfaceSource.contains("styleForPrintableWrite"))
         XCTAssertFalse(surfaceSource.contains("existingPersistentBackground"))
         XCTAssertFalse(surfaceSource.contains("shouldPreserveExistingBackground"))
@@ -1021,7 +1021,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("case \"D\":\n            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))"))
         XCTAssertTrue(source.contains("case \"G\", \"`\":\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))"))
         XCTAssertTrue(source.contains("case \"H\", \"f\":\n            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))"))
-        XCTAssertTrue(source.contains("screen.set(character: character, row: cursorRow, column: cursorColumn, width: width, style: currentStyle)"))
+        XCTAssertTrue(source.contains("style: currentStyle,\n                linkURL: activeHyperlinkURL"))
         XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            cursorColumn += width"))
         XCTAssertFalse(source.contains("screen.insertCharacters(row: cursorRow, column: cursorColumn, count: width"))
     }
@@ -1283,7 +1283,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func visibleRowStartIndex(limit: Int) -> Int"))
         XCTAssertTrue(source.contains("let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)"))
         XCTAssertTrue(source.contains("let position = TerminalCellPosition(row: visibleStartRow + row, column: column)"))
-        XCTAssertTrue(source.contains("visibleRowStartIndex(limit: metrics.size.rows) + visibleRow"))
+        XCTAssertTrue(source.contains("private func visibleCellPosition(for event: NSEvent) -> TerminalCellPosition"))
+        XCTAssertTrue(source.contains("visibleRowStartIndex(limit: terminalMetrics().size.rows) + visiblePosition.row"))
         XCTAssertFalse(source.contains("let position = TerminalCellPosition(row: row, column: column)"))
     }
 
@@ -2031,6 +2032,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
         XCTAssertFalse(surfaceSource.contains("guard event.modifierFlags.contains(.command) else"))
         XCTAssertFalse(surfaceSource.contains("event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
+        XCTAssertTrue(surfaceSource.contains("if reportTerminalMouseEvent(.press(.left), with: event)"))
+        XCTAssertTrue(surfaceSource.contains("mouseReportingState.set(decPrivateMode: value, enabled: enabled)"))
+        XCTAssertTrue(surfaceSource.contains("!event.modifierFlags.contains(.shift)"))
         XCTAssertTrue(surfaceSource.contains("if let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("TerminalLinkRange.findAll(in: sourceRow, row: row)"))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))

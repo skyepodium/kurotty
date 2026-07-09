@@ -63,7 +63,14 @@ public struct TerminalScreen: Sendable {
         }
     }
 
-    public mutating func set(character: Character, row: Int, column: Int, width: Int, style: TerminalTextStyle = .default) {
+    public mutating func set(
+        character: Character,
+        row: Int,
+        column: Int,
+        width: Int,
+        style: TerminalTextStyle = .default,
+        linkURL: String? = nil
+    ) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let occupiedEnd = min(columns - 1, column + max(1, width) - 1)
@@ -71,9 +78,9 @@ public struct TerminalScreen: Sendable {
         for clearColumn in clearRange {
             cells[row][clearColumn] = TerminalScreenCell(style: style)
         }
-        cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style)
+        cells[row][column] = TerminalScreenCell(character: character, isContinuation: false, style: style, linkURL: linkURL)
         if width == 2 && column + 1 < columns {
-            cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style)
+            cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style, linkURL: linkURL)
         }
     }
 
@@ -118,7 +125,8 @@ public struct TerminalScreen: Sendable {
                 row: row,
                 column: column + offset,
                 width: 1,
-                style: source.style
+                style: source.style,
+                linkURL: source.linkURL
             )
         }
         return writableCount
@@ -359,11 +367,18 @@ public struct TerminalScreenCell: Equatable, Sendable {
     public var character: Character
     public var isContinuation: Bool
     public var style: TerminalTextStyle
+    public var linkURL: String?
 
-    public init(character: Character = " ", isContinuation: Bool = false, style: TerminalTextStyle = .default) {
+    public init(
+        character: Character = " ",
+        isContinuation: Bool = false,
+        style: TerminalTextStyle = .default,
+        linkURL: String? = nil
+    ) {
         self.character = character
         self.isContinuation = isContinuation
         self.style = style
+        self.linkURL = linkURL
     }
 }
 

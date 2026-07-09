@@ -39,6 +39,60 @@ final class KurottyCodexNotifyScriptTests: XCTestCase {
         XCTAssertTrue(log.contains("Session dev #1: 안녕하세요. 무엇을 도와드릴까요?"))
     }
 
+    func testCodexNotifyScriptDryRunHandlesNestedOmxTurnCompletePayload() throws {
+        let node = try nodeExecutableURL()
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-codex-notify-nested-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let payload = """
+        {"event":"turn-complete","context":{"projectPath":"/Users/example/kurotty","last_assistant_message":"Nested OMX payload finished."}}
+        """
+        let process = Process()
+        process.executableURL = node
+        process.arguments = [scriptURL().path, payload]
+        process.environment = [
+            "KUROTTY_NOTIFY_DRY_RUN": "1",
+            "KUROTTY_NOTIFY_CHAIN_OMX": "0",
+            "KUROTTY_CODEX_NOTIFY_LOG_PATH": logURL.path,
+        ]
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(log.contains("kurotty_notify_dry_run"))
+        XCTAssertTrue(log.contains("Session kurotty #1: Nested OMX payload finished."))
+    }
+
+    func testCodexNotifyScriptDryRunHandlesNeedsInputQuestionPayload() throws {
+        let node = try nodeExecutableURL()
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-codex-notify-question-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let payload = """
+        {"event":"needs-input","context":{"cwd":"/Users/example/dev/terminal","question":"Allow notification diagnostic command?"}}
+        """
+        let process = Process()
+        process.executableURL = node
+        process.arguments = [scriptURL().path, payload]
+        process.environment = [
+            "KUROTTY_NOTIFY_DRY_RUN": "1",
+            "KUROTTY_NOTIFY_CHAIN_OMX": "0",
+            "KUROTTY_CODEX_NOTIFY_LOG_PATH": logURL.path,
+        ]
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(log.contains("kurotty_notify_dry_run"))
+        XCTAssertTrue(log.contains("Session terminal #1: Allow notification diagnostic command?"))
+    }
+
     func testInstalledAppBundlesCodexNotifyWrapperAtStableResourcePath() throws {
         let installSource = try repositoryFile("scripts/install-app.sh")
         let packageSource = try repositoryFile("scripts/package-release.sh")

@@ -44,14 +44,21 @@ struct TerminalLinkRange: Equatable {
     static func findAll(in cells: [TerminalScreenCell], row: Int) -> [TerminalLinkRange] {
         var text = ""
         var columnsByCharacterOffset: [Int] = []
+        var linkURLsByCharacterOffset: [String?] = []
         for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
             text.append(cell.character)
             columnsByCharacterOffset.append(cellColumn)
+            linkURLsByCharacterOffset.append(cell.linkURL)
         }
         guard !text.isEmpty else { return [] }
 
         let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        var ranges: [TerminalLinkRange] = []
+        var ranges = explicitLinkRanges(
+            cells: cells,
+            row: row,
+            columnsByCharacterOffset: columnsByCharacterOffset,
+            linkURLsByCharacterOffset: linkURLsByCharacterOffset
+        )
         for match in linkRegex.matches(in: text, range: searchRange) {
             guard let textRange = Range(match.range, in: text) else { continue }
             var urlString = String(text[textRange])
@@ -70,13 +77,19 @@ struct TerminalLinkRange: Equatable {
             }
 
             let startColumn = columnsByCharacterOffset[startOffset]
-            let endColumn = columnsByCharacterOffset[endOffset - 1] + 1
-            ranges.append(TerminalLinkRange(
+            let endColumn = linkEndColumn(
+                cells: cells,
+                columnsByCharacterOffset: columnsByCharacterOffset,
+                endOffset: endOffset
+            )
+            let range = TerminalLinkRange(
                 row: row,
                 startColumn: startColumn,
                 endColumn: endColumn,
                 urlString: urlString
-            ))
+            )
+            guard !ranges.contains(where: { $0.overlaps(range) }) else { continue }
+            ranges.append(range)
         }
         return ranges
     }
@@ -84,6 +97,331 @@ struct TerminalLinkRange: Equatable {
     static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
         findAll(in: cells, row: row).first { link in
             link.contains(row: row, column: column)
+        }
+    }
+
+    private static func explicitLinkRanges(
+        cells: [TerminalScreenCell],
+        row: Int,
+        columnsByCharacterOffset: [Int],
+        linkURLsByCharacterOffset: [String?]
+    ) -> [TerminalLinkRange] {
+        var ranges: [TerminalLinkRange] = []
+        var offset = 0
+        while offset < linkURLsByCharacterOffset.count {
+            guard let urlString = linkURLsByCharacterOffset[offset], !urlString.isEmpty else {
+                offset += 1
+                continue
+            }
+
+            let startOffset = offset
+            offset += 1
+            while offset < linkURLsByCharacterOffset.count && linkURLsByCharacterOffset[offset] == urlString {
+                offset += 1
+            }
+
+            let endOffset = offset
+            let startColumn = columnsByCharacterOffset[startOffset]
+            ranges.append(TerminalLinkRange(
+                row: row,
+                startColumn: startColumn,
+                endColumn: linkEndColumn(
+                    cells: cells,
+                    columnsByCharacterOffset: columnsByCharacterOffset,
+                    endOffset: endOffset
+                ),
+                urlString: urlString
+            ))
+        }
+        return ranges
+    }
+
+    private static func linkEndColumn(
+        cells: [TerminalScreenCell],
+        columnsByCharacterOffset: [Int],
+        endOffset: Int
+    ) -> Int {
+        let endLeadColumn = columnsByCharacterOffset[endOffset - 1]
+        let endWidth = max(1, cells[endLeadColumn].character.terminalColumnWidth)
+        return endLeadColumn + endWidth
+    }
+
+    private func overlaps(_ other: TerminalLinkRange) -> Bool {
+        row == other.row && startColumn < other.endColumn && other.startColumn < endColumn
+    }
+}
+
+enum TerminalHyperlinkControl: Equatable {
+    case activate(String)
+    case clear
+    case ignore
+
+    static func update(fromOSC8Payload payload: String) -> TerminalHyperlinkControl {
+        let parts = payload.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            return .ignore
+        }
+
+        let urlString = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !urlString.isEmpty else {
+            return .clear
+        }
+        return .activate(urlString)
+    }
+}
+
+enum TerminalMouseButton: Int, Equatable {
+    case left = 0
+    case middle = 1
+    case right = 2
+}
+
+enum TerminalMouseTrackingMode: Equatable {
+    case none
+    case normal
+    case buttonMotion
+    case anyMotion
+}
+
+struct TerminalMouseModifiers: OptionSet, Equatable {
+    let rawValue: Int
+
+    static let shift = TerminalMouseModifiers(rawValue: 1 << 0)
+    static let option = TerminalMouseModifiers(rawValue: 1 << 1)
+    static let control = TerminalMouseModifiers(rawValue: 1 << 2)
+
+    var xtermButtonCodeOffset: Int {
+        var offset = 0
+        if contains(.shift) {
+            offset += 4
+        }
+        if contains(.option) {
+            offset += 8
+        }
+        if contains(.control) {
+            offset += 16
+        }
+        return offset
+    }
+}
+
+struct TerminalMouseReportingState: Equatable {
+    private var normalTracking = false
+    private var buttonMotionTracking = false
+    private var anyMotionTracking = false
+    var usesSGRExtendedCoordinates = false
+
+    var trackingMode: TerminalMouseTrackingMode {
+        if anyMotionTracking {
+            return .anyMotion
+        }
+        if buttonMotionTracking {
+            return .buttonMotion
+        }
+        if normalTracking {
+            return .normal
+        }
+        return .none
+    }
+
+    var isEnabled: Bool {
+        trackingMode != .none
+    }
+
+    mutating func set(decPrivateMode mode: Int, enabled: Bool) {
+        switch mode {
+        case 1000:
+            normalTracking = enabled
+        case 1002:
+            buttonMotionTracking = enabled
+        case 1003:
+            anyMotionTracking = enabled
+        case 1006:
+            usesSGRExtendedCoordinates = enabled
+        default:
+            break
+        }
+    }
+
+    mutating func reset() {
+        normalTracking = false
+        buttonMotionTracking = false
+        anyMotionTracking = false
+        usesSGRExtendedCoordinates = false
+    }
+}
+
+enum TerminalMouseEventKind: Equatable {
+    case press(TerminalMouseButton)
+    case release(TerminalMouseButton)
+    case drag(TerminalMouseButton)
+    case move
+    case wheelUp
+    case wheelDown
+}
+
+enum TerminalMouseEventEncoder {
+    static func sequence(
+        for kind: TerminalMouseEventKind,
+        column: Int,
+        row: Int,
+        modifiers: TerminalMouseModifiers,
+        reportingState: TerminalMouseReportingState
+    ) -> String? {
+        guard column >= 0, row >= 0, shouldReport(kind, state: reportingState) else {
+            return nil
+        }
+
+        let buttonCode = baseButtonCode(for: kind) + modifiers.xtermButtonCodeOffset
+        let x = column + 1
+        let y = row + 1
+        if reportingState.usesSGRExtendedCoordinates {
+            let final = isRelease(kind) ? "m" : "M"
+            return "\u{1b}[<\(buttonCode);\(x);\(y)\(final)"
+        }
+
+        let legacyButtonCode = legacyBaseButtonCode(for: kind) + modifiers.xtermButtonCodeOffset
+        guard legacyButtonCode <= 223, x <= 223, y <= 223,
+              let encodedButton = legacyScalarString(legacyButtonCode + 32),
+              let encodedX = legacyScalarString(x + 32),
+              let encodedY = legacyScalarString(y + 32) else {
+            return nil
+        }
+        return "\u{1b}[M\(encodedButton)\(encodedX)\(encodedY)"
+    }
+
+    private static func shouldReport(_ kind: TerminalMouseEventKind, state: TerminalMouseReportingState) -> Bool {
+        switch kind {
+        case .press, .release, .wheelUp, .wheelDown:
+            return state.isEnabled
+        case .drag:
+            return state.trackingMode == .buttonMotion || state.trackingMode == .anyMotion
+        case .move:
+            return state.trackingMode == .anyMotion
+        }
+    }
+
+    private static func baseButtonCode(for kind: TerminalMouseEventKind) -> Int {
+        switch kind {
+        case .press(let button), .release(let button):
+            return button.rawValue
+        case .drag(let button):
+            return 32 + button.rawValue
+        case .move:
+            return 35
+        case .wheelUp:
+            return 64
+        case .wheelDown:
+            return 65
+        }
+    }
+
+    private static func legacyBaseButtonCode(for kind: TerminalMouseEventKind) -> Int {
+        if case .release = kind {
+            return 3
+        }
+        return baseButtonCode(for: kind)
+    }
+
+    private static func isRelease(_ kind: TerminalMouseEventKind) -> Bool {
+        if case .release = kind {
+            return true
+        }
+        return false
+    }
+
+    private static func legacyScalarString(_ value: Int) -> String? {
+        guard let scalar = UnicodeScalar(UInt32(value)) else {
+            return nil
+        }
+        return String(Character(scalar))
+    }
+}
+
+struct TerminalBlockElementRect: Equatable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
+enum TerminalBlockElementGeometry {
+    static func rects(for character: Character) -> [TerminalBlockElementRect]? {
+        switch character {
+        case "█":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 1)]
+        case "▉":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 7.0 / 8.0, height: 1)]
+        case "▊":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 6.0 / 8.0, height: 1)]
+        case "▋":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 5.0 / 8.0, height: 1)]
+        case "▌":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 0.5, height: 1)]
+        case "▍":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 3.0 / 8.0, height: 1)]
+        case "▎":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 2.0 / 8.0, height: 1)]
+        case "▏":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1.0 / 8.0, height: 1)]
+        case "▐":
+            return [TerminalBlockElementRect(x: 0.5, y: 0, width: 0.5, height: 1)]
+        case "▀":
+            return [TerminalBlockElementRect(x: 0, y: 0.5, width: 1, height: 0.5)]
+        case "▄":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 0.5)]
+        case "▁":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 1.0 / 8.0)]
+        case "▂":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 2.0 / 8.0)]
+        case "▃":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 3.0 / 8.0)]
+        case "▅":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 5.0 / 8.0)]
+        case "▆":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 6.0 / 8.0)]
+        case "▇":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 7.0 / 8.0)]
+        case "▖":
+            return [TerminalBlockElementRect(x: 0, y: 0, width: 0.5, height: 0.5)]
+        case "▗":
+            return [TerminalBlockElementRect(x: 0.5, y: 0, width: 0.5, height: 0.5)]
+        case "▘":
+            return [TerminalBlockElementRect(x: 0, y: 0.5, width: 0.5, height: 0.5)]
+        case "▝":
+            return [TerminalBlockElementRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)]
+        case "▙":
+            return [
+                TerminalBlockElementRect(x: 0, y: 0.5, width: 0.5, height: 0.5),
+                TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 0.5),
+            ]
+        case "▚":
+            return [
+                TerminalBlockElementRect(x: 0, y: 0.5, width: 0.5, height: 0.5),
+                TerminalBlockElementRect(x: 0.5, y: 0, width: 0.5, height: 0.5),
+            ]
+        case "▛":
+            return [
+                TerminalBlockElementRect(x: 0, y: 0.5, width: 1, height: 0.5),
+                TerminalBlockElementRect(x: 0, y: 0, width: 0.5, height: 0.5),
+            ]
+        case "▜":
+            return [
+                TerminalBlockElementRect(x: 0, y: 0.5, width: 1, height: 0.5),
+                TerminalBlockElementRect(x: 0.5, y: 0, width: 0.5, height: 0.5),
+            ]
+        case "▞":
+            return [
+                TerminalBlockElementRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5),
+                TerminalBlockElementRect(x: 0, y: 0, width: 0.5, height: 0.5),
+            ]
+        case "▟":
+            return [
+                TerminalBlockElementRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5),
+                TerminalBlockElementRect(x: 0, y: 0, width: 1, height: 0.5),
+            ]
+        default:
+            return nil
         }
     }
 }
