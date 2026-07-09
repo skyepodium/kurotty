@@ -51,6 +51,31 @@ function parsePayload(rawPayload) {
   }
 }
 
+function objectValue(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function payloadScopes(payload) {
+  const scopes = [payload];
+  for (const key of ['context', 'payload', 'data']) {
+    const nested = objectValue(payload[key]);
+    if (nested) scopes.push(nested);
+  }
+  const contextPayload = objectValue(objectValue(payload.context)?.payload);
+  if (contextPayload) scopes.push(contextPayload);
+  return scopes;
+}
+
+function valuesForKeys(scopes, keys) {
+  const values = [];
+  for (const scope of scopes) {
+    for (const key of keys) {
+      values.push(scope[key]);
+    }
+  }
+  return values;
+}
+
 function parseArguments(argv) {
   const previousNotifyCommands = [];
   let rawPayload = '';
@@ -87,28 +112,45 @@ function parsePreviousNotifyCommand(value) {
 }
 
 function shouldNotify(payload) {
-  const type = safeString(payload.type || '').trim().toLowerCase();
-  return type === '' || type === 'agent-turn-complete' || type === 'turn-complete';
+  const type = safeString(payload.type || payload.event || '').trim().toLowerCase();
+  return type === ''
+    || type === 'agent-turn-complete'
+    || type === 'turn-complete'
+    || type === 'needs-input'
+    || type === 'ask-user-question';
 }
 
 function notificationBody(payload) {
-  return firstText(
-    payload['last-assistant-message'],
-    payload.last_assistant_message,
-    payload.lastAssistantMessage,
-    payload.output_preview,
-    payload.outputPreview,
-    payload.body,
-    payload.message,
-    payload.summary,
-    payload.text
-  );
+  return firstText(...valuesForKeys(payloadScopes(payload), [
+    'last-assistant-message',
+    'last_assistant_message',
+    'lastAssistantMessage',
+    'output_preview',
+    'outputPreview',
+    'body',
+    'message',
+    'summary',
+    'text',
+    'question',
+    'prompt',
+    'instruction',
+  ]));
 }
 
 function projectName(payload) {
-  const explicit = firstText(payload.session_name, payload.project_name, payload.projectName);
+  const scopes = payloadScopes(payload);
+  const explicit = firstText(...valuesForKeys(scopes, [
+    'session_name',
+    'project_name',
+    'projectName',
+    'tmuxSession',
+  ]));
   if (explicit) return explicit;
-  const cwd = firstText(payload.cwd, payload.project_path, payload.projectPath);
+  const cwd = firstText(...valuesForKeys(scopes, [
+    'cwd',
+    'project_path',
+    'projectPath',
+  ]));
   if (!cwd) return 'codex';
   return cwd.split(/[\\/]+/).filter(Boolean).at(-1) || 'codex';
 }
