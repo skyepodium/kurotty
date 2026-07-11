@@ -20,6 +20,11 @@ enum AppConstants {
         static let sparkleDebugUpdatesEnvironmentName = "KUROTTY_DEBUG_UPDATES"
         static let sparkleDebugUpdatesArgument = "--debug-updates"
 
+        static var currentVersion: String {
+            nonEmpty(Foundation.Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+                ?? developmentVersion
+        }
+
         static func displayVersion(bundle: Foundation.Bundle = .main) -> String {
             let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
@@ -63,6 +68,7 @@ enum AppConstants {
     enum Shell {
         static let term = "xterm-256color"
         static let colorTerm = "truecolor"
+        static let termProgram = "Kurotty"
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
         static let childExecFailureStatusCode: Int32 = 127
         static let signalExitStatusBase: Int32 = 128
@@ -126,12 +132,18 @@ enum AppConstants {
         static let categoryIdentifier = "dev.kurotty.terminal"
         static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
         static let osc777IdentifierPrefix = "dev.kurotty.terminal.osc777"
+        static let osc1337IdentifierPrefix = "dev.kurotty.terminal.osc1337"
+        static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"
+        static let activityCompletionIdentifierPrefix = "dev.kurotty.terminal.activity-completion"
         static let commandCompletionIdentifierPrefix = "dev.kurotty.terminal.command-completion"
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
         static let terminalAlertTitle = "Alert"
         static let commandFinishedTitle = "Command finished"
         static let commandFailedTitle = "Command failed"
+        static let defaultProgramTitle = "Terminal"
+        static let defaultDirectoryTitle = "Session"
+        static let activityFinishedFallbackBody = "Task finished"
         static let testBody = "Kurotty test notification."
         static let commandInputCaptureMaxCharacters = 4096
         static let commandSummaryMaxCharacters = 180
@@ -145,7 +157,9 @@ enum AppConstants {
         static let bridgeSocketPermissions = 0o600
         static let bridgeSocketDirectoryPermissions = 0o700
         static let bridgeClaimRetryIntervalSeconds: TimeInterval = 1
-        static let commandLineNotificationTimeoutMS = 2_000
+        static let activityCompletionQuietIntervalSeconds: TimeInterval = 1.5
+        static let activityCompletionMinimumOutputBytes = 16
+        static let activityResultMaxCharacters = 240
     }
 
     enum Diagnostics {

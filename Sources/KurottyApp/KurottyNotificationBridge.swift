@@ -1,12 +1,12 @@
 import Darwin
 import Foundation
 import os
-@preconcurrency import UserNotifications
 
 private let notificationBridgeLogger = Logger(subsystem: "dev.kurotty.app", category: "notifications")
 
 enum KurottyNotificationBridgeError: Error, Equatable {
     case emptyPayload
+    case unsupportedVersion(Int)
     case socketPathTooLong
     case socketUnavailable
     case sendFailed
@@ -42,7 +42,29 @@ struct KurottyNotificationBridgeSocketLocation {
     }
 }
 
+struct KurottyNotificationBridgeEnvironment {
+    static func shellEnvironment(
+        executablePath: String? = Bundle.main.executablePath,
+        socketPath: String? = try? KurottyNotificationBridgeSocketLocation.defaultSocketPath().path
+    ) -> [String: String] {
+        guard let executablePath, !executablePath.isEmpty,
+              let socketPath, !socketPath.isEmpty else {
+            return [:]
+        }
+        return [
+            AppConstants.Notifications.bridgeCommandEnvironmentName: executablePath,
+            AppConstants.Notifications.bridgeSocketEnvironmentName: socketPath,
+        ]
+    }
+}
+
 struct KurottyNotificationBridgePayload: Equatable {
+    static let currentVersion = 1
+
+    let version: Int
+    let event: String?
+    let sessionID: String?
+    let durationMilliseconds: Int?
     let title: String
     let subtitle: String
     let body: String
@@ -54,43 +76,68 @@ struct KurottyNotificationBridgePayload: Equatable {
         }
 
         if let object = jsonObject(from: trimmed) {
+            let version = object["version"] as? Int ?? currentVersion
+            guard version == currentVersion else {
+                throw KurottyNotificationBridgeError.unsupportedVersion(version)
+            }
             let title = firstNonEmptyValue(in: object, keys: ["title"])
                 ?? AppConstants.Notifications.terminalAlertTitle
             let subtitle = firstNonEmptyValue(in: object, keys: ["subtitle"]) ?? ""
-            let body = firstNonEmptyValue(
+            guard let body = firstNonEmptyValue(
                 in: object,
                 keys: [
                     "body",
                     "message",
-                    "output_preview",
-                    "outputPreview",
-                    "last-assistant-message",
-                    "last_assistant_message",
-                    "lastAssistantMessage",
                     "text",
-                    "tmuxTail",
-                    "tmux_tail",
                     "summary",
-                    "instruction",
                 ]
-            ) ?? trimmed
-            return try KurottyNotificationBridgePayload(title: title, subtitle: subtitle, body: body)
+            ) else {
+                throw KurottyNotificationBridgeError.emptyPayload
+            }
+            return try KurottyNotificationBridgePayload(
+                version: version,
+                event: firstNonEmptyValue(in: object, keys: ["event"]),
+                sessionID: firstNonEmptyValue(in: object, keys: ["session_id", "sessionId"]),
+                durationMilliseconds: integerValue(in: object, keys: ["duration_ms", "durationMilliseconds"]),
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
         }
 
         return try KurottyNotificationBridgePayload(
+            version: currentVersion,
+            event: nil,
+            sessionID: nil,
+            durationMilliseconds: nil,
             title: AppConstants.Notifications.terminalAlertTitle,
             subtitle: "",
             body: trimmed
         )
     }
 
-    init(title: String, subtitle: String, body: String) throws {
+    init(
+        version: Int = currentVersion,
+        event: String? = nil,
+        sessionID: String? = nil,
+        durationMilliseconds: Int? = nil,
+        title: String,
+        subtitle: String,
+        body: String
+    ) throws {
+        guard version == Self.currentVersion else {
+            throw KurottyNotificationBridgeError.unsupportedVersion(version)
+        }
         let normalizedTitle = TerminalNotificationPayload.body(fromExplicitPayload: title)
             ?? AppConstants.Notifications.terminalAlertTitle
         let normalizedSubtitle = TerminalNotificationPayload.body(fromExplicitPayload: subtitle) ?? ""
         guard let normalizedBody = TerminalNotificationPayload.body(fromExplicitPayload: body) else {
             throw KurottyNotificationBridgeError.emptyPayload
         }
+        self.version = version
+        self.event = event.flatMap(TerminalNotificationPayload.body(fromExplicitPayload:))
+        self.sessionID = sessionID.flatMap(TerminalNotificationPayload.body(fromExplicitPayload:))
+        self.durationMilliseconds = durationMilliseconds.map { max(0, $0) }
         self.title = normalizedTitle
         self.subtitle = normalizedSubtitle
         self.body = normalizedBody
@@ -112,6 +159,15 @@ struct KurottyNotificationBridgePayload: Equatable {
                 if !trimmed.isEmpty {
                     return trimmed
                 }
+            }
+        }
+        return nil
+    }
+
+    private static func integerValue(in object: [String: Any], keys: [String]) -> Int? {
+        for key in keys {
+            if let value = object[key] as? Int {
+                return value
             }
         }
         return nil
@@ -192,11 +248,9 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
     }
 
     private func installEnvironment() {
-        guard let path = try? KurottyNotificationBridgeSocketLocation.defaultSocketPath().path else {
-            return
+        for (key, value) in KurottyNotificationBridgeEnvironment.shellEnvironment() {
+            setenv(key, value, 1)
         }
-        setenv(AppConstants.Notifications.bridgeSocketEnvironmentName, path, 1)
-        setenv(AppConstants.Notifications.bridgeCommandEnvironmentName, Bundle.main.executablePath ?? "", 1)
     }
 
     private func scheduleBridgeClaimRetry() {
@@ -273,11 +327,7 @@ final class KurottyNotificationBridgeServer: @unchecked Sendable {
             let payload = try KurottyNotificationBridgePayload.fromIncomingText(text)
             notificationBridgeLogger.info("bridge payload received titleChars=\(payload.title.count, privacy: .public) bodyChars=\(payload.body.count, privacy: .public)")
             Task { @MainActor in
-                TerminalNotifier.shared.notifyBridgeNotification(
-                    title: payload.title,
-                    subtitle: payload.subtitle,
-                    body: payload.body
-                )
+                TerminalNotifier.shared.notifyBridgeNotification(payload)
             }
         } catch {
             notificationBridgeLogger.error("bridge payload rejected error=\(String(describing: error), privacy: .public)")
@@ -346,12 +396,16 @@ enum KurottyNotificationBridgeClient {
         try sendAll(encoded, to: descriptor)
     }
 
-    private static func encode(payload: KurottyNotificationBridgePayload) throws -> Data {
-        let object = [
+    static func encode(payload: KurottyNotificationBridgePayload) throws -> Data {
+        var object: [String: Any] = [
+            "version": payload.version,
             "title": payload.title,
             "subtitle": payload.subtitle,
             "body": payload.body,
         ]
+        object["event"] = payload.event
+        object["session_id"] = payload.sessionID
+        object["duration_ms"] = payload.durationMilliseconds
         var data = try JSONSerialization.data(withJSONObject: object)
         data.append(10)
         return data
@@ -389,15 +443,6 @@ enum KurottyNotificationBridgeCommandLine {
                 try KurottyNotificationBridgeClient.send(text)
                 return true
             } catch {
-                do {
-                    let payload = try KurottyNotificationBridgePayload.fromIncomingText(text)
-                    if KurottyCommandLineNotificationFallback.deliver(payload) {
-                        notificationBridgeLogger.info("bridge client fallback delivered after error=\(String(describing: error), privacy: .public)")
-                        return true
-                    }
-                } catch {
-                    notificationBridgeLogger.error("bridge client fallback payload rejected error=\(String(describing: error), privacy: .public)")
-                }
                 fputs("kurotty notify failed: \(error)\n", stderr)
                 exit(1)
             }
@@ -413,107 +458,6 @@ enum KurottyNotificationBridgeCommandLine {
         default:
             return false
         }
-    }
-}
-
-private enum KurottyCommandLineNotificationFallback {
-    static func deliver(_ payload: KurottyNotificationBridgePayload) -> Bool {
-        if Bundle.main.bundleURL.pathExtension == "app", deliverUserNotification(payload) {
-            return true
-        }
-        return deliverAppleScriptNotification(payload)
-    }
-
-    private static func deliverUserNotification(_ payload: KurottyNotificationBridgePayload) -> Bool {
-        let result = NotificationFallbackResult()
-        let semaphore = DispatchSemaphore(value: 0)
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                notificationBridgeLogger.error("command-line fallback authorization failed error=\(error.localizedDescription, privacy: .public)")
-                result.set(false)
-                semaphore.signal()
-                return
-            }
-            guard granted else {
-                notificationBridgeLogger.error("command-line fallback authorization denied")
-                result.set(false)
-                semaphore.signal()
-                return
-            }
-
-            let content = UNMutableNotificationContent()
-            content.title = payload.title
-            content.subtitle = payload.subtitle
-            content.body = payload.body
-            content.categoryIdentifier = AppConstants.Notifications.categoryIdentifier
-            content.sound = .default
-            let request = UNNotificationRequest(
-                identifier: "\(AppConstants.Notifications.osc9IdentifierPrefix).bridge-fallback.\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
-            center.add(request) { error in
-                if let error {
-                    notificationBridgeLogger.error("command-line fallback delivery failed error=\(error.localizedDescription, privacy: .public)")
-                    result.set(false)
-                } else {
-                    notificationBridgeLogger.info("command-line fallback delivered identifier=\(request.identifier, privacy: .public)")
-                    result.set(true)
-                }
-                semaphore.signal()
-            }
-        }
-
-        let timeout = DispatchTime.now() + .milliseconds(AppConstants.Notifications.commandLineNotificationTimeoutMS)
-        guard semaphore.wait(timeout: timeout) == .success else {
-            notificationBridgeLogger.error("command-line fallback delivery timed out")
-            return false
-        }
-        return result.get()
-    }
-
-    private static func deliverAppleScriptNotification(_ payload: KurottyNotificationBridgePayload) -> Bool {
-        var script = "display notification \(appleScriptString(payload.body)) with title \(appleScriptString(payload.title))"
-        if !payload.subtitle.isEmpty {
-            script += " subtitle \(appleScriptString(payload.subtitle))"
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: AppConstants.Notifications.developmentNotificationExecutablePath)
-        process.arguments = ["-e", script]
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            notificationBridgeLogger.error("command-line applescript fallback failed error=\(error.localizedDescription, privacy: .public)")
-            return false
-        }
-    }
-
-    private static func appleScriptString(_ value: String) -> String {
-        let escaped = value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
-    }
-}
-
-private final class NotificationFallbackResult: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    func set(_ value: Bool) {
-        lock.lock()
-        self.value = value
-        lock.unlock()
-    }
-
-    func get() -> Bool {
-        lock.lock()
-        let value = self.value
-        lock.unlock()
-        return value
     }
 }
 

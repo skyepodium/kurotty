@@ -47,38 +47,33 @@ final class TerminalNotifier: NSObject {
     }
 
     @MainActor
-    func notifyItermOsc9(message: String) {
-        guard let content = TerminalNotificationPayload.contentFromOSC9Payload(message) else {
-            return
-        }
+    func notifyTerminalNotification(content: TerminalNotificationPayload.Content) {
         deliver(
             title: content.title,
-            subtitle: "",
+            subtitle: content.subtitle,
             body: content.body,
-            identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
+            identifierPrefix: identifierPrefix(for: content.source)
         )
     }
 
-    @MainActor
-    func notifyOSC777(payload: String) {
-        guard let content = TerminalNotificationPayload.contentFromOSC777Payload(payload) else {
-            return
+    private func identifierPrefix(for source: TerminalNotificationPayload.Source) -> String {
+        switch source {
+        case .osc9:
+            return AppConstants.Notifications.osc9IdentifierPrefix
+        case .osc777:
+            return AppConstants.Notifications.osc777IdentifierPrefix
+        case .osc1337:
+            return AppConstants.Notifications.osc1337IdentifierPrefix
         }
-        deliver(
-            title: content.title,
-            subtitle: "",
-            body: content.body,
-            identifierPrefix: AppConstants.Notifications.osc777IdentifierPrefix
-        )
     }
 
     @MainActor
-    func notifyBridgeNotification(title: String, subtitle: String, body: String) {
+    func notifyBridgeNotification(_ payload: KurottyNotificationBridgePayload) {
         deliver(
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            identifierPrefix: AppConstants.Notifications.osc9IdentifierPrefix
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body,
+            identifierPrefix: AppConstants.Notifications.bridgeIdentifierPrefix
         )
     }
 
@@ -89,6 +84,16 @@ final class TerminalNotifier: NSObject {
             subtitle: content.subtitle,
             body: content.body,
             identifierPrefix: AppConstants.Notifications.commandCompletionIdentifierPrefix
+        )
+    }
+
+    @MainActor
+    func notifyActivityFinished(content: TerminalActivityCompletionNotificationContent) {
+        deliver(
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
+            identifierPrefix: AppConstants.Notifications.activityCompletionIdentifierPrefix
         )
     }
 
