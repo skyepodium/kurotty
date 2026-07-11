@@ -12,7 +12,7 @@ enum TerminalShellIntegrationBootstrap {
     private static let preservedZDOTDIREnvironmentName = "KUROTTY_ZSH_ZDOTDIR"
 
     static var bundledResourceDirectory: URL? {
-        Bundle.module.url(forResource: "ShellIntegration", withExtension: nil)
+        KurottyResourceBundle.bundle?.url(forResource: "ShellIntegration", withExtension: nil)
     }
 
     static func bundledConfiguration(

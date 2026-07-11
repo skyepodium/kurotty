@@ -277,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (image, true)
         }
 
-        guard let bundledIconURL = Bundle.module.url(
+        guard let bundledIconURL = KurottyResourceBundle.bundle?.url(
             forResource: AppConstants.Bundle.iconResourceName,
             withExtension: AppConstants.Bundle.iconResourceExtension
         ),

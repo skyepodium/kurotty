@@ -2293,6 +2293,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("CFBundleIconFile must be kurotty.icns"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("RESOURCE_BUNDLE=\"Kurotty_KurottyApp.bundle\""))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("$RESOURCE_BUNDLE/kurotty.png"))
+        let resourceBundleSource = try String(
+            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Sources/KurottyApp/KurottyResourceBundle.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(resourceBundleSource.contains("Bundle.main.resourceURL"))
+        XCTAssertTrue(resourceBundleSource.contains("return Bundle.module"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("icon_512x512@2x.png"))
         XCTAssertTrue(try scriptSource(named: "verify-icon-bundle").contains("installed .icns must not be resized"))
         XCTAssertTrue(appDelegateSource.contains("Bundle.main.url("))
