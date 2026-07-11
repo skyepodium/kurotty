@@ -2355,6 +2355,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
         XCTAssertTrue(packageSource.contains("xcrun notarytool submit"))
         XCTAssertTrue(packageSource.contains("xcrun stapler staple"))
+        XCTAssertTrue(packageSource.contains("scripts/verify-release-artifact.sh"))
+        XCTAssertTrue(packageSource.contains("KUROTTY_REQUIRE_NOTARIZATION"))
         XCTAssertTrue(packageSource.contains("shasum -a 256 \"$DMG_NAME\" \"$DMG_LATEST_NAME\""))
         XCTAssertTrue(packageSource.contains("SHA256SUMS"))
         XCTAssertLessThan(
@@ -2383,6 +2385,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(releaseWorkflowSource.contains("fetch-depth: 0"))
         XCTAssertTrue(releaseWorkflowSource.contains("git branch --contains HEAD -r | grep -E '(^|[ /])main$'"))
         XCTAssertTrue(releaseWorkflowSource.contains("./scripts/package-release.sh \"${VERSION#v}\""))
+        XCTAssertTrue(releaseWorkflowSource.contains("Verify packaged release artifact"))
+        XCTAssertTrue(releaseWorkflowSource.contains("./scripts/verify-release-artifact.sh"))
+        XCTAssertLessThan(
+            try XCTUnwrap(releaseWorkflowSource.range(of: "Verify packaged release artifact")).lowerBound,
+            try XCTUnwrap(releaseWorkflowSource.range(of: "Upload GitHub release")).lowerBound
+        )
         XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-*-macos-universal.dmg"))
         XCTAssertTrue(releaseWorkflowSource.contains("dist/kurotty-macos-universal.dmg"))
         XCTAssertTrue(releaseWorkflowSource.contains("dist/appcast.xml"))
@@ -2393,6 +2401,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(agentsSource.contains("Do not hardcode future release numbers"))
         XCTAssertTrue(agentsSource.contains("stable direct-download alias `kurotty-macos-universal.dmg`"))
         XCTAssertTrue(agentsSource.contains("The installed app About panel must display the bundle `Info.plist` version"))
+        XCTAssertTrue(agentsSource.contains("`scripts/verify-release-artifact.sh` is a mandatory publication gate"))
+        XCTAssertTrue(agentsSource.contains("`--release-artifact-smoke-test` is an app-owned installed-layout contract"))
     }
 
     func testCoreBridgeDoesNotUseCurrentDirectoryFallbacksInAppBundleMode() throws {
