@@ -17,9 +17,25 @@ enum TerminalSubmittedCommandSummary {
 }
 
 enum TerminalNotificationPayload {
+    enum Source: Equatable {
+        case osc9
+        case osc777
+        case osc1337
+    }
+
     struct Content: Equatable {
+        let source: Source
         let title: String
+        let subtitle: String
         let body: String
+
+        func addingFallbackSubtitle(_ fallback: String) -> Content {
+            guard subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let normalizedFallback = TerminalNotificationPayload.body(fromExplicitPayload: fallback) else {
+                return self
+            }
+            return Content(source: source, title: title, subtitle: normalizedFallback, body: body)
+        }
     }
 
     static func body(fromExplicitPayload payload: String) -> String? {
@@ -35,10 +51,19 @@ enum TerminalNotificationPayload {
     }
 
     static func contentFromOSC9Payload(_ payload: String) -> Content? {
+        let firstParameter = payload.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first
+        if payload.contains(";"), firstParameter.flatMap({ Int($0) }) != nil {
+            return nil
+        }
         guard let body = body(fromExplicitPayload: payload) else {
             return nil
         }
-        return Content(title: AppConstants.Notifications.terminalNotificationTitle, body: body)
+        return Content(
+            source: .osc9,
+            title: AppConstants.Notifications.terminalAlertTitle,
+            subtitle: "",
+            body: body
+        )
     }
 
     static func contentFromOSC777Payload(_ payload: String) -> Content? {
@@ -49,7 +74,32 @@ enum TerminalNotificationPayload {
         let title = body(fromExplicitPayload: String(parts[1]))
             ?? AppConstants.Notifications.terminalNotificationTitle
         let body = body(fromExplicitPayload: String(parts[2])) ?? title
-        return Content(title: title, body: body)
+        return Content(source: .osc777, title: title, subtitle: "", body: body)
+    }
+
+    static func contentFromOSC1337Payload(_ payload: String) -> Content? {
+        let notificationPrefix = "Notification="
+        guard payload.hasPrefix(notificationPrefix) else {
+            return nil
+        }
+        let encodedFields = payload.dropFirst(notificationPrefix.count)
+        var fields: [String: String] = [:]
+        for field in encodedFields.split(separator: ";", omittingEmptySubsequences: true) {
+            let pair = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2,
+                  let data = Data(base64Encoded: String(pair[1])),
+                  let value = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            fields[String(pair[0])] = value
+        }
+        guard let body = fields["message"].flatMap(body(fromExplicitPayload:)) else {
+            return nil
+        }
+        let title = fields["title"].flatMap(body(fromExplicitPayload:))
+            ?? AppConstants.Notifications.terminalAlertTitle
+        let subtitle = fields["subtitle"].flatMap(body(fromExplicitPayload:)) ?? ""
+        return Content(source: .osc1337, title: title, subtitle: subtitle, body: body)
     }
 
     private static func stripTerminalControls(from text: String) -> String {

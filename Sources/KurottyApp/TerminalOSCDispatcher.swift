@@ -47,6 +47,12 @@ struct TerminalOSCDispatcher {
                 return .ignored
             }
             return .desktopNotification(payload)
+        case "1337":
+            guard parts.count == 2,
+                  let payload = TerminalNotificationPayload.contentFromOSC1337Payload(String(parts[1])) else {
+                return .ignored
+            }
+            return .desktopNotification(payload)
         default:
             return .ignored
         }

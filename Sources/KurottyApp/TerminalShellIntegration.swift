@@ -466,7 +466,7 @@ struct TerminalShellIntegration: Equatable {
     private static let onboardingSteps: [TerminalShellIntegrationCapabilityDescriptor.OnboardingStep] = [
         TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
             title: "Works without setup",
-            detail: "Kurotty passively detects OSC 7 working-directory updates and OSC 133 command boundaries when your shell already emits them.",
+            detail: "Kurotty loads bundled OSC 7 and OSC 133 integration for zsh, bash, and fish without modifying your shell files.",
             commandID: nil,
             requiresInstaller: false
         ),

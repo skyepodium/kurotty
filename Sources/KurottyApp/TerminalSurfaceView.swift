@@ -38,6 +38,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var isUsingAlternateScreen = false
     private var bracketedPasteEnabled = false
     private var mouseReportingState = TerminalMouseReportingState()
+    private var focusReportingState = TerminalFocusReportingState()
     private var pressedMouseButton: TerminalMouseButton?
     private var currentStyle: TerminalTextStyle
     private var activeHyperlinkURL: String?
@@ -74,6 +75,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var scrollbackRowsAppendedDuringOutput = 0
     private var pendingSubmittedInputText = ""
     private var lastSubmittedCommandText: String?
+    private var activityCompletionTracker = TerminalActivityCompletionTracker()
     private var debugFrameIndex: UInt64 = 0
     private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
     private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
@@ -152,6 +154,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             name: AppSettingsStore.didChangeNotification,
             object: AppSettingsStore.shared
         )
+        observeTerminalFocusChanges()
         observeInputSourceChanges()
         shell.start(workingDirectory: settings.shell.workingDirectory)
     }
@@ -191,6 +194,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if didBecomeFirstResponder {
             startCursorBlinking()
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
+            reportTerminalFocusIfNeeded()
         }
         return didBecomeFirstResponder
     }
@@ -200,6 +204,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if didResignFirstResponder {
             stopCursorBlinking(showCursor: true)
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
+            reportTerminalFocusIfNeeded()
         }
         return didResignFirstResponder
     }
@@ -210,6 +215,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         observeWindowScreenChanges()
         syncSizeWithView()
         updateCursorBlinkStateForFocus()
+        reportTerminalFocusIfNeeded()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -649,6 +655,37 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             name: NSTextInputContext.keyboardSelectionDidChangeNotification,
             object: nil
         )
+    }
+
+    private func observeTerminalFocusChanges() {
+        for name in [
+            NSApplication.didBecomeActiveNotification,
+            NSApplication.didResignActiveNotification,
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+        ] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(terminalFocusContextDidChange(_:)),
+                name: name,
+                object: nil
+            )
+        }
+    }
+
+    @objc private func terminalFocusContextDidChange(_ notification: Notification) {
+        if let changedWindow = notification.object as? NSWindow,
+           changedWindow !== window {
+            return
+        }
+        reportTerminalFocusIfNeeded()
+    }
+
+    private func reportTerminalFocusIfNeeded() {
+        guard let sequence = focusReportingState.sequenceIfNeeded(isFocused: isTerminalFocusedForUser) else {
+            return
+        }
+        sendTerminalResponse(sequence)
     }
 
     @objc private func inputSourceDidChange(_ notification: Notification) {
@@ -1207,6 +1244,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return false
         }
         lastSubmittedCommandText = body
+        activityCompletionTracker.begin(submittedText: body, baselineText: visibleText())
         return true
     }
 
@@ -1304,6 +1342,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 case 9:
                     let spaces = max(1, AppConstants.Terminal.tabWidthColumns - (cursorColumn % AppConstants.Terminal.tabWidthColumns))
                     appendPrintable(String(repeating: " ", count: spaces))
+                case 7:
+                    ringTerminalBell()
                 case 0..<32, 127:
                     continue
                 default:
@@ -1321,6 +1361,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
         updateRendererFrame()
+        scheduleActivityCompletionIfNeeded(outputByteCount: text.utf8.count)
+    }
+
+    private func scheduleActivityCompletionIfNeeded(outputByteCount: Int) {
+        guard let generation = activityCompletionTracker.recordOutput(byteCount: outputByteCount) else {
+            return
+        }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + AppConstants.Notifications.activityCompletionQuietIntervalSeconds
+        ) { [weak self] in
+            guard let self,
+                  let candidate = self.activityCompletionTracker.completeIfCurrent(
+                    generation: generation,
+                    currentText: self.visibleText()
+                  ),
+                  self.shouldDeliverUserNotification else {
+                return
+            }
+            self.notifier.notifyActivityFinished(
+                content: TerminalActivityCompletionNotificationContent.make(
+                    resultText: candidate.resultText,
+                    runtimeMetadata: self.shell.foregroundProcessName().map {
+                        TerminalRuntimeNotificationMetadata(command: $0, workingDirectory: nil)
+                    },
+                    terminalTitle: self.terminalTitle,
+                    currentDirectory: self.currentWorkingDirectory
+                )
+            )
+        }
     }
 
     private func beginOutputRuntimeEventBatch(byteCount: Int) {
@@ -2122,28 +2191,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
-        let integrationEvent = dispatchTerminalIntegrationOsc(command)
+        let terminalEvent = dispatchTerminalIntegrationOsc(command)
 
         switch code {
         case "0", "1", "2":
             terminalTitle = payload
             publishTitle()
         case "7":
-            if case let .shellIntegration(.workingDirectoryChanged(path)) = integrationEvent {
+            if case let .shellIntegration(.workingDirectoryChanged(path)) = terminalEvent {
                 currentWorkingDirectory = path
             }
             publishTitle()
         case "8":
             applyHyperlinkControl(payload)
-        case "9":
-            notifyItermOsc9(payload)
-        case "777":
-            notifyOSC777(payload)
         default:
             break
         }
 
-        handleTerminalIntegrationEvent(integrationEvent)
+        handleTerminalIntegrationEvent(terminalEvent)
+        handleDesktopNotificationEvent(terminalEvent)
     }
 
     private func applyHyperlinkControl(_ payload: String) {
@@ -2183,6 +2249,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
+        activityCompletionTracker.suppressCurrent()
         lastSubmittedCommandText = nil
         guard shouldDeliverUserNotification else {
             return
@@ -2190,18 +2257,21 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))
     }
 
-    private func notifyItermOsc9(_ payload: String) {
+    private func handleDesktopNotificationEvent(_ event: TerminalOSCDispatcher.Event) {
+        guard case .desktopNotification(let content) = event else {
+            return
+        }
+        activityCompletionTracker.suppressCurrent()
         guard shouldDeliverUserNotification else {
             return
         }
-        notifier.notifyItermOsc9(message: payload)
+        notifier.notifyTerminalNotification(
+            content: content.addingFallbackSubtitle(notificationSessionTitle())
+        )
     }
 
-    private func notifyOSC777(_ payload: String) {
-        guard shouldDeliverUserNotification else {
-            return
-        }
-        notifier.notifyOSC777(payload: payload)
+    private func ringTerminalBell() {
+        NSSound.beep()
     }
 
     private func respondToOscQuery(_ code: String) {
@@ -2240,6 +2310,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return title
         }
         return "\(displayPath) (\(title))"
+    }
+
+    private func notificationSessionTitle() -> String {
+        let trimmedTitle = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? displayTitle() : trimmedTitle
     }
 
     private func terminalOscColor(_ color: SIMD4<Float>) -> String {
@@ -2390,6 +2465,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 }
             case 2004:
                 bracketedPasteEnabled = enabled
+            case 1004:
+                focusReportingState.set(enabled: enabled)
+                reportTerminalFocusIfNeeded()
             case 1000, 1002, 1003, 1006:
                 mouseReportingState.set(decPrivateMode: value, enabled: enabled)
             default:
@@ -2487,6 +2565,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorVisible = true
         bracketedPasteEnabled = false
         mouseReportingState.reset()
+        focusReportingState.set(enabled: false)
         pressedMouseButton = nil
         currentStyle = terminalDefaultStyle
         activeHyperlinkURL = nil

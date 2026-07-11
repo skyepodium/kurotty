@@ -93,6 +93,55 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 
 ## macOS Notifications
 
+- Notification support is a Kurotty product feature, not a per-developer workstation setup. A clean install on another Mac must receive notifications emitted through supported terminal protocols without editing tool configuration, shell dotfiles, or third-party installations.
+- The implementation must be producer-neutral. Never branch on names such as Codex, Claude Code, Grok, their executable filenames, model names, greetings, prompt text, or screenshot content.
+- Never fix notification behavior by writing `~/.codex/config.toml`, `~/.grok/config.toml`, installing a per-user hook, patching another application, guessing `/dev/tty` or `/dev/ttys*`, or embedding a username, home directory, checkout path, `/Applications` path, PID, socket path, or machine-specific process ancestry.
+- Platform suffixes such as `-aarch64-apple-darwin` and `-macos-aarch64` must not be removed with a suffix table. Resolve the producer label from protocol metadata or the foreground process invocation name (`argv[0]`); use the kernel executable basename only as a last-resort fallback.
+
+### Notification source taxonomy and precedence
+
+Keep each source distinct and preserve its semantics:
+
+1. **Explicit terminal notification:** OSC 9, OSC 777 `notify;title;body`, or supported rich OSC 1337. Parse protocol fields into a typed event and deliver those fields without scraping the screen. This is the Ghostty reference model: a parsed OSC command becomes an explicit desktop-notification event.
+2. **Producer-neutral bridge notification:** a process that cannot write to the PTY may use Kurotty's documented Unix-socket/CLI bridge and its versioned JSON fields. The bridge must be resolved from the running app environment, never from a hardcoded install path.
+3. **Shell command completion:** OSC 133 shell-integration boundaries provide command metadata such as working directory, exit status, and duration. They do not manufacture an AI response body.
+4. **Bounded interactive-activity fallback:** only when no explicit notification event was emitted for the submission, an unfocused Kurotty surface may derive a result from terminal-owned output produced after submitted input and before the next interactive prompt/status region.
+5. **BEL:** sound only. BEL carries no title, subtitle, body, task identity, or completion payload and must never be converted into a textual completion notification.
+
+Explicit OSC or bridge content is authoritative and suppresses the activity fallback for the same submission. OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are title metadata and are never completion events. Numeric OSC 9 progress extensions such as OSC `9;4;...` are progress data, not desktop messages.
+
+### Notification presentation contract
+
+- The macOS sender is already Kurotty. Do not repeat `Kurotty` merely to identify the sender.
+- **Title for activity/completion fallback:** producer/program label. Resolve in this order: explicit producer label, foreground process invocation basename from `argv[0]`, kernel executable basename, trustworthy producer-controlled terminal title, then `Terminal`. The current directory is never a program label. Capitalization is presentation-only; do not rewrite the underlying name with product-specific aliases.
+- **Subtitle for activity/completion fallback:** final component of the OSC 7 working directory, for example `/Users/example/dev` becomes `dev`. Never expose the full path or home directory. If unavailable, use `Session`.
+- **Body:** explicit OSC/bridge message first; otherwise the trustworthy response/result block derived after the submitted input. Only when completion is known but no trustworthy message remains may the body be exactly `Task finished`.
+- Never use submitted input as the body. Never select a model/status/footer row, prompt, placeholder, warning, tool trace, approval/context row, shortcut/help row, path/title row, repaint fragment, or freshly redrawn idle UI.
+- Preserve wrapped response lines in reading order and normalize only whitespace needed to fit the notification. Do not reduce a multi-line response to its final wrapped line.
+- Explicit protocol layouts retain their protocol semantics. In particular, an iTerm2-compatible OSC 9 alert may use title `Alert` and session context in its body; do not reinterpret it as an inferred program-completion event.
+- Neutral fallback example: title `Example-runner`, subtitle `dev`, body `Release notes are ready.`. If and only if no trustworthy result exists: title `Example-runner`, subtitle `dev`, body `Task finished`.
+
+### Generic activity fallback rules
+
+- `TerminalActivityCompletionTracker` starts at submitted input, records a baseline of terminal-owned cells, requires subsequent PTY output, and waits for the bounded quiet interval before evaluating a candidate.
+- `TerminalActivityOutputSummary` must search the output region after the submitted line, preserve contiguous wrapped response lines, and stop at prompt/control/chrome boundaries. It must use structural terminal evidence, not product names or language-specific phrases.
+- Status filtering must be structural and covered by neutral fixtures. Do not add conditions such as `contains("Ready")`, `contains("Workspace")`, `contains("Codex")`, or a literal example response.
+- If output cannot be distinguished from terminal chrome with sufficient confidence, return no result and use the defined fallback. A false or unrelated body is worse than `Task finished`.
+- Activity fallback is a compatibility mechanism, not equivalent to explicit OSC. Never claim exact producer completion semantics when only output quiescence was observed.
+
+### Runtime context rules
+
+- Working directory comes from the Kurotty surface's own OSC 7/shell-integration state. Never query an unrelated globally active tmux pane; it may belong to another terminal and can overwrite the subtitle with the wrong directory.
+- Program identity comes from Kurotty's own PTY foreground process. Read `argv[0]` through platform process metadata and use its basename before the internal executable name. For example, invocation `codex` may execute `codex-aarch64-apple-darwin`, but the displayed title is `Codex` because `argv[0]` is `codex`.
+- Process metadata is fallback context only. Explicit notification fields remain authoritative.
+
+### Verification requirements
+
+- Parser tests must feed raw OSC bytes for every supported notification protocol and confirm title/body field preservation, progress-sequence exclusion, and BEL sound-only behavior.
+- Activity tests must cover: response followed by a redrawn status line; wrapped multi-line response; submitted-input echo; warning before the response; shortcut/help rows; timed status rows; unchanged output; and the no-trustworthy-result fallback. Fixtures must use neutral producer names unless testing generic process metadata parsing.
+- Runtime-context tests must prove `argv[0]` wins over an internal platform-qualified executable path and OSC 7 directory basename wins over unrelated external state.
+- Run the smallest relevant tests, then `swift test`, `git diff --check`, a production app build/install, `codesign --verify --deep --strict`, and an installed-app smoke test. Unit tests alone do not prove macOS notification presentation.
+
 - `UNUserNotificationCenterDelegate` callbacks are delivered on UserNotifications-owned queues, not the main actor. Do not mark the delegate object itself `@MainActor`.
 - Keep notification delegate methods nonisolated and side-effect narrow.
 - Do not create Swift concurrency tasks from UserNotifications delegate callbacks to complete the callback on `MainActor`. In release-installed apps this can crash on `com.apple.usernotifications.UNUserNotificationServiceConnection.call-out` with `_swift_task_checkIsolatedSwift` / `dispatch_assert_queue`.
@@ -100,20 +149,6 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Do not move `completionHandler()` inside `Task { @MainActor in ... }`, `Task { await MainActor.run { ... } }`, or any async path whose executor may differ from the UserNotifications callback queue.
 - Regression tests for notification response handling must assert this source shape: nonisolated delegate callback, callback completion before AppKit focus, no `Task { @MainActor in`, no `Task { await MainActor.run`, and an explicit `DispatchQueue.main.async` UI hop.
 - Installed app notification fixes must be validated against an `.app` bundle, not only `swift run`, because the development fallback path can hide UserNotifications delegate behavior.
-- Notification body text must come from an explicit terminal notification protocol or command/session completion event. Do not use shell prompts, path/title rows, status bars, placeholders, or freshly redrawn idle UI as notification body text.
-- iTerm2-compatible terminal alerts are a separate source from app-specific task completion. OSC 9 should present title `Alert` and body `Session <terminal title> #<tab>: <message>`; numeric OSC 9 first parameters such as `9;4;...` are progress extensions and must not become desktop notifications.
-- A bounded activity/idle fallback for an interactive TUI may use output captured after the submitted input, but it must present as a terminal `Alert`, not as app-specific task completion. Do not hardcode application names, prompt words, greetings, or screenshot-specific text. Only deliver when the captured output contains a trustworthy message block; otherwise skip the notification. Filter prompt lines, status bars, tool traces, control fragments, and repaint suffixes before delivery.
-- Use Ghostty as the reference model for this area: OSC desktop notifications are explicit `show_desktop_notification` events, and command-finished notifications are derived from command metadata such as duration and exit code rather than scraped screen rows.
-- Do not send Kurotty notifications from external hooks by guessing `/dev/tty`, `/dev/ttys*`, parent PID TTYs, or foreground process TTYs. Codex/OMX hooks often run without a controlling TTY, and guessed TTY writes do not reliably enter Kurotty's PTY parser.
-- External hooks must use Kurotty's explicit notification bridge, matching the cmux/kitty control-channel model: `KUROTTY_NOTIFY_SOCKET` for the user-scoped Unix socket and `KUROTTY_NOTIFY_COMMAND` or `/Applications/kurotty.app/Contents/MacOS/kurotty --notify` / `--notify-json` for CLI delivery. PTY OSC 9/777 remains only for bytes emitted by the terminal application inside the PTY.
-- When configuring Codex/OMX notifications for Kurotty, pass typed JSON when available so `last-assistant-message`, `title`, `body`, `message`, `summary`, or `instruction` are explicit payload fields. Do not scrape the rendered terminal screen or use a generic `{{projectPath}}` message when the hook has a real assistant/task payload.
-- Codex/OMX completion alerts must be wired at Codex's top-level `notify` entry, not only as a repo-local `.omx/hooks/*.mjs` plugin. Root cause from the 2026-07-05 incident: Codex calls `notify-hook.js` after a turn, and OMX may exit before plugin dispatch when the payload `cwd` is not an OMX-managed root. A local plugin can pass manual dispatch tests and still never run in the real completion path.
-- The supported Codex completion pipeline is: Codex `notify` JSON payload -> `scripts/kurotty-codex-notify.mjs` -> Kurotty explicit bridge (`--notify-json` / `KUROTTY_NOTIFY_SOCKET`) -> existing OMX notify hook chain. The wrapper must forward only explicit payload fields such as `last-assistant-message` or `output_preview`; it must not infer content from the rendered terminal screen.
-- The wrapper must set `KUROTTY_NOTIFY_WRAPPER_SENT=1` when chaining to OMX, and repo-local Kurotty hook plugins must skip when that flag is present. This prevents duplicate desktop notifications while preserving normal OMX behavior.
-- Keep the alert source taxonomy strict: PTY OSC 9/777 is for terminal-emitted alerts; shell integration command-finished notifications come from command metadata; Codex/AI task completion comes from the Codex notify payload/control channel. Do not blend these sources to make a notification appear.
-- Never hardcode Codex words, greetings, language-specific strings, screenshots, prompt text, status bars, or the user's example output to "fix" alerts. If a notification body cannot be traced to an explicit payload/protocol field or command-completion metadata, skip the alert and log why.
-- Verification for this path must include the real installed app and the real notify entrypoint: run the wrapper with `KUROTTY_NOTIFY_DRY_RUN=1 KUROTTY_NOTIFY_CHAIN_OMX=0`, run `/opt/homebrew/lib/node_modules/oh-my-codex/dist/scripts/notify-hook.js` with an unmanaged `cwd`, check `~/Library/Logs/Kurotty/codex-notify.jsonl`, and confirm macOS logs show `Added notification request` for process `kurotty`.
-- If an already-running Codex process was launched before `~/.codex/config.toml` changed, it may still use the previous notify command. Either restart that Codex session or temporarily forward from the old OMX `notify-hook.js` to the wrapper with `KUROTTY_NOTIFY_CHAIN_OMX=0`; keep a backup of any external installed-tool patch.
 
 ## macOS AppKit / Metal Executor Boundaries
 

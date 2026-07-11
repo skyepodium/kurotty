@@ -2,6 +2,20 @@ import XCTest
 @testable import KurottyApp
 
 final class TerminalMouseReportingTests: XCTestCase {
+    func testFocusReportingStateEmitsStandardXtermSequencesOnlyWhenEnabledAndChanged() {
+        var state = TerminalFocusReportingState()
+
+        XCTAssertNil(state.sequenceIfNeeded(isFocused: true))
+
+        state.set(enabled: true)
+        XCTAssertEqual(state.sequenceIfNeeded(isFocused: true), "\u{1b}[I")
+        XCTAssertNil(state.sequenceIfNeeded(isFocused: true))
+        XCTAssertEqual(state.sequenceIfNeeded(isFocused: false), "\u{1b}[O")
+
+        state.set(enabled: false)
+        XCTAssertNil(state.sequenceIfNeeded(isFocused: true))
+    }
+
     func testMouseReportingStateTracksDECPrivateModes() {
         var state = TerminalMouseReportingState()
 

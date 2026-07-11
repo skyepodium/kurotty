@@ -28,6 +28,10 @@ final class UnsupportedTerminalSession: TerminalSession {
 
     func write(_ text: String) {}
 
+    func foregroundProcessName() -> String? {
+        nil
+    }
+
     func canReceiveTerminalResponseWithoutEcho() -> Bool {
         false
     }

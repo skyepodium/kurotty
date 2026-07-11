@@ -3,40 +3,84 @@ import XCTest
 @testable import KurottyApp
 
 final class KurottyNotificationBridgeTests: XCTestCase {
-    func testPayloadUsesCodexLastAssistantMessageFromJSON() throws {
+    func testPayloadUsesGenericMessageFromJSON() throws {
         let payload = try KurottyNotificationBridgePayload.fromIncomingText(
             """
-            {"last-assistant-message":"My name is Codex.","projectPath":"/Users/example/dev"}
+            {"message":"Background work completed.","unrelated":"ignored"}
             """
         )
 
         XCTAssertEqual(payload.title, "Alert")
         XCTAssertEqual(payload.subtitle, "")
-        XCTAssertEqual(payload.body, "My name is Codex.")
+        XCTAssertEqual(payload.body, "Background work completed.")
     }
 
-    func testPayloadUsesCodexOutputPreviewFromJSON() throws {
+    func testPayloadUsesGenericSummaryFromJSON() throws {
         let payload = try KurottyNotificationBridgePayload.fromIncomingText(
             """
-            {"event":"turn-complete","output_preview":"안녕하세요. 무엇을 도와드릴까요?","project_path":"/Users/example/dev"}
+            {"event":"job-complete","summary":"All checks passed."}
             """
         )
 
         XCTAssertEqual(payload.title, "Alert")
         XCTAssertEqual(payload.subtitle, "")
-        XCTAssertEqual(payload.body, "안녕하세요. 무엇을 도와드릴까요?")
+        XCTAssertEqual(payload.body, "All checks passed.")
+        XCTAssertEqual(payload.event, "job-complete")
     }
 
     func testPayloadUsesExplicitTitleAndBodyFromJSON() throws {
         let payload = try KurottyNotificationBridgePayload.fromIncomingText(
             """
-            {"title":"Codex task finished","subtitle":"dev","body":"Summarized recent commits."}
+            {"title":"Build finished","subtitle":"dev","body":"All checks passed."}
             """
         )
 
-        XCTAssertEqual(payload.title, "Codex task finished")
+        XCTAssertEqual(payload.title, "Build finished")
         XCTAssertEqual(payload.subtitle, "dev")
-        XCTAssertEqual(payload.body, "Summarized recent commits.")
+        XCTAssertEqual(payload.body, "All checks passed.")
+    }
+
+    func testVersionedPayloadPreservesProducerNeutralMetadata() throws {
+        let payload = try KurottyNotificationBridgePayload.fromIncomingText(
+            """
+            {"version":1,"event":"task.completed","session_id":"pane-42","duration_ms":2600,"title":"Build finished","subtitle":"workspace","body":"All checks passed."}
+            """
+        )
+
+        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.event, "task.completed")
+        XCTAssertEqual(payload.sessionID, "pane-42")
+        XCTAssertEqual(payload.durationMilliseconds, 2600)
+        XCTAssertEqual(payload.title, "Build finished")
+        XCTAssertEqual(payload.subtitle, "workspace")
+        XCTAssertEqual(payload.body, "All checks passed.")
+    }
+
+    func testVersionedPayloadRoundTripsThroughBridgeEncoding() throws {
+        let original = try KurottyNotificationBridgePayload.fromIncomingText(
+            """
+            {"version":1,"event":"task.completed","session_id":"arbitrary-producer","duration_ms":18,"body":"Finished."}
+            """
+        )
+        let encoded = try KurottyNotificationBridgeClient.encode(payload: original)
+        let decoded = try KurottyNotificationBridgePayload.fromIncomingText(
+            try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        )
+
+        XCTAssertEqual(decoded, original)
+    }
+
+    func testPayloadRejectsUnsupportedVersionAndStructuredEventWithoutBody() {
+        XCTAssertThrowsError(
+            try KurottyNotificationBridgePayload.fromIncomingText("{\"version\":2,\"body\":\"Finished.\"}")
+        ) { error in
+            XCTAssertEqual(error as? KurottyNotificationBridgeError, .unsupportedVersion(2))
+        }
+        XCTAssertThrowsError(
+            try KurottyNotificationBridgePayload.fromIncomingText("{\"version\":1,\"event\":\"task.completed\"}")
+        ) { error in
+            XCTAssertEqual(error as? KurottyNotificationBridgeError, .emptyPayload)
+        }
     }
 
     func testPayloadUsesPlainTextAsAlertBody() throws {
@@ -57,6 +101,27 @@ final class KurottyNotificationBridgeTests: XCTestCase {
         XCTAssertEqual(socketPath.lastPathComponent, "notify.sock")
         XCTAssertTrue(socketPath.path.contains("Kurotty"))
         XCTAssertFalse(socketPath.path.contains("/dev/tty"))
+    }
+
+    func testShellEnvironmentUsesResolvedBundleExecutableAndUserScopedSocket() {
+        let environment = KurottyNotificationBridgeEnvironment.shellEnvironment(
+            executablePath: "/tmp/Kurotty Test.app/Contents/MacOS/kurotty",
+            socketPath: "/tmp/kurotty-user/notify.sock"
+        )
+
+        XCTAssertEqual(environment["KUROTTY_NOTIFY_COMMAND"], "/tmp/Kurotty Test.app/Contents/MacOS/kurotty")
+        XCTAssertEqual(environment["KUROTTY_NOTIFY_SOCKET"], "/tmp/kurotty-user/notify.sock")
+    }
+
+    func testShellEnvironmentRejectsMissingExecutableOrSocket() {
+        XCTAssertTrue(KurottyNotificationBridgeEnvironment.shellEnvironment(
+            executablePath: nil,
+            socketPath: "/tmp/notify.sock"
+        ).isEmpty)
+        XCTAssertTrue(KurottyNotificationBridgeEnvironment.shellEnvironment(
+            executablePath: "/tmp/kurotty",
+            socketPath: nil
+        ).isEmpty)
     }
 
     func testSocketProbeDistinguishesLiveSocketFromStalePath() throws {
@@ -88,15 +153,13 @@ final class KurottyNotificationBridgeTests: XCTestCase {
         XCTAssertTrue(source.contains("scheduleBridgeClaimRetry()"))
     }
 
-    func testBridgeClientHasCommandLineFallbackWhenSocketIsUnavailable() throws {
+    func testBridgeClientDoesNotBypassKurottyWhenSocketIsUnavailable() throws {
         let source = try String(contentsOf: repositoryRoot().appendingPathComponent("Sources/KurottyApp/KurottyNotificationBridge.swift"), encoding: .utf8)
-        let sendRange = try XCTUnwrap(source.range(of: "try KurottyNotificationBridgeClient.send(text)"))
-        let fallbackRange = try XCTUnwrap(source.range(of: "KurottyCommandLineNotificationFallback.deliver(payload)"))
 
-        XCTAssertLessThan(sendRange.lowerBound, fallbackRange.lowerBound)
-        XCTAssertTrue(source.contains("command-line fallback delivered"))
-        XCTAssertTrue(source.contains("UNUserNotificationCenter.current()"))
-        XCTAssertTrue(source.contains("commandLineNotificationTimeoutMS"))
+        XCTAssertTrue(source.contains("try KurottyNotificationBridgeClient.send(text)"))
+        XCTAssertFalse(source.contains("KurottyCommandLineNotificationFallback"))
+        XCTAssertFalse(source.contains("display notification"))
+        XCTAssertFalse(source.contains("UNUserNotificationCenter.current()"))
     }
 
     private func makeListeningSocket(at path: String) throws -> Int32 {

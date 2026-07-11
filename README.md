@@ -38,36 +38,28 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - Metal rendering for glyphs, backgrounds, cursor, underline, and strikethrough.
 - Theme presets, scrollback, and editable JSON settings.
 - Terminal styling support for 16-color, 256-color, truecolor, dim, inverse, underline, and strikethrough.
-- OSC title, working-directory, color query, and iTerm2-compatible notifications.
+- OSC title, working-directory, color query, and terminal-generated notifications.
 
-Kurotty routes OSC 9 and OSC 777 `notify;title;body` messages through typed notification events before showing macOS notifications. OSC 9 banners use the iTerm2-style `Alert` title and `Session <title> #<tab>: <message>` body, while numeric OSC 9 progress extensions are ignored as desktop notifications.
+Kurotty normalizes OSC 9, OSC 777 `notify;title;body`, and rich iTerm2 OSC 1337 notifications into one typed notification path before showing macOS notifications. Terminal BEL remains an audible bell because it does not carry task content. Numeric OSC 9 progress extensions are not treated as desktop alerts. No source is selected by a CLI name or by scraping rendered terminal text.
 
-External hooks such as Codex/OMX should not write OSC bytes to `/dev/tty`. Those hooks may not have a controlling TTY, and guessed TTY writes can miss Kurotty entirely. Use the Kurotty notification bridge instead:
+For ordinary shell commands, Kurotty automatically loads bundled zsh, bash, or fish integration and consumes standard OSC 133 command boundaries. This reports completion from command metadata such as exit status and duration for any program. The integration is resolved from the running app's resource bundle, preserves the user's shell environment, and does not modify dotfiles or store a username, home directory, checkout path, or `/Applications` path. Unsupported shells continue without injection and may emit OSC 7/133 themselves.
+
+Long-running interactive programs do not return control to the shell after each internal task. Their exact task completion is therefore signaled through terminal BEL or OSC 9/777/1337; Kurotty does not guess completion from an application name or screen wording.
+
+Kurotty also implements xterm focus reporting (`CSI ? 1004 h/l` with `CSI I/O` responses). Interactive programs can therefore apply their own standard unfocused-notification policy without Kurotty-specific detection.
+
+Programs launched inside Kurotty may also use its producer-neutral bridge without knowing an installation path:
 
 ```sh
 $KUROTTY_NOTIFY_COMMAND --notify "Build finished"
-$KUROTTY_NOTIFY_COMMAND --notify-json '{"title":"Codex task finished","body":"Tests passed."}'
+$KUROTTY_NOTIFY_COMMAND --notify-json '{"version":1,"event":"task.completed","session_id":"pane-42","duration_ms":2600,"title":"Build finished","body":"Tests passed."}'
 ```
 
-When Kurotty launches a shell it exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND`. For hooks outside that environment, the installed app executable provides the same bridge client:
+The JSON contract is producer-neutral. `body` (or the legacy aliases `message`, `text`, and `summary`) contains the user-visible work result; `title` and `subtitle` are optional. Version 1 also preserves optional `event`, `session_id`, and `duration_ms` metadata. The command sends only to a live KuroTTY bridge, so a KuroTTY helper invocation cannot accidentally publish another application's desktop notification.
 
-```sh
-/Applications/kurotty.app/Contents/MacOS/kurotty --notify-json '{"last-assistant-message":"Done."}'
-```
+Explicit OSC 9/777/1337 and bridge events take priority. When an interactive producer emits none of them, KuroTTY uses a producer-neutral fallback: after submitted input produces sufficient PTY output and that output becomes quiet, it compares the terminal-owned cell model before and after the submission and selects an informative changed line. An unfocused terminal then receives one notification containing `submitted input → changed result`. This fallback does not branch on executable names or application-specific completion phrases. OSC 0 window titles and their BEL terminators remain title protocol, not task notifications.
 
-For Codex/OMX task-completion alerts, configure Codex's top-level `notify` entry to use Kurotty's wrapper. The wrapper reads the explicit Codex notify payload, sends it through Kurotty's bridge, then chains to the normal OMX notify hook so existing OMX behavior still runs:
-
-```toml
-notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/Applications/kurotty.app/Contents/Resources/kurotty-codex-notify.mjs"]
-```
-
-If another notification wrapper also needs to run, keep Kurotty first and pass the other command as `--previous-notify`. Kurotty posts immediately, then invokes the chained command with the same Codex payload:
-
-```toml
-notify = ["env", "OMX_OPENCLAW=1", "OMX_OPENCLAW_COMMAND=1", "node", "/Applications/kurotty.app/Contents/Resources/kurotty-codex-notify.mjs", "--previous-notify", "[\"/path/to/other-notify\", \"turn-ended\"]"]
-```
-
-The installed wrapper path works even when the active Codex working directory is not an OMX-managed repo or a Kurotty checkout. Do not replace it with `/dev/tty`, `/dev/ttys*`, parent-TTY guessing, or rendered-screen scraping.
+Kurotty exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` from the running bundle for every child shell. It does not edit another program's configuration or assume `/Applications`, a username, a checkout path, or a particular producer.
 
 ## Build From Source
 

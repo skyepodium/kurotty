@@ -8,6 +8,7 @@ protocol TerminalSession: AnyObject {
 
     func start(workingDirectory requestedWorkingDirectory: String)
     func write(_ text: String)
+    func foregroundProcessName() -> String?
     func canReceiveTerminalResponseWithoutEcho() -> Bool
     func resize(columns: Int, rows: Int)
     func stop()

@@ -91,6 +91,57 @@ final class TerminalOSCDispatcherTests: XCTestCase {
         XCTAssertEqual(context.span.reference.spanID, 1)
     }
 
+    func testOSC9ProgressExtensionIsIgnoredInsteadOfBecomingNotification() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        XCTAssertEqual(dispatcher.dispatch("9;4;1;50", origin: .local), .ignored)
+        XCTAssertEqual(
+            dispatcher.dispatch("9;Build finished", origin: .local),
+            .desktopNotification(
+                TerminalNotificationPayload.Content(
+                    source: .osc9,
+                    title: "Alert",
+                    subtitle: "",
+                    body: "Build finished"
+                )
+            )
+        )
+    }
+
+    func testWindowTitleOSCIsNotMisclassifiedAsTaskNotification() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        // Real interactive programs commonly terminate OSC 0 titles with BEL.
+        // The parser strips the terminator before dispatch, so this title payload
+        // must never become a desktop task notification.
+        XCTAssertEqual(dispatcher.dispatch("0;hi - arbitrary-tool", origin: .local), .ignored)
+        XCTAssertEqual(dispatcher.dispatch("0;Responding - task - arbitrary-tool", origin: .local), .ignored)
+    }
+
+    func testOSC1337RichNotificationRoutesToCanonicalDesktopEvent() throws {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+        let title = try XCTUnwrap("Build".data(using: .utf8)).base64EncodedString()
+        let subtitle = try XCTUnwrap("project".data(using: .utf8)).base64EncodedString()
+        let message = try XCTUnwrap("Finished".data(using: .utf8)).base64EncodedString()
+
+        let event = dispatcher.dispatch(
+            "1337;Notification=title=\(title);subtitle=\(subtitle);message=\(message)",
+            origin: .local
+        )
+
+        XCTAssertEqual(
+            event,
+            .desktopNotification(
+                TerminalNotificationPayload.Content(
+                    source: .osc1337,
+                    title: "Build",
+                    subtitle: "project",
+                    body: "Finished"
+                )
+            )
+        )
+    }
+
     func testUnknownOSCIsIgnored() {
         var dispatcher = TerminalOSCDispatcher(
             osc52Policy: TerminalOSC52Policy(policy: .default),
