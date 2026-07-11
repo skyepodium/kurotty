@@ -105,29 +105,24 @@ Keep each source distinct and preserve its semantics:
 1. **Explicit terminal notification:** OSC 9, OSC 777 `notify;title;body`, or supported rich OSC 1337. Parse protocol fields into a typed event and deliver those fields without scraping the screen. This is the Ghostty reference model: a parsed OSC command becomes an explicit desktop-notification event.
 2. **Producer-neutral bridge notification:** a process that cannot write to the PTY may use Kurotty's documented Unix-socket/CLI bridge and its versioned JSON fields. The bridge must be resolved from the running app environment, never from a hardcoded install path.
 3. **Shell command completion:** OSC 133 shell-integration boundaries provide command metadata such as working directory, exit status, and duration. They do not manufacture an AI response body.
-4. **Bounded interactive-activity fallback:** only when no explicit notification event was emitted for the submission, an unfocused Kurotty surface may derive a result from terminal-owned output produced after submitted input and before the next interactive prompt/status region.
-5. **BEL:** sound only. BEL carries no title, subtitle, body, task identity, or completion payload and must never be converted into a textual completion notification.
+4. **BEL:** sound only. BEL carries no title, subtitle, body, task identity, or completion payload and must never be converted into a textual completion notification.
 
-Explicit OSC or bridge content is authoritative and suppresses the activity fallback for the same submission. OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are title metadata and are never completion events. Numeric OSC 9 progress extensions such as OSC `9;4;...` are progress data, not desktop messages.
+OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are title metadata and are never completion events. Numeric OSC 9 progress extensions such as OSC `9;4;...` are progress data, not desktop messages.
 
 ### Notification presentation contract
 
 - The macOS sender is already Kurotty. Do not repeat `Kurotty` merely to identify the sender.
-- **Title for activity/completion fallback:** producer/program label. Resolve in this order: explicit producer label, foreground process invocation basename from `argv[0]`, kernel executable basename, trustworthy producer-controlled terminal title, then `Terminal`. The current directory is never a program label. Capitalization is presentation-only; do not rewrite the underlying name with product-specific aliases.
-- **Subtitle for activity/completion fallback:** final component of the OSC 7 working directory, for example `/Users/example/dev` becomes `dev`. Never expose the full path or home directory. If unavailable, use `Session`.
-- **Body:** explicit OSC/bridge message first; otherwise the trustworthy response/result block derived after the submitted input. Only when completion is known but no trustworthy message remains may the body be exactly `Task finished`.
-- Never use submitted input as the body. Never select a model/status/footer row, prompt, placeholder, warning, tool trace, approval/context row, shortcut/help row, path/title row, repaint fragment, or freshly redrawn idle UI.
-- Preserve wrapped response lines in reading order and normalize only whitespace needed to fit the notification. Do not reduce a multi-line response to its final wrapped line.
-- Explicit protocol layouts retain their protocol semantics. In particular, an iTerm2-compatible OSC 9 alert may use title `Alert` and session context in its body; do not reinterpret it as an inferred program-completion event.
-- Neutral fallback example: title `Example-runner`, subtitle `dev`, body `Release notes are ready.`. If and only if no trustworthy result exists: title `Example-runner`, subtitle `dev`, body `Task finished`.
+- **Explicit OSC fields:** preserve the producer-supplied title, subtitle, and body according to that protocol. For OSC 9, the payload is the body and the title is intentionally empty at the protocol boundary, matching Ghostty.
+- **Shell completion fields:** use only OSC 133 command metadata such as exit code, duration, command text, and working directory. Never manufacture an interactive-program response from rendered rows.
+- Never use submitted input, rendered screen text, a model/status/footer row, prompt, warning, or repaint fragment as an explicit notification body.
+- Explicit protocol layouts retain their protocol semantics. In particular, OSC 9 has no producer title field: keep its title empty, use its payload as the body, and let the macOS sender identity plus surface subtitle provide context, as Ghostty does.
+- Example: OSC 777 `notify;Example-runner;Release notes are ready.` preserves title `Example-runner` and body `Release notes are ready.`; the surface title supplies subtitle context only when the protocol has no subtitle.
 
-### Generic activity fallback rules
+### No screen-quiescence completion inference
 
-- `TerminalActivityCompletionTracker` starts at submitted input, records a baseline of terminal-owned cells, requires subsequent PTY output, and waits for the bounded quiet interval before evaluating a candidate.
-- `TerminalActivityOutputSummary` must search the output region after the submitted line, preserve contiguous wrapped response lines, and stop at prompt/control/chrome boundaries. It must use structural terminal evidence, not product names or language-specific phrases.
-- Status filtering must be structural and covered by neutral fixtures. Do not add conditions such as `contains("Ready")`, `contains("Workspace")`, `contains("Codex")`, or a literal example response.
-- If output cannot be distinguished from terminal chrome with sufficient confidence, return no result and use the defined fallback. A false or unrelated body is worse than `Task finished`.
-- Activity fallback is a compatibility mechanism, not equivalent to explicit OSC. Never claim exact producer completion semantics when only output quiescence was observed.
+- Do not infer an interactive turn completion from output byte counts, timers, a quiet interval, cursor position, or rendered screen rows.
+- A long-running TUI can pause many times before its turn is complete. Marking the first pause complete causes premature notifications and discards the later real response.
+- If a long-running producer does not emit OSC 9/777/1337 or use the bridge, Kurotty does not possess a trustworthy generic turn-completion event. Preserve that protocol boundary instead of adding product-specific scraping.
 
 ### Runtime context rules
 
@@ -138,7 +133,7 @@ Explicit OSC or bridge content is authoritative and suppresses the activity fall
 ### Verification requirements
 
 - Parser tests must feed raw OSC bytes for every supported notification protocol and confirm title/body field preservation, progress-sequence exclusion, and BEL sound-only behavior.
-- Activity tests must cover: response followed by a redrawn status line; wrapped multi-line response; submitted-input echo; warning before the response; shortcut/help rows; timed status rows; unchanged output; and the no-trustworthy-result fallback. Fixtures must use neutral producer names unless testing generic process metadata parsing.
+- Regression tests must prove ordinary PTY output and output quiescence do not create desktop notifications.
 - Runtime-context tests must prove `argv[0]` wins over an internal platform-qualified executable path and OSC 7 directory basename wins over unrelated external state.
 - Run the smallest relevant tests, then `swift test`, `git diff --check`, a production app build/install, `codesign --verify --deep --strict`, and an installed-app smoke test. Unit tests alone do not prove macOS notification presentation.
 

@@ -100,7 +100,7 @@ final class TerminalOSCDispatcherTests: XCTestCase {
             .desktopNotification(
                 TerminalNotificationPayload.Content(
                     source: .osc9,
-                    title: "Alert",
+                    title: "",
                     subtitle: "",
                     body: "Build finished"
                 )

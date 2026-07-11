@@ -88,16 +88,6 @@ final class TerminalNotifier: NSObject {
     }
 
     @MainActor
-    func notifyActivityFinished(content: TerminalActivityCompletionNotificationContent) {
-        deliver(
-            title: content.title,
-            subtitle: content.subtitle,
-            body: content.body,
-            identifierPrefix: AppConstants.Notifications.activityCompletionIdentifierPrefix
-        )
-    }
-
-    @MainActor
     func notifyTestNotification() {
         deliver(
             title: AppConstants.Notifications.defaultTitle,

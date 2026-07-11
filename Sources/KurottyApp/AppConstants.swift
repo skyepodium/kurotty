@@ -134,7 +134,6 @@ enum AppConstants {
         static let osc777IdentifierPrefix = "dev.kurotty.terminal.osc777"
         static let osc1337IdentifierPrefix = "dev.kurotty.terminal.osc1337"
         static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"
-        static let activityCompletionIdentifierPrefix = "dev.kurotty.terminal.activity-completion"
         static let commandCompletionIdentifierPrefix = "dev.kurotty.terminal.command-completion"
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
@@ -143,7 +142,6 @@ enum AppConstants {
         static let commandFailedTitle = "Command failed"
         static let defaultProgramTitle = "Terminal"
         static let defaultDirectoryTitle = "Session"
-        static let activityFinishedFallbackBody = "Task finished"
         static let testBody = "Kurotty test notification."
         static let commandInputCaptureMaxCharacters = 4096
         static let commandSummaryMaxCharacters = 180
@@ -157,9 +155,6 @@ enum AppConstants {
         static let bridgeSocketPermissions = 0o600
         static let bridgeSocketDirectoryPermissions = 0o700
         static let bridgeClaimRetryIntervalSeconds: TimeInterval = 1
-        static let activityCompletionQuietIntervalSeconds: TimeInterval = 1.5
-        static let activityCompletionMinimumOutputBytes = 16
-        static let activityResultMaxCharacters = 240
     }
 
     enum Diagnostics {
