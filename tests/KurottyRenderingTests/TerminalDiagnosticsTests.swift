@@ -23,11 +23,11 @@ final class TerminalDiagnosticsTests: XCTestCase {
     }
 
     func testExplicitTerminalNotificationPayloadUsesOnlyPayloadText() {
-        let payload = "  gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload  "
+        let payload = "  Worker ready\nExplicit notification payload  "
 
         XCTAssertEqual(
             TerminalNotificationPayload.body(fromExplicitPayload: payload),
-            "gpt-5.5 medium · Ready\nCodex-like status text is still explicit payload"
+            "Worker ready\nExplicit notification payload"
         )
     }
 
@@ -48,6 +48,24 @@ final class TerminalDiagnosticsTests: XCTestCase {
 
         XCTAssertEqual(content?.title, "Build finished")
         XCTAssertEqual(content?.body, "All tests passed")
+    }
+
+    func testTerminalNotificationAddsCurrentSessionTitleAsFallbackSubtitle() throws {
+        let content = try XCTUnwrap(
+            TerminalNotificationPayload.contentFromOSC777Payload("notify;Task runner;Turn complete in 2.6s.")
+        )
+
+        XCTAssertEqual(content.addingFallbackSubtitle("workspace task").subtitle, "workspace task")
+    }
+
+    func testTerminalNotificationPreservesProducerSubtitle() throws {
+        let content = try XCTUnwrap(
+            TerminalNotificationPayload.contentFromOSC1337Payload(
+                "Notification=subtitle=cHJvamVjdA==;message=RmluaXNoZWQ="
+            )
+        )
+
+        XCTAssertEqual(content.addingFallbackSubtitle("session title").subtitle, "project")
     }
 
     func testOSC777NotificationPayloadRejectsNonNotifyShape() {

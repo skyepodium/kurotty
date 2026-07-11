@@ -35,6 +35,9 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
         let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)
+        let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let launchConfiguration = TerminalShellIntegrationBootstrap.bundledConfiguration(shellPath: shellPath)
+        let notificationBridgeEnvironment = KurottyNotificationBridgeEnvironment.shellEnvironment()
 
         var fd: Int32 = -1
         var size = winsize(
@@ -54,7 +57,12 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
 
         isStarted = true
         if pid == 0 {
-            runChildShell(workingDirectory: workingDirectory)
+            runChildShell(
+                shellPath: shellPath,
+                launchConfiguration: launchConfiguration,
+                notificationBridgeEnvironment: notificationBridgeEnvironment,
+                workingDirectory: workingDirectory
+            )
             _exit(AppConstants.Shell.childExecFailureStatusCode)
         }
 
@@ -70,6 +78,25 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
         readQueue.async { [weak self] in
             self?.enqueueInput(data)
         }
+    }
+
+    func foregroundProcessName() -> String? {
+        guard master >= 0, childPid > 0 else { return nil }
+        let foregroundProcessGroup = tcgetpgrp(master)
+        guard foregroundProcessGroup > 0, foregroundProcessGroup != childPid else { return nil }
+
+        if let invokedName = TerminalProcessArguments.commandName(pid: foregroundProcessGroup) {
+            return invokedName
+        }
+
+        var nameBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let byteCount = proc_name(foregroundProcessGroup, &nameBuffer, UInt32(nameBuffer.count))
+        guard byteCount > 0 else { return nil }
+        let name = String(
+            decoding: nameBuffer.prefix(Int(byteCount)).map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     func canReceiveTerminalResponseWithoutEcho() -> Bool {
@@ -361,8 +388,12 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     }
 }
 
-private func runChildShell(workingDirectory: String) {
-    let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+private func runChildShell(
+    shellPath: String,
+    launchConfiguration: TerminalShellLaunchConfiguration,
+    notificationBridgeEnvironment: [String: String],
+    workingDirectory: String
+) {
     let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     let actualWorkingDirectory: String
     if chdir(workingDirectory) == 0 {
@@ -374,20 +405,30 @@ private func runChildShell(workingDirectory: String) {
 
     setenv("TERM", AppConstants.Shell.term, 1)
     setenv("COLORTERM", AppConstants.Shell.colorTerm, 1)
+    setenv("TERM_PROGRAM", AppConstants.Shell.termProgram, 1)
+    setenv("TERM_PROGRAM_VERSION", AppConstants.Bundle.currentVersion, 1)
     unsetenv("NO_COLOR")
-    unsetenv("ZDOTDIR")
     setenv("PWD", actualWorkingDirectory, 1)
     setenv("HOME", homeDirectory, 1)
     setenv("HISTFILE", "\(homeDirectory)/.zsh_history", 1)
     setenv("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD", "true", 1)
     setenv("ZSH_DISABLE_COMPFIX", "true", 1)
 
-    shell.withCString { shellPath in
-        let shellName = URL(fileURLWithPath: shell).lastPathComponent
-        let arg0 = strdup("-\(shellName)")
-        let interactive = strdup("-i")
-        var argv: [UnsafeMutablePointer<CChar>?] = [arg0, interactive, nil]
-        execv(shellPath, &argv)
+    for key in launchConfiguration.environmentKeysToUnset {
+        unsetenv(key)
+    }
+    for (key, value) in launchConfiguration.environment {
+        setenv(key, value, 1)
+    }
+    for (key, value) in notificationBridgeEnvironment {
+        setenv(key, value, 1)
+    }
+
+    shellPath.withCString { executablePath in
+        var argv = ([launchConfiguration.argumentZero] + launchConfiguration.arguments)
+            .map { strdup($0) as UnsafeMutablePointer<CChar>? }
+        argv.append(nil)
+        execv(executablePath, &argv)
     }
 }
 

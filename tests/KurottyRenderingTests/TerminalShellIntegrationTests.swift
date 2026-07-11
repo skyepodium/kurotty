@@ -225,6 +225,64 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(integration.sessionEvidence, TerminalShellIntegrationSessionEvidence())
     }
 
+    func testZshBootstrapUsesBundledResourcesAndPreservesUserZDOTDIR() throws {
+        let resources = try XCTUnwrap(TerminalShellIntegrationBootstrap.bundledResourceDirectory)
+
+        let configuration = TerminalShellIntegrationBootstrap.configuration(
+            shellPath: "/bin/zsh",
+            environment: ["ZDOTDIR": "/tmp/user-zdotdir"],
+            resourceDirectory: resources
+        )
+
+        XCTAssertEqual(configuration.argumentZero, "-zsh")
+        XCTAssertEqual(configuration.arguments, ["-i"])
+        XCTAssertEqual(configuration.environment["KUROTTY_ZSH_ZDOTDIR"], "/tmp/user-zdotdir")
+        XCTAssertEqual(configuration.environment["ZDOTDIR"], resources.appendingPathComponent("zsh").path)
+        XCTAssertTrue(configuration.automaticallyInjectsCommandBoundaries)
+        let bootstrapSource = try String(
+            contentsOf: repositoryRoot().appendingPathComponent("Sources/KurottyApp/TerminalShellIntegrationBootstrap.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(bootstrapSource.contains("/Users/"))
+        XCTAssertFalse(bootstrapSource.contains("/Applications/"))
+    }
+
+    func testSupportedShellBootstrapsResolveOnlyFromProvidedResourceDirectory() throws {
+        let resources = try XCTUnwrap(TerminalShellIntegrationBootstrap.bundledResourceDirectory)
+
+        let bash = TerminalShellIntegrationBootstrap.configuration(
+            shellPath: "/bin/bash",
+            environment: [:],
+            resourceDirectory: resources
+        )
+        let fish = TerminalShellIntegrationBootstrap.configuration(
+            shellPath: "/opt/homebrew/bin/fish",
+            environment: ["XDG_DATA_DIRS": "/usr/local/share:/usr/share"],
+            resourceDirectory: resources
+        )
+
+        XCTAssertEqual(bash.arguments, ["--rcfile", resources.appendingPathComponent("bash/kurotty.bash").path, "-i"])
+        XCTAssertTrue(bash.automaticallyInjectsCommandBoundaries)
+        XCTAssertEqual(
+            fish.environment["XDG_DATA_DIRS"],
+            "\(resources.appendingPathComponent("fish").path):/usr/local/share:/usr/share"
+        )
+        XCTAssertTrue(fish.automaticallyInjectsCommandBoundaries)
+    }
+
+    func testUnknownShellFallsBackWithoutChangingEnvironment() {
+        let configuration = TerminalShellIntegrationBootstrap.configuration(
+            shellPath: "/usr/local/bin/custom-shell",
+            environment: ["HOME": "/tmp/home"],
+            resourceDirectory: URL(fileURLWithPath: "/tmp/resources")
+        )
+
+        XCTAssertEqual(configuration.argumentZero, "-custom-shell")
+        XCTAssertEqual(configuration.arguments, ["-i"])
+        XCTAssertEqual(configuration.environment, [:])
+        XCTAssertFalse(configuration.automaticallyInjectsCommandBoundaries)
+    }
+
     func testCapabilityDescriptorExposesInstallFreeOnboardingSteps() {
         let descriptor = TerminalShellIntegration().capabilityDescriptor
 
@@ -233,7 +291,7 @@ final class TerminalShellIntegrationTests: XCTestCase {
             [
                 TerminalShellIntegrationCapabilityDescriptor.OnboardingStep(
                     title: "Works without setup",
-                    detail: "Kurotty passively detects OSC 7 working-directory updates and OSC 133 command boundaries when your shell already emits them.",
+                    detail: "Kurotty loads bundled OSC 7 and OSC 133 integration for zsh, bash, and fish without modifying your shell files.",
                     commandID: nil,
                     requiresInstaller: false
                 ),
@@ -452,5 +510,12 @@ final class TerminalShellIntegrationTests: XCTestCase {
         integration.setActiveCommandText(commandText)
         _ = integration.consumeOsc("133;C")
         _ = integration.consumeOsc("133;D;\(exitCode)")
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }

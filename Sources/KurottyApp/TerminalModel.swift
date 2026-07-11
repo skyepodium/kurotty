@@ -251,6 +251,24 @@ struct TerminalMouseReportingState: Equatable {
     }
 }
 
+struct TerminalFocusReportingState: Equatable {
+    private(set) var isEnabled = false
+    private var lastReportedFocus: Bool?
+
+    mutating func set(enabled: Bool) {
+        isEnabled = enabled
+        lastReportedFocus = nil
+    }
+
+    mutating func sequenceIfNeeded(isFocused: Bool) -> String? {
+        guard isEnabled, lastReportedFocus != isFocused else {
+            return nil
+        }
+        lastReportedFocus = isFocused
+        return isFocused ? "\u{1b}[I" : "\u{1b}[O"
+    }
+}
+
 enum TerminalMouseEventKind: Equatable {
     case press(TerminalMouseButton)
     case release(TerminalMouseButton)

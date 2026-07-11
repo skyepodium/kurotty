@@ -23,6 +23,10 @@ png_dimensions() {
 require_file "$ROOT_DIR/kurotty-profile.png"
 require_file "$ROOT_DIR/kurotty.png"
 require_file "$ROOT_DIR/Sources/KurottyApp/Resources/kurotty.png"
+require_file "$ROOT_DIR/Sources/KurottyApp/Resources/ShellIntegration/zsh/.zshenv"
+require_file "$ROOT_DIR/Sources/KurottyApp/Resources/ShellIntegration/zsh/kurotty-integration.zsh"
+require_file "$ROOT_DIR/Sources/KurottyApp/Resources/ShellIntegration/bash/kurotty.bash"
+require_file "$ROOT_DIR/Sources/KurottyApp/Resources/ShellIntegration/fish/share/fish/vendor_conf.d/kurotty-shell-integration.fish"
 
 root_hash="$(shasum -a 256 "$ROOT_DIR/kurotty.png" | awk '{ print $1 }')"
 resource_hash="$(shasum -a 256 "$ROOT_DIR/Sources/KurottyApp/Resources/kurotty.png" | awk '{ print $1 }')"
@@ -33,19 +37,17 @@ resource_hash="$(shasum -a 256 "$ROOT_DIR/Sources/KurottyApp/Resources/kurotty.p
 
 require_file "$APP_PATH/Contents/Info.plist"
 require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/kurotty.png"
+require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/ShellIntegration/zsh/.zshenv"
+require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/ShellIntegration/zsh/kurotty-integration.zsh"
+require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/ShellIntegration/bash/kurotty.bash"
+require_file "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/ShellIntegration/fish/share/fish/vendor_conf.d/kurotty-shell-integration.fish"
 require_file "$APP_PATH/Contents/Resources/kurotty.icns"
-require_file "$ROOT_DIR/scripts/kurotty-codex-notify.mjs"
-require_file "$APP_PATH/Contents/Resources/kurotty-codex-notify.mjs"
 
 installed_icon_file="$(plutil -extract CFBundleIconFile raw -o - "$APP_PATH/Contents/Info.plist")"
 [[ "$installed_icon_file" == "kurotty.icns" ]] || fail "CFBundleIconFile must be kurotty.icns, got $installed_icon_file"
 
 installed_resource_hash="$(shasum -a 256 "$APP_PATH/Contents/Resources/$RESOURCE_BUNDLE/kurotty.png" | awk '{ print $1 }')"
 [[ "$installed_resource_hash" == "$root_hash" ]] || fail "installed SwiftPM resource PNG differs from root kurotty.png"
-
-wrapper_hash="$(shasum -a 256 "$ROOT_DIR/scripts/kurotty-codex-notify.mjs" | awk '{ print $1 }')"
-installed_wrapper_hash="$(shasum -a 256 "$APP_PATH/Contents/Resources/kurotty-codex-notify.mjs" | awk '{ print $1 }')"
-[[ "$installed_wrapper_hash" == "$wrapper_hash" ]] || fail "installed Codex notification wrapper differs from repository script"
 
 rm -rf "$ICONSET_CHECK_DIR"
 iconutil -c iconset "$APP_PATH/Contents/Resources/kurotty.icns" -o "$ICONSET_CHECK_DIR"

@@ -25,6 +25,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/kurotty.png"),
+                .copy("Resources/ShellIntegration"),
             ]
         ),
         .testTarget(
