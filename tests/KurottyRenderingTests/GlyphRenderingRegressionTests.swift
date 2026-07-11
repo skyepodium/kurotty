@@ -2116,7 +2116,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(metalSource.contains("inputOverlayRow"))
     }
 
-    func testTerminalNotificationsUseProtocolsAndProducerNeutralActivityFallback() throws {
+    func testTerminalNotificationsUseExplicitProtocolsWithoutScreenQuiescenceInference() throws {
         let shellSource = try shellSessionSource()
         let surfaceSource = try terminalSurfaceViewSource()
         let notifierSource = try terminalNotifierSource()
@@ -2144,10 +2144,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(surfaceSource.contains("TerminalNotificationSummary.latestMeaningfulLine(fromVisibleLines: lines)"))
         XCTAssertFalse(surfaceSource.contains("scheduleBackgroundTaskIdleCheck()"))
         XCTAssertFalse(surfaceSource.contains("notifyBackgroundTaskIfIdle(inputSequence: inputSequence)"))
-        XCTAssertTrue(surfaceSource.contains("TerminalActivityCompletionTracker"))
-        XCTAssertTrue(surfaceSource.contains("scheduleActivityCompletionIfNeeded(outputByteCount:"))
-        XCTAssertTrue(surfaceSource.contains("activityCompletionQuietIntervalSeconds"))
-        XCTAssertTrue(surfaceSource.contains("notifier.notifyActivityFinished("))
+        XCTAssertFalse(surfaceSource.contains("TerminalActivityCompletionTracker"))
+        XCTAssertFalse(surfaceSource.contains("scheduleActivityCompletionIfNeeded(outputByteCount:"))
+        XCTAssertFalse(surfaceSource.contains("activityCompletionQuietIntervalSeconds"))
+        XCTAssertFalse(surfaceSource.contains("notifier.notifyActivityFinished("))
         XCTAssertFalse(surfaceSource.contains("latestVisibleNotificationSummary"))
         XCTAssertTrue(surfaceSource.contains("guard shouldDeliverUserNotification else"))
         XCTAssertTrue(surfaceSource.contains("private var shouldDeliverUserNotification: Bool"))
@@ -2166,7 +2166,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("content: content.addingFallbackSubtitle(notificationSessionTitle())"))
         XCTAssertTrue(surfaceSource.contains("case 7:"))
         XCTAssertTrue(surfaceSource.contains("ringTerminalBell()"))
-        XCTAssertTrue(surfaceSource.contains("private func ringTerminalBell() {\n        NSSound.beep()\n    }"))
+        XCTAssertTrue(surfaceSource.contains("private func ringTerminalBell() {\n        NSSound.beep()"))
+        XCTAssertTrue(surfaceSource.contains("notifier.notifyBell()"))
         XCTAssertFalse(surfaceSource.contains("contentForBell"))
         XCTAssertTrue(surfaceSource.contains("handleTerminalIntegrationEvent(terminalEvent)"))
         XCTAssertTrue(surfaceSource.contains("shellIntegration.setActiveCommandText(lastSubmittedCommandText)"))

@@ -60,7 +60,7 @@ enum TerminalNotificationPayload {
         }
         return Content(
             source: .osc9,
-            title: AppConstants.Notifications.terminalAlertTitle,
+            title: "",
             subtitle: "",
             body: body
         )
@@ -97,7 +97,7 @@ enum TerminalNotificationPayload {
             return nil
         }
         let title = fields["title"].flatMap(body(fromExplicitPayload:))
-            ?? AppConstants.Notifications.terminalAlertTitle
+            ?? ""
         let subtitle = fields["subtitle"].flatMap(body(fromExplicitPayload:)) ?? ""
         return Content(source: .osc1337, title: title, subtitle: subtitle, body: body)
     }

@@ -88,12 +88,12 @@ final class TerminalNotifier: NSObject {
     }
 
     @MainActor
-    func notifyActivityFinished(content: TerminalActivityCompletionNotificationContent) {
+    func notifyBell() {
         deliver(
-            title: content.title,
-            subtitle: content.subtitle,
-            body: content.body,
-            identifierPrefix: AppConstants.Notifications.activityCompletionIdentifierPrefix
+            title: AppConstants.Notifications.defaultTitle,
+            subtitle: "",
+            body: AppConstants.Notifications.bellBody,
+            identifierPrefix: AppConstants.Notifications.bellIdentifierPrefix
         )
     }
 

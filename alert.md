@@ -2,9 +2,9 @@
 
 This document compares alert, notification, bell, activity, and command-completion behavior in terminal projects available beside Kurotty. Kurotty itself is excluded from the comparative source analysis, then evaluated separately for implementation.
 
-## Problem Observed In Kurotty
+## Historical Problem Observed In Kurotty
 
-The current notification UX can show generic macOS banners such as:
+An earlier notification implementation could show generic macOS banners such as:
 
 - title: `Alert`
 - body: `%`
@@ -23,12 +23,10 @@ shell-integration command metadata, user-configured trigger templates, or fixed
 event text. Blindly summarizing the visible screen mixes prompt text, status bars,
 ANSI control fragments, tool traces, and assistant output.
 
-For interactive TUI and agent workflows, the only acceptable fallback is a narrow
-output extractor that selects a trustworthy answer/message block and rejects
-prompt, tool/status, UI chrome, control fragments, and repaint suffixes. If that
-message block is not present, Kurotty should skip the notification instead of
-sending guessed content. Longer term, Kurotty should prefer explicit terminal,
-shell-integration, or agent events over text extraction.
+For interactive TUI and agent workflows, rendered output is not an acceptable
+notification payload source. Kurotty requires explicit terminal,
+shell-integration, bridge, or agent events. A payload-free BEL may request user
+attention, but it cannot identify the producer, event, result, or response.
 
 The second screenshot-class failure changed the diagnosis. The banner was no
 longer showing only `%`, but it still showed unrelated interactive TUI text:
@@ -480,114 +478,24 @@ Source references from the local tree:
 
 ## Kurotty Current Implementation
 
-### Before This Change
+Kurotty keeps notification sources distinct:
 
-- `TerminalNotifier.notifyItermOsc9(message:)` delivered title `Alert` and raw body.
-- `TerminalNotifier.notifyBackgroundTaskCompleted(body:)` delivered title `Alert` and a single body string.
-- `TerminalSurfaceView` built body from recent output or submitted input fallback.
-- A shell prompt `%` could become the entire notification body.
-- `UNMutableNotificationContent.subtitle` was unused.
+- OSC 9, OSC 777 `notify;title;body`, and supported rich OSC 1337 are parsed into
+  typed desktop-notification events and preserve producer-supplied fields.
+- OSC 133 shell integration represents ordinary command completion from command
+  boundaries, working directory, exit status, and duration.
+- The versioned Unix-socket/CLI bridge accepts explicit title, subtitle, body,
+  event, session, and duration fields without relying on an installation path.
+- BEL rings the terminal bell and, while unfocused, shows the fixed
+  `Kurotty` / `Check your terminal.` fallback. BEL supplies none of that text and
+  does not prove task completion.
 
-### Applied Change
-
-Kurotty now has `TerminalBackgroundTaskNotificationContent`:
-
-- `title`
-- `subtitle`
-- `body`
-
-Rules added:
-
-- submitted command becomes subtitle, for example `codex`
-- Codex success title: `Codex task finished`
-- Codex failure title: `Codex task failed`
-- Codex input/approval title: `Codex needs input`
-- generic background task title: `Task finished`
-- OSC9 placeholder prompt payloads such as `%`, `$`, `#` are ignored
-- notification body extraction can preserve multi-paragraph meaningful output and avoids trailing shell prompts
-- macOS notification subtitle is populated
-- logs still record lengths only, not raw terminal content
-- `KurottyNotificationBridgeServer` opens a user-scoped Unix socket at
-  `Application Support/Kurotty/notify.sock`.
-- `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` are exported before the
-  shell is launched.
-- the app executable supports `--notify`, `--notify-json`, and
-  `--notify-socket-path` for external hooks.
-- bridge JSON prefers explicit fields such as `last-assistant-message`, `body`,
-  `message`, `summary`, and `instruction`; plain text remains an `Alert`.
-
-### Follow-up Fix For Interactive TUI Output
-
-The screenshot after the first fix exposed a sharper bug:
-
-- submitted input such as `hello` became the subtitle correctly
-- but the notification body included interactive TUI chrome:
-  - color-control leftovers such as `38;2;200;169;238;49m`
-  - approval/status text from the bottom bar
-  - tool trace blocks such as `Explored` / `Read SKILL.md`
-  - inline TUI repaint suffixes such as `Worki55`
-
-The corrected rule is:
-
-- if output looks like Codex/agent TUI output, prefer the latest assistant
-  answer line/block
-- ignore prompt lines, status bars, usage bars, tool trace headings, and
-  decorative separators
-- strip terminal controls and common TUI repaint suffix fragments
-- use generic output summarization only as a fallback for non-agent commands
-
-This still remains a compatibility heuristic. The target architecture is an
-explicit agent-event payload:
-
-```text
-agent.notification {
-  agent: "codex",
-  state: "finished" | "failed" | "needs_input",
-  task: "user-submitted prompt or command",
-  summary: "assistant final answer or approval request",
-  paneID,
-  commandID,
-  createdAt
-}
-```
-
-### Second Follow-up: Wrong Trigger, Not Just Wrong Summary
-
-The later screenshots showed the previous follow-up was still incomplete:
-
-- `hello` was displayed as the task subtitle even though it was an interactive
-  Codex chat input, not a shell command.
-- `Hello. How can I help?55` was displayed as the body even though it was a
-  previous assistant answer plus a TUI repaint suffix, not the requested task.
-- The real prompt visible on screen, such as `Summarize recent commits`, had not
-  finished; Codex was idle and waiting for input.
-
-Root cause:
-
-- `TerminalSurfaceView.recordUserInput` treated any submitted printable line as
-  a background task candidate.
-- Subsequent output while unfocused was captured and summarized after an idle
-  timeout.
-- In an interactive TUI, that model confuses conversation turns with
-  background command lifecycle.
-
-Applied correction:
-
-- Add `TerminalBackgroundTaskTrackingPolicy`.
-- Keep normal shell commands eligible for fallback tracking.
-- Reject generic background-task tracking when the current visible terminal text
-  is interactive TUI output.
-- Reject a plain `codex` command as interactive TUI launch; allow only explicit
-  noninteractive `codex exec ...` fallback tracking.
-- Do not promote generic background notifications to `Codex task finished`
-  because their output looks like an agent/TUI transcript.
-- Clear stale captured command/output/work items when tracking is rejected so
-  old agent text cannot leak into the next notification.
-
-This deliberately does not claim to extract "the task content" from arbitrary
-screen text. The correct long-term fix is an explicit agent-event protocol or
-shell/OSC integration where the running tool tells Kurotty the task id, state,
-prompt, summary, approval request, and exit/failure state.
+Kurotty does not select behavior from executable names and does not promote
+submitted input, rendered rows, status bars, warnings, output quietness, or
+repaint fragments into notification content. Historical screen-scraping and
+idle-completion experiments described in earlier revisions were removed because
+they could notify before a turn completed or attach stale content to a later
+event.
 
 ## Recommended Kurotty Alert Architecture
 
@@ -647,38 +555,18 @@ Each alert should carry:
 
 ### Already Implemented In This Branch
 
-- Replace generic background-task notification body-only API with structured content.
-- Use Codex-specific titles for finished/failed/input-needed cases.
-- Populate macOS notification subtitle.
-- Filter `%` prompt-only notification payloads.
-- Preserve meaningful multi-line output for Codex completion.
-- Add regression tests for the screenshot-class failure.
-- Suppress fallback background-task tracking while interactive TUI output is
-  visible, preventing ordinary prompts such as `hello` from becoming fake
-  app-specific task-completion notifications.
-- Present conversational interactive TUI activity as an iTerm2-style terminal `Alert`
-  when output arrives after user input. The body uses the latest meaningful
-  assistant answer from the captured output buffer, not the full rendered screen.
-- Remove output-only Codex title inference; Codex-specific titles require
-  explicit `codex exec ...` command shape until a dedicated agent event exists.
-- Treat `codex` by itself as an interactive TUI launch and suppress background
-  task completion tracking for it.
-- Skip interactive terminal-alert fallback delivery when the captured output has
-  only prompts, status rows, tool traces, or control/repaint fragments and no
-  trustworthy answer block.
-- Route OSC 9 and OSC 777 `notify;title;body` through
-  `TerminalOSCDispatcher.Event.desktopNotification` instead of ad hoc surface
-  parsing.
-- Match iTerm2 OSC 9 alert formatting and ignore numeric OSC 9 progress
-  extensions.
-- Deliver explicit desktop notification payloads through `TerminalNotifier`
+- Route OSC 9, OSC 777 `notify;title;body`, and supported rich OSC 1337 through
+  `TerminalOSCDispatcher.Event.desktopNotification`.
+- Preserve explicit protocol fields and ignore numeric OSC 9 progress
+  extensions as desktop notifications.
+- Deliver explicit desktop-notification payloads through `TerminalNotifier`
   without deriving body text from the rendered screen.
-- Add a cmux-style external bridge for Codex/OMX hooks. This replaces the
-  broken `/dev/tty` OSC write pattern with an explicit Unix socket and CLI
-  client.
-- Document that Codex/OMX Kurotty notifications must use
-  `KUROTTY_NOTIFY_COMMAND`, `KUROTTY_NOTIFY_SOCKET`, or the installed app
-  executable with `--notify` / `--notify-json`.
+- Remove output-idle, rendered-row, and application-name completion inference.
+- Add a producer-neutral Unix-socket/CLI bridge resolved from the running app
+  environment rather than a guessed TTY or installation path.
+- Use OSC 133 shell-integration boundaries for ordinary command completion.
+- Treat BEL as payload-free attention: sound plus the fixed unfocused fallback
+  `Kurotty` / `Check your terminal.`
 
 ### Next Iteration
 

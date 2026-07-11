@@ -75,7 +75,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var scrollbackRowsAppendedDuringOutput = 0
     private var pendingSubmittedInputText = ""
     private var lastSubmittedCommandText: String?
-    private var activityCompletionTracker = TerminalActivityCompletionTracker()
     private var debugFrameIndex: UInt64 = 0
     private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
     private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
@@ -1244,7 +1243,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return false
         }
         lastSubmittedCommandText = body
-        activityCompletionTracker.begin(submittedText: body, baselineText: visibleText())
         return true
     }
 
@@ -1361,35 +1359,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
         updateRendererFrame()
-        scheduleActivityCompletionIfNeeded(outputByteCount: text.utf8.count)
-    }
-
-    private func scheduleActivityCompletionIfNeeded(outputByteCount: Int) {
-        guard let generation = activityCompletionTracker.recordOutput(byteCount: outputByteCount) else {
-            return
-        }
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + AppConstants.Notifications.activityCompletionQuietIntervalSeconds
-        ) { [weak self] in
-            guard let self,
-                  let candidate = self.activityCompletionTracker.completeIfCurrent(
-                    generation: generation,
-                    currentText: self.visibleText()
-                  ),
-                  self.shouldDeliverUserNotification else {
-                return
-            }
-            self.notifier.notifyActivityFinished(
-                content: TerminalActivityCompletionNotificationContent.make(
-                    resultText: candidate.resultText,
-                    runtimeMetadata: self.shell.foregroundProcessName().map {
-                        TerminalRuntimeNotificationMetadata(command: $0, workingDirectory: nil)
-                    },
-                    terminalTitle: self.terminalTitle,
-                    currentDirectory: self.currentWorkingDirectory
-                )
-            )
-        }
     }
 
     private func beginOutputRuntimeEventBatch(byteCount: Int) {
@@ -2249,7 +2218,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
-        activityCompletionTracker.suppressCurrent()
         lastSubmittedCommandText = nil
         guard shouldDeliverUserNotification else {
             return
@@ -2261,7 +2229,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard case .desktopNotification(let content) = event else {
             return
         }
-        activityCompletionTracker.suppressCurrent()
         guard shouldDeliverUserNotification else {
             return
         }
@@ -2272,6 +2239,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func ringTerminalBell() {
         NSSound.beep()
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyBell()
     }
 
     private func respondToOscQuery(_ code: String) {
