@@ -88,6 +88,16 @@ final class TerminalNotifier: NSObject {
     }
 
     @MainActor
+    func notifyBell() {
+        deliver(
+            title: AppConstants.Notifications.defaultTitle,
+            subtitle: "",
+            body: AppConstants.Notifications.bellBody,
+            identifierPrefix: AppConstants.Notifications.bellIdentifierPrefix
+        )
+    }
+
+    @MainActor
     func notifyTestNotification() {
         deliver(
             title: AppConstants.Notifications.defaultTitle,

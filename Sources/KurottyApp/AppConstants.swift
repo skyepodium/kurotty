@@ -134,6 +134,7 @@ enum AppConstants {
         static let osc777IdentifierPrefix = "dev.kurotty.terminal.osc777"
         static let osc1337IdentifierPrefix = "dev.kurotty.terminal.osc1337"
         static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"
+        static let bellIdentifierPrefix = "dev.kurotty.terminal.bell"
         static let commandCompletionIdentifierPrefix = "dev.kurotty.terminal.command-completion"
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
@@ -143,6 +144,7 @@ enum AppConstants {
         static let defaultProgramTitle = "Terminal"
         static let defaultDirectoryTitle = "Session"
         static let testBody = "Kurotty test notification."
+        static let bellBody = "Check your terminal."
         static let commandInputCaptureMaxCharacters = 4096
         static let commandSummaryMaxCharacters = 180
         static let terminalNotificationMaxCharacters = 512

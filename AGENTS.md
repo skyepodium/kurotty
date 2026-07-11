@@ -94,6 +94,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 ## macOS Notifications
 
 - Notification support is a Kurotty product feature, not a per-developer workstation setup. A clean install on another Mac must receive notifications emitted through supported terminal protocols without editing tool configuration, shell dotfiles, or third-party installations.
+- In this contract, the **producer** is the child application that emits terminal bytes, for example a CLI/TUI emitting OSC 9 or OSC 777. Kurotty is the consumer and presenter. Kurotty cannot preserve a title or response body that the producer did not send.
 - The implementation must be producer-neutral. Never branch on names such as Codex, Claude Code, Grok, their executable filenames, model names, greetings, prompt text, or screenshot content.
 - Never fix notification behavior by writing `~/.codex/config.toml`, `~/.grok/config.toml`, installing a per-user hook, patching another application, guessing `/dev/tty` or `/dev/ttys*`, or embedding a username, home directory, checkout path, `/Applications` path, PID, socket path, or machine-specific process ancestry.
 - Platform suffixes such as `-aarch64-apple-darwin` and `-macos-aarch64` must not be removed with a suffix table. Resolve the producer label from protocol metadata or the foreground process invocation name (`argv[0]`); use the kernel executable basename only as a last-resort fallback.
@@ -105,13 +106,15 @@ Keep each source distinct and preserve its semantics:
 1. **Explicit terminal notification:** OSC 9, OSC 777 `notify;title;body`, or supported rich OSC 1337. Parse protocol fields into a typed event and deliver those fields without scraping the screen. This is the Ghostty reference model: a parsed OSC command becomes an explicit desktop-notification event.
 2. **Producer-neutral bridge notification:** a process that cannot write to the PTY may use Kurotty's documented Unix-socket/CLI bridge and its versioned JSON fields. The bridge must be resolved from the running app environment, never from a hardcoded install path.
 3. **Shell command completion:** OSC 133 shell-integration boundaries provide command metadata such as working directory, exit status, and duration. They do not manufacture an AI response body.
-4. **BEL:** sound only. BEL carries no title, subtitle, body, task identity, or completion payload and must never be converted into a textual completion notification.
+4. **BEL:** sound plus a deliberately generic Kurotty fallback notification. BEL carries no title, subtitle, body, task identity, or completion payload, so the fallback must always be `Kurotty` / `Check your terminal.` and must never scrape the screen or claim producer-supplied content or task completion.
+
+Some producers select a protocol from a terminal-brand support table. For example, Grok Build 0.2.93 documents Ghostty as OSC 777, iTerm2 as OSC 9, and unknown terminals as BEL. Because Kurotty identifies itself truthfully as `TERM_PROGRAM=Kurotty`, a producer that does not recognize Kurotty may choose BEL even though Kurotty can parse richer OSC protocols. Do not fix this by impersonating Ghostty/iTerm2, rewriting producer configuration, or treating BEL as a payload-bearing completion event. The durable resolution is producer support for Kurotty or a producer-neutral capability-negotiation standard.
 
 OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are title metadata and are never completion events. Numeric OSC 9 progress extensions such as OSC `9;4;...` are progress data, not desktop messages.
 
 ### Notification presentation contract
 
-- The macOS sender is already Kurotty. Do not repeat `Kurotty` merely to identify the sender.
+- The macOS sender is already Kurotty. Explicit OSC/bridge notifications must not repeat `Kurotty` merely to identify the sender. The payload-free BEL fallback is the deliberate exception and uses the fixed title `Kurotty`.
 - **Explicit OSC fields:** preserve the producer-supplied title, subtitle, and body according to that protocol. For OSC 9, the payload is the body and the title is intentionally empty at the protocol boundary, matching Ghostty.
 - **Shell completion fields:** use only OSC 133 command metadata such as exit code, duration, command text, and working directory. Never manufacture an interactive-program response from rendered rows.
 - Never use submitted input, rendered screen text, a model/status/footer row, prompt, warning, or repaint fragment as an explicit notification body.
@@ -132,7 +135,7 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 
 ### Verification requirements
 
-- Parser tests must feed raw OSC bytes for every supported notification protocol and confirm title/body field preservation, progress-sequence exclusion, and BEL sound-only behavior.
+- Parser tests must feed raw OSC bytes for every supported notification protocol and confirm title/body field preservation and progress-sequence exclusion. Surface/notifier regression tests must separately confirm BEL's payload-free generic fallback behavior.
 - Regression tests must prove ordinary PTY output and output quiescence do not create desktop notifications.
 - Runtime-context tests must prove `argv[0]` wins over an internal platform-qualified executable path and OSC 7 directory basename wins over unrelated external state.
 - Run the smallest relevant tests, then `swift test`, `git diff --check`, a production app build/install, `codesign --verify --deep --strict`, and an installed-app smoke test. Unit tests alone do not prove macOS notification presentation.

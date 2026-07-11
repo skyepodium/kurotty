@@ -2239,6 +2239,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func ringTerminalBell() {
         NSSound.beep()
+        guard shouldDeliverUserNotification else {
+            return
+        }
+        notifier.notifyBell()
     }
 
     private func respondToOscQuery(_ code: String) {

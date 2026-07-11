@@ -198,7 +198,60 @@ This lets Zig evolve behind a stable C boundary while Swift keeps UI responsiven
 
 ## OSC, shell integration, and notifications
 
-Notifications are modeled as typed events with explicit source semantics. Kurotty does not have a Codex path, Grok path, or Claude path. A producer is supported because it emits a standard terminal protocol or because generic terminal-owned state provides a bounded fallback—not because its name appears in the source code.
+Notifications are modeled as typed events with explicit source semantics. Kurotty does not have a Codex path, Grok path, or Claude path. A producer is supported because it emits a standard terminal protocol, not because its name appears in the source code.
+
+### Producer and consumer boundary
+
+The **producer** is the child program that writes notification bytes to the PTY. Grok Build, Codex, a shell script, and any other CLI/TUI can be producers. Kurotty is the **consumer**: it parses those bytes, applies presentation policy, and submits the resulting fields to macOS.
+
+```mermaid
+flowchart LR
+    Producer["Producer: CLI or TUI"]
+    PTY["PTY byte stream"]
+    Kurotty["Kurotty parser and policy"]
+    macOS["macOS notification center"]
+
+    Producer -->|"OSC with title/body, or BEL without payload"| PTY
+    PTY --> Kurotty
+    Kurotty --> macOS
+```
+
+This boundary determines what Kurotty can display:
+
+- OSC 9 supplies a message body.
+- OSC 777 `notify;title;body` supplies a title and body.
+- Supported rich OSC 1337 supplies named fields such as title, subtitle, and message.
+- BEL is one byte (`0x07`) and supplies no title, body, event kind, program identity, or completion semantics. Kurotty presents the deliberately generic `Kurotty` / `Check your terminal.` fallback when unfocused; it does not treat that text as producer-supplied data.
+
+Kurotty cannot reconstruct a missing response payload without scraping rendered output. It therefore preserves explicit fields and uses only the fixed generic BEL fallback, without claiming to know the missing response text.
+
+### Producer-side terminal detection: Grok Build 0.2.93
+
+Grok Build chooses its notification protocol before Kurotty receives anything. Its installed user guide documents `method = "auto"` as terminal-brand detection with this support matrix:
+
+| Detected terminal | Auto protocol | Focus tracking | Progress bar |
+| --- | --- | --- | --- |
+| iTerm2 | OSC 9 | Yes | Yes |
+| Kitty | OSC 99 | Yes | No |
+| Ghostty | OSC 777 | Yes | Yes |
+| WezTerm | OSC 9 | Yes | Yes |
+| Warp | OSC 9 | Yes | No |
+| Alacritty | BEL | Yes | No |
+| VS Code family | BEL | Yes | No |
+| Apple Terminal | BEL | No | No |
+| VTE family | OSC 777 | Yes | No |
+| Grok Desktop | Native | N/A | N/A |
+| Unknown | BEL | No | No |
+
+The broader Grok detection list includes Apple Terminal, Ghostty, iTerm2, Warp, WezTerm, Kitty, Alacritty, Rio, foot, VS Code, Cursor, Windsurf, Zed, JetBrains terminals, Grok Desktop, VTE terminals such as GNOME Terminal/GNOME Console/Tilix, and Windows Terminal.
+
+Evidence for the installed Grok version is local to the Grok distribution:
+
+- `~/.grok/docs/user-guide/05-configuration.md`, “Notifications” and “Terminal Support Matrix”
+- `~/.grok/docs/user-guide/21-terminal-support.md`, “Detected Terminals”
+- Grok Build `0.2.93 (f00f96316d4b)`
+
+Kurotty exports `TERM_PROGRAM=Kurotty`. Grok 0.2.93 does not list Kurotty, so `auto` classifies it as Unknown and selects BEL. Consequently, Kurotty can show only its generic BEL fallback; the producer's actual response is unavailable because no OSC title/body was emitted. Kurotty must not export `TERM_PROGRAM=ghostty` or `TERM_PROGRAM=iTerm.app`; that would be terminal-identity impersonation and would couple compatibility to another product's name. A durable rich-notification fix requires the producer to recognize Kurotty and select a supported OSC protocol, or a future producer-neutral capability negotiation mechanism.
 
 ### Source model and precedence
 
@@ -207,7 +260,7 @@ Notifications are modeled as typed events with explicit source semantics. Kurott
 | 1 | OSC 9, OSC 777, supported rich OSC 1337 | Producer-supplied protocol fields | Parse into a typed desktop-notification event and preserve the supplied message. |
 | 2 | Kurotty Unix-socket/CLI bridge | Producer-supplied versioned JSON or text | Deliver through the same app-owned notifier when the producer cannot write to the PTY. |
 | 3 | OSC 133 shell integration | Command boundary metadata | Represent ordinary command completion using cwd, exit status, and duration; it does not invent an interactive-program response. |
-| — | BEL | No text payload | Ring the terminal bell only. |
+| 4 | BEL | No text payload | Ring the terminal bell and, while unfocused, show `Kurotty` / `Check your terminal.` without scraping screen content. |
 
 OSC 0/1/2 sequences update titles only. A BEL byte may terminate an OSC sequence, but it does not turn that title sequence into a completion notification. Numeric OSC 9 progress forms such as `9;4;...` remain progress events.
 
@@ -229,6 +282,7 @@ flowchart LR
     OSC --> Typed
     Typed --> Notifier
     PTY --> Surface
+    Surface -->|BEL fallback| Notifier
     Bridge --> Notifier
     Notifier --> macOS
 ```
@@ -265,7 +319,7 @@ Notifications use the following field contract:
 | --- | --- | --- |
 | Title | Explicit OSC/bridge title; shell-completion status for OSC 133 | Protocol-defined default |
 | Subtitle | Explicit protocol subtitle; otherwise the current surface title | Empty string |
-| Body | Exact explicit OSC/bridge message; command metadata for OSC 133 | No notification when an explicit body is required but absent |
+| Body | Exact explicit OSC/bridge message; command metadata for OSC 133 | `Check your terminal.` for payload-free BEL; otherwise no invented message |
 
 `DarwinPTYTerminalSession.foregroundProcessName()` asks the Kurotty PTY for its foreground process group. `TerminalProcessArguments` then reads the process argument vector and uses the basename of `argv[0]`. This preserves the command the user invoked: `codex` displays as `Codex` even when the internal binary is named `codex-aarch64-apple-darwin`. The implementation does not maintain a list of products, CPU architectures, operating systems, or suffixes to remove. Kernel executable metadata is only a fallback when the invocation name is unavailable.
 
@@ -291,12 +345,12 @@ Verification is layered because no single fixture proves the full path:
 
 - raw parser tests prove OSC classification and field preservation;
 - dispatcher tests prove typed event routing and numeric progress exclusion;
-- activity tests prove response-region extraction, wrapped-line preservation, status/chrome rejection, echo rejection, and fallback behavior;
+- regression tests prove ordinary rendered output and output quiescence do not synthesize completion notifications;
 - process metadata tests prove `argv[0]` wins over a platform-qualified internal executable name;
 - full `swift test` and `git diff --check` protect cross-feature regressions;
 - the production `.app` must be built, installed, code-signature verified, relaunched, and smoke-tested because debug execution does not reproduce the complete UserNotifications and LaunchServices environment.
 
-Compatibility must not be claimed from a synthetic notification alone. When a producer-specific report is being investigated, capture whether it emitted explicit OSC/bridge data or entered the generic fallback, then verify the resulting title, subtitle, and body at the installed-app boundary.
+Compatibility must not be claimed from a synthetic notification alone. When a producer-specific report is being investigated, capture whether it emitted explicit OSC/bridge data or only BEL, then verify the resulting fields at the installed-app boundary.
 
 ## Settings and workspace snapshots
 
