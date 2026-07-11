@@ -223,6 +223,7 @@ fi
 if [[ -n "$NOTARY_PROFILE" ]]; then
   xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$DMG_PATH"
+  REQUIRE_NOTARIZATION=1
 elif [[ -n "$NOTARY_APPLE_ID" && -n "$NOTARY_TEAM_ID" && -n "$NOTARY_PASSWORD" ]]; then
   xcrun notarytool submit "$DMG_PATH" \
     --apple-id "$NOTARY_APPLE_ID" \
@@ -230,9 +231,14 @@ elif [[ -n "$NOTARY_APPLE_ID" && -n "$NOTARY_TEAM_ID" && -n "$NOTARY_PASSWORD" ]
     --password "$NOTARY_PASSWORD" \
     --wait
   xcrun stapler staple "$DMG_PATH"
+  REQUIRE_NOTARIZATION=1
 else
   echo "Skipping notarization: set KUROTTY_NOTARY_PROFILE or Apple ID notarization env vars."
+  REQUIRE_NOTARIZATION=0
 fi
+
+KUROTTY_REQUIRE_NOTARIZATION="$REQUIRE_NOTARIZATION" \
+  "$ROOT_DIR/scripts/verify-release-artifact.sh" "$DMG_PATH" "$VERSION"
 
 if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
   rm -rf "$APPCAST_WORK_DIR"

@@ -1,5 +1,9 @@
 import AppKit
 
+if ReleaseArtifactSmokeTest.handleIfNeeded(arguments: ProcessInfo.processInfo.arguments) {
+    exit(0)
+}
+
 if KurottyNotificationBridgeCommandLine.handleIfNeeded(arguments: ProcessInfo.processInfo.arguments) {
     exit(0)
 }
