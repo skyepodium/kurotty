@@ -69,6 +69,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           ./scripts/package-release.sh "${VERSION#v}"
 
+      - name: Verify packaged release artifact
+        env:
+          KUROTTY_REQUIRE_NOTARIZATION: '1'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./scripts/verify-release-artifact.sh "dist/kurotty-${VERSION}-macos-universal.dmg" "$VERSION"
+
       - name: Upload GitHub release
         uses: softprops/action-gh-release@v2
         with:

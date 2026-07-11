@@ -217,6 +217,11 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 - README download links should point at `https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg` so users download the current DMG directly without hardcoding the release version.
 - Universal release packages must include both `arm64` and `x86_64` slices for `Contents/MacOS/kurotty` and `Contents/Resources/libkurotty_core.dylib`.
 - DMGs must contain `kurotty.app` and an `/Applications` symlink so users can install by dragging the app, matching standard macOS distribution UX.
+- Release code must resolve packaged resources through the installed `.app` layout first. Do not rely on SwiftPM build-directory fallbacks to prove a packaged app works; those paths do not exist after Sparkle or DMG installation.
+- `scripts/verify-release-artifact.sh` is a mandatory publication gate. It must mount the final DMG, copy `kurotty.app` into a fresh temporary directory outside the repository and SwiftPM build tree, verify the version, signatures, Universal slices, DMG layout, and run the copied executable with `--release-artifact-smoke-test`.
+- `--release-artifact-smoke-test` is an app-owned installed-layout contract. It must load the packaged SwiftPM resource bundle, icon, shell integration files, `libkurotty_core.dylib`, Sparkle framework, and bundle version without opening the normal UI. Missing or unreadable release resources must return a nonzero exit status.
+- Never weaken the release artifact smoke test to make packaging pass. Fix the app layout, resource lookup, signing, or package construction that violates the contract.
+- GitHub Release upload must remain ordered after the packaged-artifact verification step. A failed smoke, structure, signature, architecture, Gatekeeper, notarization, or stapler check must make publishing impossible.
 - Tags for public releases must be created from `main` as `v$(cat VERSION)`. The release workflow must reject tags that are not contained in `main`.
 - Sparkle automatic updates must use the signed `appcast.xml` from the release assets. The appcast enclosure URL must point to the versioned DMG, not a stale local `dist/` file or a previous release asset.
 - Before publishing a new release, remove stale local release outputs or use an isolated work directory so old DMGs, old appcasts, and old signatures cannot be re-uploaded.
@@ -229,12 +234,13 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
   - inspect `appcast.xml` and the public `https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml` to confirm the current version, versioned DMG URL, and Sparkle EdDSA signature are present.
 - After release packaging changes, verify:
   - `swift test` passes.
-  - `bash -n scripts/install-app.sh scripts/package-release.sh` passes.
+  - `bash -n scripts/install-app.sh scripts/package-release.sh scripts/verify-release-artifact.sh` passes.
   - `./scripts/package-release.sh` creates `dist/kurotty-$(cat VERSION)-macos-universal.dmg` and `dist/kurotty-macos-universal.dmg`.
   - `cd dist && shasum -a 256 -c SHA256SUMS` passes.
   - `lipo -info` on the packaged app executable and `libkurotty_core.dylib` reports both `x86_64` and `arm64`.
   - Mounting the DMG shows `kurotty.app` and `Applications -> /Applications`.
   - `scripts/verify-icon-bundle.sh` passes on the packaged app.
+  - `scripts/verify-release-artifact.sh dist/kurotty-$(cat VERSION)-macos-universal.dmg $(cat VERSION)` passes from the final DMG, not from the intermediate `.build/release-package/kurotty.app`.
 
 ## Testing And Verification
 
