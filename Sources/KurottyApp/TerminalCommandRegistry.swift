@@ -4,6 +4,7 @@ enum TerminalCommandCategory: String, CaseIterable {
     case tabs
     case panes
     case navigation
+    case tmux
 }
 
 enum TerminalWindowCommandID: String, CaseIterable {
@@ -17,6 +18,16 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case focusPaneDown = "window.focusPane.down"
     case selectNextTab = "window.selectNextTab"
     case selectPreviousTab = "window.selectPreviousTab"
+    case tmuxSwapPanePrevious = "tmux.swapPane.previous"
+    case tmuxSwapPaneNext = "tmux.swapPane.next"
+    case tmuxRotateWindowPrevious = "tmux.rotateWindow.previous"
+    case tmuxRotateWindowNext = "tmux.rotateWindow.next"
+    case tmuxToggleZoom = "tmux.toggleZoom"
+    case tmuxSelectNextLayout = "tmux.layout.next"
+    case tmuxSelectPreviousLayout = "tmux.layout.previous"
+    case tmuxEvenHorizontalLayout = "tmux.layout.evenHorizontal"
+    case tmuxEvenVerticalLayout = "tmux.layout.evenVertical"
+    case tmuxDetachClient = "tmux.detachClient"
 }
 
 enum TerminalWindowCommandAction: Equatable {
@@ -27,18 +38,21 @@ enum TerminalWindowCommandAction: Equatable {
     case focusPane(TerminalPaneFocusDirection)
     case selectNextTab
     case selectPreviousTab
+    case tmuxSwapPane(TmuxPaneSwapDirection)
+    case tmuxRotateWindow(TmuxRotationDirection)
+    case tmuxToggleZoom
+    case tmuxSelectLayout(TmuxLayoutSelection)
+    case tmuxDetachClient
 }
 
 enum TerminalCommandSpanCommandID: String, CaseIterable {
     case foldOutput = "commandSpan.foldOutput"
-    case searchOutput = "commandSpan.searchOutput"
     case copyReference = "commandSpan.copyReference"
     case replay = "commandSpan.replay"
 }
 
 enum TerminalCommandSpanAction: Equatable {
     case foldOutput
-    case searchOutput
     case copyReference
     case replay
 }
@@ -160,6 +174,11 @@ struct TerminalCommandRegistry {
         commandSpanCommands: Self.defaultCommandSpanCommands
     )
 
+    static let tmuxControl = TerminalCommandRegistry(
+        windowCommands: Self.defaultWindowCommands + Self.tmuxWindowCommands,
+        commandSpanCommands: Self.defaultCommandSpanCommands
+    )
+
     let windowCommands: [TerminalCommand]
     let commandSpanCommands: [TerminalCommandSpanCommand]
 
@@ -268,6 +287,19 @@ struct TerminalCommandRegistry {
         ),
     ]
 
+    private static let tmuxWindowCommands: [TerminalCommand] = [
+        TerminalCommand(id: .tmuxSwapPanePrevious, title: "Tmux: Swap Pane Previous", category: .tmux, shortcut: nil, action: .tmuxSwapPane(.previous), searchTokens: ["move pane backward", "swap tmux pane"]),
+        TerminalCommand(id: .tmuxSwapPaneNext, title: "Tmux: Swap Pane Next", category: .tmux, shortcut: nil, action: .tmuxSwapPane(.next), searchTokens: ["move pane forward", "swap tmux pane"]),
+        TerminalCommand(id: .tmuxRotateWindowPrevious, title: "Tmux: Rotate Panes Previous", category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.previous), searchTokens: ["rotate tmux panes backward"]),
+        TerminalCommand(id: .tmuxRotateWindowNext, title: "Tmux: Rotate Panes Next", category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.next), searchTokens: ["rotate tmux panes forward"]),
+        TerminalCommand(id: .tmuxToggleZoom, title: "Tmux: Toggle Pane Zoom", category: .tmux, shortcut: nil, action: .tmuxToggleZoom, searchTokens: ["maximize pane", "unzoom pane"]),
+        TerminalCommand(id: .tmuxSelectNextLayout, title: "Tmux: Next Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.next), searchTokens: ["cycle tmux layout"]),
+        TerminalCommand(id: .tmuxSelectPreviousLayout, title: "Tmux: Previous Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.previous), searchTokens: ["previous tmux layout"]),
+        TerminalCommand(id: .tmuxEvenHorizontalLayout, title: "Tmux: Even Horizontal Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenHorizontal), searchTokens: ["balance tmux columns"]),
+        TerminalCommand(id: .tmuxEvenVerticalLayout, title: "Tmux: Even Vertical Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenVertical), searchTokens: ["balance tmux rows"]),
+        TerminalCommand(id: .tmuxDetachClient, title: "Tmux: Detach Client", category: .tmux, shortcut: nil, action: .tmuxDetachClient, searchTokens: ["leave tmux session", "disconnect tmux"]),
+    ]
+
     private static let defaultCommandSpanCommands: [TerminalCommandSpanCommand] = [
         TerminalCommandSpanCommand(
             id: .foldOutput,
@@ -275,13 +307,6 @@ struct TerminalCommandRegistry {
             subtitle: "Collapse a completed command's output while keeping the command reference.",
             action: .foldOutput,
             searchTokens: ["collapse command output", "hide command output", "toggle command output"]
-        ),
-        TerminalCommandSpanCommand(
-            id: .searchOutput,
-            title: "Search Command Output",
-            subtitle: "Search within a completed command's output range.",
-            action: .searchOutput,
-            searchTokens: ["find in command output", "search span output", "filter command output"]
         ),
         TerminalCommandSpanCommand(
             id: .copyReference,

@@ -103,11 +103,11 @@ final class CommandPaletteWindowControllerTests: XCTestCase {
             )
         )
 
-        presenter.updateQuery("search command output")
+        presenter.updateQuery("rerun command")
 
-        XCTAssertEqual(presenter.visibleEntries.compactMap(\.commandSpanCommand?.id), [.searchOutput])
-        XCTAssertEqual(presenter.selectedEntry?.title, "Search Command Output")
-        XCTAssertEqual(presenter.selectedEntry?.detail, "Command Spans")
+        XCTAssertEqual(presenter.visibleEntries.compactMap(\.commandSpanCommand?.id), [.replay])
+        XCTAssertEqual(presenter.selectedEntry?.title, "Replay Command")
+        XCTAssertEqual(presenter.selectedEntry?.detail, "Command Spans - Requires confirmation")
     }
 
     func testPresenterExecutesSelectedCommandSpanThroughSeparateClosure() {
@@ -174,13 +174,6 @@ final class CommandPaletteWindowControllerTests: XCTestCase {
                 subtitle: "Collapse command output.",
                 action: .foldOutput,
                 searchTokens: ["collapse command output"]
-            ),
-            TerminalCommandSpanCommand(
-                id: .searchOutput,
-                title: "Search Command Output",
-                subtitle: "Search command output.",
-                action: .searchOutput,
-                searchTokens: ["find in command output"]
             ),
             TerminalCommandSpanCommand(
                 id: .replay,

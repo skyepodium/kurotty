@@ -124,6 +124,8 @@ enum DesignTokens {
     }
 
     enum Component {
+        static let commandPaletteWidthPX: CGFloat = 680
+        static let commandPaletteHeightPX: CGFloat = 500
         static let preferencesWidthPX: CGFloat = 640
         static let preferencesHeightPX: CGFloat = 480
         static let preferencesControlWidthPX: CGFloat = 240

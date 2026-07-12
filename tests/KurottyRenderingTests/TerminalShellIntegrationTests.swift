@@ -169,7 +169,7 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertNil(span.commandText)
     }
 
-    func testCompletedCommandSpanExposesFoldReplayAndSearchMetadataWithoutOutput() throws {
+    func testCompletedCommandSpanExposesFoldAndReplayMetadataWithoutOutput() throws {
         var integration = TerminalShellIntegration()
 
         completeCommand(
@@ -196,14 +196,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(replayCandidate.cwd, "/Users/skye/project")
         XCTAssertTrue(replayCandidate.requiresExplicitUserConfirmation)
 
-        let searchMetadata = span.searchMetadata
-        XCTAssertEqual(searchMetadata.spanID, span.id)
-        XCTAssertEqual(searchMetadata.reference, span.reference)
-        XCTAssertEqual(searchMetadata.cwd, "/Users/skye/project")
-        XCTAssertEqual(searchMetadata.exitCode, 0)
-        XCTAssertEqual(searchMetadata.commandText, "swift test --filter TerminalShellIntegrationTests")
-        XCTAssertTrue(searchMetadata.isFoldable)
-        XCTAssertTrue(searchMetadata.isReplayable)
     }
 
     func testReplayCandidateRequiresNonEmptyCompletedCommandText() throws {
@@ -213,7 +205,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let span = try XCTUnwrap(integration.recentCommandSpans.first)
         XCTAssertNil(span.replayCandidate)
-        XCTAssertFalse(span.searchMetadata.isReplayable)
     }
 
     func testDefaultShellIntegrationPolicyIsPassiveAndDoesNotRequireScriptInstallation() {

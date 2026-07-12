@@ -37,19 +37,6 @@ struct TerminalCommandReplayCandidate: Equatable {
     let requiresExplicitUserConfirmation: Bool
 }
 
-struct TerminalCommandSearchMetadata: Equatable {
-    let spanID: TerminalCommandSpan.ID
-    let reference: TerminalCommandSpanReference
-    let cwd: String?
-    let exitCode: Int?
-    let commandText: String?
-    let startBoundarySequence: Int
-    let endBoundarySequence: Int?
-    let outputRange: TerminalCommandOutputRange?
-    let isFoldable: Bool
-    let isReplayable: Bool
-}
-
 struct TerminalCommandCompletionContext: Equatable {
     let span: TerminalCommandSpan
     let exitCode: Int?
@@ -298,21 +285,6 @@ extension TerminalCommandSpan {
         )
     }
 
-    var searchMetadata: TerminalCommandSearchMetadata {
-        let outputRange = outputRange
-        return TerminalCommandSearchMetadata(
-            spanID: id,
-            reference: reference,
-            cwd: cwd,
-            exitCode: exitCode,
-            commandText: commandText,
-            startBoundarySequence: startBoundarySequence,
-            endBoundarySequence: endBoundarySequence,
-            outputRange: outputRange,
-            isFoldable: outputRange != nil,
-            isReplayable: replayCandidate != nil
-        )
-    }
 }
 
 struct TerminalShellIntegration: Equatable {

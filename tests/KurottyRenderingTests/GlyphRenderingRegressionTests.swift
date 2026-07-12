@@ -637,7 +637,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil"))
         XCTAssertTrue(surfaceSource.contains("pendingMarkedTextAnchor = nil\n        markDirty(row: cursorRow)"))
-        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector) {\n            flushAccumulatedCommittedText()\n            clearCommittedMarkedTextPrefix()\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
+        XCTAssertTrue(surfaceSource.contains("if let sequence = TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState) {\n            flushAccumulatedCommittedText()\n            clearCommittedMarkedTextPrefix()\n            pendingMarkedTextAnchor = nil\n            send(sequence)\n        }"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.deleteBackward(_:)):\n            return \"\\u{7f}\""))
         XCTAssertTrue(routerSource.contains("precomposedStringWithCanonicalMapping"))
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.committedText(from: string)"))
@@ -982,7 +982,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("private var pendingOutputText = \"\""))
         XCTAssertTrue(source.contains("private var isOutputFlushScheduled = false"))
-        XCTAssertTrue(source.contains("self?.enqueueOutput(text)"))
+        XCTAssertTrue(source.contains("self.enqueueOutput(visibleText)"))
         XCTAssertTrue(source.contains("private func enqueueOutput(_ text: String)"))
         XCTAssertTrue(source.contains("DispatchQueue.main.asyncAfter"))
         XCTAssertTrue(source.contains("appendOutput(text)"))
@@ -1020,9 +1020,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("case \"D\":\n            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))"))
         XCTAssertTrue(source.contains("case \"G\", \"`\":\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))"))
-        XCTAssertTrue(source.contains("case \"H\", \"f\":\n            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))\n            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))"))
+        XCTAssertTrue(source.contains("case \"H\":\n            setCursorPosition(parsed)"))
+        XCTAssertTrue(source.contains("private func setCursorPosition(_ params: CsiParameters)"))
+        XCTAssertTrue(source.contains("cursorRow = min(scrollRegionBottom, scrollRegionTop + requestedRow)"))
         XCTAssertTrue(source.contains("style: currentStyle,\n                linkURL: activeHyperlinkURL"))
-        XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            cursorColumn += width"))
+        XCTAssertTrue(source.contains("markDirty(row: cursorRow)\n            if wraparoundModeEnabled {\n                cursorColumn += width"))
         XCTAssertFalse(source.contains("screen.insertCharacters(row: cursorRow, column: cursorColumn, count: width"))
     }
 
@@ -1115,7 +1117,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1"))
         XCTAssertTrue(source.contains("case \"r\":\n            setScrollRegion(parsed)"))
         XCTAssertTrue(source.contains("private func setScrollRegion(_ parsed: CsiParameters)"))
-        XCTAssertTrue(source.contains("cursorRow = 0\n        cursorColumn = 0\n        markFullDamage()"))
+        XCTAssertTrue(source.contains("cursorRow = originModeEnabled ? scrollRegionTop : 0\n        cursorColumn = 0\n        markFullDamage()"))
         XCTAssertTrue(source.contains("resetScrollRegion()"))
         XCTAssertTrue(source.contains("Kurotty scroll region %@: top=%d bottom=%d rows=%d cursor=(%d,%d)"))
         XCTAssertTrue(debugSource.contains("static let scrollRegion = flag(\"--debug-scroll-region\", env: \"KUROTTY_DEBUG_SCROLL_REGION\")"))
@@ -1310,7 +1312,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable"))
         XCTAssertTrue(shellSource.contains("#if os(macOS)"))
         XCTAssertTrue(shellSource.contains("import Darwin"))
-        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()"))
+        XCTAssertTrue(surfaceSource.contains("private let shell: any TerminalSession"))
+        XCTAssertTrue(surfaceSource.contains("self.init(frame: frameRect, session: TerminalSessionFactory.makeDefaultSession())"))
         XCTAssertFalse(surfaceSource.contains("private let shell = DarwinPTYTerminalSession()"))
         XCTAssertFalse(surfaceSource.contains("DarwinPTYTerminalSession()"))
         XCTAssertTrue(shellSource.contains("FileManager.default.homeDirectoryForCurrentUser.path"))
@@ -1342,6 +1345,43 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
         XCTAssertTrue(shellSource.contains("readBuffer.withUnsafeMutableBytes"))
         XCTAssertFalse(shellSource.contains("while true {\n            var buffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)"))
+    }
+
+    func testShellSessionDrainsFinalPTYOutputBeforeReportingChildExit() throws {
+        let shellSource = try shellSessionSource()
+        guard let handlerRange = shellSource.range(of: "private func handleChildExit(_ pid: pid_t)"),
+              let nextFunctionRange = shellSource.range(
+                  of: "private func scheduleOutputDrain()",
+                  range: handlerRange.upperBound..<shellSource.endIndex
+              )
+        else {
+            return XCTFail("missing child-exit handler boundaries")
+        }
+        let handler = shellSource[handlerRange.lowerBound..<nextFunctionRange.lowerBound]
+        guard let drainRange = handler.range(of: "drainOutput(master)"),
+              let exitRange = handler.range(of: "self?.onExit?(exitStatus)")
+        else {
+            return XCTFail("child exit must drain final PTY output before notifying observers")
+        }
+
+        XCTAssertLessThan(drainRange.lowerBound, exitRange.lowerBound)
+    }
+
+    func testTerminalSurfacePreservesFinalOutputBeforeTmuxTransportExit() throws {
+        let surfaceSource = try terminalSurfaceViewSource()
+        guard let outputRange = surfaceSource.range(of: "shell.onOutput = { [weak self] text in"),
+              let exitRange = surfaceSource.range(of: "shell.onExit = { [weak self] status in"),
+              let runtimeRange = surfaceSource.range(
+                  of: "shell.onRuntimeEvent = { [weak self] event in",
+                  range: exitRange.upperBound..<surfaceSource.endIndex
+              )
+        else {
+            return XCTFail("terminal surface must install ordered output and exit callbacks")
+        }
+
+        XCTAssertLessThan(outputRange.lowerBound, exitRange.lowerBound)
+        let callbackSource = surfaceSource[outputRange.lowerBound..<runtimeRange.lowerBound]
+        XCTAssertEqual(callbackSource.components(separatedBy: "DispatchQueue.main.async").count - 1, 2)
     }
 
     func testShellSessionEnqueuesPTYWritesOffCallerThread() throws {
@@ -1571,18 +1611,45 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("let fileMenu = NSMenu(title: \"Shell\")"))
+        XCTAssertFalse(menuSource.contains("NSMenu(title: \"File\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"New Tab\", action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Close Pane or Tab\", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: \"w\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Vertically\", action: #selector(AppDelegate.splitVertically), keyEquivalent: \"d\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Horizontally\", action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Previous Tab\", action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Next Tab\", action: #selector(AppDelegate.selectNextTab), keyEquivalent: \"]\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Command Palette...\", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: \"P\")"))
+        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Search Output\""))
+        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Close Pane\""))
+        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Enter Copy Mode\""))
+        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Quick Terminal\""))
+        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Save Workspace Snapshot\""))
 
         let delegateSource = try appDelegateSource()
         XCTAssertTrue(delegateSource.contains("@objc func closeCurrentTab()"))
         XCTAssertTrue(delegateSource.contains("@objc func closeCurrentPane()"))
         XCTAssertTrue(delegateSource.contains("@objc func selectNextTab()"))
         XCTAssertTrue(delegateSource.contains("@objc func selectPreviousTab()"))
+    }
+
+    func testCommandPaletteUsesExpandedWindowSizeTokens() throws {
+        let paletteSource = try commandPaletteWindowControllerSource()
+        let designSource = try designTokensSource()
+
+        XCTAssertTrue(designSource.contains("static let commandPaletteWidthPX: CGFloat = 680"))
+        XCTAssertTrue(designSource.contains("static let commandPaletteHeightPX: CGFloat = 500"))
+        XCTAssertTrue(paletteSource.contains("width: DesignTokens.Component.commandPaletteWidthPX"))
+        XCTAssertTrue(paletteSource.contains("height: DesignTokens.Component.commandPaletteHeightPX"))
+    }
+
+    func testMainMenuHidesEditMenuWhileKeepingEditingShortcuts() throws {
+        let menuSource = try mainMenuSource()
+
+        XCTAssertTrue(menuSource.contains("editMenuItem.isHidden = true"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Cut\", action: #selector(NSText.cut(_:)), keyEquivalent: \"x\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Copy\", action: #selector(NSText.copy(_:)), keyEquivalent: \"c\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Paste\", action: #selector(NSText.paste(_:)), keyEquivalent: \"v\")"))
     }
 
     func testTerminalWindowShowsVisibleTabBarWhenMultipleTabsExist() throws {
@@ -1733,84 +1800,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))
     }
 
-    func testTmuxPrefixCommandsAreExposedThroughMenuAndActivePane() throws {
+    func testLegacyTmuxPrefixMenuIsNotExposed() throws {
         let constantsSource = try appConstantsSource()
-        XCTAssertTrue(constantsSource.contains("enum Tmux"))
-        XCTAssertTrue(constantsSource.contains("static let prefix = \"\\u{2}\""))
-        XCTAssertTrue(constantsSource.contains("static let newWindowSequence = \"\\u{2}c\""))
-        XCTAssertTrue(constantsSource.contains("static let splitHorizontallySequence = \"\\u{2}\\\"\""))
-        XCTAssertTrue(constantsSource.contains("static let splitVerticallySequence = \"\\u{2}%\""))
-        XCTAssertTrue(constantsSource.contains("static let previousWindowSequence = \"\\u{2}p\""))
-        XCTAssertTrue(constantsSource.contains("static let nextWindowSequence = \"\\u{2}n\""))
-        XCTAssertTrue(constantsSource.contains("static let detachClientSequence = \"\\u{2}d\""))
-        XCTAssertTrue(constantsSource.contains("static let attachOrCreateSessionCommand = \"tmux new-session -A -s kurotty\\r\""))
-        XCTAssertTrue(constantsSource.contains("static let listSessionsCommand = \"tmux list-sessions\\r\""))
-        XCTAssertTrue(constantsSource.contains("static let applyKurottyThemeCommand = ["))
-        XCTAssertTrue(constantsSource.contains("tmux set-option status-style bg=\\(themeStatusBackgroundColor),fg=\\(themeStatusForegroundColor)"))
-        XCTAssertTrue(constantsSource.contains("tmux set-option status-justify left"))
-        XCTAssertTrue(constantsSource.contains("tmux set-option window-status-format ''"))
-        XCTAssertTrue(constantsSource.contains("tmux set-option window-status-current-format ''"))
-        XCTAssertTrue(constantsSource.contains("tmux set-option status-left '[#S] #{window_index}:#{window_name}#{window_flags} '"))
-        XCTAssertTrue(constantsSource.contains("tmux set-option status-right ' %H:%M '"))
-        XCTAssertFalse(constantsSource.contains("tmux set-option -g"))
+        XCTAssertFalse(constantsSource.contains("enum Tmux"))
 
         let menuSource = try mainMenuSource()
-        XCTAssertTrue(menuSource.contains("NSMenu(title: AppConstants.Tmux.menuTitle)"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.attachOrCreateSessionMenuTitle, action: #selector(AppDelegate.tmuxAttachOrCreateSession), keyEquivalent: \"t\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.listSessionsMenuTitle, action: #selector(AppDelegate.tmuxListSessions), keyEquivalent: \"l\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.applyKurottyThemeMenuTitle, action: #selector(AppDelegate.tmuxApplyKurottyTheme), keyEquivalent: \"p\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.newWindowMenuTitle, action: #selector(AppDelegate.tmuxNewWindow), keyEquivalent: \"n\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.splitHorizontallyMenuTitle, action: #selector(AppDelegate.tmuxSplitHorizontally), keyEquivalent: \"d\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.splitVerticallyMenuTitle, action: #selector(AppDelegate.tmuxSplitVertically), keyEquivalent: \"d\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.previousWindowMenuTitle, action: #selector(AppDelegate.tmuxPreviousWindow), keyEquivalent: \"[\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.nextWindowMenuTitle, action: #selector(AppDelegate.tmuxNextWindow), keyEquivalent: \"]\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppConstants.Tmux.detachClientMenuTitle, action: #selector(AppDelegate.tmuxDetachClient), keyEquivalent: \"w\")"))
-        XCTAssertTrue(menuSource.contains("attachTmux.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("listTmux.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("applyTmuxTheme.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("newTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("horizontalTmuxSplit.keyEquivalentModifierMask = [.command, .option, .shift]"))
-        XCTAssertTrue(menuSource.contains("verticalTmuxSplit.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("previousTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("nextTmuxWindow.keyEquivalentModifierMask = [.command, .option]"))
-        XCTAssertTrue(menuSource.contains("detachTmux.keyEquivalentModifierMask = [.command, .option]"))
+        XCTAssertFalse(menuSource.contains("AppConstants.Tmux"))
 
         let delegateSource = try appDelegateSource()
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxAttachOrCreateSession()"))
-        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.attachOrCreateSessionCommand)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxListSessions()"))
-        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.listSessionsCommand)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxApplyKurottyTheme()"))
-        XCTAssertTrue(delegateSource.contains("sendTextToActivePane(AppConstants.Tmux.applyKurottyThemeCommand)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxNewWindow()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.newWindowSequence)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxSplitHorizontally()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.splitHorizontallySequence)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxSplitVertically()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.splitVerticallySequence)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxPreviousWindow()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.previousWindowSequence)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxNextWindow()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.nextWindowSequence)"))
-        XCTAssertTrue(delegateSource.contains("@objc func tmuxDetachClient()"))
-        XCTAssertTrue(delegateSource.contains("sendTmuxSequence(AppConstants.Tmux.detachClientSequence)"))
-
-        let windowSource = try terminalWindowControllerSource()
-        XCTAssertTrue(windowSource.contains("func sendTextToActivePane(_ text: String)"))
-        XCTAssertTrue(windowSource.contains("currentSplitView()?.sendTextToActivePane(text)"))
-
-        let splitSource = try splitTerminalViewSource()
-        XCTAssertTrue(splitSource.contains("func sendTextToActivePane(_ text: String)"))
-        XCTAssertTrue(splitSource.contains("activePane() ?? firstPane()"))
-        XCTAssertTrue(splitSource.contains("pane.sendText(text)"))
-
-        let paneSource = try terminalPaneViewSource()
-        XCTAssertTrue(paneSource.contains("func sendText(_ text: String)"))
-        XCTAssertTrue(paneSource.contains("terminalSurfaceView.sendText(text)"))
-
-        let surfaceSource = try terminalSurfaceViewSource()
-        XCTAssertTrue(surfaceSource.contains("func sendText(_ text: String)"))
-        XCTAssertTrue(surfaceSource.contains("send(text)"))
+        XCTAssertFalse(delegateSource.contains("@objc func tmux"))
+        XCTAssertFalse(delegateSource.contains("sendTmuxSequence"))
     }
 
     func testOnlyFocusedTerminalHandlesPasteKeyEquivalent() throws {
@@ -1837,7 +1836,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("if selector == #selector(cancelOperation(_:)) {\n            resetMarkedTextForInputSourceChange()\n        }"))
         XCTAssertTrue(inputSource.contains("if selector == #selector(cancelOperation(_:)) {\n            resetMarkedTextForInputSourceChange()\n        }"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.cancelOperation(_:)):\n            return \"\\u{1b}\""))
-        XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalKeyEncoder.sequence(for: event, state: terminalKeyEncoderState)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.terminalControlText(for: event)"))
         XCTAssertTrue(routerSource.contains("case 0x5b:\n            return \"\\u{1b}\""))
     }
@@ -1857,7 +1856,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(surfaceSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
         XCTAssertTrue(inputSource.contains("TerminalTextInputRouter.commandShortcutControlText(for: event)"))
-        XCTAssertTrue(surfaceSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
+        XCTAssertTrue(surfaceSource.contains("TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState)"))
         XCTAssertTrue(inputSource.contains("TerminalKeyEncoder.sequence(for: selector)"))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveUpAndModifySelection(_:)):\n            return \"\\u{1b}[1;2A\""))
         XCTAssertTrue(encoderSource.contains("case #selector(NSResponder.moveDownAndModifySelection(_:)):\n            return \"\\u{1b}[1;2B\""))
@@ -2160,7 +2159,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("sendTerminalResponse(cursorPositionReport())"))
         XCTAssertTrue(surfaceSource.contains("sendTerminalResponse(response)"))
         XCTAssertFalse(surfaceSource.contains("notifyShellDidExit"))
-        XCTAssertFalse(surfaceSource.contains("shell.onExit = { [weak self] status in"))
+        XCTAssertTrue(surfaceSource.contains("shell.onExit = { [weak self] status in"))
+        XCTAssertTrue(surfaceSource.contains("self?.tmuxControlModeDriver.transportDidExit(status: status)"))
         XCTAssertTrue(surfaceSource.contains("handleDesktopNotificationEvent(terminalEvent)"))
         XCTAssertTrue(surfaceSource.contains("guard case .desktopNotification(let content) = event"))
         XCTAssertTrue(surfaceSource.contains("content: content.addingFallbackSubtitle(notificationSessionTitle())"))
@@ -2884,6 +2884,12 @@ private func unsupportedTerminalSessionSource() throws -> String {
 private func mainMenuSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/MainMenu.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func commandPaletteWindowControllerSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/CommandPaletteWindowController.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

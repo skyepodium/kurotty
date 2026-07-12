@@ -1,5 +1,28 @@
 import AppKit
 
+final class TmuxGatewayPanePlaceholder: NSView {
+    let layoutIdentifier = UUID().uuidString
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        layer?.backgroundColor = theme.windowBackground.cgColor
+    }
+}
+
 final class SplitTerminalView: NSSplitView {
     private struct PaneFocusCandidate {
         let pane: TerminalPaneView
@@ -8,6 +31,10 @@ final class SplitTerminalView: NSSplitView {
 
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var needsInitialRebalance = false
+    private var tmuxLayoutProportions: [CGFloat]?
+    private var tmuxProportionConstraints: [NSLayoutConstraint] = []
+    private var pendingSlotReplacementProportions: [CGFloat]?
+    private var isApplyingTmuxProportions = false
     private let paneDragCoordinator: TerminalPaneDragCoordinator
 
     override var dividerThickness: CGFloat {
@@ -40,8 +67,26 @@ final class SplitTerminalView: NSSplitView {
         super.layout()
         if needsInitialRebalance {
             needsInitialRebalance = false
-            rebalanceDividers()
+            if tmuxLayoutProportions != nil {
+                applyTmuxLayoutProportions()
+            } else {
+                rebalanceDividers()
+                super.layout()
+            }
         }
+        if let proportions = pendingSlotReplacementProportions {
+            pendingSlotReplacementProportions = nil
+            if !applyLayoutProportions(proportions) {
+                pendingSlotReplacementProportions = proportions
+            }
+        }
+    }
+
+    override func adjustSubviews() {
+        if tmuxLayoutProportions != nil, applyTmuxLayoutProportions() {
+            return
+        }
+        super.adjustSubviews()
     }
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
@@ -50,6 +95,8 @@ final class SplitTerminalView: NSSplitView {
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView {
                 pane.applyChromeTheme(theme)
+            } else if let placeholder = subview as? TmuxGatewayPanePlaceholder {
+                placeholder.applyChromeTheme(theme)
             } else if let splitView = subview as? SplitTerminalView {
                 splitView.applyChromeTheme(theme)
             }
@@ -165,6 +212,12 @@ final class SplitTerminalView: NSSplitView {
            let pane = arrangedSubviews.first as? TerminalPaneView {
             return .pane(pane.layoutOnlyDescriptor(id: "\(idPrefix)-pane-0"))
         }
+        if arrangedSubviews.count == 1,
+           let placeholder = arrangedSubviews.first as? TmuxGatewayPanePlaceholder {
+            return .pane(WorkspaceSnapshotCoordinator.PaneDescriptor(
+                id: "\(idPrefix)-placeholder-\(placeholder.layoutIdentifier)"
+            ))
+        }
 
         return .split(WorkspaceSnapshotCoordinator.SplitDescriptor(
             id: "\(idPrefix)-split",
@@ -173,6 +226,11 @@ final class SplitTerminalView: NSSplitView {
                 let childIDPrefix = "\(idPrefix)-\(index)"
                 if let pane = subview as? TerminalPaneView {
                     return .pane(pane.layoutOnlyDescriptor(id: "\(childIDPrefix)-pane"))
+                }
+                if let placeholder = subview as? TmuxGatewayPanePlaceholder {
+                    return .pane(WorkspaceSnapshotCoordinator.PaneDescriptor(
+                        id: "\(childIDPrefix)-placeholder-\(placeholder.layoutIdentifier)"
+                    ))
                 }
                 if let splitView = subview as? SplitTerminalView {
                     return splitView.layoutOnlyDescriptor(idPrefix: childIDPrefix)
@@ -214,6 +272,78 @@ final class SplitTerminalView: NSSplitView {
         return false
     }
 
+    func pane(containing surface: TerminalSurfaceView) -> TerminalPaneView? {
+        for subview in arrangedSubviews {
+            if let pane = subview as? TerminalPaneView,
+               pane.terminalSurface === surface {
+                return pane
+            }
+            if let splitView = subview as? SplitTerminalView,
+               let pane = splitView.pane(containing: surface) {
+                return pane
+            }
+        }
+        return nil
+    }
+
+    func replacePaneWithTmuxPlaceholder(_ pane: TerminalPaneView) -> TmuxGatewayPanePlaceholder? {
+        for subview in arrangedSubviews {
+            if subview === pane {
+                let placeholder = TmuxGatewayPanePlaceholder(frame: pane.frame)
+                placeholder.applyChromeTheme(chromeTheme)
+                replaceArrangedSlot(pane, with: placeholder)
+                refreshPaneChrome()
+                return placeholder
+            }
+            if let splitView = subview as? SplitTerminalView,
+               let placeholder = splitView.replacePaneWithTmuxPlaceholder(pane) {
+                refreshPaneChrome()
+                return placeholder
+            }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func restorePane(_ pane: TerminalPaneView, replacing placeholder: TmuxGatewayPanePlaceholder) -> Bool {
+        for subview in arrangedSubviews {
+            if subview === placeholder {
+                configurePane(pane)
+                replaceArrangedSlot(placeholder, with: pane)
+                refreshPaneChrome()
+                return true
+            }
+            if let splitView = subview as? SplitTerminalView,
+               splitView.restorePane(pane, replacing: placeholder) {
+                refreshPaneChrome()
+                return true
+            }
+        }
+        return false
+    }
+
+    var terminalPanesInLayoutOrder: [TerminalPaneView] {
+        arrangedSubviews.flatMap { subview -> [TerminalPaneView] in
+            if let pane = subview as? TerminalPaneView { return [pane] }
+            if let splitView = subview as? SplitTerminalView { return splitView.terminalPanesInLayoutOrder }
+            return []
+        }
+    }
+
+    var projectionPlaceholderCount: Int {
+        arrangedSubviews.reduce(0) { count, subview in
+            if subview is TmuxGatewayPanePlaceholder { return count + 1 }
+            if let splitView = subview as? SplitTerminalView {
+                return count + splitView.projectionPlaceholderCount
+            }
+            return count
+        }
+    }
+
+    var layoutSlotCount: Int { paneCount }
+
+    var layoutSlotProportions: [Double]? { layoutProportions() }
+
     func closeActivePane() -> Bool {
         guard let pane = activePane() else {
             return false
@@ -238,6 +368,212 @@ final class SplitTerminalView: NSSplitView {
         configurePane(pane)
         addArrangedSubview(pane)
         refreshPaneChrome()
+    }
+
+    func installTmuxLayout(_ layout: TmuxLayoutNode, panes: [String: TerminalPaneView]) {
+        if updateTmuxNode(layout, panes: panes, in: self) {
+            refreshPaneChrome()
+            applyTmuxLayoutProportionsRecursively()
+            return
+        }
+        arrangedSubviews.forEach {
+            removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        NSLayoutConstraint.deactivate(tmuxProportionConstraints)
+        tmuxProportionConstraints.removeAll()
+        tmuxLayoutProportions = nil
+        installTmuxNode(layout, panes: panes, into: self)
+        refreshPaneChrome()
+        needsInitialRebalance = true
+        applyTmuxLayoutProportionsRecursively()
+    }
+
+    private func updateTmuxNode(
+        _ node: TmuxLayoutNode,
+        panes: [String: TerminalPaneView],
+        in container: SplitTerminalView
+    ) -> Bool {
+        switch node {
+        case let .pane(id, _):
+            guard container.arrangedSubviews.count == 1,
+                  let pane = panes[id],
+                  container.arrangedSubviews[0] === pane
+            else { return false }
+            container.tmuxLayoutProportions = nil
+            NSLayoutConstraint.deactivate(container.tmuxProportionConstraints)
+            container.tmuxProportionConstraints.removeAll()
+            return true
+        case let .split(axis, _, children):
+            guard container.isVertical == (axis == .horizontal),
+                  container.arrangedSubviews.count == children.count
+            else { return false }
+
+            for (child, subview) in zip(children, container.arrangedSubviews) {
+                switch child {
+                case let .pane(id, _):
+                    guard let pane = panes[id], subview === pane else { return false }
+                case .split:
+                    guard let nested = subview as? SplitTerminalView,
+                          updateTmuxNode(child, panes: panes, in: nested)
+                    else { return false }
+                }
+            }
+
+            let lengths = children.map { child -> CGFloat in
+                switch child {
+                case let .pane(_, rect), let .split(_, rect, _):
+                    return CGFloat(axis == .horizontal ? rect.width : rect.height)
+                }
+            }
+            let total = lengths.reduce(0, +)
+            container.autoresizesSubviews = false
+            container.tmuxLayoutProportions = total > 0 ? lengths.map { $0 / total } : nil
+            container.updateTmuxProportionConstraints()
+            container.needsInitialRebalance = true
+            container.needsLayout = true
+            return true
+        }
+    }
+
+    func tmuxPaneGridSizes(in paneIDs: [String: TerminalPaneView]) -> [String: TerminalSize] {
+        paneIDs.reduce(into: [:]) { result, entry in
+            guard containsPane(entry.value) else { return }
+            result[entry.key] = entry.value.terminalSurface.currentTerminalSize
+        }
+    }
+
+    func activeTmuxPaneID(in paneIDs: [String: TerminalPaneView]) -> String? {
+        guard let active = activePane() ?? firstPane() else { return nil }
+        return paneIDs.first(where: { $0.value === active })?.key
+    }
+
+    private func installTmuxNode(
+        _ node: TmuxLayoutNode,
+        panes: [String: TerminalPaneView],
+        into container: SplitTerminalView
+    ) {
+        switch node {
+        case let .pane(id, _):
+            guard let pane = panes[id] else { return }
+            container.configurePane(pane)
+            configureTmuxArrangedSubview(pane)
+            container.addArrangedSubview(pane)
+        case let .split(axis, _, children):
+            container.isVertical = axis == .horizontal
+            container.autoresizesSubviews = false
+            let lengths = children.map { child -> CGFloat in
+                switch child {
+                case let .pane(_, rect), let .split(_, rect, _):
+                    return CGFloat(axis == .horizontal ? rect.width : rect.height)
+                }
+            }
+            let total = lengths.reduce(0, +)
+            container.tmuxLayoutProportions = total > 0 ? lengths.map { $0 / total } : nil
+            container.needsInitialRebalance = true
+            container.needsLayout = true
+            for child in children {
+                if case .pane = child {
+                    installTmuxNode(child, panes: panes, into: container)
+                } else {
+                    let nested = SplitTerminalView(axis: .vertical, pane: nil, paneDragCoordinator: paneDragCoordinator)
+                    configureTmuxArrangedSubview(nested)
+                    installTmuxNode(child, panes: panes, into: nested)
+                    container.addArrangedSubview(nested)
+                }
+            }
+            container.updateTmuxProportionConstraints()
+        }
+    }
+
+    private func updateTmuxProportionConstraints() {
+        NSLayoutConstraint.deactivate(tmuxProportionConstraints)
+        tmuxProportionConstraints.removeAll()
+        guard let proportions = tmuxLayoutProportions,
+              proportions.count == arrangedSubviews.count,
+              let first = arrangedSubviews.first,
+              let firstProportion = proportions.first,
+              firstProportion > 0
+        else { return }
+        for index in 1..<arrangedSubviews.count {
+            let multiplier = proportions[index] / firstProportion
+            let constraint: NSLayoutConstraint
+            if isVertical {
+                constraint = arrangedSubviews[index].widthAnchor.constraint(
+                    equalTo: first.widthAnchor,
+                    multiplier: multiplier
+                )
+            } else {
+                constraint = arrangedSubviews[index].heightAnchor.constraint(
+                    equalTo: first.heightAnchor,
+                    multiplier: multiplier
+                )
+            }
+            constraint.priority = .init(999)
+            tmuxProportionConstraints.append(constraint)
+        }
+        NSLayoutConstraint.activate(tmuxProportionConstraints)
+    }
+
+    private func configureTmuxArrangedSubview(_ subview: NSView) {
+        subview.translatesAutoresizingMaskIntoConstraints = false
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            subview.setContentHuggingPriority(.defaultLow, for: orientation)
+            subview.setContentCompressionResistancePriority(.defaultLow, for: orientation)
+        }
+    }
+
+    @discardableResult
+    private func applyTmuxLayoutProportions() -> Bool {
+        guard !isApplyingTmuxProportions,
+              let proportions = tmuxLayoutProportions,
+              applyLayoutProportions(proportions)
+        else { return false }
+        return true
+    }
+
+    @discardableResult
+    private func applyLayoutProportions(_ proportions: [CGFloat]) -> Bool {
+        guard !isApplyingTmuxProportions,
+              proportions.count == arrangedSubviews.count,
+              arrangedSubviews.count > 1
+        else { return false }
+        let availableLength = max(
+            0,
+            (isVertical ? bounds.width : bounds.height)
+                - dividerThickness * CGFloat(arrangedSubviews.count - 1)
+        )
+        guard availableLength > 0 else {
+            needsInitialRebalance = true
+            return false
+        }
+        isApplyingTmuxProportions = true
+        var cursor = isVertical ? bounds.minX : bounds.maxY
+        for (index, subview) in arrangedSubviews.enumerated() {
+            let length: CGFloat
+            if index == arrangedSubviews.count - 1 {
+                length = isVertical ? bounds.maxX - cursor : cursor - bounds.minY
+            } else {
+                length = availableLength * proportions[index]
+            }
+            if isVertical {
+                subview.frame = NSRect(x: cursor, y: bounds.minY, width: length, height: bounds.height)
+                cursor += length + dividerThickness
+            } else {
+                cursor -= length
+                subview.frame = NSRect(x: bounds.minX, y: cursor, width: bounds.width, height: length)
+                cursor -= dividerThickness
+            }
+        }
+        isApplyingTmuxProportions = false
+        return true
+    }
+
+    private func applyTmuxLayoutProportionsRecursively() {
+        applyTmuxLayoutProportions()
+        for case let nested as SplitTerminalView in arrangedSubviews {
+            nested.applyTmuxLayoutProportionsRecursively()
+        }
     }
 
     private func splitActivePane(direction: TerminalPaneSplitDirection) -> Bool {
@@ -369,10 +705,31 @@ final class SplitTerminalView: NSSplitView {
             } else {
                 insertArrangedSubview(newPane, at: 0)
             }
-        } else if let pane = arrangedSubviews.first as? TerminalPaneView {
-            replace(pane, withNestedSplitFor: direction, newPane: newPane)
+        } else if arrangedSubviews.count == 1 {
+            isVertical = axis == .vertical
+            if direction.insertsAfterActivePane {
+                addArrangedSubview(newPane)
+            } else {
+                insertArrangedSubview(newPane, at: 0)
+            }
         } else {
-            addArrangedSubview(newPane)
+            let currentAxis: NSLayoutConstraint.Orientation = isVertical ? .vertical : .horizontal
+            let existingGroup = SplitTerminalView(
+                axis: currentAxis,
+                pane: nil,
+                paneDragCoordinator: paneDragCoordinator
+            )
+            moveCurrentArrangedSubviews(to: existingGroup)
+            existingGroup.applyChromeTheme(chromeTheme)
+            existingGroup.needsInitialRebalance = true
+            isVertical = axis == .vertical
+            if direction.insertsAfterActivePane {
+                addArrangedSubview(existingGroup)
+                addArrangedSubview(newPane)
+            } else {
+                addArrangedSubview(newPane)
+                addArrangedSubview(existingGroup)
+            }
         }
         newPane.focusTerminal()
         rebalanceDividers()
@@ -544,13 +901,28 @@ final class SplitTerminalView: NSSplitView {
 
     private var paneCount: Int {
         arrangedSubviews.reduce(0) { count, subview in
-            if subview is TerminalPaneView {
+            if subview is TerminalPaneView || subview is TmuxGatewayPanePlaceholder {
                 return count + 1
             }
             if let splitView = subview as? SplitTerminalView {
                 return count + splitView.paneCount
             }
             return count
+        }
+    }
+
+    private func replaceArrangedSlot(_ oldView: NSView, with newView: NSView) {
+        guard let index = arrangedSubviews.firstIndex(of: oldView) else { return }
+        let proportions = layoutProportions()?.map { CGFloat($0) }
+        let frame = oldView.frame
+        removeArrangedSubview(oldView)
+        oldView.removeFromSuperview()
+        newView.frame = frame
+        insertArrangedSubview(newView, at: index)
+        layoutSubtreeIfNeeded()
+        if let proportions {
+            _ = applyLayoutProportions(proportions)
+            pendingSlotReplacementProportions = proportions
         }
     }
 
