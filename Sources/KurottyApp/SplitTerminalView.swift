@@ -415,6 +415,7 @@ final class SplitTerminalView: NSSplitView {
             }
             let total = lengths.reduce(0, +)
             container.tmuxLayoutProportions = total > 0 ? lengths.map { $0 / total } : nil
+            container.needsInitialRebalance = true
             return true
         }
     }

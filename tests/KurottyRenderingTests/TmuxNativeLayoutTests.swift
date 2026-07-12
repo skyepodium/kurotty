@@ -182,6 +182,10 @@ final class TmuxNativeLayoutTests: XCTestCase {
             writes.contains { $0.hasPrefix("refresh-client -C") }
         }
         XCTAssertTrue(synchronizedSize, "tmux writes: \(writes)")
+        XCTAssertFalse(
+            writes.contains { $0.hasPrefix("resize-pane ") },
+            "native layout must not feed transient pane frames back into tmux: \(writes)"
+        )
 
         gateway.onOutput?("%exit detached\n\u{1b}\\")
         let detached = await eventually { !controller.hasActiveTmuxControlSession }

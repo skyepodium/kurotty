@@ -607,7 +607,6 @@ fileprivate final class TmuxNativeSessionCoordinator {
     private var deliveredOutputOffsets: [String: UInt64] = [:]
     private var renderedLayouts: [String: TmuxLayoutNode] = [:]
     private var resizeWorkItems: [String: DispatchWorkItem] = [:]
-    private var lastSubmittedPaneSizes: [String: TerminalSize] = [:]
     private var lastSubmittedWindowSizes: [String: TerminalSize] = [:]
     private var isApplyingSelection = false
     private var didRestoreGateway = false
@@ -878,7 +877,6 @@ fileprivate final class TmuxNativeSessionCoordinator {
             sessions.removeValue(forKey: paneID)?.finish()
             panes.removeValue(forKey: paneID)?.removeFromSuperview()
             deliveredOutputOffsets[paneID] = nil
-            lastSubmittedPaneSizes[paneID] = nil
         }
         for (offset, windowID) in renderedWindowOrder.enumerated() {
             guard let item = items[windowID] else { continue }
@@ -965,7 +963,6 @@ fileprivate final class TmuxNativeSessionCoordinator {
         deliveredOutputOffsets.removeAll()
         resizeWorkItems.values.forEach { $0.cancel() }
         resizeWorkItems.removeAll()
-        lastSubmittedPaneSizes.removeAll()
         lastSubmittedWindowSizes.removeAll()
 
         if selectedWasManaged,
@@ -1030,28 +1027,12 @@ fileprivate final class TmuxNativeSessionCoordinator {
             lastSubmittedWindowSizes[windowID] = windowSize
             driver.resizeClient(windowID: windowID, columns: windowSize.columns, rows: windowSize.rows)
         }
-        for (paneID, size) in sizes {
-            guard let rect = layout.paneRects[paneID],
-                  rect.width != size.columns || rect.height != size.rows,
-                  lastSubmittedPaneSizes[paneID] != size
-            else { continue }
-            lastSubmittedPaneSizes[paneID] = size
-            driver.resizePane(paneID, columns: size.columns, rows: size.rows)
-        }
     }
 
     private func reconcileSubmittedSizes(windowID: String, layout: TmuxLayoutNode) {
         if let submitted = lastSubmittedWindowSizes[windowID],
            submitted.columns != layout.rect.width || submitted.rows != layout.rect.height {
             lastSubmittedWindowSizes[windowID] = nil
-        }
-        let paneRects = layout.paneRects
-        for paneID in layout.paneIDs {
-            guard let submitted = lastSubmittedPaneSizes[paneID],
-                  let rect = paneRects[paneID],
-                  submitted.columns != rect.width || submitted.rows != rect.height
-            else { continue }
-            lastSubmittedPaneSizes[paneID] = nil
         }
     }
 
