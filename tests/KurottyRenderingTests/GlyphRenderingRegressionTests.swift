@@ -1409,7 +1409,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
         let menuSource = try mainMenuSource()
         XCTAssertFalse(menuSource.contains("settingsMenuItem.title = \"Settings\""))
-        XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: \"Settings...\""))
+        XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
@@ -1495,7 +1495,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testAppMenuIncludesNativeAboutPanelWithVersionAndIcon() throws {
         let menuSource = try mainMenuSource()
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"About \\(AppConstants.Bundle.displayName)\", action: #selector(AppDelegate.showAboutPanel), keyEquivalent: \"\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.format(.about, AppConstants.Bundle.displayName), action: #selector(AppDelegate.showAboutPanel), keyEquivalent: \"\")"))
         XCTAssertTrue(menuSource.contains("appMenu.addItem(.separator())"))
 
         let appDelegateSource = try appDelegateSource()
@@ -1532,14 +1532,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(appDelegateSource.contains("var canCheckForUpdates: Bool"))
         XCTAssertTrue(appDelegateSource.contains("@objc func checkForUpdates(_ sender: Any?)"))
         XCTAssertTrue(appDelegateSource.contains("updateController.checkForUpdates(sender)"))
-        XCTAssertTrue(appDelegateSource.contains("자동 업데이트를 사용할 수 없습니다"))
-        XCTAssertTrue(appDelegateSource.contains("정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."))
-        XCTAssertTrue(appDelegateSource.contains("alert.addButton(withTitle: \"확인\")"))
+        XCTAssertTrue(appDelegateSource.contains("AppLocalization.string(.updateUnavailableTitle)"))
+        XCTAssertTrue(appDelegateSource.contains("AppLocalization.string(.updateUnavailableMessage)"))
+        XCTAssertTrue(appDelegateSource.contains("alert.addButton(withTitle: AppLocalization.string(.ok))"))
         XCTAssertFalse(appDelegateSource.contains("showReleaseURL()"))
         XCTAssertFalse(appDelegateSource.contains("NSWorkspace.shared.open(url)"))
 
         let menuSource = try mainMenuSource()
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Check for Updates...\", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: \"\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.checkForUpdates), action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: \"\")"))
 
         let constantsSource = try appConstantsSource()
         XCTAssertTrue(constantsSource.contains("static let sparkleFeedURL = \"https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml\""))
@@ -1611,15 +1611,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
-        XCTAssertTrue(menuSource.contains("let fileMenu = NSMenu(title: \"Shell\")"))
+        XCTAssertTrue(menuSource.contains("let fileMenu = NSMenu(title: AppLocalization.string(.shell))"))
         XCTAssertFalse(menuSource.contains("NSMenu(title: \"File\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"New Tab\", action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Close Pane or Tab\", action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: \"w\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Vertically\", action: #selector(AppDelegate.splitVertically), keyEquivalent: \"d\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Split Horizontally\", action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Previous Tab\", action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Next Tab\", action: #selector(AppDelegate.selectNextTab), keyEquivalent: \"]\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Command Palette...\", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: \"P\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.newTab), action: #selector(AppDelegate.newTab), keyEquivalent: \"t\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.closePaneOrTab), action: #selector(AppDelegate.closeCurrentPane), keyEquivalent: \"w\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.splitVertically), action: #selector(AppDelegate.splitVertically), keyEquivalent: \"d\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.splitHorizontally), action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.previousTab), action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.nextTab), action: #selector(AppDelegate.selectNextTab), keyEquivalent: \"]\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.commandPalette) + \"...\", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: \"P\")"))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Search Output\""))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Close Pane\""))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Enter Copy Mode\""))
@@ -1647,9 +1647,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let menuSource = try mainMenuSource()
 
         XCTAssertTrue(menuSource.contains("editMenuItem.isHidden = true"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Cut\", action: #selector(NSText.cut(_:)), keyEquivalent: \"x\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Copy\", action: #selector(NSText.copy(_:)), keyEquivalent: \"c\")"))
-        XCTAssertTrue(menuSource.contains("NSMenuItem(title: \"Paste\", action: #selector(NSText.paste(_:)), keyEquivalent: \"v\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.cut), action: #selector(NSText.cut(_:)), keyEquivalent: \"x\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.copy), action: #selector(NSText.copy(_:)), keyEquivalent: \"c\")"))
+        XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.paste), action: #selector(NSText.paste(_:)), keyEquivalent: \"v\")"))
     }
 
     func testTerminalWindowShowsVisibleTabBarWhenMultipleTabsExist() throws {
@@ -2041,7 +2041,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
         XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for link: TerminalLinkRange)"))
         XCTAssertTrue(surfaceSource.contains("NSWorkspace.shared.open(url)"))
-        XCTAssertTrue(surfaceSource.contains("messageText = \"Open Link?\""))
+        XCTAssertTrue(surfaceSource.contains("messageText = AppLocalization.string(.openLinkQuestion)"))
     }
 
     func testMetalDrawConfiguresExplicitFullFrameClearAndOpaqueBackgroundPipeline() throws {
