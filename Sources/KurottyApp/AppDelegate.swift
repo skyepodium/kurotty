@@ -56,7 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openPreferences() {
         let controller = preferencesController ?? PreferencesWindowController()
         preferencesController = controller
+        NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc func changeLanguage(_ sender: NSMenuItem) {

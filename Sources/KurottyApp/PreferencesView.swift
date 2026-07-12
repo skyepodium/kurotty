@@ -29,28 +29,28 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private var autosaveWorkItem: DispatchWorkItem?
     private var isUpdatingControls = false
 
-    private let categoryStack = NSStackView()
-    private let detailScrollView = NSScrollView()
-    private let detailStack = NSStackView()
-    private let statusLabel = NSTextField(labelWithString: "")
+    private lazy var categoryStack = NSStackView()
+    private lazy var detailScrollView = NSScrollView()
+    private lazy var detailStack = NSStackView()
+    private lazy var statusLabel = NSTextField(labelWithString: "")
 
-    private let workingDirectoryField = NSTextField()
-    private let fontPopup = NSPopUpButton()
-    private let fontSizeField = NSTextField()
-    private let fontSizeStepper = NSStepper()
-    private let scrollbackField = NSTextField()
-    private let scrollbackStepper = NSStepper()
-    private let themePopup = NSPopUpButton()
-    private let customColorsStack = NSStackView()
-    private let previewView = PreferencesThemePreviewView()
-    private let foregroundWell = NSColorWell()
-    private let backgroundWell = NSColorWell()
-    private let cursorWell = NSColorWell()
+    private lazy var workingDirectoryField = NSTextField()
+    private lazy var fontPopup = NSPopUpButton()
+    private lazy var fontSizeField = NSTextField()
+    private lazy var fontSizeStepper = NSStepper()
+    private lazy var scrollbackField = NSTextField()
+    private lazy var scrollbackStepper = NSStepper()
+    private lazy var themePopup = NSPopUpButton()
+    private lazy var customColorsStack = NSStackView()
+    private lazy var previewView = PreferencesThemePreviewView()
+    private lazy var foregroundWell = NSColorWell()
+    private lazy var backgroundWell = NSColorWell()
+    private lazy var cursorWell = NSColorWell()
     private var ansiWells: [NSColorWell] = []
-    private let windowWidthField = NSTextField()
-    private let windowWidthStepper = NSStepper()
-    private let windowHeightField = NSTextField()
-    private let windowHeightStepper = NSStepper()
+    private lazy var windowWidthField = NSTextField()
+    private lazy var windowWidthStepper = NSStepper()
+    private lazy var windowHeightField = NSTextField()
+    private lazy var windowHeightStepper = NSStepper()
 
     init(frame frameRect: NSRect, store: AppSettingsStore = .shared) {
         self.store = store
@@ -127,7 +127,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             button.alignment = .left
             button.setButtonType(.toggle)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalTo: categoryStack.widthAnchor).isActive = true
+            button.widthAnchor.constraint(equalToConstant: Layout.sidebarWidthPX - 28).isActive = true
             button.heightAnchor.constraint(equalToConstant: 32).isActive = true
             categoryStack.addArrangedSubview(button)
         }
@@ -228,7 +228,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         themeSection.addArrangedSubview(row(label: copy(.theme), control: themePopup))
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
-        previewView.widthAnchor.constraint(equalTo: themeSection.widthAnchor, constant: -Layout.sectionInsetPX * 2).isActive = true
+        previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
         themeSection.addArrangedSubview(previewView)
         detailStack.addArrangedSubview(themeSection)
 
@@ -260,10 +260,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         customColorsStack.layer?.cornerRadius = 10
         customColorsStack.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         customColorsStack.translatesAutoresizingMaskIntoConstraints = false
-        customColorsStack.widthAnchor.constraint(equalTo: detailStack.widthAnchor, constant: -48).isActive = true
+        customColorsStack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
 
         let heading = sectionHeading(copy(.customColors), subtitle: copy(.customColorsHelp))
-        heading.widthAnchor.constraint(equalTo: customColorsStack.widthAnchor, constant: -Layout.sectionInsetPX * 2).isActive = true
+        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
         customColorsStack.addArrangedSubview(heading)
 
         configureColorWell(foregroundWell, tag: 0)
@@ -309,7 +309,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         subtitleLabel.textColor = .secondaryLabelColor
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
-        stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor, constant: -48).isActive = true
+        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
         detailStack.addArrangedSubview(stack)
     }
 
@@ -323,9 +323,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         stack.layer?.cornerRadius = 10
         stack.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor, constant: -48).isActive = true
+        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
         let heading = sectionHeading(title, subtitle: subtitle)
-        heading.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -Layout.sectionInsetPX * 2).isActive = true
+        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
         stack.addArrangedSubview(heading)
         return stack
     }
@@ -564,11 +564,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     private func availableMonospacedFonts() -> [String] {
-        let names = NSFontManager.shared.availableFontFamilies.filter { family in
-            guard let font = NSFont(name: family, size: 13) else { return false }
-            return font.fontDescriptor.symbolicTraits.contains(.monoSpace)
-        }
-        return Array(Set([settings.terminal.fontName, "Menlo", "Monaco", "SF Mono"] + names)).sorted()
+        let candidates = [settings.terminal.fontName, "Menlo", "Monaco", "SF Mono", "Courier", "Courier New"]
+        return Array(Set(candidates.filter { NSFont(name: $0, size: 13) != nil })).sorted()
     }
 
     private func wrappingLabel(_ text: String) -> NSTextField {

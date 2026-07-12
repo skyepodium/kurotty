@@ -74,12 +74,13 @@ enum PreferencesValidationPresenter {
 @MainActor
 final class PreferencesWindowController: NSWindowController {
     init() {
+        let store = AppSettingsStore.shared
         let view = PreferencesView(frame: NSRect(
             x: 0,
             y: 0,
             width: DesignTokens.Component.preferencesWidthPX,
             height: DesignTokens.Component.preferencesHeightPX
-        ))
+        ), store: store)
         let window = NSWindow(
             contentRect: view.frame,
             styleMask: [.titled, .closable, .resizable],
@@ -94,6 +95,7 @@ final class PreferencesWindowController: NSWindowController {
         window.contentView = view
         window.setContentSize(initialContentSize)
         window.minSize = NSSize(width: 720, height: 520)
+        window.center()
         super.init(window: window)
     }
 

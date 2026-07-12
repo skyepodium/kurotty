@@ -1589,7 +1589,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testPreferencesGUIUsesBoundedScrollableSections() throws {
         let preferencesSource = try preferencesViewSource()
 
-        XCTAssertTrue(preferencesSource.contains("private let detailScrollView = NSScrollView()"))
+        XCTAssertTrue(preferencesSource.contains("private lazy var detailScrollView = NSScrollView()"))
         XCTAssertTrue(preferencesSource.contains("documentView.widthAnchor.constraint(equalTo: detailScrollView.contentView.widthAnchor)"))
         XCTAssertTrue(preferencesSource.contains("section(title:"))
         XCTAssertFalse(preferencesSource.contains("NSTextView"))
@@ -1603,12 +1603,25 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(preferencesSource.contains("scheduleAutosave()"))
         XCTAssertTrue(preferencesSource.contains("themePopup.addItems"))
         XCTAssertTrue(preferencesSource.contains("settings.terminal.theme = TerminalThemePreset.customName"))
-        XCTAssertTrue(preferencesSource.contains("private let previewView = PreferencesThemePreviewView()"))
+        XCTAssertTrue(preferencesSource.contains("private lazy var previewView = PreferencesThemePreviewView()"))
         XCTAssertTrue(previewSource.contains("draw(\"$ git status\""))
         XCTAssertTrue(previewSource.contains("colors.ansi"))
         XCTAssertFalse(preferencesSource.contains("schemaVersion"))
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Save\""))
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Reload\""))
+    }
+
+    func testPreferencesWindowIsCenteredActivatedAndBroughtToFront() throws {
+        let delegateSource = try appDelegateSource()
+        let controllerSource = try preferencesWindowControllerSource()
+        let preferencesSource = try preferencesViewSource()
+
+        XCTAssertTrue(delegateSource.contains("NSApp.activate(ignoringOtherApps: true)"))
+        XCTAssertTrue(delegateSource.contains("controller.window?.makeKeyAndOrderFront(nil)"))
+        XCTAssertTrue(controllerSource.contains("window.center()"))
+        XCTAssertFalse(preferencesSource.contains("button.widthAnchor.constraint(equalTo: categoryStack.widthAnchor)"))
+        XCTAssertFalse(preferencesSource.contains("stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor"))
+        XCTAssertFalse(preferencesSource.contains("NSFontManager.shared.availableFontFamilies"))
     }
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
