@@ -77,6 +77,31 @@ final class TmuxNativeLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testNestedTmuxLayoutKeepsOuterAndInnerSplitsEven() throws {
+        let panes = Dictionary(uniqueKeysWithValues: (20...22).map { id in
+            ("%\(id)", TerminalPaneView(frame: .zero, session: makeSession()))
+        })
+        let split = SplitTerminalView(
+            axis: .vertical,
+            pane: nil,
+            paneDragCoordinator: TerminalPaneDragCoordinator()
+        )
+        split.frame = NSRect(x: 0, y: 0, width: 2_048, height: 1_200)
+        let layout = try TmuxLayoutParser.parse(
+            "131x32,0,0{64x32,0,0,20,66x32,65,0[66x15,65,0,21,66x16,65,16,22]}"
+        )
+
+        split.installTmuxLayout(layout, panes: panes)
+        split.layoutSubtreeIfNeeded()
+
+        let left = try XCTUnwrap(panes["%20"])
+        let upper = try XCTUnwrap(panes["%21"])
+        let lower = try XCTUnwrap(panes["%22"])
+        XCTAssertEqual(left.frame.width / upper.frame.width, 64.0 / 66.0, accuracy: 0.04)
+        XCTAssertEqual(upper.frame.height / lower.frame.height, 15.0 / 16.0, accuracy: 0.06)
+    }
+
+    @MainActor
     func testZoomedVisibleLayoutCanHideAndRestoreNativePanes() throws {
         let pane0 = TerminalPaneView(frame: .zero, session: makeSession())
         let pane1 = TerminalPaneView(frame: .zero, session: makeSession())
