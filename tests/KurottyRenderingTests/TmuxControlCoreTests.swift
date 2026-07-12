@@ -938,6 +938,7 @@ final class TmuxControlCoreTests: XCTestCase {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
+        var recoveryEvents: [String] = []
         let limits = TmuxMutationQueue.Limits(
             maximumInputByteCount: 0,
             maximumPayloadByteCount: 8,
@@ -951,20 +952,27 @@ final class TmuxControlCoreTests: XCTestCase {
             mutationQueueLimits: limits
         ) { command in
             commands.append(command)
-            if command == "\n" { blankWritten.fulfill() }
+            if command == "\n" {
+                recoveryEvents.append("wait-exit released")
+                blankWritten.fulfill()
+            }
         }
-        driver.onExit = { exited.fulfill() }
+        driver.onExit = {
+            recoveryEvents.append("local UI restored")
+            exited.fulfill()
+        }
         enter(driver, sessionID: "$0", name: "work")
         completeInitialSnapshot(driver)
 
         driver.sendKeys(to: "%0", text: "x")
-        await fulfillment(of: [blankWritten, exited], timeout: 1, enforceOrder: true)
+        await fulfillment(of: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
         XCTAssertNotNil(detachIndex)
         XCTAssertNotNil(blankIndex)
         if let detachIndex, let blankIndex { XCTAssertLessThan(detachIndex, blankIndex) }
+        XCTAssertEqual(recoveryEvents, ["wait-exit released", "local UI restored"])
         XCTAssertFalse(driver.state.isAttached)
     }
 
@@ -973,15 +981,20 @@ final class TmuxControlCoreTests: XCTestCase {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
+        var recoveryEvents: [String] = []
         var exitCount = 0
         let driver = TmuxControlModeDriver(
             fatalAbortDelay: 0.01,
             fatalWaitExitDelay: 0.01
         ) { command in
             commands.append(command)
-            if command == "\n" { blankWritten.fulfill() }
+            if command == "\n" {
+                recoveryEvents.append("wait-exit released")
+                blankWritten.fulfill()
+            }
         }
         driver.onExit = {
+            recoveryEvents.append("local UI restored")
             exitCount += 1
             exited.fulfill()
         }
@@ -993,13 +1006,14 @@ final class TmuxControlCoreTests: XCTestCase {
         XCTAssertEqual(exitCount, 0)
         XCTAssertTrue(driver.state.isAttached)
         XCTAssertEqual(commands.last, "detach-client\n")
-        await fulfillment(of: [blankWritten, exited], timeout: 1, enforceOrder: true)
+        await fulfillment(of: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
         XCTAssertNotNil(detachIndex)
         XCTAssertNotNil(blankIndex)
         if let detachIndex, let blankIndex { XCTAssertLessThan(detachIndex, blankIndex) }
+        XCTAssertEqual(recoveryEvents, ["wait-exit released", "local UI restored"])
         XCTAssertEqual(exitCount, 1)
         XCTAssertFalse(driver.state.isAttached)
     }
