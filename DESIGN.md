@@ -272,6 +272,15 @@ Design rules:
 - Avoid large mascot surfaces, novelty controls, excessive animation, or theme choices that reduce terminal contrast. Brand details must never compete with command output.
 - Native UI should look lightweight: dense enough for repeated work, clear enough for beginners, and free of heavy panels around the terminal surface.
 
+#### Preferences GUI contract
+
+- The preferences window uses native macOS controls with a stable category sidebar and a scrollable detail area. Group related controls into clearly titled sections instead of exposing the raw settings document as the primary UI.
+- Appearance settings show a terminal sample that updates before or alongside persistence so foreground, background, cursor, and ANSI palette changes have visible meaning.
+- Built-in themes are selectable presets. Choosing a preset replaces the editable palette with that preset; editing any color switches the theme to `custom` and keeps all custom colors visible and editable.
+- Common terminal, shell, and window settings remain GUI-first. Direct `settings.json` editing is an advanced escape hatch, not the default preferences experience.
+- `schemaVersion` is implementation metadata used to migrate older settings files. It is not a user preference and must not appear as an editable GUI field.
+- Settings continue to autosave through the typed `AppSettings` model, run normalization before persistence, and preserve the existing lifecycle rules for live-applied and launch-only values.
+
 ## Constants, Tokens, And Settings
 
 - Domain constants describe protocol, ABI, shell, PTY, file paths, queue labels, and timing.
