@@ -178,26 +178,6 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.terminal.colors, .default)
     }
 
-    func testTmuxConstantsUseDefaultPrefixAndSessionCommands() throws {
-        XCTAssertEqual(AppConstants.Tmux.prefix, "\u{2}")
-        XCTAssertEqual(AppConstants.Tmux.newWindowSequence, "\u{2}c")
-        XCTAssertEqual(AppConstants.Tmux.splitHorizontallySequence, "\u{2}\"")
-        XCTAssertEqual(AppConstants.Tmux.splitVerticallySequence, "\u{2}%")
-        XCTAssertEqual(AppConstants.Tmux.previousWindowSequence, "\u{2}p")
-        XCTAssertEqual(AppConstants.Tmux.nextWindowSequence, "\u{2}n")
-        XCTAssertEqual(AppConstants.Tmux.detachClientSequence, "\u{2}d")
-        XCTAssertEqual(AppConstants.Tmux.attachOrCreateSessionCommand, "tmux new-session -A -s kurotty\r")
-        XCTAssertEqual(AppConstants.Tmux.listSessionsCommand, "tmux list-sessions\r")
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-style bg=colour99,fg=colour255"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option window-status-current-style bg=colour135,fg=colour255,bold"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-justify left"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option window-status-format ''"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-left '[#S] #{window_index}:#{window_name}#{window_flags} '"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.contains("tmux set-option status-right ' %H:%M '"))
-        XCTAssertFalse(AppConstants.Tmux.applyKurottyThemeCommand.contains("set-option -g"))
-        XCTAssertTrue(AppConstants.Tmux.applyKurottyThemeCommand.hasSuffix("\r"))
-    }
-
     func testRepeatPrecedingGraphicCharacterCopiesCellAndStyleForTmuxStatusRedraws() throws {
         var screen = KurottyCore.TerminalScreen(rows: 1, columns: 6)
         let style = TerminalTextStyle(

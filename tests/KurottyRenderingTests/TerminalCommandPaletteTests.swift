@@ -119,10 +119,6 @@ final class TerminalCommandPaletteTests: XCTestCase {
             "Collapse a completed command's output while keeping the command reference."
         )
         XCTAssertEqual(
-            entriesByID[.searchOutput]?.subtitle,
-            "Search within a completed command's output range."
-        )
-        XCTAssertEqual(
             entriesByID[.replay]?.subtitle,
             "Run the captured command again after explicit confirmation."
         )

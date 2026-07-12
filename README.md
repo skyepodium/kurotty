@@ -39,6 +39,9 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - Theme presets, scrollback, and editable JSON settings.
 - Terminal styling support for 16-color, 256-color, truecolor, dim, inverse, underline, and strikethrough.
 - OSC title, working-directory, color query, and terminal-generated notifications.
+- Local tmux control-mode integration: `tmux -CC` windows become native tabs and panes become native splits.
+
+Run `tmux -CC` or `tmux -CC attach` in a local Kurotty shell to enter native tmux mode. Kurotty keeps ordinary `tmux` in its standard terminal UI and supports multiple simultaneous local control-mode sessions, including clients launched from different panes of the same split tab. It reconstructs each pane's screen, cursor, alternate screen, and terminal modes on attach, then mirrors window order, pane titles, layout, focus, zoom, output, and native resizing. Pane replay and pending mutations are bounded, new panes are captured before live output is shown, and the exact original shell pane or tab is restored after detach or a control-client transport failure. Advanced swap, rotate, zoom, layout, and detach commands are available from the Command Palette while a control-mode session is active. SSH and remote tmux control connections are intentionally outside this local integration.
 
 Kurotty normalizes OSC 9, OSC 777 `notify;title;body`, and rich iTerm2 OSC 1337 notifications into one typed notification path before showing macOS notifications. Terminal BEL rings the bell and, while Kurotty is unfocused, shows the payload-free fallback `Kurotty` / `Check your terminal.` Numeric OSC 9 progress extensions are not treated as desktop alerts. No source is selected by a CLI name or by scraping rendered terminal text.
 

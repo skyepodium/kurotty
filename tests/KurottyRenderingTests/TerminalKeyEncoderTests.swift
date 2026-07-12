@@ -115,6 +115,79 @@ final class TerminalKeyEncoderTests: XCTestCase {
         }
     }
 
+    func testApplicationKeypadUsesSs3WithoutChangingNormalKeypadInput() throws {
+        let keypadOne = try keyEvent(
+            characters: "1",
+            modifiers: .numericPad,
+            keyCode: 83
+        )
+        let keypadEnter = try keyEvent(
+            characters: "\r",
+            modifiers: .numericPad,
+            keyCode: 76
+        )
+
+        XCTAssertNil(TerminalKeyEncoder.sequence(for: keypadOne))
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: keypadEnter), "\r")
+
+        let application = TerminalKeyEncoder.State(applicationKeypad: true)
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: keypadOne, state: application), "\u{1b}Oq")
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: keypadEnter, state: application), "\u{1b}OM")
+    }
+
+    func testModifyOtherKeysModeTwoSupportsXtermAndCsiUFormats() throws {
+        let shiftControlA = try keyEvent(
+            characters: "\u{1}",
+            modifiers: [.shift, .control],
+            charactersIgnoringModifiers: "A",
+            keyCode: 0
+        )
+        let xterm = TerminalKeyEncoder.State(
+            modifyOtherKeysMode: 2,
+            extendedKeyFormat: .xterm
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: shiftControlA, state: xterm),
+            "\u{1b}[27;6;65~"
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: try tabEvent(modifiers: .shift), state: xterm),
+            "\u{1b}[27;2;9~"
+        )
+
+        let csiU = TerminalKeyEncoder.State(
+            modifyOtherKeysMode: 2,
+            extendedKeyFormat: .csiU
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: shiftControlA, state: csiU),
+            "\u{1b}[65;6u"
+        )
+    }
+
+    func testModifyOtherKeysModeOnePreservesLegacyMetaControlAndBacktab() throws {
+        let state = TerminalKeyEncoder.State(modifyOtherKeysMode: 1)
+        let optionA = try keyEvent(
+            characters: "å",
+            modifiers: .option,
+            charactersIgnoringModifiers: "a",
+            keyCode: 0
+        )
+        let controlA = try keyEvent(
+            characters: "\u{1}",
+            modifiers: .control,
+            charactersIgnoringModifiers: "a",
+            keyCode: 0
+        )
+
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: optionA, state: state), "\u{1b}a")
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: controlA, state: state), "\u{1}")
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: try tabEvent(modifiers: .shift), state: state),
+            "\u{1b}[Z"
+        )
+    }
+
     private var arrowCases: [(keyCode: UInt16, character: Int, plain: String, application: String, shifted: String, control: String, shiftControl: String)] {
         [
             (123, NSLeftArrowFunctionKey, "\u{1b}[D", "\u{1b}OD", "\u{1b}[1;2D", "\u{1b}[1;5D", "\u{1b}[1;6D"),

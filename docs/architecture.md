@@ -162,6 +162,18 @@ Output is coalesced on the main actor before screen mutation and rendering. The 
 
 `TerminalMetalView` handles glyph atlas rendering, backgrounds, cursor, underline, strikethrough, box/block decorations, damage diagnostics, and scissor planning. `TerminalFrame` carries enough metadata for full redraw fallback or partial redraw with stable pixel bounds.
 
+## Local tmux control-mode lifecycle
+
+Kurotty treats `tmux -CC` as a local protocol transport, not as a collection of fixed prefix-key shortcuts. `TerminalSurfaceView` intercepts the DCS-framed control stream before ordinary terminal rendering and passes it to `TmuxControlModeDriver`. Normal `tmux` without `-CC` never enters this path and continues through the standard terminal parser.
+
+The driver owns protocol parsing, guarded command responses, session-scoped discovery, pane snapshots, bounded output replay, and control-command serialization. A pane snapshot reconstructs the primary and alternate screens, cursor, scroll region, tab stops, input modes, mouse modes, bracketed paste state, and any incomplete escape sequence before buffered live output is released. Semantic input and resize mutations pass through a bounded queue: adjacent input for one pane is batched and chunked, repeated resizes collapse to their latest value, and detach remains admissible even when the queue is saturated.
+
+`TmuxNativeSessionCoordinator` owns the AppKit projection for one control client. If the gateway is the only pane in its tab, the coordinator temporarily projects that tab as native tmux window tabs. If local sibling panes exist, it replaces only the gateway pane with an inert identity placeholder and keeps the sibling layout available while the tmux windows are inserted next to their host tab. Coordinator-scoped tab identifiers allow multiple local control clients—even clients launched from different panes in the same split tree or sessions that reuse the same tmux window IDs—to coexist in one Kurotty window. On detach, protocol failure, or PTY transport exit, only the matching coordinator removes its native views and restores the exact retained gateway pane, split slot, order, and proportions.
+
+After initial discovery, tmux subscriptions invalidate window order and pane titles without polling the full session continuously. Refreshes are debounced and serialized with discovery so external tmux clients can reorder or retitle state without racing an in-flight snapshot. Exit handling is idempotent across protocol exit markers and PTY termination; fatal recovery resumes any suspended pane output, requests detach, and uses bounded fallbacks so the original shell UI is restored even when tmux cannot emit a final marker.
+
+The integration is intentionally local. Remote/SSH control transports, a tmux dashboard, dedicated tmux preferences, and tmux paste-buffer synchronization are separate product boundaries and are not inferred from terminal output.
+
 ## Zig core and ABI boundary
 
 The Zig core is built by `build.zig` as both static and dynamic libraries. Swift uses the dynamic library through `CoreBridge`, which loads `libkurotty_core.dylib` from the app bundle or development build paths.

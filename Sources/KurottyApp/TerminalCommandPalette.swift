@@ -240,6 +240,8 @@ private extension TerminalCommandCategory {
             return "Panes"
         case .navigation:
             return "Navigation"
+        case .tmux:
+            return "Tmux"
         }
     }
 }

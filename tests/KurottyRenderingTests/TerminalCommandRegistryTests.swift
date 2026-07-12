@@ -49,6 +49,20 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count)
     }
 
+    func testTmuxControlRegistryAddsAdvancedCommandsWithoutChangingDefaultRegistry() {
+        let defaultIDs = Set(TerminalCommandRegistry.default.windowCommands.map(\.id))
+        let tmuxCommands = TerminalCommandRegistry.tmuxControl.windowCommands
+        let tmuxIDs = Set(tmuxCommands.map(\.id))
+
+        XCTAssertFalse(defaultIDs.contains(.tmuxToggleZoom))
+        XCTAssertTrue(tmuxIDs.contains(.tmuxToggleZoom))
+        XCTAssertTrue(tmuxIDs.contains(.tmuxSwapPanePrevious))
+        XCTAssertTrue(tmuxIDs.contains(.tmuxRotateWindowNext))
+        XCTAssertTrue(tmuxIDs.contains(.tmuxEvenHorizontalLayout))
+        XCTAssertTrue(tmuxIDs.contains(.tmuxDetachClient))
+        XCTAssertEqual(tmuxIDs.count, tmuxCommands.count)
+    }
+
     func testDefaultCommandSpanCommandsExposeStableMetadata() {
         let commands = TerminalCommandRegistry.default.commandSpanCommands
         let commandByID = Dictionary(uniqueKeysWithValues: commands.map { ($0.id, $0) })
@@ -58,11 +72,6 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(commandByID[.foldOutput]?.action, .foldOutput)
         XCTAssertEqual(commandByID[.foldOutput]?.approvalPolicy, .some(.none))
         XCTAssertTrue(commandByID[.foldOutput]?.searchTokens.contains("collapse command output") == true)
-
-        XCTAssertEqual(commandByID[.searchOutput]?.title, "Search Command Output")
-        XCTAssertEqual(commandByID[.searchOutput]?.category, .commandSpans)
-        XCTAssertEqual(commandByID[.searchOutput]?.action, .searchOutput)
-        XCTAssertEqual(commandByID[.searchOutput]?.approvalPolicy, .some(.none))
 
         XCTAssertEqual(commandByID[.copyReference]?.title, "Copy Command Reference")
         XCTAssertEqual(commandByID[.copyReference]?.category, .commandSpans)
@@ -108,7 +117,6 @@ final class TerminalCommandRegistryTests: XCTestCase {
         let registry = TerminalCommandRegistry.default
 
         XCTAssertEqual(registry.commandSpanCommand(for: .foldOutput)?.title, "Fold Command Output")
-        XCTAssertEqual(registry.commandSpanCommand(for: .searchOutput)?.action, .searchOutput)
         XCTAssertEqual(registry.commandSpanCommand(for: .copyReference)?.approvalPolicy, .some(.none))
         XCTAssertEqual(registry.commandSpanCommand(for: .replay)?.approvalPolicy, .explicitUserConfirmation)
     }

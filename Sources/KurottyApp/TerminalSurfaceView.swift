@@ -5,6 +5,8 @@ import KurottyCore
 final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
+    static let tmuxControlModeDidActivateNotification = Notification.Name("dev.kurotty.terminalSurface.tmuxControlModeDidActivate")
+    static let tmuxControlModeDriverNotificationKey = "driver"
     static let titleNotificationKey = "title"
     private static let runtimeEventLedgerCapacity = 4_096
 
@@ -12,7 +14,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cols: UInt32(AppConstants.Terminal.defaultColumns),
         rows: UInt32(AppConstants.Terminal.defaultRows)
     )
-    private let shell: any TerminalSession = TerminalSessionFactory.makeDefaultSession()
+    private let shell: any TerminalSession
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
     private let securityPolicy = TerminalSecurityPolicy.default
@@ -30,12 +32,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var cursorColumn = 0
     private var savedCursorRow = 0
     private var savedCursorColumn = 0
+    private var alternateSavedCursorRow = 0
+    private var alternateSavedCursorColumn = 0
     private var scrollRegionTop = 0
     private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
     private var cursorVisible = true
     private var cursorBlinkOn = true
     private var cursorBlinkTimer: Timer?
     private var isUsingAlternateScreen = false
+    private var alternateScreenRestoresCursor = false
+    private var insertModeEnabled = false
+    private var originModeEnabled = false
+    private var wraparoundModeEnabled = true
+    private var applicationCursorKeysEnabled = false
+    private var applicationKeypadEnabled = false
+    private var modifyOtherKeysMode = 0
+    private var extendedKeyFormat: TerminalExtendedKeyFormat = .xterm
+    private var tabStops = Set(stride(from: 8, through: 992, by: 8))
     private var bracketedPasteEnabled = false
     private var mouseReportingState = TerminalMouseReportingState()
     private var focusReportingState = TerminalFocusReportingState()
@@ -80,6 +93,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
     private var outputFlushTraceSequence: UInt64 = 0
     private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
+    private var outputInterceptor: ((String) -> String)?
+    var automaticallyFocusesWhenAttached = true
+    private lazy var tmuxControlModeDriver = TmuxControlModeDriver { [weak self] command in
+        self?.writeSession(command)
+    }
     private var windowScreenObserver: NSObjectProtocol?
     private var currentBackingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
     private let padding = NSEdgeInsets(
@@ -89,7 +107,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         right: DesignTokens.Space.terminalRightPX
     )
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, session: TerminalSessionFactory.makeDefaultSession())
+    }
+
+    init(frame frameRect: NSRect, session: any TerminalSession) {
+        shell = session
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         let configuredFont = NSFont(
             name: settings.terminal.fontName,
@@ -124,9 +147,29 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             rendererView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         scrollIndicatorCoordinator.install(in: self)
+        installOutputInterceptor { [weak self] text in
+            guard let self else { return text }
+            let wasActive = tmuxControlModeDriver.isActive
+            let visibleText = tmuxControlModeDriver.consume(text)
+            if !wasActive, tmuxControlModeDriver.isActive {
+                NotificationCenter.default.post(
+                    name: Self.tmuxControlModeDidActivateNotification,
+                    object: self,
+                    userInfo: [Self.tmuxControlModeDriverNotificationKey: tmuxControlModeDriver]
+                )
+            }
+            return visibleText
+        }
         shell.onOutput = { [weak self] text in
-            Task { @MainActor in
-                self?.enqueueOutput(text)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let visibleText = self.outputInterceptor?(text) ?? text
+                self.enqueueOutput(visibleText)
+            }
+        }
+        shell.onExit = { [weak self] status in
+            DispatchQueue.main.async {
+                self?.tmuxControlModeDriver.transportDidExit(status: status)
             }
         }
         shell.onRuntimeEvent = { [weak self] event in
@@ -163,6 +206,79 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if event.payload.kind == .ptyRead {
             pendingRuntimeOutputEvents.append(event)
         }
+    }
+
+    func installOutputInterceptor(_ interceptor: @escaping (String) -> String) {
+        outputInterceptor = interceptor
+    }
+
+    func writeSession(_ text: String) {
+        shell.write(text)
+    }
+
+    var currentTerminalSize: TerminalSize {
+        terminalMetrics().size
+    }
+
+    private var terminalKeyEncoderState: TerminalKeyEncoder.State {
+        .init(
+            applicationCursorKeys: applicationCursorKeysEnabled,
+            applicationKeypad: applicationKeypadEnabled,
+            modifyOtherKeysMode: modifyOtherKeysMode,
+            extendedKeyFormat: extendedKeyFormat
+        )
+    }
+
+    struct TmuxRestoreStateForTesting: Equatable {
+        let cursorRow: Int
+        let cursorColumn: Int
+        let isUsingAlternateScreen: Bool
+        let insertModeEnabled: Bool
+        let originModeEnabled: Bool
+        let wraparoundModeEnabled: Bool
+        let applicationCursorKeysEnabled: Bool
+        let applicationKeypadEnabled: Bool
+        let modifyOtherKeysMode: Int
+        let extendedKeyFormat: TerminalExtendedKeyFormat
+        let bracketedPasteEnabled: Bool
+        let mouseTrackingMode: TerminalMouseTrackingMode
+        let mouseUsesUTF8: Bool
+        let mouseUsesSGR: Bool
+        let tabStops: Set<Int>
+        let visibleLines: [String]
+    }
+
+    func consumeTmuxRestoreOutputForTesting(_ data: Data) {
+        appendOutput(String(decoding: data, as: UTF8.self))
+    }
+
+    var tmuxRestoreStateForTesting: TmuxRestoreStateForTesting {
+        .init(
+            cursorRow: cursorRow,
+            cursorColumn: cursorColumn,
+            isUsingAlternateScreen: isUsingAlternateScreen,
+            insertModeEnabled: insertModeEnabled,
+            originModeEnabled: originModeEnabled,
+            wraparoundModeEnabled: wraparoundModeEnabled,
+            applicationCursorKeysEnabled: applicationCursorKeysEnabled,
+            applicationKeypadEnabled: applicationKeypadEnabled,
+            modifyOtherKeysMode: modifyOtherKeysMode,
+            extendedKeyFormat: extendedKeyFormat,
+            bracketedPasteEnabled: bracketedPasteEnabled,
+            mouseTrackingMode: mouseReportingState.trackingMode,
+            mouseUsesUTF8: mouseReportingState.usesUTF8ExtendedCoordinates,
+            mouseUsesSGR: mouseReportingState.usesSGRExtendedCoordinates,
+            tabStops: tabStops,
+            visibleLines: screen.cells.map { String($0.map(\.character)) }
+        )
+    }
+
+    func terminalSequenceForTesting(_ selector: Selector) -> String? {
+        TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState)
+    }
+
+    func terminalSequenceForTesting(_ event: NSEvent) -> String? {
+        TerminalKeyEncoder.sequence(for: event, state: terminalKeyEncoderState)
     }
 
     required init?(coder: NSCoder) {
@@ -209,7 +325,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func viewDidMoveToWindow() {
-        window?.makeFirstResponder(self)
+        if automaticallyFocusesWhenAttached {
+            window?.makeFirstResponder(self)
+        }
         currentBackingScale = effectiveBackingScale
         observeWindowScreenChanges()
         syncSizeWithView()
@@ -374,6 +492,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
+        // Modified ordinary keys must be encoded before NSTextInputContext;
+        // otherwise AppKit commits text and discards the protocol modifiers.
+        if modifyOtherKeysMode > 0, handleTerminalControlKey(event) {
+            return
+        }
         if performTextInputTransaction({
             TerminalTextInputRouter.handleKeyDown(event, in: self, hasMarkedText: hasMarkedText())
         }) {
@@ -472,7 +595,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
             sendText("\(candidate.commandText)\n")
             return true
-        case .foldOutput, .searchOutput:
+        case .foldOutput:
             return false
         }
     }
@@ -573,7 +696,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleTerminalControlKey(_ event: NSEvent) -> Bool {
-        if let controlText = TerminalTextInputRouter.terminalControlText(for: event) {
+        if let controlText = TerminalKeyEncoder.sequence(for: event, state: terminalKeyEncoderState) {
             send(controlText)
             return true
         }
@@ -963,7 +1086,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if selector == #selector(cancelOperation(_:)) {
             resetMarkedTextForInputSourceChange()
         }
-        if let sequence = TerminalKeyEncoder.sequence(for: selector) {
+        if let sequence = TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState) {
             flushAccumulatedCommittedText()
             clearCommittedMarkedTextPrefix()
             pendingMarkedTextAnchor = nil
@@ -1338,8 +1461,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 case 8:
                     cursorColumn = max(0, cursorColumn - 1)
                 case 9:
-                    let spaces = max(1, AppConstants.Terminal.tabWidthColumns - (cursorColumn % AppConstants.Terminal.tabWidthColumns))
-                    appendPrintable(String(repeating: " ", count: spaces))
+                    cursorColumn = tabStops.filter { $0 > cursorColumn }.min() ?? max(0, screen.columns - 1)
                 case 7:
                     ringTerminalBell()
                 case 0..<32, 127:
@@ -1952,10 +2074,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 markDirty(row: cursorRow)
                 continue
             }
-            if width == 2 && cursorColumn == screen.columns - 1 {
-                carriageReturnLineFeed()
-            } else if cursorColumn >= screen.columns {
-                carriageReturnLineFeed()
+            if wraparoundModeEnabled {
+                if width == 2 && cursorColumn == screen.columns - 1 {
+                    carriageReturnLineFeed()
+                } else if cursorColumn >= screen.columns {
+                    carriageReturnLineFeed()
+                }
+            } else {
+                cursorColumn = min(max(0, cursorColumn), max(0, screen.columns - 1))
+            }
+
+            if insertModeEnabled {
+                screen.insertCharacters(
+                    row: cursorRow,
+                    column: cursorColumn,
+                    count: min(width, screen.columns - cursorColumn),
+                    style: currentStyle
+                )
             }
 
             screen.set(
@@ -1967,7 +2102,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 linkURL: activeHyperlinkURL
             )
             markDirty(row: cursorRow)
-            cursorColumn += width
+            if wraparoundModeEnabled {
+                cursorColumn += width
+            } else {
+                cursorColumn = min(screen.columns - 1, cursorColumn + width)
+            }
         }
     }
 
@@ -2005,7 +2144,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         // DECSTBM moves the cursor home so subsequent TUI draws target the new
         // scroll contract rather than the old cursor row.
-        cursorRow = 0
+        cursorRow = originModeEnabled ? scrollRegionTop : 0
         cursorColumn = 0
         markFullDamage()
     }
@@ -2096,6 +2235,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             case "8":
                 cursorRow = min(screen.rows - 1, savedCursorRow)
                 cursorColumn = min(screen.columns - 1, savedCursorColumn)
+                parserState = .normal
+            case "H":
+                tabStops.insert(cursorColumn)
+                parserState = .normal
+            case "=":
+                applicationKeypadEnabled = true
+                parserState = .normal
+            case ">":
+                applicationKeypadEnabled = false
                 parserState = .normal
             case "D":
                 lineFeed()
@@ -2317,9 +2465,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorColumn = 0
         case "G", "`":
             cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))
-        case "H", "f":
-            cursorRow = min(screen.rows - 1, max(0, parsed.value(at: 0, default: 1) - 1))
-            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 1, default: 1) - 1))
+        case "H":
+            setCursorPosition(parsed)
+        case "f":
+            if parsed.prefix == ">" {
+                applyExtendedKeyFormat(parsed)
+            } else {
+                setCursorPosition(parsed)
+            }
         case "J":
             eraseInDisplay(mode: parsed.value(at: 0, default: 0))
         case "K":
@@ -2354,10 +2507,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
             markFullDamage()
         case "m":
-            guard TerminalSgrPolicy.shouldApplySgr(for: parsed) else { break }
-            applySgr(parsed.elements)
+            if parsed.prefix == ">" {
+                applyModifyOtherKeysMode(parsed)
+            } else if TerminalSgrPolicy.shouldApplySgr(for: parsed) {
+                applySgr(parsed.elements)
+            }
         case "r":
             setScrollRegion(parsed)
+        case "g":
+            guard !parsed.isPrivate else { break }
+            switch parsed.value(at: 0, default: 0) {
+            case 0:
+                tabStops.remove(cursorColumn)
+            case 3:
+                tabStops.removeAll(keepingCapacity: true)
+            default:
+                break
+            }
         case "s":
             savedCursorRow = cursorRow
             savedCursorColumn = cursorColumn
@@ -2366,7 +2532,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             cursorRow = min(screen.rows - 1, savedCursorRow)
             cursorColumn = min(screen.columns - 1, savedCursorColumn)
         case "n":
-            if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6 {
+            if parsed.prefix == ">", parsed.values.first == 4 {
+                modifyOtherKeysMode = 0
+            } else if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6 {
                 sendTerminalResponse(cursorPositionReport())
             }
         case "c":
@@ -2405,6 +2573,37 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
+    private func setCursorPosition(_ params: CsiParameters) {
+        guard params.prefix == nil else { return }
+        let requestedRow = max(0, params.value(at: 0, default: 1) - 1)
+        if originModeEnabled {
+            cursorRow = min(scrollRegionBottom, scrollRegionTop + requestedRow)
+        } else {
+            cursorRow = min(screen.rows - 1, requestedRow)
+        }
+        cursorColumn = min(screen.columns - 1, max(0, params.value(at: 1, default: 1) - 1))
+    }
+
+    private func applyModifyOtherKeysMode(_ params: CsiParameters) {
+        guard params.values.first == 4 else { return }
+        let requested = params.values.count > 1 ? params.values[1] : 0
+        guard (0...2).contains(requested) else { return }
+        modifyOtherKeysMode = requested
+    }
+
+    private func applyExtendedKeyFormat(_ params: CsiParameters) {
+        guard params.values.first == 4 else { return }
+        let requested = params.values.count > 1 ? params.values[1] : 0
+        switch requested {
+        case 0:
+            extendedKeyFormat = .xterm
+        case 1:
+            extendedKeyFormat = .csiU
+        default:
+            break
+        }
+    }
+
     private func insertLines(count: Int) {
         let bottom = cursorRow >= scrollRegionTop && cursorRow <= scrollRegionBottom ? scrollRegionBottom : screen.rows - 1
         screen.insertLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)
@@ -2422,24 +2621,51 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func setMode(params: CsiParameters, enabled: Bool) {
-        guard params.isPrivate else { return }
+        if !params.isPrivate {
+            for value in params.values where value == 4 {
+                insertModeEnabled = enabled
+            }
+            return
+        }
         for value in params.values {
             switch value {
+            case 1:
+                applicationCursorKeysEnabled = enabled
+            case 6:
+                originModeEnabled = enabled
+                cursorRow = enabled ? scrollRegionTop : 0
+                cursorColumn = 0
+            case 7:
+                wraparoundModeEnabled = enabled
             case 25:
                 cursorVisible = enabled
                 markDirty(row: cursorRow)
-            case 47, 1047, 1049:
+            case 47, 1047:
                 if enabled {
-                    enterAlternateScreen()
+                    enterAlternateScreen(restoresCursor: false)
                 } else {
-                    leaveAlternateScreen()
+                    leaveAlternateScreen(restoresCursor: false)
+                }
+            case 1048:
+                if enabled {
+                    savedCursorRow = cursorRow
+                    savedCursorColumn = cursorColumn
+                } else {
+                    cursorRow = min(screen.rows - 1, savedCursorRow)
+                    cursorColumn = min(screen.columns - 1, savedCursorColumn)
+                }
+            case 1049:
+                if enabled {
+                    enterAlternateScreen(restoresCursor: true)
+                } else {
+                    leaveAlternateScreen(restoresCursor: true)
                 }
             case 2004:
                 bracketedPasteEnabled = enabled
             case 1004:
                 focusReportingState.set(enabled: enabled)
                 reportTerminalFocusIfNeeded()
-            case 1000, 1002, 1003, 1006:
+            case 1000, 1002, 1003, 1005, 1006:
                 mouseReportingState.set(decPrivateMode: value, enabled: enabled)
             default:
                 break
@@ -2481,10 +2707,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 markDirty(rows: 0..<cursorRow)
             }
             eraseInLine(mode: 1)
-        case 2, 3:
+        case 2:
             screen.clear(style: currentStyle)
             cursorRow = 0
             cursorColumn = 0
+            markFullDamage()
+        case 3:
+            scrollbackRows = BoundedScrollbackRows()
+            scrollbackOffset = 0
+            updateScrollIndicator()
             markFullDamage()
         default:
             break
@@ -2502,30 +2733,46 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
-    private func enterAlternateScreen() {
+    private func enterAlternateScreen(restoresCursor: Bool) {
         guard !isUsingAlternateScreen else { return }
+        if restoresCursor {
+            alternateSavedCursorRow = cursorRow
+            alternateSavedCursorColumn = cursorColumn
+        }
         normalScreenSnapshot = screen
         screen.clear()
         cursorRow = 0
         cursorColumn = 0
         resetScrollRegion()
         isUsingAlternateScreen = true
+        alternateScreenRestoresCursor = restoresCursor
         markFullDamage()
     }
 
-    private func leaveAlternateScreen() {
+    private func leaveAlternateScreen(restoresCursor: Bool) {
         guard isUsingAlternateScreen else { return }
+        let shouldRestoreCursor = restoresCursor || alternateScreenRestoresCursor
         if let snapshot = normalScreenSnapshot {
             screen = snapshot
-            cursorRow = screen.resize(rows: lastSentSize.rows, columns: lastSentSize.columns, anchorRow: cursorRow)
+            cursorRow = screen.resize(
+                rows: lastSentSize.rows,
+                columns: lastSentSize.columns,
+                anchorRow: shouldRestoreCursor ? alternateSavedCursorRow : cursorRow
+            )
         } else {
             screen.clear()
         }
-        cursorRow = min(cursorRow, screen.rows - 1)
-        cursorColumn = min(cursorColumn, screen.columns - 1)
+        if shouldRestoreCursor {
+            cursorRow = min(max(0, alternateSavedCursorRow), screen.rows - 1)
+            cursorColumn = min(max(0, alternateSavedCursorColumn), screen.columns - 1)
+        } else {
+            cursorRow = min(cursorRow, screen.rows - 1)
+            cursorColumn = min(cursorColumn, screen.columns - 1)
+        }
         resetScrollRegion()
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+        alternateScreenRestoresCursor = false
         markFullDamage()
     }
 
@@ -2534,6 +2781,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursorRow = 0
         cursorColumn = 0
         cursorVisible = true
+        insertModeEnabled = false
+        originModeEnabled = false
+        wraparoundModeEnabled = true
+        applicationCursorKeysEnabled = false
+        applicationKeypadEnabled = false
+        modifyOtherKeysMode = 0
+        extendedKeyFormat = .xterm
+        tabStops = Set(stride(from: 8, through: 992, by: 8))
         bracketedPasteEnabled = false
         mouseReportingState.reset()
         focusReportingState.set(enabled: false)
@@ -2542,6 +2797,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         activeHyperlinkURL = nil
         normalScreenSnapshot = nil
         isUsingAlternateScreen = false
+        alternateScreenRestoresCursor = false
         resetScrollRegion()
         markFullDamage()
     }
