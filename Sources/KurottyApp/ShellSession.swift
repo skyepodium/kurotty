@@ -278,6 +278,13 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
         waitSource = nil
         let exitStatus = Self.normalizedExitStatus(status)
         guard !isStopping else { return }
+
+        // The process source and PTY read source share readQueue, but either may
+        // be delivered first. Drain once after waitpid so output already buffered
+        // by the kernel is enqueued on the main queue before the exit callback.
+        if master >= 0 {
+            drainOutput(master)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.onExit?(exitStatus)
         }

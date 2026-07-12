@@ -209,6 +209,7 @@ struct TerminalMouseReportingState: Equatable {
     private var normalTracking = false
     private var buttonMotionTracking = false
     private var anyMotionTracking = false
+    var usesUTF8ExtendedCoordinates = false
     var usesSGRExtendedCoordinates = false
 
     var trackingMode: TerminalMouseTrackingMode {
@@ -236,6 +237,8 @@ struct TerminalMouseReportingState: Equatable {
             buttonMotionTracking = enabled
         case 1003:
             anyMotionTracking = enabled
+        case 1005:
+            usesUTF8ExtendedCoordinates = enabled
         case 1006:
             usesSGRExtendedCoordinates = enabled
         default:
@@ -247,6 +250,7 @@ struct TerminalMouseReportingState: Equatable {
         normalTracking = false
         buttonMotionTracking = false
         anyMotionTracking = false
+        usesUTF8ExtendedCoordinates = false
         usesSGRExtendedCoordinates = false
     }
 }
@@ -299,7 +303,8 @@ enum TerminalMouseEventEncoder {
         }
 
         let legacyButtonCode = legacyBaseButtonCode(for: kind) + modifiers.xtermButtonCodeOffset
-        guard legacyButtonCode <= 223, x <= 223, y <= 223,
+        let coordinateLimit = reportingState.usesUTF8ExtendedCoordinates ? 2_015 : 223
+        guard legacyButtonCode <= 223, x <= coordinateLimit, y <= coordinateLimit,
               let encodedButton = legacyScalarString(legacyButtonCode + 32),
               let encodedX = legacyScalarString(x + 32),
               let encodedY = legacyScalarString(y + 32) else {

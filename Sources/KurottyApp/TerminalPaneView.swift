@@ -6,11 +6,12 @@ final class TerminalPaneView: NSView {
     private let statusDotView = NSView()
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
-    private let terminalSurfaceView = TerminalSurfaceView()
+    private let terminalSurfaceView: TerminalSurfaceView
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isChromeActive = false
     private var isChromeHovered = false
+    private var isTmuxDisplayTitleManaged = false
     var closeRequested: ((TerminalPaneView) -> Void)?
     var focusChanged: ((TerminalPaneView) -> Void)?
     var detachDragRequested: ((TerminalPaneView, NSEvent) -> Void)?
@@ -19,8 +20,20 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView
     }
 
+    var automaticallyFocusesWhenAttached: Bool {
+        get { terminalSurfaceView.automaticallyFocusesWhenAttached }
+        set { terminalSurfaceView.automaticallyFocusesWhenAttached = newValue }
+    }
+
     var displayTitle: String {
         titleField.stringValue
+    }
+
+    func setTmuxDisplayTitle(_ title: String) {
+        isTmuxDisplayTitleManaged = true
+        if !title.isEmpty {
+            titleField.stringValue = title
+        }
     }
 
     var ownsFirstResponder: Bool {
@@ -35,7 +48,12 @@ final class TerminalPaneView: NSView {
             || firstResponderView.isDescendant(of: self)
     }
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, session: TerminalSessionFactory.makeDefaultSession())
+    }
+
+    init(frame frameRect: NSRect, session: any TerminalSession) {
+        terminalSurfaceView = TerminalSurfaceView(frame: .zero, session: session)
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
@@ -133,7 +151,9 @@ final class TerminalPaneView: NSView {
     }
 
     override func viewDidMoveToWindow() {
-        window?.makeFirstResponder(terminalSurfaceView)
+        if automaticallyFocusesWhenAttached {
+            window?.makeFirstResponder(terminalSurfaceView)
+        }
     }
 
     func focusTerminal() {
@@ -235,6 +255,7 @@ final class TerminalPaneView: NSView {
     }
 
     @objc private func terminalTitleDidChange(_ notification: Notification) {
+        guard !isTmuxDisplayTitleManaged else { return }
         guard let title = notification.userInfo?[TerminalSurfaceView.titleNotificationKey] as? String else {
             return
         }

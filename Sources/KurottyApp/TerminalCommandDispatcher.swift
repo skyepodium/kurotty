@@ -17,25 +17,21 @@ struct TerminalCommandReplayApproval: Equatable {
 
 enum TerminalCommandSpanDispatchContext: Equatable {
     case fold(TerminalCommandFoldCandidate)
-    case search(TerminalCommandSearchMetadata)
     case copyReference(TerminalCommandSpanReference)
     case replay(TerminalCommandReplayCandidate, approval: TerminalCommandReplayApproval)
 }
 
 struct TerminalCommandSpanDispatchHandlers {
     var fold: (TerminalCommandFoldCandidate) -> Void
-    var search: (TerminalCommandSearchMetadata) -> Void
     var copyReference: (TerminalCommandSpanReference) -> Void
     var replay: (TerminalCommandReplayCandidate, TerminalCommandReplayApproval) -> Void
 
     init(
         fold: @escaping (TerminalCommandFoldCandidate) -> Void = { _ in },
-        search: @escaping (TerminalCommandSearchMetadata) -> Void = { _ in },
         copyReference: @escaping (TerminalCommandSpanReference) -> Void = { _ in },
         replay: @escaping (TerminalCommandReplayCandidate, TerminalCommandReplayApproval) -> Void = { _, _ in }
     ) {
         self.fold = fold
-        self.search = search
         self.copyReference = copyReference
         self.replay = replay
     }
@@ -88,6 +84,16 @@ enum TerminalCommandDispatcher {
             controller.selectPreviousTab()
         case .selectNextTab:
             controller.selectNextTab()
+        case let .tmuxSwapPane(direction):
+            controller.swapTmuxPane(direction)
+        case let .tmuxRotateWindow(direction):
+            controller.rotateTmuxWindow(direction)
+        case .tmuxToggleZoom:
+            controller.toggleTmuxZoom()
+        case let .tmuxSelectLayout(selection):
+            controller.selectTmuxLayout(selection)
+        case .tmuxDetachClient:
+            controller.detachTmuxClient()
         }
     }
 
@@ -99,9 +105,6 @@ enum TerminalCommandDispatcher {
         switch (command.action, context) {
         case let (.foldOutput, .fold(candidate)):
             handlers.fold(candidate)
-            return .dispatched
-        case let (.searchOutput, .search(metadata)):
-            handlers.search(metadata)
             return .dispatched
         case let (.copyReference, .copyReference(reference)):
             handlers.copyReference(reference)

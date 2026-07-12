@@ -1,8 +1,16 @@
 import AppKit
 
+enum TerminalExtendedKeyFormat: String, Equatable, Sendable {
+    case xterm
+    case csiU = "csi-u"
+}
+
 enum TerminalKeyEncoder {
     struct State: Equatable {
         var applicationCursorKeys = false
+        var applicationKeypad = false
+        var modifyOtherKeysMode = 0
+        var extendedKeyFormat: TerminalExtendedKeyFormat = .xterm
     }
 
     private enum KeyCode {
@@ -49,15 +57,30 @@ enum TerminalKeyEncoder {
         }
 
         switch event.keyCode {
-        case KeyCode.returnKey, KeyCode.keypadEnter:
+        case KeyCode.returnKey:
             guard flags.subtracting([.shift, .numericPad, .function]).isEmpty else { return nil }
+            return flags.contains(.shift) ? "\n" : "\r"
+        case KeyCode.keypadEnter:
+            guard flags.subtracting([.shift, .numericPad, .function]).isEmpty else { return nil }
+            if state.applicationKeypad, !flags.contains(.shift) { return "\u{1b}OM" }
             return flags.contains(.shift) ? "\n" : "\r"
         case KeyCode.tab:
             if flags.subtracting([.numericPad, .function]).isEmpty {
                 return "\t"
             }
             if flags.subtracting([.shift, .numericPad, .function]).isEmpty {
+                if state.modifyOtherKeysMode == 2 {
+                    return extendedKeySequence(codepoint: 9, flags: flags, format: state.extendedKeyFormat)
+                }
                 return "\u{1b}[Z"
+            }
+            if flags.subtracting([.option, .numericPad, .function]).isEmpty,
+               state.modifyOtherKeysMode == 1 {
+                return "\u{1b}\t"
+            }
+            if state.modifyOtherKeysMode == 2,
+               let sequence = extendedKeySequence(codepoint: 9, flags: flags, format: state.extendedKeyFormat) {
+                return sequence
             }
             return nil
         case KeyCode.deleteBackward:
@@ -65,6 +88,12 @@ enum TerminalKeyEncoder {
             return "\u{7f}"
         default:
             break
+        }
+
+        if state.applicationKeypad,
+           flags.subtracting([.numericPad, .function]).isEmpty,
+           let sequence = applicationKeypadSequence(forKeyCode: event.keyCode) {
+            return sequence
         }
 
         if let arrow = arrowFinal(forKeyCode: event.keyCode) {
@@ -81,6 +110,9 @@ enum TerminalKeyEncoder {
         }
         if let number = tildeFunctionNumber(forKeyCode: event.keyCode) {
             return tildeSequence(number: number, flags: flags)
+        }
+        if let extended = modifyOtherKeysSequence(for: event, flags: flags, state: state) {
+            return extended
         }
         if let controlText = controlSequence(for: event, flags: flags) {
             return controlText
@@ -151,6 +183,85 @@ enum TerminalKeyEncoder {
         case KeyCode.leftArrow: return "D"
         default: return nil
         }
+    }
+
+    private static func applicationKeypadSequence(forKeyCode keyCode: UInt16) -> String? {
+        let final: Character
+        switch keyCode {
+        case 82: final = "p" // 0
+        case 83: final = "q" // 1
+        case 84: final = "r" // 2
+        case 85: final = "s" // 3
+        case 86: final = "t" // 4
+        case 87: final = "u" // 5
+        case 88: final = "v" // 6
+        case 89: final = "w" // 7
+        case 91: final = "x" // 8
+        case 92: final = "y" // 9
+        case 65: final = "n" // decimal
+        case 75: final = "o" // divide
+        case 67: final = "j" // multiply
+        case 78: final = "m" // minus
+        case 69: final = "k" // plus
+        case 81: final = "X" // equals
+        default: return nil
+        }
+        return "\u{1b}O\(final)"
+    }
+
+    private static func modifyOtherKeysSequence(
+        for event: NSEvent,
+        flags: NSEvent.ModifierFlags,
+        state: State
+    ) -> String? {
+        guard (1...2).contains(state.modifyOtherKeysMode) else { return nil }
+        let significantFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        guard !significantFlags.isEmpty,
+              significantFlags.isSubset(of: [.shift, .option, .control]),
+              let codepoint = singleCodepoint(event.charactersIgnoringModifiers)
+        else {
+            return nil
+        }
+
+        if state.modifyOtherKeysMode == 1 {
+            // Match tmux input_key_mode1: Meta + a regular key and the
+            // established Ctrl mappings retain their VT10x representation.
+            if significantFlags.contains(.option), !significantFlags.contains(.control) {
+                guard let scalar = UnicodeScalar(codepoint) else { return nil }
+                return "\u{1b}" + String(scalar)
+            }
+            if significantFlags.contains(.control),
+               let control = controlText(forBaseScalarValue: codepoint) {
+                return (significantFlags.contains(.option) ? "\u{1b}" : "") + control
+            }
+        }
+
+        return extendedKeySequence(
+            codepoint: codepoint,
+            flags: significantFlags,
+            format: state.extendedKeyFormat
+        )
+    }
+
+    private static func extendedKeySequence(
+        codepoint: UInt32,
+        flags: NSEvent.ModifierFlags,
+        format: TerminalExtendedKeyFormat
+    ) -> String? {
+        guard let modifier = modifierParameter(for: flags), modifier > 1 else { return nil }
+        switch format {
+        case .xterm:
+            return "\u{1b}[27;\(modifier);\(codepoint)~"
+        case .csiU:
+            return "\u{1b}[\(codepoint);\(modifier)u"
+        }
+    }
+
+    private static func singleCodepoint(_ text: String?) -> UInt32? {
+        guard let text else { return nil }
+        let scalars = text.unicodeScalars
+        guard scalars.count == 1 else { return nil }
+        return scalars.first?.value
     }
 
     private static func arrowSequence(final: String, flags: NSEvent.ModifierFlags, state: State) -> String? {

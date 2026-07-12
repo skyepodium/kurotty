@@ -12,9 +12,9 @@ This design favors boring correctness over feature breadth. Rendering speed matt
 - Text rendering path built on Metal with a glyph atlas and instanced cell drawing.
 - User settings are local, versioned JSON at `Application Support/Kurotty/settings.json`.
 - AI-era workflow features are app-layer features. They must not mutate terminal core state directly.
-- Product direction is native and browser-like: tabs, splits, search, copy mode, command palette, and workspace restore should feel discoverable without making the terminal viewport decorative.
+- Product direction is native and browser-like: tabs, splits, copy mode, command palette, and workspace restore should feel discoverable without making the terminal viewport decorative.
 - The app should be powerful but lightweight. Prefer local state, explicit commands, and narrow services over background daemons, hidden automation, or broad plugin surfaces.
-- Non-developer users should be able to open the app, start a shell, search output, copy text, split panes, and restore a workspace without editing configuration files.
+- Non-developer users should be able to open the app, start a shell, copy text, split panes, and restore a workspace without editing configuration files.
 
 ## Product UX Direction
 
@@ -34,21 +34,19 @@ Design rules:
 - Browser-like does not mean web-like rendering. Use native AppKit controls where they fit, and keep terminal rendering owned by the Metal terminal surface.
 - The terminal viewport remains the primary content. Do not add illustrations, promotional copy, or decorative brand surfaces around active terminal output.
 
-### Command Palette, Search, And Copy Mode
+### Command Palette And Copy Mode
 
 Responsibilities:
 
 - Provide one command registry for menu items, keyboard shortcuts, command palette entries, and automation entry points.
-- Support output search and copy mode as first-class terminal workflows, not as incidental text-view behavior.
+- Support copy mode as a first-class terminal workflow, not as incidental text-view behavior.
 - Let non-developer users discover commands by plain names while preserving fast keyboard operation for advanced users.
 
 Design rules:
 
 - Commands should declare identifier, title, optional category, default shortcut, enabled state, and target scope: app, window, tab, pane, selection, workspace, or agent.
-- Search should expose terminal-output matches through menu and command-palette entry points once the full match model is wired to scrollback/command-span coordinates.
 - Copy Mode should keep focus in the active terminal pane and reuse the selection model and scrollback coordinates.
 - Quick Terminal opens a new terminal tab in the current window and focuses it, preserving the browser-like tab mental model.
-- Search should operate on terminal coordinates and scrollback ranges. It must not force raw terminal text persistence beyond the selected feature's retention policy.
 - Copy mode should use the selection model and scrollback coordinates, including wide characters, wrapped lines, placeholder blanks, and alternate screen behavior.
 - Palette results should favor actions and current workspace objects before speculative suggestions. AI actions belong in the agent scope and must show approval state when they can send text or run commands.
 
@@ -78,7 +76,7 @@ Responsibilities:
 
 Design rules:
 
-- First-run state should open a working terminal with safe defaults and a small number of native affordances for new tab, split, search, copy mode, settings, and command palette.
+- First-run state should open a working terminal with safe defaults and a small number of native affordances for new tab, split, copy mode, settings, and command palette.
 - Onboarding copy should be minimal and task-oriented. Do not turn the app into a marketing page or hide the terminal behind setup screens.
 - Shell integration scripts, AI features, command history persistence, and raw output capture must be opt-in and explain their privacy impact at the point of enablement.
 - Every visible beginner feature should map to the same command registry and settings contracts used by advanced workflows.
@@ -203,7 +201,7 @@ Responsibilities:
 
 - Detect command lifecycle, cwd, prompt/output ranges, exit code, and duration without requiring a shell script for basic behavior.
 - Keep terminal core behavior correct when shell integration is disabled, unavailable, remote, or partially supported.
-- Provide command spans that search, copy mode, workspace restore, and AI context can reference without owning terminal cells.
+- Provide command spans that copy mode, workspace restore, and AI context can reference without owning terminal cells.
 - Keep command history navigation and AI context export based on command-span metadata, not scraped screen rows.
 
 Design rules:
@@ -212,7 +210,6 @@ Design rules:
 - Command spans belong outside the screen model, but may reference scrollback ranges and screen snapshots.
 - `TerminalShellIntegration` owns OSC 7/OSC 133 command-span state. `TerminalCommandRegistry` owns user-visible app/window command identifiers and shortcuts. Keep those concepts separate.
 - Command replay support is represented as a metadata candidate that requires explicit user confirmation; shell integration must not automatically execute or persist replayed commands.
-- Search metadata is an ephemeral UI/search projection. Runtime timeline and audit surfaces should reference command span IDs and boundary coordinates rather than retaining command text unless a separate feature policy explicitly permits that retention.
 - AI command context should use `AICommandContextBridge.CommandContext` or `TerminalCommandSpan` data and include raw output only after policy approval.
 - Runtime timeline entries may reference shell command span identifiers, cwd metadata, exit status, and prompt/output range coordinates. They must not duplicate command text or output text unless an explicit feature policy has approved that retention.
 - Passive OSC metadata and opt-in shell integration metadata must be distinguishable. A capability descriptor is baseline support; per-session evidence is required before UI, audit, or AI surfaces claim an opt-in shell script is installed.
@@ -252,8 +249,8 @@ Design rules:
 
 - Model tabs and splits as a durable tree with stable pane identifiers, focus, titles, profile metadata, cwd, and restore policy.
 - Session restore should rebuild layout first. Process resume, agent resume, and command replay are separate opt-in steps.
-- Focus movement, pane resize, search, copy mode, quick terminal, and command palette actions should be command-dispatchable so UI, shortcuts, and automation share one action surface.
-- Command-span UX should reuse the app command registry for search, copy, fold, replay-candidate, and AI-reference actions. Replay remains an approval-gated candidate, not an automatic shell integration behavior.
+- Focus movement, pane resize, copy mode, quick terminal, and command palette actions should be command-dispatchable so UI, shortcuts, and automation share one action surface.
+- Command-span UX should reuse the app command registry for copy, fold, replay-candidate, and AI-reference actions. Replay remains an approval-gated candidate, not an automatic shell integration behavior.
 - Browser-like tab behavior should be implemented at the app layer. Terminal escape sequences may update pane titles or badges through policy, but must not restructure tabs, splits, or workspaces.
 - Split layout changes should emit metadata useful for debugging resize, focus, and renderer issues without logging terminal contents.
 
@@ -333,7 +330,7 @@ Required gates by change type:
 - Are new values named constants or design tokens with units where applicable?
 - Are settings represented through typed, versioned JSON rather than scattered persistence?
 - Are ABI and shader layout changes reflected in docs and tests?
-- Are browser-like tabs, splits, search, copy mode, and command palette changes routed through app-layer commands rather than terminal protocol shortcuts?
+- Are browser-like tabs, splits, copy mode, and command palette changes routed through app-layer commands rather than terminal protocol shortcuts?
 - Are AI features isolated from terminal core state, and do they use redacted context plus explicit approval for actions?
 - Does user-facing brand expression stay outside active terminal output and preserve a lightweight native feel?
 - Did the author run the smallest relevant verification commands and report remaining risk?
