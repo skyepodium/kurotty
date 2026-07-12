@@ -410,6 +410,11 @@ final class AppSettingsStore {
     func save(rawJSON: String) throws {
         let data = Data(rawJSON.utf8)
         let settings = AppSettingsNormalizer.normalized(try decoder.decode(AppSettings.self, from: data))
+        try save(settings)
+    }
+
+    func save(_ settings: AppSettings) throws {
+        let settings = AppSettingsNormalizer.normalized(settings)
         let normalizedData = try encoder.encode(settings)
         try persistence.save(normalizedData)
         NotificationCenter.default.post(

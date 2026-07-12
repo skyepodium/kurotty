@@ -201,6 +201,13 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 
 - `VERSION` is the single source of truth for the next Kurotty release version.
 - Do not hardcode future release numbers such as `.5` in `README.md`, scripts, workflows, tests, or app code. Bump `VERSION` first, then let scripts and docs derive names from it.
+- Before a workflow-based public release, switch to `main`, run `git pull --ff-only origin main`, and confirm there are no tracked worktree changes. Preserve unrelated untracked files and never stage `.omx/context`, `.omx/interviews`, or `.omx/specs`.
+- Do not create or push the release tag until CI has succeeded for the exact `main` commit that will receive the tag. Record that commit SHA and verify the tag resolves to it before publishing.
+- When pre-release CI fails, inspect the failing step and logs before rerunning it:
+  - assertion failures, repeated timing failures, and reproducible test failures require a fix through the normal PR flow;
+  - infrastructure-only failures such as runner termination or an XCTest process crash without an assertion may be rerun once;
+  - if an infrastructure-looking failure repeats, treat it as a real stability problem and fix or isolate its cause instead of repeatedly rerunning CI.
+- For asynchronous regression tests used as release gates, do not rely on fixed sleeps or XCTest expectation observation order when executable state or event ordering can be asserted directly. Run a newly stabilized targeted test repeatedly, then run the full suite before pushing the fix.
 - Do not trigger the GitHub Actions release workflow for a release unless the user explicitly asks for workflow-based publishing. If local release credentials or signing materials are present, build, sign, notarize, staple, and upload release assets locally.
 - Do not create, move, delete, or re-push release tags as an indirect way to publish when the user asked for local release handling. Tag operations are separate release actions and need explicit instruction.
 - The normal public release flow is:
@@ -225,6 +232,8 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 - Tags for public releases must be created from `main` as `v$(cat VERSION)`. The release workflow must reject tags that are not contained in `main`.
 - Sparkle automatic updates must use the signed `appcast.xml` from the release assets. The appcast enclosure URL must point to the versioned DMG, not a stale local `dist/` file or a previous release asset.
 - Before publishing a new release, remove stale local release outputs or use an isolated work directory so old DMGs, old appcasts, and old signatures cannot be re-uploaded.
+- Pushing a tag does not mean the release is complete. A workflow-based release is complete only after the release job succeeds and the published GitHub Release is verified to contain the expected tag, target commit, and all required assets.
+- The release handoff must report the tag, exact commit SHA, main CI result, release workflow result, signing/notarization verification result, GitHub Release URL, and published asset names. If any of these are unavailable or failed, report the release as incomplete.
 - After a workflow release finishes, verify the GitHub release assets instead of trusting local files:
   - download `kurotty-$VERSION-macos-universal.dmg`, `kurotty-macos-universal.dmg`, `SHA256SUMS`, and `appcast.xml` from the release;
   - run `cd <download-dir> && shasum -a 256 -c SHA256SUMS`;
