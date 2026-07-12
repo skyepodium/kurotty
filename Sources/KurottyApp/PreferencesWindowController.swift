@@ -19,27 +19,28 @@ struct PreferencesValidationStatus: Equatable {
 enum PreferencesValidationPresenter {
     static func status(
         for rawJSON: String,
+        language: AppLanguage = .english,
         directoryExists: (String) -> Bool = defaultDirectoryExists
     ) -> PreferencesValidationStatus {
         do {
             let settings = try JSONDecoder().decode(AppSettings.self, from: Data(rawJSON.utf8))
             let report = AppSettingsValidation.report(for: settings, directoryExists: directoryExists)
-            return status(for: report)
+            return status(for: report, language: language)
         } catch {
             return PreferencesValidationStatus(
                 kind: .errors,
-                message: "Errors: Settings JSON is invalid: \(error.localizedDescription)",
+                message: "\(AppLocalization.string(.errors, language: language)): \(String(format: AppLocalization.string(.invalidSettingsJSON, language: language), error.localizedDescription))",
                 issues: []
             )
         }
     }
 
-    private static func status(for report: AppSettingsValidationReport) -> PreferencesValidationStatus {
+    private static func status(for report: AppSettingsValidationReport, language: AppLanguage) -> PreferencesValidationStatus {
         let errors = report.issues.filter { $0.severity == .error }
         if !errors.isEmpty {
             return PreferencesValidationStatus(
                 kind: .errors,
-                message: "Errors: \(summary(for: errors))",
+                message: "\(AppLocalization.string(.errors, language: language)): \(summary(for: errors))",
                 issues: report.issues
             )
         }
@@ -48,14 +49,14 @@ enum PreferencesValidationPresenter {
         if !warnings.isEmpty {
             return PreferencesValidationStatus(
                 kind: .warnings,
-                message: "Warnings: \(summary(for: warnings))",
+                message: "\(AppLocalization.string(.warnings, language: language)): \(summary(for: warnings))",
                 issues: report.issues
             )
         }
 
         return PreferencesValidationStatus(
             kind: .valid,
-            message: "Settings valid.",
+            message: AppLocalization.string(.settingsValid, language: language),
             issues: report.issues
         )
     }
@@ -85,13 +86,17 @@ final class PreferencesWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "\(AppConstants.Bundle.displayName) Settings"
+        window.title = AppLocalization.format(.settingsWindow, AppConstants.Bundle.displayName)
         window.contentView = view
         super.init(window: window)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    func refreshLocalization() {
+        window?.title = AppLocalization.format(.settingsWindow, AppConstants.Bundle.displayName)
     }
 }
 
@@ -199,11 +204,11 @@ final class PreferencesView: NSView, NSTextViewDelegate {
             isLoadingFromDisk = true
             textView.string = try store.loadRawJSON()
             isLoadingFromDisk = false
-            let status = PreferencesValidationPresenter.status(for: textView.string)
-            setStatus("Loaded \(store.settingsURL.path). Edits apply automatically. \(status.message)")
+            let status = PreferencesValidationPresenter.status(for: textView.string, language: AppLocalization.language)
+            setStatus(String(format: AppLocalization.string(.settingsLoaded), store.settingsURL.path, status.message))
         } catch {
             isLoadingFromDisk = false
-            setStatus("Load failed: \(error.localizedDescription)")
+            setStatus(String(format: AppLocalization.string(.settingsLoadFailed), error.localizedDescription))
         }
     }
 
@@ -212,14 +217,14 @@ final class PreferencesView: NSView, NSTextViewDelegate {
             return
         }
 
-        let status = PreferencesValidationPresenter.status(for: textView.string)
+        let status = PreferencesValidationPresenter.status(for: textView.string, language: AppLocalization.language)
         guard status.canSave else {
             autosaveWorkItem?.cancel()
-            setStatus("Not applied. \(status.message)")
+            setStatus(String(format: AppLocalization.string(.settingsNotApplied), status.message))
             return
         }
 
-        setStatus("Applying settings. \(status.message)")
+        setStatus(String(format: AppLocalization.string(.settingsApplying), status.message))
         scheduleAutosave()
     }
 
@@ -235,17 +240,17 @@ final class PreferencesView: NSView, NSTextViewDelegate {
     }
 
     private func autosaveCurrentSettings() {
-        let status = PreferencesValidationPresenter.status(for: textView.string)
+        let status = PreferencesValidationPresenter.status(for: textView.string, language: AppLocalization.language)
         guard status.canSave else {
-            setStatus("Not applied. \(status.message)")
+            setStatus(String(format: AppLocalization.string(.settingsNotApplied), status.message))
             return
         }
 
         do {
             try store.save(rawJSON: textView.string)
-            setStatus("Applied \(store.settingsURL.path). \(status.message)")
+            setStatus(String(format: AppLocalization.string(.settingsApplied), store.settingsURL.path, status.message))
         } catch {
-            setStatus("Apply failed: \(error.localizedDescription)")
+            setStatus(String(format: AppLocalization.string(.settingsApplyFailed), error.localizedDescription))
         }
     }
 

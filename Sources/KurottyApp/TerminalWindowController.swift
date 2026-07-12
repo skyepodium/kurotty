@@ -117,7 +117,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func commandPaletteRegistry() -> TerminalCommandRegistry {
-        selectedTmuxCoordinator == nil ? .default : .tmuxControl
+        selectedTmuxCoordinator == nil ? .localized : .localizedTmuxControl
     }
 
     func swapTmuxPane(_ direction: TmuxPaneSwapDirection) {

@@ -84,26 +84,17 @@ struct TerminalContextMenuEntry: Equatable {
 }
 
 enum TerminalContextMenuBuilder {
-    private enum Title {
-        static let copy = "Copy"
-        static let paste = "Paste"
-        static let splitRight = "Split Right"
-        static let splitLeft = "Split Left"
-        static let splitDown = "Split Down"
-        static let splitUp = "Split Up"
-    }
-
-    static func entries(for state: TerminalContextMenuState) -> [TerminalContextMenuEntry] {
+    static func entries(for state: TerminalContextMenuState, language: AppLanguage = .english) -> [TerminalContextMenuEntry] {
         var entries: [TerminalContextMenuEntry] = []
         if state.hasSelection {
-            entries.append(.item(title: Title.copy, action: .copySelection))
+            entries.append(.item(title: AppLocalization.string(.copy, language: language), action: .copySelection))
         }
-        entries.append(.item(title: Title.paste, action: .paste, isEnabled: state.hasPasteboardText))
+        entries.append(.item(title: AppLocalization.string(.paste, language: language), action: .paste, isEnabled: state.hasPasteboardText))
         entries.append(.separator)
-        entries.append(.item(title: Title.splitRight, action: .split(.right)))
-        entries.append(.item(title: Title.splitLeft, action: .split(.left)))
-        entries.append(.item(title: Title.splitDown, action: .split(.down)))
-        entries.append(.item(title: Title.splitUp, action: .split(.up)))
+        entries.append(.item(title: AppLocalization.string(.splitRight, language: language), action: .split(.right)))
+        entries.append(.item(title: AppLocalization.string(.splitLeft, language: language), action: .split(.left)))
+        entries.append(.item(title: AppLocalization.string(.splitDown, language: language), action: .split(.down)))
+        entries.append(.item(title: AppLocalization.string(.splitUp, language: language), action: .split(.up)))
         return entries
     }
 }

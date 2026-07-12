@@ -7,6 +7,7 @@ struct CommandPalettePresentedEntry: Equatable {
     }
 
     let kind: Kind
+    let language: AppLanguage
 
     var title: String {
         switch kind {
@@ -23,7 +24,7 @@ struct CommandPalettePresentedEntry: Equatable {
             return entry.shortcutLabel
         case let .commandSpan(entry):
             return entry.requiresExplicitApproval
-                ? "\(entry.categoryTitle) - Requires confirmation"
+                ? "\(entry.categoryTitle) - \(AppLocalization.string(.requiresConfirmation, language: language))"
                 : entry.categoryTitle
         }
     }
@@ -48,14 +49,17 @@ struct CommandPalettePresenter {
     private(set) var query: String
     private(set) var visibleEntries: [CommandPalettePresentedEntry]
     private(set) var selectedIndex: Int?
+    private let language: AppLanguage
 
     init(
         palette: TerminalCommandPalette = TerminalCommandPalette(includesCommandSpanCommands: true),
-        query: String = ""
+        query: String = "",
+        language: AppLanguage = .english
     ) {
         self.palette = palette
+        self.language = language
         self.query = query
-        self.visibleEntries = Self.presentedEntries(in: palette, matching: query)
+        self.visibleEntries = Self.presentedEntries(in: palette, matching: query, language: language)
         self.selectedIndex = visibleEntries.isEmpty ? nil : 0
     }
 
@@ -70,7 +74,7 @@ struct CommandPalettePresenter {
 
     mutating func updateQuery(_ query: String) {
         self.query = query
-        visibleEntries = Self.presentedEntries(in: palette, matching: query)
+        visibleEntries = Self.presentedEntries(in: palette, matching: query, language: language)
         selectedIndex = visibleEntries.isEmpty ? nil : 0
     }
 
@@ -110,10 +114,11 @@ struct CommandPalettePresenter {
 
     private static func presentedEntries(
         in palette: TerminalCommandPalette,
-        matching query: String
+        matching query: String,
+        language: AppLanguage
     ) -> [CommandPalettePresentedEntry] {
-        palette.results(for: query).map { .init(kind: .window($0)) }
-            + palette.commandSpanResults(for: query).map { .init(kind: .commandSpan($0)) }
+        palette.results(for: query).map { .init(kind: .window($0), language: language) }
+            + palette.commandSpanResults(for: query).map { .init(kind: .commandSpan($0), language: language) }
     }
 }
 
@@ -131,7 +136,7 @@ final class CommandPaletteWindowController: NSWindowController {
         commandExecutor: @escaping (TerminalCommand) -> Void,
         commandSpanExecutor: @escaping (TerminalCommandSpanCommand) -> Bool = { _ in false }
     ) {
-        self.presenter = CommandPalettePresenter(palette: palette)
+        self.presenter = CommandPalettePresenter(palette: palette, language: AppLocalization.language)
         self.commandExecutor = commandExecutor
         self.commandSpanExecutor = commandSpanExecutor
 
@@ -146,7 +151,7 @@ final class CommandPaletteWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Command Palette"
+        window.title = AppLocalization.string(.commandPalette)
         window.isReleasedWhenClosed = false
         super.init(window: window)
         configureWindow()
@@ -172,7 +177,7 @@ final class CommandPaletteWindowController: NSWindowController {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         window.contentView = contentView
 
-        searchField.placeholderString = "Search commands"
+        searchField.placeholderString = AppLocalization.string(.searchCommands)
         searchField.target = self
         searchField.action = #selector(searchFieldDidChange(_:))
         searchField.translatesAutoresizingMaskIntoConstraints = false
@@ -187,7 +192,7 @@ final class CommandPaletteWindowController: NSWindowController {
         }
 
         let column = NSTableColumn(identifier: Self.commandColumnIdentifier)
-        column.title = "Command"
+        column.title = AppLocalization.string(.command)
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.usesAlternatingRowBackgroundColors = false

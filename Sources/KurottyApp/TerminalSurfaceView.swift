@@ -611,12 +611,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func confirmCommandReplay(_ candidate: TerminalCommandReplayCandidate) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Replay Command?"
+        alert.messageText = AppLocalization.string(.replayCommandQuestion)
         alert.informativeText = candidate.commandText
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Replay")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: AppLocalization.string(.replay))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -626,7 +626,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             hasPasteboardText: !(NSPasteboard.general.string(forType: .string)?.isEmpty ?? true)
         )
         let menu = NSMenu()
-        for entry in TerminalContextMenuBuilder.entries(for: state) {
+        for entry in TerminalContextMenuBuilder.entries(for: state, language: AppLocalization.language) {
             guard let title = entry.title, let action = entry.action else {
                 menu.addItem(.separator())
                 continue
@@ -1822,12 +1822,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard let url = URL(string: link.urlString) else { return }
         guard securityPolicy.linkOpenDecision(for: url) == .ask else { return }
         let alert = NSAlert()
-        alert.messageText = "Open Link?"
+        alert.messageText = AppLocalization.string(.openLinkQuestion)
         alert.informativeText = link.urlString
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Open in Browser")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: AppLocalization.string(.openInBrowser))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
 
         if let window {
             alert.beginSheetModal(for: window) { response in
