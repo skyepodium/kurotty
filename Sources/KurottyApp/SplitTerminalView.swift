@@ -362,6 +362,11 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func installTmuxLayout(_ layout: TmuxLayoutNode, panes: [String: TerminalPaneView]) {
+        if updateTmuxNode(layout, panes: panes, in: self) {
+            refreshPaneChrome()
+            applyTmuxLayoutProportionsRecursively()
+            return
+        }
         arrangedSubviews.forEach {
             removeArrangedSubview($0)
             $0.removeFromSuperview()
@@ -371,6 +376,47 @@ final class SplitTerminalView: NSSplitView {
         refreshPaneChrome()
         needsInitialRebalance = true
         applyTmuxLayoutProportionsRecursively()
+    }
+
+    private func updateTmuxNode(
+        _ node: TmuxLayoutNode,
+        panes: [String: TerminalPaneView],
+        in container: SplitTerminalView
+    ) -> Bool {
+        switch node {
+        case let .pane(id, _):
+            guard container.arrangedSubviews.count == 1,
+                  let pane = panes[id],
+                  container.arrangedSubviews[0] === pane
+            else { return false }
+            container.tmuxLayoutProportions = nil
+            return true
+        case let .split(axis, _, children):
+            guard container.isVertical == (axis == .horizontal),
+                  container.arrangedSubviews.count == children.count
+            else { return false }
+
+            for (child, subview) in zip(children, container.arrangedSubviews) {
+                switch child {
+                case let .pane(id, _):
+                    guard let pane = panes[id], subview === pane else { return false }
+                case .split:
+                    guard let nested = subview as? SplitTerminalView,
+                          updateTmuxNode(child, panes: panes, in: nested)
+                    else { return false }
+                }
+            }
+
+            let lengths = children.map { child -> CGFloat in
+                switch child {
+                case let .pane(_, rect), let .split(_, rect, _):
+                    return CGFloat(axis == .horizontal ? rect.width : rect.height)
+                }
+            }
+            let total = lengths.reduce(0, +)
+            container.tmuxLayoutProportions = total > 0 ? lengths.map { $0 / total } : nil
+            return true
+        }
     }
 
     func tmuxPaneGridSizes(in paneIDs: [String: TerminalPaneView]) -> [String: TerminalSize] {

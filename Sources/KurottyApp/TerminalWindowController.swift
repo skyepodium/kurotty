@@ -689,10 +689,23 @@ fileprivate final class TmuxNativeSessionCoordinator {
 
     func split(_ direction: TerminalPaneSplitDirection) {
         guard managesSelectedTab, let paneID = activePaneID else { return }
+        let synchronizedClientSize: (windowID: String, columns: Int, rows: Int)? = {
+            guard let item = controller?.tabView.selectedTabViewItem,
+                  let windowID = windowID(for: item),
+                  let split = item.view as? SplitTerminalView,
+                  let layout = driver.state.windows[windowID]?.layout
+            else { return nil }
+            let sizes = split.tmuxPaneGridSizes(in: panes)
+            guard !sizes.isEmpty else { return nil }
+            let size = layout.aggregateGridSize(using: sizes)
+            lastSubmittedWindowSizes[windowID] = size
+            return (windowID, size.columns, size.rows)
+        }()
         driver.splitPane(
             paneID,
             direction: direction.axis == .vertical ? .horizontal : .vertical,
-            before: !direction.insertsAfterActivePane
+            before: !direction.insertsAfterActivePane,
+            synchronizedClientSize: synchronizedClientSize
         )
     }
 

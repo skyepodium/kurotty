@@ -269,7 +269,7 @@ final class TmuxControlCoreTests: XCTestCase {
         )
         XCTAssertEqual(
             TmuxCommandEncoder.splitPane(targetPaneID: "%2", direction: .horizontal, before: true),
-            Data("split-window -b -h -t '%2'\n".utf8)
+            Data("split-window -b -h -p 50 -t '%2'\n".utf8)
         )
         XCTAssertEqual(
             TmuxCommandEncoder.resizePane("%2", columns: 80, rows: 24),

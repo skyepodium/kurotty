@@ -27,6 +27,31 @@ final class TmuxNativeLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testTmuxSizeOnlyLayoutUpdateKeepsHorizontalPaneViewsAttached() throws {
+        let pane0 = TerminalPaneView(frame: .zero, session: makeSession())
+        let pane1 = TerminalPaneView(frame: .zero, session: makeSession())
+        let panes = ["%0": pane0, "%1": pane1]
+        let split = SplitTerminalView(
+            axis: .vertical,
+            pane: nil,
+            paneDragCoordinator: TerminalPaneDragCoordinator()
+        )
+        split.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        let initial = try TmuxLayoutParser.parse("100x40,0,0[100x19,0,0,0,100x20,0,20,1]")
+        let resized = try TmuxLayoutParser.parse("120x50,0,0[120x24,0,0,0,120x25,0,25,1]")
+
+        split.installTmuxLayout(initial, panes: panes)
+        let originalSuperview0 = pane0.superview
+        let originalSuperview1 = pane1.superview
+        split.installTmuxLayout(resized, panes: panes)
+
+        XCTAssertTrue(pane0.superview === originalSuperview0)
+        XCTAssertTrue(pane1.superview === originalSuperview1)
+        XCTAssertTrue(split.arrangedSubviews[0] === pane0)
+        XCTAssertTrue(split.arrangedSubviews[1] === pane1)
+    }
+
+    @MainActor
     func testNestedTmuxLayoutInstallsEveryPaneExactlyOnce() throws {
         let panes = Dictionary(uniqueKeysWithValues: (0..<3).map { index in
             ("%\(index)", TerminalPaneView(frame: .zero, session: makeSession()))

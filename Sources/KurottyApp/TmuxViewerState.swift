@@ -362,10 +362,14 @@ enum TmuxCommandEncoder {
     static func splitPane(
         targetPaneID: String,
         direction: TmuxSplitDirection,
-        before: Bool = false
+        before: Bool = false,
+        percentage: Int = 50
     ) -> Data {
         let beforeFlag = before ? "-b " : ""
-        return command("split-window \(beforeFlag)\(direction.rawValue) -t \(quote(targetPaneID))")
+        let clampedPercentage = min(99, max(1, percentage))
+        return command(
+            "split-window \(beforeFlag)\(direction.rawValue) -p \(clampedPercentage) -t \(quote(targetPaneID))"
+        )
     }
     static func killPane(_ paneID: String) -> Data { command("kill-pane -t \(quote(paneID))") }
     static func killWindow(_ windowID: String) -> Data { command("kill-window -t \(quote(windowID))") }

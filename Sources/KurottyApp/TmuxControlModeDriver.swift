@@ -162,7 +162,19 @@ final class TmuxControlModeDriver {
         enqueueStructuralMutation(TmuxCommandEncoder.selectWindow(windowID))
     }
 
-    func splitPane(_ paneID: String, direction: TmuxSplitDirection, before: Bool = false) {
+    func splitPane(
+        _ paneID: String,
+        direction: TmuxSplitDirection,
+        before: Bool = false,
+        synchronizedClientSize: (windowID: String, columns: Int, rows: Int)? = nil
+    ) {
+        if let synchronizedClientSize {
+            enqueueStructuralMutation(TmuxCommandEncoder.resizeClient(
+                windowID: synchronizedClientSize.windowID,
+                columns: synchronizedClientSize.columns,
+                rows: synchronizedClientSize.rows
+            ))
+        }
         enqueueStructuralMutation(TmuxCommandEncoder.splitPane(
             targetPaneID: paneID,
             direction: direction,
