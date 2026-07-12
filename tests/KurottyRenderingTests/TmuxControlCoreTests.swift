@@ -938,6 +938,7 @@ final class TmuxControlCoreTests: XCTestCase {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
+        var recoveryEvents: [String] = []
         let limits = TmuxMutationQueue.Limits(
             maximumInputByteCount: 0,
             maximumPayloadByteCount: 8,
@@ -951,20 +952,27 @@ final class TmuxControlCoreTests: XCTestCase {
             mutationQueueLimits: limits
         ) { command in
             commands.append(command)
-            if command == "\n" { blankWritten.fulfill() }
+            if command == "\n" {
+                recoveryEvents.append("wait-exit released")
+                blankWritten.fulfill()
+            }
         }
-        driver.onExit = { exited.fulfill() }
+        driver.onExit = {
+            recoveryEvents.append("local UI restored")
+            exited.fulfill()
+        }
         enter(driver, sessionID: "$0", name: "work")
         completeInitialSnapshot(driver)
 
         driver.sendKeys(to: "%0", text: "x")
-        await fulfillment(of: [blankWritten, exited], timeout: 1, enforceOrder: true)
+        await fulfillment(of: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
         XCTAssertNotNil(detachIndex)
         XCTAssertNotNil(blankIndex)
         if let detachIndex, let blankIndex { XCTAssertLessThan(detachIndex, blankIndex) }
+        XCTAssertEqual(recoveryEvents, ["wait-exit released", "local UI restored"])
         XCTAssertFalse(driver.state.isAttached)
     }
 
@@ -973,15 +981,20 @@ final class TmuxControlCoreTests: XCTestCase {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
+        var recoveryEvents: [String] = []
         var exitCount = 0
         let driver = TmuxControlModeDriver(
             fatalAbortDelay: 0.01,
             fatalWaitExitDelay: 0.01
         ) { command in
             commands.append(command)
-            if command == "\n" { blankWritten.fulfill() }
+            if command == "\n" {
+                recoveryEvents.append("wait-exit released")
+                blankWritten.fulfill()
+            }
         }
         driver.onExit = {
+            recoveryEvents.append("local UI restored")
             exitCount += 1
             exited.fulfill()
         }
@@ -993,13 +1006,14 @@ final class TmuxControlCoreTests: XCTestCase {
         XCTAssertEqual(exitCount, 0)
         XCTAssertTrue(driver.state.isAttached)
         XCTAssertEqual(commands.last, "detach-client\n")
-        await fulfillment(of: [blankWritten, exited], timeout: 1, enforceOrder: true)
+        await fulfillment(of: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
         XCTAssertNotNil(detachIndex)
         XCTAssertNotNil(blankIndex)
         if let detachIndex, let blankIndex { XCTAssertLessThan(detachIndex, blankIndex) }
+        XCTAssertEqual(recoveryEvents, ["wait-exit released", "local UI restored"])
         XCTAssertEqual(exitCount, 1)
         XCTAssertFalse(driver.state.isAttached)
     }
@@ -1055,7 +1069,7 @@ final class TmuxControlCoreTests: XCTestCase {
     @MainActor
     func testWindowOrderSubscriptionAbsorbsQueuedBurstAndRunsOneDirtyFollowup() async {
         let recorder = WriteRecorder()
-        let driver = TmuxControlModeDriver(windowOrderDebounce: 0.01) {
+        let driver = TmuxControlModeDriver(windowOrderDebounce: 0) {
             recorder.commands.append($0)
         }
         enter(driver, sessionID: "$0", name: "work")
@@ -1065,21 +1079,40 @@ final class TmuxControlCoreTests: XCTestCase {
         for _ in 0..<10 {
             driver.consume("%subscription-changed kurotty-window-index $0 @0 0 %0 : 0\n")
         }
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        let windowOrderCommandCount = {
+            recorder.commands.filter {
+                $0 == "list-windows -O index -t '$0' -F \"#{window_id}\"\n"
+            }.count
+        }
         for _ in 0..<10 {
             driver.consume("%subscription-changed kurotty-window-index $0 @0 0 %0 : 0\n")
         }
         completeEmptyResponse(driver, timestamp: 20)
-        XCTAssertEqual(recorder.commands.filter { $0.hasPrefix("list-windows -O index -t '$0' -F \"#{window_id}\"") }.count, 1)
+        let firstRefreshStarted = await eventually { windowOrderCommandCount() == 1 }
+        XCTAssertTrue(firstRefreshStarted, "tmux commands: \(recorder.commands)")
+        XCTAssertEqual(windowOrderCommandCount(), 1)
 
         for _ in 0..<10 {
             driver.consume("%subscription-changed kurotty-window-index $0 @0 0 %0 : 0\n")
         }
         completeTextResponse(driver, timestamp: 21, text: "@0")
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertEqual(recorder.commands.filter { $0.hasPrefix("list-windows -O index -t '$0' -F \"#{window_id}\"") }.count, 2)
+        let dirtyFollowupStarted = await eventually { windowOrderCommandCount() == 2 }
+        XCTAssertTrue(dirtyFollowupStarted, "tmux commands: \(recorder.commands)")
+        XCTAssertEqual(windowOrderCommandCount(), 2)
         completeTextResponse(driver, timestamp: 22, text: "@0")
         XCTAssertEqual(driver.state.windowOrder, ["@0"])
+    }
+
+    @MainActor
+    private func eventually(
+        timeoutIterations: Int = 200,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        for _ in 0..<timeoutIterations {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return condition()
     }
 
     @MainActor

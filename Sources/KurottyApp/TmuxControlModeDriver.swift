@@ -664,6 +664,11 @@ final class TmuxControlModeDriver {
                 return
             }
             guard let self, !self.hasFinishedExit else { return }
+            if self.fatalWaitExitTask != nil, !self.didObserveExternalExit {
+                self.fatalWaitExitTask?.cancel()
+                self.fatalWaitExitTask = nil
+                self.write("\n")
+            }
             self.finishExit(reason: reason, observedExternalExit: false)
         }
 

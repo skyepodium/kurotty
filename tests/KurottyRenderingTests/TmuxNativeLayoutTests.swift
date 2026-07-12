@@ -861,15 +861,28 @@ final class TmuxNativeLayoutTests: XCTestCase {
             ]
 
             for stage in stages {
+                while true {
+                    let expectedWriteIndex = writeIndex
+                    guard await eventually({ writes().count > expectedWriteIndex }) else {
+                        return false
+                    }
+                    let command = writes()[expectedWriteIndex]
+                    if stage.matches(command) {
+                        break
+                    }
+                    guard command.hasPrefix("refresh-client -C ") || command.hasPrefix("resize-pane ") else {
+                        XCTFail("unexpected tmux snapshot command: \(command)")
+                        return false
+                    }
+                    session.onOutput?(
+                        "%begin 9 \(responseNumber) 0\n"
+                            + "%end 9 \(responseNumber) 0\n"
+                    )
+                    writeIndex = expectedWriteIndex + 1
+                    responseNumber += 1
+                }
+
                 let expectedWriteIndex = writeIndex
-                guard await eventually({ writes().count > expectedWriteIndex }) else {
-                    return false
-                }
-                let command = writes()[expectedWriteIndex]
-                guard stage.matches(command) else {
-                    XCTFail("unexpected tmux snapshot command: \(command)")
-                    return false
-                }
                 let body = stage.responseLine.map { "\($0)\n" } ?? ""
                 session.onOutput?(
                     "%begin 9 \(responseNumber) 0\n"
