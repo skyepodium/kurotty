@@ -88,7 +88,13 @@ struct TmuxControlParser: Sendable {
                 events.append(.entered)
             }
 
-            if let exitRange = buffer.range(of: Self.exitMarker),
+            // Response payload is not escaped by tmux. A capture-pane response
+            // can therefore contain terminal strings terminated by ST (ESC \\),
+            // which is byte-identical to the outer control-mode exit marker.
+            // Only recognize the outer marker between response blocks; a real
+            // transport failure while a block is open is handled by PTY exit.
+            if openResponseBlock == nil,
+               let exitRange = buffer.range(of: Self.exitMarker),
                !hasNewline(before: exitRange.lowerBound) {
                 let prefix = buffer[..<exitRange.lowerBound]
                 let hasUnexpectedPlainPrefix = openResponseBlock == nil

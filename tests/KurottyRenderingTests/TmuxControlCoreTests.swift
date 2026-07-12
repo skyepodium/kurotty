@@ -86,6 +86,30 @@ final class TmuxControlCoreTests: XCTestCase {
         ])
     }
 
+    func testParserDoesNotTreatOSCStringTerminatorInsideResponseAsControlModeExit() {
+        var parser = TmuxControlParser()
+        let oscLine = "\u{1b}]7;file:///Users/example/project\u{1b}\\"
+        let fixture = "\u{1b}P1000p%begin 1710000000 8 1\n"
+            + oscLine + "\n"
+            + "%end 1710000000 8 1\n"
+            + "%window-add @2\n"
+
+        XCTAssertEqual(parser.consume(Data(fixture.utf8)), [
+            .entered,
+            .blockBegan(timestamp: 1_710_000_000, number: 8, flags: 1),
+            .responseLine(oscLine),
+            .blockEnded(timestamp: 1_710_000_000, number: 8, flags: 1),
+            .windowAdded(id: "@2"),
+        ])
+        XCTAssertTrue(parser.isInControlMode)
+        XCTAssertTrue(parser.takePassthroughData().isEmpty)
+
+        XCTAssertEqual(parser.consume(Data("%exit detached\n\u{1b}\\".utf8)), [
+            .exited(reason: "detached"),
+        ])
+        XCTAssertFalse(parser.isInControlMode)
+    }
+
     func testParserOnlyAcceptsMatchingResponseBlockTerminator() {
         var parser = TmuxControlParser()
         let fixture = """
