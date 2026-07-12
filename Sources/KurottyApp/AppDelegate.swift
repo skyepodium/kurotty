@@ -59,6 +59,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
     }
 
+    @objc func changeLanguage(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let preference = AppLanguagePreference(rawValue: rawValue)
+        else {
+            return
+        }
+        AppLocalization.preference = preference
+        MainMenu.install(target: self)
+        preferencesController?.refreshLocalization()
+        commandPaletteController?.close()
+        commandPaletteController = nil
+    }
+
     @objc func openCommandPalette() {
         guard let terminalController = activeTerminalWindowController else {
             return
@@ -193,8 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showUpdateUnavailableNotice() {
         showInformationalAlert(
-            title: "자동 업데이트를 사용할 수 없습니다",
-            message: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다."
+            title: AppLocalization.string(.updateUnavailableTitle),
+            message: AppLocalization.string(.updateUnavailableMessage)
         )
     }
 
@@ -203,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: AppLocalization.string(.ok))
         alert.runModal()
     }
 

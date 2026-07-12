@@ -169,15 +169,19 @@ struct TerminalCommandSpanCommand: Equatable {
 }
 
 struct TerminalCommandRegistry {
-    static let `default` = TerminalCommandRegistry(
-        windowCommands: Self.defaultWindowCommands,
-        commandSpanCommands: Self.defaultCommandSpanCommands
-    )
+    static var `default`: TerminalCommandRegistry { registry(language: .english) }
+    static var localized: TerminalCommandRegistry { registry(language: AppLocalization.language) }
 
-    static let tmuxControl = TerminalCommandRegistry(
-        windowCommands: Self.defaultWindowCommands + Self.tmuxWindowCommands,
-        commandSpanCommands: Self.defaultCommandSpanCommands
-    )
+    static var tmuxControl: TerminalCommandRegistry { tmuxRegistry(language: .english) }
+    static var localizedTmuxControl: TerminalCommandRegistry { tmuxRegistry(language: AppLocalization.language) }
+
+    private static func registry(language: AppLanguage) -> TerminalCommandRegistry {
+        TerminalCommandRegistry(windowCommands: defaultWindowCommands(language: language), commandSpanCommands: defaultCommandSpanCommands(language: language))
+    }
+
+    private static func tmuxRegistry(language: AppLanguage) -> TerminalCommandRegistry {
+        TerminalCommandRegistry(windowCommands: defaultWindowCommands(language: language) + tmuxWindowCommands(language: language), commandSpanCommands: defaultCommandSpanCommands(language: language))
+    }
 
     let windowCommands: [TerminalCommand]
     let commandSpanCommands: [TerminalCommandSpanCommand]
@@ -204,10 +208,10 @@ struct TerminalCommandRegistry {
 
     private static let arrowShortcutExtras: NSEvent.ModifierFlags = [.option, .numericPad, .function]
 
-    private static let defaultWindowCommands: [TerminalCommand] = [
+    private static func defaultWindowCommands(language: AppLanguage) -> [TerminalCommand] { [
         TerminalCommand(
             id: .newTab,
-            title: "New Tab",
+            title: AppLocalization.string(.newTab, language: language),
             category: .tabs,
             shortcut: TerminalCommandShortcut(keyEquivalent: "t", modifiers: .command),
             action: .newTab,
@@ -215,7 +219,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .splitVertically,
-            title: "Split Vertically",
+            title: AppLocalization.string(.splitVertically, language: language),
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "d", modifiers: .command),
             action: .splitVertically,
@@ -223,7 +227,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .splitHorizontally,
-            title: "Split Horizontally",
+            title: AppLocalization.string(.splitHorizontally, language: language),
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "d", modifiers: [.command, .shift]),
             action: .splitHorizontally,
@@ -231,7 +235,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .closeCurrentPane,
-            title: "Close Pane",
+            title: AppLocalization.string(.closePane, language: language),
             category: .panes,
             shortcut: TerminalCommandShortcut(keyEquivalent: "w", modifiers: .command, allowedExtraModifiers: .shift),
             action: .closeCurrentPane,
@@ -239,7 +243,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .focusPaneLeft,
-            title: "Focus Pane Left",
+            title: AppLocalization.string(.focusPaneLeft, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.left),
@@ -247,7 +251,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .focusPaneRight,
-            title: "Focus Pane Right",
+            title: AppLocalization.string(.focusPaneRight, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 124, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.right),
@@ -255,7 +259,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .focusPaneDown,
-            title: "Focus Pane Down",
+            title: AppLocalization.string(.focusPaneDown, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 125, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.down),
@@ -263,7 +267,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .focusPaneUp,
-            title: "Focus Pane Up",
+            title: AppLocalization.string(.focusPaneUp, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyCode: 126, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.up),
@@ -271,7 +275,7 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .selectPreviousTab,
-            title: "Previous Tab",
+            title: AppLocalization.string(.previousTab, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyEquivalent: "[", modifiers: [.command, .shift]),
             action: .selectPreviousTab,
@@ -279,49 +283,49 @@ struct TerminalCommandRegistry {
         ),
         TerminalCommand(
             id: .selectNextTab,
-            title: "Next Tab",
+            title: AppLocalization.string(.nextTab, language: language),
             category: .navigation,
             shortcut: TerminalCommandShortcut(keyEquivalent: "]", modifiers: [.command, .shift]),
             action: .selectNextTab,
             searchTokens: ["next window", "tab next", "forward tab"]
         ),
-    ]
+    ] }
 
-    private static let tmuxWindowCommands: [TerminalCommand] = [
-        TerminalCommand(id: .tmuxSwapPanePrevious, title: "Tmux: Swap Pane Previous", category: .tmux, shortcut: nil, action: .tmuxSwapPane(.previous), searchTokens: ["move pane backward", "swap tmux pane"]),
-        TerminalCommand(id: .tmuxSwapPaneNext, title: "Tmux: Swap Pane Next", category: .tmux, shortcut: nil, action: .tmuxSwapPane(.next), searchTokens: ["move pane forward", "swap tmux pane"]),
-        TerminalCommand(id: .tmuxRotateWindowPrevious, title: "Tmux: Rotate Panes Previous", category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.previous), searchTokens: ["rotate tmux panes backward"]),
-        TerminalCommand(id: .tmuxRotateWindowNext, title: "Tmux: Rotate Panes Next", category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.next), searchTokens: ["rotate tmux panes forward"]),
-        TerminalCommand(id: .tmuxToggleZoom, title: "Tmux: Toggle Pane Zoom", category: .tmux, shortcut: nil, action: .tmuxToggleZoom, searchTokens: ["maximize pane", "unzoom pane"]),
-        TerminalCommand(id: .tmuxSelectNextLayout, title: "Tmux: Next Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.next), searchTokens: ["cycle tmux layout"]),
-        TerminalCommand(id: .tmuxSelectPreviousLayout, title: "Tmux: Previous Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.previous), searchTokens: ["previous tmux layout"]),
-        TerminalCommand(id: .tmuxEvenHorizontalLayout, title: "Tmux: Even Horizontal Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenHorizontal), searchTokens: ["balance tmux columns"]),
-        TerminalCommand(id: .tmuxEvenVerticalLayout, title: "Tmux: Even Vertical Layout", category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenVertical), searchTokens: ["balance tmux rows"]),
-        TerminalCommand(id: .tmuxDetachClient, title: "Tmux: Detach Client", category: .tmux, shortcut: nil, action: .tmuxDetachClient, searchTokens: ["leave tmux session", "disconnect tmux"]),
-    ]
+    private static func tmuxWindowCommands(language: AppLanguage) -> [TerminalCommand] { [
+        TerminalCommand(id: .tmuxSwapPanePrevious, title: AppLocalization.string(.tmuxSwapPanePrevious, language: language), category: .tmux, shortcut: nil, action: .tmuxSwapPane(.previous), searchTokens: ["move pane backward", "swap tmux pane"]),
+        TerminalCommand(id: .tmuxSwapPaneNext, title: AppLocalization.string(.tmuxSwapPaneNext, language: language), category: .tmux, shortcut: nil, action: .tmuxSwapPane(.next), searchTokens: ["move pane forward", "swap tmux pane"]),
+        TerminalCommand(id: .tmuxRotateWindowPrevious, title: AppLocalization.string(.tmuxRotatePanesPrevious, language: language), category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.previous), searchTokens: ["rotate tmux panes backward"]),
+        TerminalCommand(id: .tmuxRotateWindowNext, title: AppLocalization.string(.tmuxRotatePanesNext, language: language), category: .tmux, shortcut: nil, action: .tmuxRotateWindow(.next), searchTokens: ["rotate tmux panes forward"]),
+        TerminalCommand(id: .tmuxToggleZoom, title: AppLocalization.string(.tmuxTogglePaneZoom, language: language), category: .tmux, shortcut: nil, action: .tmuxToggleZoom, searchTokens: ["maximize pane", "unzoom pane"]),
+        TerminalCommand(id: .tmuxSelectNextLayout, title: AppLocalization.string(.tmuxNextLayout, language: language), category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.next), searchTokens: ["cycle tmux layout"]),
+        TerminalCommand(id: .tmuxSelectPreviousLayout, title: AppLocalization.string(.tmuxPreviousLayout, language: language), category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.previous), searchTokens: ["previous tmux layout"]),
+        TerminalCommand(id: .tmuxEvenHorizontalLayout, title: AppLocalization.string(.tmuxEvenHorizontalLayout, language: language), category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenHorizontal), searchTokens: ["balance tmux columns"]),
+        TerminalCommand(id: .tmuxEvenVerticalLayout, title: AppLocalization.string(.tmuxEvenVerticalLayout, language: language), category: .tmux, shortcut: nil, action: .tmuxSelectLayout(.evenVertical), searchTokens: ["balance tmux rows"]),
+        TerminalCommand(id: .tmuxDetachClient, title: AppLocalization.string(.tmuxDetachClient, language: language), category: .tmux, shortcut: nil, action: .tmuxDetachClient, searchTokens: ["leave tmux session", "disconnect tmux"]),
+    ] }
 
-    private static let defaultCommandSpanCommands: [TerminalCommandSpanCommand] = [
+    private static func defaultCommandSpanCommands(language: AppLanguage) -> [TerminalCommandSpanCommand] { [
         TerminalCommandSpanCommand(
             id: .foldOutput,
-            title: "Fold Command Output",
-            subtitle: "Collapse a completed command's output while keeping the command reference.",
+            title: AppLocalization.string(.foldCommandOutput, language: language),
+            subtitle: AppLocalization.string(.foldCommandOutputSubtitle, language: language),
             action: .foldOutput,
             searchTokens: ["collapse command output", "hide command output", "toggle command output"]
         ),
         TerminalCommandSpanCommand(
             id: .copyReference,
-            title: "Copy Command Reference",
-            subtitle: "Copy a stable command-span reference without including raw output.",
+            title: AppLocalization.string(.copyCommandReference, language: language),
+            subtitle: AppLocalization.string(.copyCommandReferenceSubtitle, language: language),
             action: .copyReference,
             searchTokens: ["copy span reference", "copy command id", "copy command link"]
         ),
         TerminalCommandSpanCommand(
             id: .replay,
-            title: "Replay Command",
-            subtitle: "Run the captured command again after explicit confirmation.",
+            title: AppLocalization.string(.replayCommand, language: language),
+            subtitle: AppLocalization.string(.replayCommandSubtitle, language: language),
             action: .replay,
             approvalPolicy: .explicitUserConfirmation,
             searchTokens: ["rerun command", "run command again", "repeat command", "rerun safely"]
         ),
-    ]
+    ] }
 }
