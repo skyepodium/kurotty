@@ -1586,27 +1586,42 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageReleaseSource.contains("generate_appcast"))
     }
 
-    func testSettingsEditorAvoidsUnboundedTextLayout() throws {
-        let preferencesSource = try preferencesWindowControllerSource()
+    func testPreferencesGUIUsesBoundedScrollableSections() throws {
+        let preferencesSource = try preferencesViewSource()
 
-        XCTAssertTrue(preferencesSource.contains("textView.isHorizontallyResizable = false"))
-        XCTAssertTrue(preferencesSource.contains("textView.textContainer?.widthTracksTextView = true"))
-        XCTAssertTrue(preferencesSource.contains("textView.textContainer?.heightTracksTextView = false"))
-        XCTAssertFalse(preferencesSource.contains("textContainer?.containerSize = NSSize(\n            width: CGFloat.greatestFiniteMagnitude"))
+        XCTAssertTrue(preferencesSource.contains("private lazy var detailScrollView = NSScrollView()"))
+        XCTAssertTrue(preferencesSource.contains("documentView.widthAnchor.constraint(equalTo: detailScrollView.contentView.widthAnchor)"))
+        XCTAssertTrue(preferencesSource.contains("section(title:"))
+        XCTAssertFalse(preferencesSource.contains("NSTextView"))
     }
 
-    func testSettingsEditorAutosavesValidEditsWithoutManualSaveOrReloadButtons() throws {
-        let preferencesSource = try preferencesWindowControllerSource()
+    func testPreferencesGUIAutosavesTypedSettingsAndExposesThemePreview() throws {
+        let preferencesSource = try preferencesViewSource()
+        let previewSource = try preferencesThemePreviewViewSource()
 
-        XCTAssertTrue(preferencesSource.contains("NSTextViewDelegate"))
-        XCTAssertTrue(preferencesSource.contains("textView.delegate = self"))
-        XCTAssertTrue(preferencesSource.contains("func textDidChange(_ notification: Notification)"))
+        XCTAssertTrue(preferencesSource.contains("try store.save(snapshot)"))
         XCTAssertTrue(preferencesSource.contains("scheduleAutosave()"))
-        XCTAssertTrue(preferencesSource.contains("try store.save(rawJSON: textView.string)"))
+        XCTAssertTrue(preferencesSource.contains("themePopup.addItems"))
+        XCTAssertTrue(preferencesSource.contains("settings.terminal.theme = TerminalThemePreset.customName"))
+        XCTAssertTrue(preferencesSource.contains("private lazy var previewView = PreferencesThemePreviewView()"))
+        XCTAssertTrue(previewSource.contains("draw(\"$ git status\""))
+        XCTAssertTrue(previewSource.contains("colors.ansi"))
+        XCTAssertFalse(preferencesSource.contains("schemaVersion"))
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Save\""))
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Reload\""))
-        XCTAssertFalse(preferencesSource.contains("#selector(saveToDisk)"))
-        XCTAssertFalse(preferencesSource.contains("#selector(reloadFromDisk)"))
+    }
+
+    func testPreferencesWindowIsCenteredActivatedAndBroughtToFront() throws {
+        let delegateSource = try appDelegateSource()
+        let controllerSource = try preferencesWindowControllerSource()
+        let preferencesSource = try preferencesViewSource()
+
+        XCTAssertTrue(delegateSource.contains("NSApp.activate(ignoringOtherApps: true)"))
+        XCTAssertTrue(delegateSource.contains("controller.window?.makeKeyAndOrderFront(nil)"))
+        XCTAssertTrue(controllerSource.contains("window.center()"))
+        XCTAssertFalse(preferencesSource.contains("button.widthAnchor.constraint(equalTo: categoryStack.widthAnchor)"))
+        XCTAssertFalse(preferencesSource.contains("stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor"))
+        XCTAssertFalse(preferencesSource.contains("NSFontManager.shared.availableFontFamilies"))
     }
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
@@ -2914,6 +2929,18 @@ private func appConstantsSource() throws -> String {
 private func preferencesWindowControllerSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/PreferencesWindowController.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func preferencesViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/PreferencesView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func preferencesThemePreviewViewSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/PreferencesThemePreviewView.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

@@ -39,6 +39,24 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.shell.workingDirectory, FileManager.default.homeDirectoryForCurrentUser.path)
     }
 
+    @MainActor
+    func testTypedSettingsSaveNormalizesAndPersistsGUIChanges() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+        var settings = AppSettings.default
+        settings.schemaVersion = 1
+        settings.terminal.theme = TerminalThemePreset.customName
+        settings.terminal.colors.foreground = "#123456"
+        settings.window.width = SettingsDefaults.maximumWindowWidthPX + 100
+
+        try store.save(settings)
+        let loaded = try store.load()
+
+        XCTAssertEqual(loaded.schemaVersion, AppSettings.default.schemaVersion)
+        XCTAssertEqual(loaded.terminal.theme, TerminalThemePreset.customName)
+        XCTAssertEqual(loaded.terminal.colors.foreground, "#123456")
+        XCTAssertEqual(loaded.window.width, SettingsDefaults.maximumWindowWidthPX)
+    }
+
     func testShellWorkingDirectoryNormalizationExpandsTildeAndRejectsInvalidPaths() throws {
         XCTAssertEqual(
             ShellSettings.normalizedWorkingDirectory("~"),
