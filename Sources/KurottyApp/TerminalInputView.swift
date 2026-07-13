@@ -72,7 +72,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
             return true
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
               let characters = TerminalTextInputRouter.latinKeyEquivalent(for: event)

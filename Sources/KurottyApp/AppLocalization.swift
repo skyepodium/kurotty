@@ -44,7 +44,9 @@ enum AppLanguageResolver {
 enum L10nKey: String, CaseIterable {
     case about, checkForUpdates, settings, quit
     case shell, newWindow, newTab, closePaneOrTab, splitVertically, splitHorizontally, previousTab, nextTab
-    case commandPalette, edit, cut, copy, paste
+    case commandPalette, findTerminalOutput, findTerminalOutputPlaceholder
+    case previousSearchMatch, nextSearchMatch, closeSearch
+    case edit, cut, copy, paste
     case language, systemDefault, english, korean, japanese
     case searchCommands, command, requiresConfirmation
     case closePane, focusPaneLeft, focusPaneRight, focusPaneDown, focusPaneUp
@@ -102,7 +104,9 @@ enum AppLocalization {
             .about: "About %@", .checkForUpdates: "Check for Updates...", .settings: "Settings...", .quit: "Quit %@",
             .shell: "Shell", .newWindow: "New Window", .newTab: "New Tab", .closePaneOrTab: "Close Pane or Tab",
             .splitVertically: "Split Vertically", .splitHorizontally: "Split Horizontally", .previousTab: "Previous Tab", .nextTab: "Next Tab",
-            .commandPalette: "Command Palette", .edit: "Edit", .cut: "Cut", .copy: "Copy", .paste: "Paste",
+            .commandPalette: "Command Palette", .findTerminalOutput: "Find Terminal Output", .findTerminalOutputPlaceholder: "Find",
+            .previousSearchMatch: "Previous Match", .nextSearchMatch: "Next Match", .closeSearch: "Close Search",
+            .edit: "Edit", .cut: "Cut", .copy: "Copy", .paste: "Paste",
             .language: "Language", .systemDefault: "Follow System Language", .english: "English", .korean: "Korean", .japanese: "Japanese",
             .searchCommands: "Search commands", .command: "Command", .requiresConfirmation: "Requires confirmation",
             .closePane: "Close Pane", .focusPaneLeft: "Focus Pane Left", .focusPaneRight: "Focus Pane Right", .focusPaneDown: "Focus Pane Down", .focusPaneUp: "Focus Pane Up",
@@ -121,7 +125,9 @@ enum AppLocalization {
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
             .shell: "셸", .newWindow: "새 윈도우", .newTab: "새 탭", .closePaneOrTab: "패널 또는 탭 닫기",
             .splitVertically: "좌우로 분할", .splitHorizontally: "상하로 분할", .previousTab: "이전 탭", .nextTab: "다음 탭",
-            .commandPalette: "명령 팔레트", .edit: "편집", .cut: "오려두기", .copy: "복사", .paste: "붙여넣기",
+            .commandPalette: "명령 팔레트", .findTerminalOutput: "터미널 출력 찾기", .findTerminalOutputPlaceholder: "찾기",
+            .previousSearchMatch: "이전 일치 항목", .nextSearchMatch: "다음 일치 항목", .closeSearch: "검색 닫기",
+            .edit: "편집", .cut: "오려두기", .copy: "복사", .paste: "붙여넣기",
             .language: "언어", .systemDefault: "시스템 언어 따라가기", .english: "영어", .korean: "한국어", .japanese: "일본어",
             .searchCommands: "명령 검색", .command: "명령", .requiresConfirmation: "확인 필요",
             .closePane: "패널 닫기", .focusPaneLeft: "왼쪽 패널로 이동", .focusPaneRight: "오른쪽 패널로 이동", .focusPaneDown: "아래 패널로 이동", .focusPaneUp: "위 패널로 이동",
@@ -140,7 +146,9 @@ enum AppLocalization {
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
             .shell: "シェル", .newWindow: "新規ウインドウ", .newTab: "新規タブ", .closePaneOrTab: "ペインまたはタブを閉じる",
             .splitVertically: "左右に分割", .splitHorizontally: "上下に分割", .previousTab: "前のタブ", .nextTab: "次のタブ",
-            .commandPalette: "コマンドパレット", .edit: "編集", .cut: "カット", .copy: "コピー", .paste: "ペースト",
+            .commandPalette: "コマンドパレット", .findTerminalOutput: "ターミナル出力を検索", .findTerminalOutputPlaceholder: "検索",
+            .previousSearchMatch: "前の一致", .nextSearchMatch: "次の一致", .closeSearch: "検索を閉じる",
+            .edit: "編集", .cut: "カット", .copy: "コピー", .paste: "ペースト",
             .language: "言語", .systemDefault: "システム言語に従う", .english: "英語", .korean: "韓国語", .japanese: "日本語",
             .searchCommands: "コマンドを検索", .command: "コマンド", .requiresConfirmation: "確認が必要",
             .closePane: "ペインを閉じる", .focusPaneLeft: "左のペインに移動", .focusPaneRight: "右のペインに移動", .focusPaneDown: "下のペインに移動", .focusPaneUp: "上のペインに移動",

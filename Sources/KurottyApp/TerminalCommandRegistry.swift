@@ -18,6 +18,7 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case focusPaneDown = "window.focusPane.down"
     case selectNextTab = "window.selectNextTab"
     case selectPreviousTab = "window.selectPreviousTab"
+    case findTerminalOutput = "terminal.findOutput"
     case tmuxSwapPanePrevious = "tmux.swapPane.previous"
     case tmuxSwapPaneNext = "tmux.swapPane.next"
     case tmuxRotateWindowPrevious = "tmux.rotateWindow.previous"
@@ -38,6 +39,7 @@ enum TerminalWindowCommandAction: Equatable {
     case focusPane(TerminalPaneFocusDirection)
     case selectNextTab
     case selectPreviousTab
+    case findTerminalOutput
     case tmuxSwapPane(TmuxPaneSwapDirection)
     case tmuxRotateWindow(TmuxRotationDirection)
     case tmuxToggleZoom
@@ -95,7 +97,7 @@ struct TerminalCommandShortcut: Equatable {
     }
 
     func matches(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.contains(modifiers),
               flags.subtracting(modifiers.union(allowedExtraModifiers)).isEmpty
         else {
@@ -240,6 +242,14 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "w", modifiers: .command, allowedExtraModifiers: .shift),
             action: .closeCurrentPane,
             searchTokens: ["close current pane", "close tab", "close window", "remove pane"]
+        ),
+        TerminalCommand(
+            id: .findTerminalOutput,
+            title: AppLocalization.string(.findTerminalOutput, language: language),
+            category: .navigation,
+            shortcut: TerminalCommandShortcut(keyEquivalent: "f", modifiers: .command),
+            action: .findTerminalOutput,
+            searchTokens: ["find text", "search output", "search scrollback", "terminal search"]
         ),
         TerminalCommand(
             id: .focusPaneLeft,

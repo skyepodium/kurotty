@@ -47,6 +47,9 @@ enum AppConstants {
         static let tabWidthColumns = 8
         static let maxScrollbackRows = 1_000_000
         static let minimumScrollbackRows = 1_000
+        static let maximumSearchMatchCount = 50_000
+        static let searchInputDebounceNanoseconds: UInt64 = 20_000_000
+        static let searchContentRefreshDebounceNanoseconds: UInt64 = 35_000_000
         static let cursorWidthPX: Float = 2
         static let cursorBlinkIntervalSeconds: TimeInterval = 0.55
         static let minimumCellWidthPX: CGFloat = 8

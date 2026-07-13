@@ -66,6 +66,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
+    private var searchQuery = ""
+    private var searchResults = TerminalSearchResults.empty
+    private var currentSearchMatchIndex: Int?
+    private var searchGeneration: UInt64 = 0
+    private var searchTask: Task<Void, Never>?
+    private var isSearchPresentationActive = false
     private var terminalTrackingArea: NSTrackingArea?
     private var hoveredLinkRange: TerminalLinkRange?
     private var markedText = NSMutableAttributedString()
@@ -95,6 +101,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
     private var outputInterceptor: ((String) -> String)?
     var automaticallyFocusesWhenAttached = true
+    var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
+    var closeSearchRequested: (() -> Void)?
     private lazy var tmuxControlModeDriver = TmuxControlModeDriver { [weak self] command in
         self?.writeSession(command)
     }
@@ -248,6 +256,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let visibleLines: [String]
     }
 
+    struct SearchStateForTesting: Equatable {
+        let summary: TerminalSearchSummary
+        let currentMatch: TerminalSearchMatch?
+        let scrollbackOffset: Int
+        let visibleRows: Range<Int>
+    }
+
     func consumeTmuxRestoreOutputForTesting(_ data: Data) {
         appendOutput(String(decoding: data, as: UTF8.self))
     }
@@ -273,12 +288,64 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
+    var searchStateForTesting: SearchStateForTesting {
+        SearchStateForTesting(
+            summary: TerminalSearchSummary(
+                currentIndex: currentSearchMatchIndex,
+                totalMatches: searchResults.matches.count,
+                isTruncated: searchResults.isTruncated
+            ),
+            currentMatch: currentSearchMatch,
+            scrollbackOffset: scrollbackOffset,
+            visibleRows: visibleContentRowRange()
+        )
+    }
+
     func terminalSequenceForTesting(_ selector: Selector) -> String? {
         TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState)
     }
 
     func terminalSequenceForTesting(_ event: NSEvent) -> String? {
         TerminalKeyEncoder.sequence(for: event, state: terminalKeyEncoderState)
+    }
+
+    func beginSearchPresentation() {
+        isSearchPresentationActive = true
+        updateSearchQuery("")
+    }
+
+    func endSearchPresentation() {
+        isSearchPresentationActive = false
+        searchTask?.cancel()
+        searchGeneration &+= 1
+        searchQuery = ""
+        searchResults = .empty
+        currentSearchMatchIndex = nil
+        publishSearchSummary()
+        markFullDamage()
+        updateRendererFrame()
+    }
+
+    func updateSearchQuery(_ query: String) {
+        searchQuery = query
+        searchResults = .empty
+        currentSearchMatchIndex = nil
+        publishSearchSummary()
+        markFullDamage()
+        updateRendererFrame()
+        scheduleSearch(
+            query: query,
+            preserving: nil,
+            delayNanoseconds: AppConstants.Terminal.searchInputDebounceNanoseconds
+        )
+    }
+
+    func selectNextSearchMatch() {
+        moveSearchSelection(by: 1)
+    }
+
+    func selectPreviousSearchMatch() {
+        moveSearchSelection(by: -1)
     }
 
     required init?(coder: NSCoder) {
@@ -488,6 +555,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func keyDown(with event: NSEvent) {
+        if isSearchPresentationActive, event.keyCode == 53 {
+            closeSearchRequested?()
+            return
+        }
         core.recordKeyEvent()
         if handleCommandKey(event) {
             return
@@ -672,7 +743,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return true
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.contains(.command),
               flags.subtracting([.command, .shift]).isEmpty,
               let characters = TerminalTextInputRouter.latinKeyEquivalent(for: event)
@@ -767,6 +838,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     deinit {
+        searchTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -854,6 +926,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             shell.resize(columns: metrics.size.columns, rows: metrics.size.rows)
             core.resize(cols: UInt32(metrics.size.columns), rows: UInt32(metrics.size.rows))
             markFullDamage()
+            refreshSearchAfterContentChange()
         }
     }
 
@@ -867,6 +940,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
         let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)
         let selectedCells = selectedCellSet()
+        let currentSearchMatch = currentSearchMatch
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
             let linkRanges = TerminalLinkRange.findAll(in: sourceRow, row: row)
@@ -874,10 +948,31 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                 let cell = sourceRow[column]
                 let position = TerminalCellPosition(row: visibleStartRow + row, column: column)
                 let isSelected = selectedCells.contains(position)
+                let searchHighlight = searchResults.highlight(
+                    at: position,
+                    currentMatch: currentSearchMatch
+                )
+                let renderedForeground: SIMD4<Float>
+                let renderedBackground: SIMD4<Float>
                 if isSelected {
-                    backgrounds.append(TerminalBackground(column: column, row: row, color: TerminalSelectionStyle.backgroundColor))
-                } else if shouldRenderBackground(for: cell) {
-                    backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))
+                    renderedForeground = TerminalSelectionStyle.foregroundColor
+                    renderedBackground = TerminalSelectionStyle.backgroundColor
+                } else if searchHighlight == .current {
+                    renderedForeground = TerminalSearchStyle.foregroundColor
+                    renderedBackground = TerminalSearchStyle.currentBackgroundColor
+                } else if searchHighlight == .match {
+                    renderedForeground = TerminalSearchStyle.foregroundColor
+                    renderedBackground = TerminalSearchStyle.matchBackgroundColor
+                } else {
+                    renderedForeground = cell.style.effectiveForeground
+                    renderedBackground = cell.style.effectiveBackground
+                }
+                if isSelected || searchHighlight != nil || shouldRenderBackground(for: cell) {
+                    backgrounds.append(TerminalBackground(
+                        column: column,
+                        row: row,
+                        color: renderedBackground
+                    ))
                 }
                 if cell.isContinuation {
                     continue
@@ -888,7 +983,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         row: row,
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .underline,
-                        color: cell.style.effectiveForeground
+                        color: renderedForeground
                     ))
                 }
                 if cell.style.strikethrough {
@@ -897,7 +992,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         row: row,
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .strikethrough,
-                        color: cell.style.effectiveForeground
+                        color: renderedForeground
                     ))
                 }
                 if linkRanges.contains(where: { $0.contains(row: row, column: column) }) {
@@ -906,7 +1001,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         row: row,
                         width: max(1, cell.character.terminalColumnWidth),
                         kind: .underline,
-                        color: cell.style.effectiveForeground
+                        color: renderedForeground
                     ))
                 }
                 if hoveredLinkRange?.contains(row: row, column: column) == true {
@@ -922,7 +1017,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                     for: cell.character,
                     column: column,
                     row: row,
-                    color: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
+                    color: renderedForeground,
                     to: &decorations
                 ) {
                     continue
@@ -931,7 +1026,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                     for: cell.character,
                     column: column,
                     row: row,
-                    color: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
+                    color: renderedForeground,
                     to: &decorations
                 ) {
                     continue
@@ -941,8 +1036,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
                         character: cell.character,
                         column: column,
                         row: row,
-                        foreground: isSelected ? TerminalSelectionStyle.foregroundColor : cell.style.effectiveForeground,
-                        background: cell.style.effectiveBackground
+                        foreground: renderedForeground,
+                        background: renderedBackground
                     ))
                 }
             }
@@ -1429,6 +1524,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             commitOutputRuntimeEventBatch()
         }
         clearCommittedMarkedTextPrefix()
+        let previousFirstRetainedRow = scrollbackRows.retainedRowSummary.firstRetainedRowIndex
         let previousCursorRow = cursorRow
         let previousScrollbackOffset = scrollbackOffset
         scrollbackRowsAppendedDuringOutput = 0
@@ -1480,6 +1576,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         scrollbackRowsAppendedDuringOutput = 0
         updateScrollIndicator()
+        let didDropScrollbackRows = scrollbackRows.retainedRowSummary.firstRetainedRowIndex
+            != previousFirstRetainedRow
+        refreshSearchAfterContentChange(preservingCurrentMatch: !didDropScrollbackRows)
         updateRendererFrame()
     }
 
@@ -1890,6 +1989,146 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let screenIndex = index - scrollbackRows.count
         guard screen.cells.indices.contains(screenIndex) else { return nil }
         return screen.cells[screenIndex]
+    }
+
+    private var currentSearchMatch: TerminalSearchMatch? {
+        guard let currentSearchMatchIndex,
+              searchResults.matches.indices.contains(currentSearchMatchIndex)
+        else {
+            return nil
+        }
+        return searchResults.matches[currentSearchMatchIndex]
+    }
+
+    private func scheduleSearch(
+        query: String,
+        preserving preservedMatch: TerminalSearchMatch?,
+        delayNanoseconds: UInt64
+    ) {
+        searchTask?.cancel()
+        searchGeneration &+= 1
+        let generation = searchGeneration
+        guard isSearchPresentationActive, !query.isEmpty else { return }
+
+        searchTask = Task { [weak self] in
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            guard !Task.isCancelled,
+                  let snapshot = self?.searchSnapshot()
+            else {
+                return
+            }
+            let matchingTask = Task.detached(priority: .userInitiated) {
+                TerminalSearchMatcher.scan(query: query, in: snapshot)
+            }
+            let scanResult = await withTaskCancellationHandler(
+                operation: { await matchingTask.value },
+                onCancel: { matchingTask.cancel() }
+            )
+            guard !Task.isCancelled else { return }
+            self?.applySearchMatches(
+                scanResult,
+                generation: generation,
+                query: query,
+                preserving: preservedMatch
+            )
+        }
+    }
+
+    private func refreshSearchAfterContentChange(preservingCurrentMatch: Bool = true) {
+        guard isSearchPresentationActive, !searchQuery.isEmpty else { return }
+        let preservedMatch = preservingCurrentMatch ? currentSearchMatch : nil
+        searchResults = .empty
+        currentSearchMatchIndex = nil
+        publishSearchSummary()
+        markFullDamage()
+        scheduleSearch(
+            query: searchQuery,
+            preserving: preservedMatch,
+            delayNanoseconds: AppConstants.Terminal.searchContentRefreshDebounceNanoseconds
+        )
+    }
+
+    private func searchSnapshot() -> TerminalSearchSnapshot {
+        TerminalSearchSnapshot(
+            scrollbackRows: scrollbackRows,
+            screenRows: screen.cells,
+            preferredStartRow: visibleContentRowRange().lowerBound
+        )
+    }
+
+    private func applySearchMatches(
+        _ scanResult: TerminalSearchScanResult,
+        generation: UInt64,
+        query: String,
+        preserving preservedMatch: TerminalSearchMatch?
+    ) {
+        guard isSearchPresentationActive,
+              generation == searchGeneration,
+              query == searchQuery
+        else {
+            return
+        }
+
+        searchResults = TerminalSearchResults(
+            matches: scanResult.matches,
+            isTruncated: scanResult.isTruncated
+        )
+        let matches = searchResults.matches
+        if let preservedMatch,
+           let preservedIndex = matches.firstIndex(of: preservedMatch) {
+            currentSearchMatchIndex = preservedIndex
+        } else {
+            currentSearchMatchIndex = TerminalSearchNavigation.preferredInitialIndex(
+                matches: matches,
+                visibleRows: visibleContentRowRange()
+            )
+        }
+        revealCurrentSearchMatch()
+        publishSearchSummary()
+        markFullDamage()
+        updateRendererFrame()
+    }
+
+    private func moveSearchSelection(by delta: Int) {
+        currentSearchMatchIndex = TerminalSearchNavigation.movedIndex(
+            from: currentSearchMatchIndex,
+            by: delta,
+            matchCount: searchResults.matches.count
+        )
+        revealCurrentSearchMatch()
+        publishSearchSummary()
+        markFullDamage()
+        updateRendererFrame()
+    }
+
+    private func revealCurrentSearchMatch() {
+        guard let currentSearchMatch else { return }
+        let metrics = terminalMetrics()
+        let nextOffset = TerminalSearchNavigation.scrollbackOffsetToReveal(
+            row: currentSearchMatch.row,
+            contentRowCount: contentRowCount,
+            visibleRowCount: metrics.size.rows,
+            currentOffset: scrollbackOffset
+        )
+        guard nextOffset != scrollbackOffset else { return }
+        scrollbackOffset = nextOffset
+        updateScrollIndicator()
+    }
+
+    private func visibleContentRowRange() -> Range<Int> {
+        let visibleRowCount = max(1, terminalMetrics().size.rows)
+        let start = visibleRowStartIndex(limit: visibleRowCount)
+        return start..<min(contentRowCount, start + visibleRowCount)
+    }
+
+    private func publishSearchSummary() {
+        onSearchSummaryChange?(TerminalSearchSummary(
+            currentIndex: currentSearchMatchIndex,
+            totalMatches: searchResults.matches.count,
+            isTruncated: searchResults.isTruncated
+        ))
     }
 
     private func terminalMetrics() -> TerminalMetrics {
