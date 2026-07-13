@@ -1,6 +1,6 @@
 import KurottyCore
 
-struct BoundedScrollbackRows {
+struct BoundedScrollbackRows: Sendable {
     struct Diagnostics: Equatable {
         let limit: Int
         let visibleRowCount: Int

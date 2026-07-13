@@ -420,7 +420,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(metalSource.contains("atlasPixels[pixel + 3] = alpha"))
         XCTAssertTrue(metalSource.contains("return float4(in.color.rgb, sample.a * in.color.a);"))
         XCTAssertFalse(metalSource.contains("return sample * in.color;"))
-        XCTAssertTrue(surfaceSource.contains("backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))"))
+        XCTAssertTrue(surfaceSource.contains("renderedBackground = cell.style.effectiveBackground"))
+        XCTAssertTrue(surfaceSource.contains("color: renderedBackground"))
         XCTAssertFalse(surfaceSource.contains("guard !cell.isContinuation else { continue }\n                let position = TerminalCellPosition(row: row, column: column)"))
     }
 
@@ -1008,7 +1009,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("guard !cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background) else"))
         XCTAssertTrue(surfaceSource.contains("cell.style == .default"))
         XCTAssertFalse(surfaceSource.contains("cell.character == \" \", !cell.isContinuation, cell.style == .default"))
-        XCTAssertTrue(surfaceSource.contains("backgrounds.append(TerminalBackground(column: column, row: row, color: cell.style.effectiveBackground))"))
+        XCTAssertTrue(surfaceSource.contains("renderedBackground = cell.style.effectiveBackground"))
+        XCTAssertTrue(surfaceSource.contains("color: renderedBackground"))
         XCTAssertTrue(metalSource.contains(".filter { $0.row >= 0 && $0.row < terminalFrame.visibleRows && !$0.color.sameColor(as: terminalFrame.defaultBackground) }"))
         XCTAssertTrue(metalSource.contains("last.column + last.width == background.column"))
         XCTAssertTrue(metalSource.contains("last.width += 1"))
@@ -1634,8 +1636,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.splitHorizontally), action: #selector(AppDelegate.splitHorizontally), keyEquivalent: \"D\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.previousTab), action: #selector(AppDelegate.selectPreviousTab), keyEquivalent: \"[\")"))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.nextTab), action: #selector(AppDelegate.selectNextTab), keyEquivalent: \"]\")"))
+        XCTAssertTrue(menuSource.contains("title: AppLocalization.string(.findTerminalOutput)"))
+        XCTAssertTrue(menuSource.contains("action: #selector(AppDelegate.findTerminalOutput)"))
+        XCTAssertTrue(menuSource.contains("keyEquivalent: \"f\""))
         XCTAssertTrue(menuSource.contains("NSMenuItem(title: AppLocalization.string(.commandPalette) + \"...\", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: \"P\")"))
-        XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Search Output\""))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Close Pane\""))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Enter Copy Mode\""))
         XCTAssertFalse(menuSource.contains("NSMenuItem(title: \"Quick Terminal\""))
@@ -1646,6 +1650,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(delegateSource.contains("@objc func closeCurrentPane()"))
         XCTAssertTrue(delegateSource.contains("@objc func selectNextTab()"))
         XCTAssertTrue(delegateSource.contains("@objc func selectPreviousTab()"))
+        XCTAssertTrue(delegateSource.contains("@objc func findTerminalOutput()"))
     }
 
     func testCommandPaletteUsesExpandedWindowSizeTokens() throws {
@@ -1807,6 +1812,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(dispatcherSource.contains("controller.closeCurrentPane()"))
         XCTAssertTrue(dispatcherSource.contains("controller.selectPreviousTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.selectNextTab()"))
+        XCTAssertTrue(dispatcherSource.contains("controller.findTerminalOutput()"))
 
         let surfaceSource = try terminalSurfaceViewSource()
         XCTAssertTrue(surfaceSource.contains("TerminalCommandDispatcher.dispatchWindowCommand(from: self, event: event)"))

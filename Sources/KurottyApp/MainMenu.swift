@@ -37,6 +37,11 @@ enum MainMenu {
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(nextTab)
         fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(
+            title: AppLocalization.string(.findTerminalOutput),
+            action: #selector(AppDelegate.findTerminalOutput),
+            keyEquivalent: "f"
+        ))
         let commandPalette = NSMenuItem(title: AppLocalization.string(.commandPalette) + "...", action: #selector(AppDelegate.openCommandPalette), keyEquivalent: "P")
         commandPalette.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(commandPalette)

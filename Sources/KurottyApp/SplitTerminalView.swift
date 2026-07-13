@@ -186,6 +186,20 @@ final class SplitTerminalView: NSSplitView {
         refreshPaneChrome()
     }
 
+    func showSearchInActivePane() {
+        guard let targetPane = activePane() ?? firstPane() else { return }
+        for pane in terminalPanesInLayoutOrder where pane !== targetPane {
+            pane.closeSearch(restoringTerminalFocus: false)
+        }
+        targetPane.showSearch()
+    }
+
+    func closeSearchInAllPanes(restoringTerminalFocus: Bool = false) {
+        for pane in terminalPanesInLayoutOrder {
+            pane.closeSearch(restoringTerminalFocus: restoringTerminalFocus)
+        }
+    }
+
     func sendTextToActivePane(_ text: String) {
         guard let pane = activePane() ?? firstPane() else {
             return

@@ -190,6 +190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.openQuickTerminal()
     }
 
+    @objc func findTerminalOutput() {
+        activeTerminalWindowController?.findTerminalOutput()
+    }
+
     private var activeTerminalWindowController: TerminalWindowController? {
         if let controller = NSApp.keyWindow?.windowController as? TerminalWindowController {
             return controller
