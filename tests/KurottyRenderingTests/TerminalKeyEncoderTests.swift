@@ -8,6 +8,49 @@ final class TerminalKeyEncoderTests: XCTestCase {
         XCTAssertEqual(TerminalKeyEncoder.sequence(for: try tabEvent(modifiers: .shift)), "\u{1b}[Z")
     }
 
+    func testCapsLockDoesNotChangeTerminalControlSequences() throws {
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: try tabEvent(modifiers: .capsLock)), "\t")
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: try tabEvent(modifiers: [.capsLock, .shift])),
+            "\u{1b}[Z"
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: try keyEvent(characters: "\r", modifiers: .capsLock, keyCode: 36)),
+            "\r"
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(for: try keyEvent(characters: "\u{7f}", modifiers: .capsLock, keyCode: 51)),
+            "\u{7f}"
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(
+                for: try arrowEvent(arrowCases[0], modifiers: [.capsLock, .numericPad])
+            ),
+            arrowCases[0].plain
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(
+                for: try functionEvent(
+                    keyCode: 115,
+                    character: NSHomeFunctionKey,
+                    modifiers: [.capsLock, .function]
+                )
+            ),
+            "\u{1b}[H"
+        )
+        XCTAssertEqual(
+            TerminalKeyEncoder.sequence(
+                for: try keyEvent(
+                    characters: "\u{3}",
+                    modifiers: [.capsLock, .control],
+                    charactersIgnoringModifiers: "c",
+                    keyCode: 8
+                )
+            ),
+            "\u{3}"
+        )
+    }
+
     func testPlainArrowsUseCsiSequences() throws {
         for arrow in arrowCases {
             XCTAssertEqual(TerminalKeyEncoder.sequence(for: try arrowEvent(arrow)), arrow.plain)

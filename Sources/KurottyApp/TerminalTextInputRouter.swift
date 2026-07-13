@@ -45,7 +45,7 @@ enum TerminalTextInputRouter {
     }
 
     static func commandShortcutControlText(for event: NSEvent) -> String? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.contains(.command),
               flags.subtracting([.command]).isEmpty,
               let character = latinKeyEquivalent(for: event)?.unicodeScalars.first
@@ -84,7 +84,7 @@ enum TerminalTextInputRouter {
             return false
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         if flags.contains(.command) || flags.contains(.control) {
             return false
         }
@@ -102,7 +102,7 @@ enum TerminalTextInputRouter {
     }
 
     private static func isNavigationCommandKey(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.subtracting([.shift, .numericPad, .function]).isEmpty else {
             return false
         }

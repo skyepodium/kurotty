@@ -1,5 +1,12 @@
 import AppKit
 
+extension NSEvent.ModifierFlags {
+    var terminalInputModifiers: NSEvent.ModifierFlags {
+        // Caps Lock changes character case but is not a VT key modifier.
+        intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+    }
+}
+
 enum TerminalExtendedKeyFormat: String, Equatable, Sendable {
     case xterm
     case csiU = "csi-u"
@@ -51,7 +58,7 @@ enum TerminalKeyEncoder {
     }
 
     static func sequence(for event: NSEvent, state: State = State()) -> String? {
-        let flags = normalizedFlags(event.modifierFlags)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard !flags.contains(.command) else {
             return nil
         }
@@ -163,10 +170,6 @@ enum TerminalKeyEncoder {
         }
     }
 
-    private static func normalizedFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        flags.intersection(.deviceIndependentFlagsMask)
-    }
-
     private static func modifierParameter(for flags: NSEvent.ModifierFlags) -> Int? {
         var value = 1
         if flags.contains(.shift) { value += 1 }
@@ -215,7 +218,7 @@ enum TerminalKeyEncoder {
         state: State
     ) -> String? {
         guard (1...2).contains(state.modifyOtherKeysMode) else { return nil }
-        let significantFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        let significantFlags = flags.subtracting([.numericPad, .function])
         guard !significantFlags.isEmpty,
               significantFlags.isSubset(of: [.shift, .option, .control]),
               let codepoint = singleCodepoint(event.charactersIgnoringModifiers)

@@ -106,6 +106,34 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(registry.windowCommand(matching: try arrowEvent(keyCode: 124, modifiers: [.command, .option, .numericPad]))?.id, .focusPaneRight)
     }
 
+    func testShortcutLookupIgnoresCapsLockState() throws {
+        let registry = TerminalCommandRegistry.default
+
+        XCTAssertEqual(
+            registry.windowCommand(matching: try keyEvent("t", modifiers: [.capsLock, .command]))?.id,
+            .newTab
+        )
+        XCTAssertEqual(
+            registry.windowCommand(
+                matching: try keyEvent(
+                    "D",
+                    modifiers: [.capsLock, .command, .shift],
+                    charactersIgnoringModifiers: "d"
+                )
+            )?.id,
+            .splitHorizontally
+        )
+        XCTAssertEqual(
+            registry.windowCommand(
+                matching: try arrowEvent(
+                    keyCode: 123,
+                    modifiers: [.capsLock, .command, .numericPad]
+                )
+            )?.id,
+            .focusPaneLeft
+        )
+    }
+
     func testDispatcherUsesRegistryCommandMapping() throws {
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("t", modifiers: .command))?.id, .newTab)
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("d", modifiers: .command))?.action, .splitVertically)

@@ -226,6 +226,52 @@ final class TerminalTextInputRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testCapsLockTabBypassesTextInputContextForTerminalCompletion() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .capsLock,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\t",
+            charactersIgnoringModifiers: "\t",
+            isARepeat: false,
+            keyCode: 48
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\t")
+        XCTAssertFalse(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
+    }
+
+    @MainActor
+    func testTabKeyWritesRawTabToTerminalSession() throws {
+        for modifiers: NSEvent.ModifierFlags in [[], .capsLock] {
+            let session = RecordingTerminalSession()
+            let surface = TerminalSurfaceView(
+                frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+                session: session
+            )
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "\t",
+                charactersIgnoringModifiers: "\t",
+                isARepeat: false,
+                keyCode: 48
+            ))
+
+            surface.keyDown(with: event)
+
+            XCTAssertEqual(session.writes, ["\t"])
+        }
+    }
+
+    @MainActor
     func testPlainTextKeyWithHiddenCharactersStillUsesTextInputContext() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
@@ -357,6 +403,23 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertEqual(TerminalTextInputRouter.commandShortcutControlText(for: event), "\u{15}")
     }
 
+    func testCommandControlFallbackIgnoresCapsLockState() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.capsLock, .command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 32
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.commandShortcutControlText(for: event), "\u{15}")
+    }
+
     func testCommandShortcutFallbackDoesNotRunForOptionChords() throws {
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
@@ -454,4 +517,19 @@ private final class SpyTerminalCore: TerminalCore {
     func resize(cols: UInt32, rows: UInt32) {}
     func cell(row: UInt32, col: UInt32) -> UInt8 { 0 }
     func copyRow(_ row: UInt32, into buffer: inout [UInt8]) -> Int { 0 }
+}
+
+private final class RecordingTerminalSession: TerminalSession {
+    var onOutput: ((String) -> Void)?
+    var onRawOutput: ((Data) -> Void)?
+    var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
+    var onExit: ((Int32) -> Void)?
+    private(set) var writes: [String] = []
+
+    func start(workingDirectory requestedWorkingDirectory: String) {}
+    func write(_ text: String) { writes.append(text) }
+    func foregroundProcessName() -> String? { "ssh" }
+    func canReceiveTerminalResponseWithoutEcho() -> Bool { true }
+    func resize(columns: Int, rows: Int) {}
+    func stop() {}
 }
