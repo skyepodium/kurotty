@@ -573,3 +573,5 @@ struct SegmentedScrollbackStore<Row> {
         compactionCount += 1
     }
 }
+
+extension SegmentedScrollbackStore: Sendable where Row: Sendable {}

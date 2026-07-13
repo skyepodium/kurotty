@@ -148,6 +148,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         newTab()
     }
 
+    func findTerminalOutput() {
+        currentSplitView()?.showSearchInActivePane()
+    }
+
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
         let windowID = window?.identifier?.rawValue ?? "window-main"
         return WorkspaceSnapshotCoordinator.WorkspaceDescriptor(
@@ -281,6 +285,16 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         } else {
             currentSplitView()?.focusFirstPane()
         }
+    }
+
+    func tabView(_ tabView: NSTabView, willSelect tabViewItem: NSTabViewItem?) {
+        guard let selectedItem = tabView.selectedTabViewItem,
+              selectedItem !== tabViewItem,
+              let splitView = selectedItem.view as? SplitTerminalView
+        else {
+            return
+        }
+        splitView.closeSearchInAllPanes()
     }
 
     private func observeSettings() {

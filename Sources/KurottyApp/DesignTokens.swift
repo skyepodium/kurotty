@@ -143,6 +143,10 @@ enum DesignTokens {
         static let terminalScrollerThumbWidthPX: CGFloat = 6
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
+        static let terminalSearchWidthPX: CGFloat = 340
+        static let terminalSearchHeightPX: CGFloat = 44
+        static let terminalSearchCornerRadiusPX: CGFloat = 10
+        static let terminalSearchInsetPX: CGFloat = 12
         static let terminalTabBarHeightPX: CGFloat = 44
         static let terminalTabHeightPX: CGFloat = 34
         static let terminalTabCornerRadiusPX: CGFloat = 8

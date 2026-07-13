@@ -37,6 +37,11 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(commandByID[.selectNextTab]?.shortcut?.keyEquivalent, "]")
         XCTAssertEqual(commandByID[.selectNextTab]?.shortcut?.modifiers, [.command, .shift])
 
+        XCTAssertEqual(commandByID[.findTerminalOutput]?.title, "Find Terminal Output")
+        XCTAssertEqual(commandByID[.findTerminalOutput]?.category, .navigation)
+        XCTAssertEqual(commandByID[.findTerminalOutput]?.shortcut?.keyEquivalent, "f")
+        XCTAssertEqual(commandByID[.findTerminalOutput]?.shortcut?.modifiers, [.command])
+
         XCTAssertEqual(commandByID[.focusPaneLeft]?.title, "Focus Pane Left")
         XCTAssertEqual(commandByID[.focusPaneLeft]?.category, .navigation)
         XCTAssertEqual(commandByID[.focusPaneLeft]?.shortcut?.keyCode, 123)
@@ -99,6 +104,7 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("d", modifiers: .command))?.id, .splitVertically)
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("D", modifiers: [.command, .shift], charactersIgnoringModifiers: "d"))?.id, .splitHorizontally)
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("w", modifiers: .command))?.id, .closeCurrentPane)
+        XCTAssertEqual(registry.windowCommand(matching: try keyEvent("f", modifiers: .command))?.id, .findTerminalOutput)
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("W", modifiers: [.command, .shift], charactersIgnoringModifiers: "w"))?.id, .closeCurrentPane)
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("{", modifiers: [.command, .shift], charactersIgnoringModifiers: "["))?.id, .selectPreviousTab)
         XCTAssertEqual(registry.windowCommand(matching: try keyEvent("}", modifiers: [.command, .shift], charactersIgnoringModifiers: "]"))?.id, .selectNextTab)
@@ -112,6 +118,10 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(
             registry.windowCommand(matching: try keyEvent("t", modifiers: [.capsLock, .command]))?.id,
             .newTab
+        )
+        XCTAssertEqual(
+            registry.windowCommand(matching: try keyEvent("f", modifiers: [.capsLock, .command]))?.id,
+            .findTerminalOutput
         )
         XCTAssertEqual(
             registry.windowCommand(
@@ -136,6 +146,7 @@ final class TerminalCommandRegistryTests: XCTestCase {
 
     func testDispatcherUsesRegistryCommandMapping() throws {
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("t", modifiers: .command))?.id, .newTab)
+        XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("f", modifiers: .command))?.action, .findTerminalOutput)
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("d", modifiers: .command))?.action, .splitVertically)
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("D", modifiers: [.command, .shift], charactersIgnoringModifiers: "d"))?.action, .splitHorizontally)
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try arrowEvent(keyCode: 126, modifiers: [.command, .numericPad]))?.action, .focusPane(.up))

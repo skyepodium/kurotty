@@ -7,6 +7,7 @@ final class TerminalPaneView: NSView {
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let terminalSurfaceView: TerminalSurfaceView
+    private let searchBarView = TerminalSearchBarView()
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isChromeActive = false
@@ -27,6 +28,10 @@ final class TerminalPaneView: NSView {
 
     var displayTitle: String {
         titleField.stringValue
+    }
+
+    var isSearchVisibleForTesting: Bool {
+        !searchBarView.isHidden
     }
 
     func setTmuxDisplayTitle(_ title: String) {
@@ -113,6 +118,26 @@ final class TerminalPaneView: NSView {
 
         terminalSurfaceView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(terminalSurfaceView)
+        addSubview(searchBarView)
+
+        searchBarView.onQueryChanged = { [weak self] query in
+            self?.terminalSurfaceView.updateSearchQuery(query)
+        }
+        searchBarView.onNextMatch = { [weak self] in
+            self?.terminalSurfaceView.selectNextSearchMatch()
+        }
+        searchBarView.onPreviousMatch = { [weak self] in
+            self?.terminalSurfaceView.selectPreviousSearchMatch()
+        }
+        searchBarView.onClose = { [weak self] in
+            self?.closeSearch()
+        }
+        terminalSurfaceView.onSearchSummaryChange = { [weak searchBarView] summary in
+            searchBarView?.update(summary: summary)
+        }
+        terminalSurfaceView.closeSearchRequested = { [weak self] in
+            self?.closeSearch()
+        }
 
         let chromeHeightConstraint = chromeView.heightAnchor.constraint(equalToConstant: 0)
         self.chromeHeightConstraint = chromeHeightConstraint
@@ -145,7 +170,20 @@ final class TerminalPaneView: NSView {
             terminalSurfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
             terminalSurfaceView.topAnchor.constraint(equalTo: chromeView.bottomAnchor),
             terminalSurfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            searchBarView.trailingAnchor.constraint(
+                equalTo: terminalSurfaceView.trailingAnchor,
+                constant: -DesignTokens.Component.terminalSearchInsetPX
+            ),
+            searchBarView.topAnchor.constraint(
+                equalTo: terminalSurfaceView.topAnchor,
+                constant: DesignTokens.Component.terminalSearchInsetPX
+            ),
         ])
+        searchBarView.leadingAnchor.constraint(
+            greaterThanOrEqualTo: terminalSurfaceView.leadingAnchor,
+            constant: DesignTokens.Component.terminalSearchInsetPX
+        ).isActive = true
         setChromeVisible(false)
         updateChromeAppearance()
     }
@@ -158,6 +196,24 @@ final class TerminalPaneView: NSView {
 
     func focusTerminal() {
         window?.makeFirstResponder(terminalSurfaceView)
+    }
+
+    func showSearch() {
+        if searchBarView.isHidden {
+            terminalSurfaceView.beginSearchPresentation()
+            searchBarView.present(query: "")
+        } else {
+            searchBarView.present()
+        }
+    }
+
+    func closeSearch(restoringTerminalFocus: Bool = true) {
+        guard !searchBarView.isHidden else { return }
+        searchBarView.dismiss()
+        terminalSurfaceView.endSearchPresentation()
+        if restoringTerminalFocus {
+            focusTerminal()
+        }
     }
 
     func sendText(_ text: String) {
@@ -181,6 +237,7 @@ final class TerminalPaneView: NSView {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.windowBackground.cgColor
+        searchBarView.applyChromeTheme(theme)
         updateChromeAppearance()
     }
 
