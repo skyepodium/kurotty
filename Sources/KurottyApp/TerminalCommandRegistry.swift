@@ -95,7 +95,7 @@ struct TerminalCommandShortcut: Equatable {
     }
 
     func matches(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.terminalInputModifiers
         guard flags.contains(modifiers),
               flags.subtracting(modifiers.union(allowedExtraModifiers)).isEmpty
         else {
