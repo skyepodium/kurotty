@@ -27,6 +27,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var screen = TerminalScreen(rows: AppConstants.Terminal.defaultRows, columns: AppConstants.Terminal.defaultColumns)
     private var scrollbackRows = BoundedScrollbackRows()
     private var scrollbackOffset = 0
+    private var scrollWheelAccumulator = TerminalScrollWheelAccumulator()
     private var normalScreenSnapshot: TerminalScreen?
     private var cursorRow = 0
     private var cursorColumn = 0
@@ -536,16 +537,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if reportTerminalMouseWheel(with: event) {
+        let rowDelta = scrollWheelAccumulator.rows(
+            for: event.scrollingDeltaY,
+            hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+            cellHeightPX: CGFloat(terminalMetrics().cellSize.height)
+        )
+        if reportTerminalMouseWheel(with: event, rowDelta: rowDelta) {
             return
         }
-        let lineDelta = max(1, Int(abs(event.scrollingDeltaY) / 8))
+        guard rowDelta != 0 else { return }
+
         let maxOffset = maxScrollbackOffset()
         let previousOffset = scrollbackOffset
-        if event.scrollingDeltaY > 0 {
-            scrollbackOffset = min(maxOffset, scrollbackOffset + lineDelta)
-        } else if event.scrollingDeltaY < 0 {
-            scrollbackOffset = max(0, scrollbackOffset - lineDelta)
+        if rowDelta > 0 {
+            scrollbackOffset = min(maxOffset, scrollbackOffset + rowDelta)
+        } else {
+            scrollbackOffset = max(0, scrollbackOffset + rowDelta)
         }
         if scrollbackOffset != previousOffset {
             markFullDamage()
@@ -1848,14 +1855,27 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
     }
 
-    private func reportTerminalMouseWheel(with event: NSEvent) -> Bool {
+    private func reportTerminalMouseWheel(with event: NSEvent, rowDelta: Int) -> Bool {
         guard mouseReportingState.isEnabled,
               !event.modifierFlags.contains(.shift),
               event.scrollingDeltaY != 0 else {
             return false
         }
-        let kind: TerminalMouseEventKind = event.scrollingDeltaY > 0 ? .wheelUp : .wheelDown
-        return reportTerminalMouseEvent(kind, with: event)
+        guard rowDelta != 0 else { return true }
+
+        let kind: TerminalMouseEventKind = rowDelta > 0 ? .wheelUp : .wheelDown
+        let position = visibleCellPosition(for: event)
+        guard let sequence = TerminalMouseEventEncoder.sequence(
+            for: kind,
+            column: position.column,
+            row: position.row,
+            modifiers: terminalMouseModifiers(for: event),
+            reportingState: mouseReportingState
+        ) else {
+            return true
+        }
+        sendTerminalMouseSequence(String(repeating: sequence, count: abs(rowDelta)))
+        return true
     }
 
     private func reportTerminalMouseEvent(_ kind: TerminalMouseEventKind, with event: NSEvent) -> Bool {
@@ -1925,7 +1945,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         alert.informativeText = link.urlString
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: AppLocalization.string(.openInBrowser))
+        alert.addButton(withTitle: AppLocalization.string(url.isFileURL ? .open : .openInBrowser))
         alert.addButton(withTitle: AppLocalization.string(.cancel))
 
         if let window {
