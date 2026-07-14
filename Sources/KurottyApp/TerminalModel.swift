@@ -29,7 +29,10 @@ enum TerminalEscapeSequence {
 struct TerminalLinkRange: Equatable {
     static let hoverColor = SIMD4<Float>(0.22, 0.48, 0.90, 1)
 
-    private static let linkRegex = try! NSRegularExpression(pattern: #"https?://[^\s<>"'`]+"#)
+    private static let linkRegex = try! NSRegularExpression(
+        pattern: #"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s<>"'`]+"#
+    )
+    private static let automaticLinkSecurityPolicy = TerminalSecurityPolicy.default
     private static let trailingPunctuation = CharacterSet(charactersIn: ".,;:!?)]}")
 
     let row: Int
@@ -65,7 +68,10 @@ struct TerminalLinkRange: Equatable {
             while let scalar = urlString.unicodeScalars.last, trailingPunctuation.contains(scalar) {
                 urlString.removeLast()
             }
-            guard !urlString.isEmpty else { continue }
+            guard let url = URL(string: urlString),
+                  automaticLinkSecurityPolicy.linkOpenDecision(for: url) != .deny else {
+                continue
+            }
 
             let startOffset = text.distance(from: text.startIndex, to: textRange.lowerBound)
             let endOffset = startOffset + urlString.count

@@ -140,9 +140,11 @@ enum DesignTokens {
         static let glyphAtlasOversampleScale: CGFloat = 1
         static let glyphSlotPaddingPX: CGFloat = 6
         static let terminalScrollerWidthPX: CGFloat = 12
-        static let terminalScrollerThumbWidthPX: CGFloat = 6
+        static let terminalScrollerThumbWidthPX: CGFloat = 9
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
+        static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
+        static let terminalDiscreteScrollRowsPerTick = 2
         static let terminalSearchWidthPX: CGFloat = 340
         static let terminalSearchHeightPX: CGFloat = 44
         static let terminalSearchCornerRadiusPX: CGFloat = 10

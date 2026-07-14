@@ -36,6 +36,7 @@ final class TerminalSecurityPolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.linkOpenDecision(for: URL(fileURLWithPath: "/tmp/report.txt")), .ask)
         XCTAssertEqual(policy.linkOpenDecision(for: try XCTUnwrap(URL(string: "file://localhost/tmp/report.txt"))), .ask)
+        XCTAssertEqual(policy.linkOpenDecision(for: try XCTUnwrap(URL(string: "file://LOCALHOST/tmp/report.txt"))), .ask)
         XCTAssertEqual(policy.linkOpenDecision(for: try XCTUnwrap(URL(string: "file://server/share/report.txt"))), .deny)
     }
 

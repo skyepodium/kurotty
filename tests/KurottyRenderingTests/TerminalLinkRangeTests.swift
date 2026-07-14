@@ -13,6 +13,42 @@ final class TerminalLinkRangeTests: XCTestCase {
         ])
     }
 
+    func testLocalFileURLsAreDetectedAndTrimTrailingPunctuation() {
+        let fileURL = "file:///Users/skye/Project%20One/README.md"
+        let row = cells("Open \(fileURL).")
+
+        let ranges = TerminalLinkRange.findAll(in: row, row: 2)
+
+        XCTAssertEqual(ranges, [
+            TerminalLinkRange(
+                row: 2,
+                startColumn: 5,
+                endColumn: 5 + fileURL.count,
+                urlString: fileURL
+            ),
+        ])
+    }
+
+    func testLocalhostFileURLsAreDetectedCaseInsensitively() {
+        let fileURL = "file://LOCALHOST/tmp/report.txt"
+        let row = cells(fileURL)
+
+        XCTAssertEqual(TerminalLinkRange.findAll(in: row, row: 0), [
+            TerminalLinkRange(
+                row: 0,
+                startColumn: 0,
+                endColumn: fileURL.count,
+                urlString: fileURL
+            ),
+        ])
+    }
+
+    func testAutomaticLinksRespectURLSecurityPolicy() {
+        let row = cells("ssh://example.com/repo file://server/share/report.txt")
+
+        XCTAssertTrue(TerminalLinkRange.findAll(in: row, row: 0).isEmpty)
+    }
+
     func testOSC8HyperlinkCellsCreateClickableRangeForVisibleLabel() {
         let row = cells("Ask Grok", linkURL: "https://x.ai/grok")
 
