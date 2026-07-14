@@ -83,6 +83,6 @@ struct TerminalSecurityPolicy: Equatable {
         guard let host, !host.isEmpty else {
             return true
         }
-        return host == "localhost"
+        return host.lowercased() == "localhost"
     }
 }
