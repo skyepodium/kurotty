@@ -302,6 +302,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
+    func setSelectionForTesting(anchor: TerminalCellPosition?, focus: TerminalCellPosition?) {
+        selectionAnchor = anchor
+        selectionFocus = focus
+    }
+
     func terminalSequenceForTesting(_ selector: Selector) -> String? {
         TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState)
     }
@@ -617,7 +622,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     @objc func copy(_ sender: Any?) {
-        let text = selectedText() ?? visibleText()
+        // Without a selection there is nothing to copy. Falling back to the
+        // whole visible screen clobbers the pasteboard with unselected text.
+        guard let text = selectedText() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
@@ -1620,12 +1627,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return traceID
     }
 
-    private func visibleText() -> String {
-        visibleRowsForRendering(limit: screen.rows).map { row in
-            String(row.map(\.character)).trimmingCharacters(in: .whitespaces)
-        }.joined(separator: "\n")
-    }
-
     private func selectedText() -> String? {
         guard let range = normalizedSelectionRange() else { return nil }
         guard contentRowCount > 0 else { return nil }
@@ -2586,6 +2587,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
         handleTerminalIntegrationEvent(terminalEvent)
         handleDesktopNotificationEvent(terminalEvent)
+        handleClipboardWriteEvent(terminalEvent)
     }
 
     private func applyHyperlinkControl(_ payload: String) {
@@ -2604,9 +2606,28 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             osc52Policy: TerminalOSC52Policy(policy: securityPolicy),
             shellIntegration: shellIntegration
         )
-        let event = dispatcher.dispatch(command, origin: .unknown)
+        // The attached PTY runs a locally spawned shell session; remote origin
+        // classification requires session-level transport awareness that this
+        // surface does not have yet.
+        let event = dispatcher.dispatch(command, origin: .local)
         shellIntegration = dispatcher.shellIntegration
         return event
+    }
+
+    private func handleClipboardWriteEvent(_ event: TerminalOSCDispatcher.Event) {
+        guard case let .osc52(evaluation, base64Payload) = event else {
+            return
+        }
+        guard evaluation.operation == .write, evaluation.decision == .allow else {
+            return
+        }
+        guard let text = TerminalOSC52Policy.decodedText(fromBase64Payload: base64Payload),
+              !text.isEmpty
+        else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {

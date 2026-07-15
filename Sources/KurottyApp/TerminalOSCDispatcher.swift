@@ -3,7 +3,7 @@ struct TerminalOSCDispatcher {
         case ignored
         case desktopNotification(TerminalNotificationPayload.Content)
         case shellIntegration(TerminalShellIntegration.Event)
-        case osc52(TerminalOSC52Policy.Evaluation)
+        case osc52(TerminalOSC52Policy.Evaluation, base64Payload: String)
     }
 
     var shellIntegration: TerminalShellIntegration
@@ -72,7 +72,8 @@ struct TerminalOSCDispatcher {
                 selection: String(parts[0]),
                 payload: String(parts[1]),
                 origin: origin
-            )
+            ),
+            base64Payload: String(parts[1])
         )
     }
 }
