@@ -73,6 +73,7 @@ public struct TerminalScreen: Sendable {
     ) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
+        let preservesWrappedLine = cells[row].last?.wrapsToNextRow == true
         let occupiedEnd = min(columns - 1, column + max(1, width) - 1)
         let clearRange = wideCellExpandedClearRange(row: row, from: column, through: occupiedEnd)
         for clearColumn in clearRange {
@@ -82,6 +83,14 @@ public struct TerminalScreen: Sendable {
         if width == 2 && column + 1 < columns {
             cells[row][column + 1] = TerminalScreenCell(character: " ", isContinuation: true, style: style, linkURL: linkURL)
         }
+        if preservesWrappedLine {
+            cells[row][columns - 1].wrapsToNextRow = true
+        }
+    }
+
+    public mutating func markRowWrapped(_ row: Int) {
+        guard cells.indices.contains(row), !cells[row].isEmpty else { return }
+        TerminalScreen.restoreWrappedLineMarker(in: &cells[row], wrapsToNextRow: true)
     }
 
     public mutating func appendCombining(character: Character, row: Int, before column: Int) {
@@ -242,9 +251,11 @@ public struct TerminalScreen: Sendable {
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
+        let wrapsToNextRow = line.last?.wrapsToNextRow == true
         line.removeSubrange((columns - amount)..<columns)
         line.insert(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount), at: column)
         TerminalScreen.normalizeWideCells(in: &line, style: style)
+        TerminalScreen.restoreWrappedLineMarker(in: &line, wrapsToNextRow: wrapsToNextRow)
         cells[row] = line
     }
 
@@ -253,9 +264,11 @@ public struct TerminalScreen: Sendable {
         guard cells.indices.contains(row), column >= 0, column < columns else { return }
         let amount = min(max(1, count), columns - column)
         var line = cells[row]
+        let wrapsToNextRow = line.last?.wrapsToNextRow == true
         line.removeSubrange(column..<(column + amount))
         line.append(contentsOf: Array(repeating: TerminalScreenCell(style: style), count: amount))
         TerminalScreen.normalizeWideCells(in: &line, style: style)
+        TerminalScreen.restoreWrappedLineMarker(in: &line, wrapsToNextRow: wrapsToNextRow)
         cells[row] = line
     }
 
@@ -310,6 +323,7 @@ public struct TerminalScreen: Sendable {
     }
 
     private static func resize(row: [TerminalScreenCell], columns: Int) -> [TerminalScreenCell] {
+        let wrapsToNextRow = row.last?.wrapsToNextRow == true
         var resized: [TerminalScreenCell]
         if row.count == columns {
             resized = row
@@ -319,7 +333,19 @@ public struct TerminalScreen: Sendable {
             resized = row + Array(repeating: TerminalScreenCell(), count: columns - row.count)
         }
         normalizeWideCells(in: &resized, style: .default)
+        restoreWrappedLineMarker(in: &resized, wrapsToNextRow: wrapsToNextRow)
         return resized
+    }
+
+    private static func restoreWrappedLineMarker(
+        in row: inout [TerminalScreenCell],
+        wrapsToNextRow: Bool
+    ) {
+        guard !row.isEmpty else { return }
+        for column in row.indices {
+            row[column].wrapsToNextRow = false
+        }
+        row[row.count - 1].wrapsToNextRow = wrapsToNextRow
     }
 
     private static func normalizeWideCells(in line: inout [TerminalScreenCell], style: TerminalTextStyle) {
@@ -368,17 +394,20 @@ public struct TerminalScreenCell: Equatable, Sendable {
     public var isContinuation: Bool
     public var style: TerminalTextStyle
     public var linkURL: String?
+    public var wrapsToNextRow: Bool
 
     public init(
         character: Character = " ",
         isContinuation: Bool = false,
         style: TerminalTextStyle = .default,
-        linkURL: String? = nil
+        linkURL: String? = nil,
+        wrapsToNextRow: Bool = false
     ) {
         self.character = character
         self.isContinuation = isContinuation
         self.style = style
         self.linkURL = linkURL
+        self.wrapsToNextRow = wrapsToNextRow
     }
 }
 

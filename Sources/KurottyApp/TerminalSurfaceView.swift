@@ -268,6 +268,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         appendOutput(String(decoding: data, as: UTF8.self))
     }
 
+    func resizeGridForTesting(columns: Int, rows: Int) {
+        cursorRow = screen.resize(rows: rows, columns: columns, anchorRow: cursorRow)
+        cursorColumn = min(cursorColumn, max(0, columns - 1))
+        lastSentSize = TerminalSize(columns: columns, rows: rows)
+        resetScrollRegion()
+    }
+
     var tmuxRestoreStateForTesting: TmuxRestoreStateForTesting {
         .init(
             cursorRow: cursorRow,
@@ -953,11 +960,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / AppConstants.Rendering.visibleCellReserveDivisor)
         let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
         let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)
+        let linkRanges = visibleLinkRanges(
+            visibleStartRow: visibleStartRow,
+            visibleRowCount: rowsToRender.count
+        )
         let selectedCells = selectedCellSet()
         let currentSearchMatch = currentSearchMatch
         for row in 0..<rowsToRender.count {
             let sourceRow = rowsToRender[row]
-            let linkRanges = TerminalLinkRange.findAll(in: sourceRow, row: row)
             for column in 0..<min(sourceRow.count, metrics.size.columns) {
                 let cell = sourceRow[column]
                 let position = TerminalCellPosition(row: visibleStartRow + row, column: column)
@@ -1933,10 +1943,31 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let visibleRow = position.row - visibleStart
         let rowsToRender = visibleRowsForRendering(limit: terminalMetrics().size.rows)
         guard rowsToRender.indices.contains(visibleRow) else { return nil }
-        return TerminalLinkRange.find(
-            in: rowsToRender[visibleRow],
-            row: visibleRow,
-            column: position.column
+        return visibleLinkRanges(
+            visibleStartRow: visibleStart,
+            visibleRowCount: rowsToRender.count
+        ).first { $0.contains(row: visibleRow, column: position.column) }
+    }
+
+    private func visibleLinkRanges(visibleStartRow: Int, visibleRowCount: Int) -> [TerminalLinkRange] {
+        guard visibleRowCount > 0, contentRowCount > 0 else { return [] }
+
+        var contextStartRow = min(max(0, visibleStartRow), contentRowCount - 1)
+        while contextStartRow > 0,
+              contentRow(at: contextStartRow - 1)?.last?.wrapsToNextRow == true {
+            contextStartRow -= 1
+        }
+
+        var contextEndRow = min(contentRowCount, visibleStartRow + visibleRowCount)
+        while contextEndRow < contentRowCount,
+              contentRow(at: contextEndRow - 1)?.last?.wrapsToNextRow == true {
+            contextEndRow += 1
+        }
+
+        let rows = (contextStartRow..<contextEndRow).compactMap(contentRow(at:))
+        return TerminalLinkRange.findAll(
+            in: rows,
+            startingRow: contextStartRow - visibleStartRow
         )
     }
 
@@ -2338,8 +2369,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
             if wraparoundModeEnabled {
                 if width == 2 && cursorColumn == screen.columns - 1 {
+                    screen.markRowWrapped(cursorRow)
                     carriageReturnLineFeed()
                 } else if cursorColumn >= screen.columns {
+                    screen.markRowWrapped(cursorRow)
                     carriageReturnLineFeed()
                 }
             } else {

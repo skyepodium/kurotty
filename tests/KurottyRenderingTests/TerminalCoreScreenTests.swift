@@ -116,6 +116,31 @@ final class TerminalCoreScreenTests: XCTestCase {
         XCTAssertFalse(screen.cells[0][2].isContinuation)
     }
 
+    func testWrappedRowMetadataSurvivesResizeAndCharacterEdits() {
+        var screen = TerminalScreen(rows: 1, columns: 4)
+        screen.set(character: "x", row: 0, column: 3, width: 1)
+        screen.markRowWrapped(0)
+
+        screen.insertCharacters(row: 0, column: 1, count: 1)
+        XCTAssertTrue(screen.cells[0].last?.wrapsToNextRow == true)
+
+        screen.deleteCharacters(row: 0, column: 1, count: 1)
+        XCTAssertTrue(screen.cells[0].last?.wrapsToNextRow == true)
+
+        _ = screen.resize(rows: 1, columns: 6)
+        XCTAssertTrue(screen.cells[0].last?.wrapsToNextRow == true)
+        XCTAssertFalse(screen.cells[0][3].wrapsToNextRow)
+    }
+
+    func testClearingWrappedRowRemovesWrapMetadata() {
+        var screen = TerminalScreen(rows: 1, columns: 4)
+        screen.markRowWrapped(0)
+
+        screen.clear(row: 0)
+
+        XCTAssertFalse(screen.cells[0].last?.wrapsToNextRow == true)
+    }
+
     func testDeviceAttributesRemainPortable() {
         XCTAssertEqual(TerminalDeviceAttributes.response(for: CsiParameters("")), "\u{1b}[?1;2c")
         XCTAssertEqual(TerminalDeviceAttributes.response(for: CsiParameters(">0")), "\u{1b}[>0;0;0c")

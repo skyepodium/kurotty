@@ -45,21 +45,51 @@ struct TerminalLinkRange: Equatable {
     }
 
     static func findAll(in cells: [TerminalScreenCell], row: Int) -> [TerminalLinkRange] {
+        findAll(in: [cells], startingRow: row)
+    }
+
+    static func findAll(in rows: [[TerminalScreenCell]], startingRow: Int) -> [TerminalLinkRange] {
+        var ranges: [TerminalLinkRange] = []
+        var logicalLineStart = 0
+
+        while logicalLineStart < rows.count {
+            var logicalLineEnd = logicalLineStart + 1
+            while logicalLineEnd < rows.count,
+                  rows[logicalLineEnd - 1].last?.wrapsToNextRow == true {
+                logicalLineEnd += 1
+            }
+            ranges.append(contentsOf: findAll(
+                in: rows[logicalLineStart..<logicalLineEnd],
+                startingRow: startingRow + logicalLineStart
+            ))
+            logicalLineStart = logicalLineEnd
+        }
+        return ranges
+    }
+
+    private static func findAll(
+        in rows: ArraySlice<[TerminalScreenCell]>,
+        startingRow: Int
+    ) -> [TerminalLinkRange] {
         var text = ""
-        var columnsByCharacterOffset: [Int] = []
+        var positionsByCharacterOffset: [(row: Int, column: Int)] = []
         var linkURLsByCharacterOffset: [String?] = []
-        for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
-            text.append(cell.character)
-            columnsByCharacterOffset.append(cellColumn)
-            linkURLsByCharacterOffset.append(cell.linkURL)
+        var cellsByRow: [Int: [TerminalScreenCell]] = [:]
+        for (rowOffset, cells) in rows.enumerated() {
+            let row = startingRow + rowOffset
+            cellsByRow[row] = cells
+            for (cellColumn, cell) in cells.enumerated() where !cell.isContinuation {
+                text.append(cell.character)
+                positionsByCharacterOffset.append((row: row, column: cellColumn))
+                linkURLsByCharacterOffset.append(cell.linkURL)
+            }
         }
         guard !text.isEmpty else { return [] }
 
         let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
         var ranges = explicitLinkRanges(
-            cells: cells,
-            row: row,
-            columnsByCharacterOffset: columnsByCharacterOffset,
+            cellsByRow: cellsByRow,
+            positionsByCharacterOffset: positionsByCharacterOffset,
             linkURLsByCharacterOffset: linkURLsByCharacterOffset
         )
         for match in linkRegex.matches(in: text, range: searchRange) {
@@ -77,25 +107,21 @@ struct TerminalLinkRange: Equatable {
             let endOffset = startOffset + urlString.count
             guard startOffset >= 0,
                   endOffset > startOffset,
-                  startOffset < columnsByCharacterOffset.count,
-                  endOffset - 1 < columnsByCharacterOffset.count else {
+                  startOffset < positionsByCharacterOffset.count,
+                  endOffset - 1 < positionsByCharacterOffset.count else {
                 continue
             }
 
-            let startColumn = columnsByCharacterOffset[startOffset]
-            let endColumn = linkEndColumn(
-                cells: cells,
-                columnsByCharacterOffset: columnsByCharacterOffset,
-                endOffset: endOffset
-            )
-            let range = TerminalLinkRange(
-                row: row,
-                startColumn: startColumn,
-                endColumn: endColumn,
+            let automaticRanges = linkRanges(
+                positions: positionsByCharacterOffset,
+                cellsByRow: cellsByRow,
+                offsets: startOffset..<endOffset,
                 urlString: urlString
             )
-            guard !ranges.contains(where: { $0.overlaps(range) }) else { continue }
-            ranges.append(range)
+            guard !automaticRanges.contains(where: { automaticRange in
+                ranges.contains(where: { $0.overlaps(automaticRange) })
+            }) else { continue }
+            ranges.append(contentsOf: automaticRanges)
         }
         return ranges
     }
@@ -107,9 +133,8 @@ struct TerminalLinkRange: Equatable {
     }
 
     private static func explicitLinkRanges(
-        cells: [TerminalScreenCell],
-        row: Int,
-        columnsByCharacterOffset: [Int],
+        cellsByRow: [Int: [TerminalScreenCell]],
+        positionsByCharacterOffset: [(row: Int, column: Int)],
         linkURLsByCharacterOffset: [String?]
     ) -> [TerminalLinkRange] {
         var ranges: [TerminalLinkRange] = []
@@ -126,30 +151,44 @@ struct TerminalLinkRange: Equatable {
                 offset += 1
             }
 
-            let endOffset = offset
-            let startColumn = columnsByCharacterOffset[startOffset]
-            ranges.append(TerminalLinkRange(
-                row: row,
-                startColumn: startColumn,
-                endColumn: linkEndColumn(
-                    cells: cells,
-                    columnsByCharacterOffset: columnsByCharacterOffset,
-                    endOffset: endOffset
-                ),
+            ranges.append(contentsOf: linkRanges(
+                positions: positionsByCharacterOffset,
+                cellsByRow: cellsByRow,
+                offsets: startOffset..<offset,
                 urlString: urlString
             ))
         }
         return ranges
     }
 
-    private static func linkEndColumn(
-        cells: [TerminalScreenCell],
-        columnsByCharacterOffset: [Int],
-        endOffset: Int
-    ) -> Int {
-        let endLeadColumn = columnsByCharacterOffset[endOffset - 1]
-        let endWidth = max(1, cells[endLeadColumn].character.terminalColumnWidth)
-        return endLeadColumn + endWidth
+    private static func linkRanges(
+        positions: [(row: Int, column: Int)],
+        cellsByRow: [Int: [TerminalScreenCell]],
+        offsets: Range<Int>,
+        urlString: String
+    ) -> [TerminalLinkRange] {
+        var ranges: [TerminalLinkRange] = []
+        var segmentStart = offsets.lowerBound
+
+        while segmentStart < offsets.upperBound {
+            let row = positions[segmentStart].row
+            var segmentEnd = segmentStart + 1
+            while segmentEnd < offsets.upperBound, positions[segmentEnd].row == row {
+                segmentEnd += 1
+            }
+            let endLeadColumn = positions[segmentEnd - 1].column
+            let endWidth = cellsByRow[row].map {
+                max(1, $0[endLeadColumn].character.terminalColumnWidth)
+            } ?? 1
+            ranges.append(TerminalLinkRange(
+                row: row,
+                startColumn: positions[segmentStart].column,
+                endColumn: endLeadColumn + endWidth,
+                urlString: urlString
+            ))
+            segmentStart = segmentEnd
+        }
+        return ranges
     }
 
     private func overlaps(_ other: TerminalLinkRange) -> Bool {
