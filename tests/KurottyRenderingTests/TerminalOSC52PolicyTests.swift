@@ -86,4 +86,14 @@ final class TerminalOSC52PolicyTests: XCTestCase {
         XCTAssertFalse(String(describing: result).contains(rawPayload))
         XCTAssertFalse(String(describing: result).contains(payload))
     }
+
+    func testDecodedTextDecodesPaddedAndUnpaddedBase64() {
+        XCTAssertEqual(TerminalOSC52Policy.decodedText(fromBase64Payload: "aGVsbG8="), "hello")
+        XCTAssertEqual(TerminalOSC52Policy.decodedText(fromBase64Payload: "aGVsbG8"), "hello")
+        XCTAssertEqual(TerminalOSC52Policy.decodedText(fromBase64Payload: "7ZWc6riA"), "한글")
+    }
+
+    func testDecodedTextRejectsInvalidBase64() {
+        XCTAssertNil(TerminalOSC52Policy.decodedText(fromBase64Payload: "not base64!!"))
+    }
 }

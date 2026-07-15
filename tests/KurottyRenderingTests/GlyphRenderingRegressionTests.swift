@@ -1253,7 +1253,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
         XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
     }
 
     func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {

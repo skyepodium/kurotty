@@ -9,9 +9,10 @@ final class TerminalOSCDispatcherTests: XCTestCase {
 
         let event = dispatcher.dispatch("52;c;\(payload)", origin: .local)
 
-        guard case .osc52(let evaluation) = event else {
+        guard case .osc52(let evaluation, let base64Payload) = event else {
             return XCTFail("Expected OSC52 evaluation, got \(event)")
         }
+        XCTAssertEqual(base64Payload, payload)
         XCTAssertEqual(evaluation.decision, .allow)
         XCTAssertEqual(evaluation.operation, .write)
         XCTAssertEqual(evaluation.securityOperation, .osc52Write)
@@ -26,7 +27,7 @@ final class TerminalOSCDispatcherTests: XCTestCase {
 
         let event = dispatcher.dispatch("52;c;?", origin: .remote)
 
-        guard case .osc52(let evaluation) = event else {
+        guard case .osc52(let evaluation, _) = event else {
             return XCTFail("Expected OSC52 evaluation, got \(event)")
         }
         XCTAssertEqual(evaluation.decision, .deny)
@@ -46,7 +47,7 @@ final class TerminalOSCDispatcherTests: XCTestCase {
 
         let event = dispatcher.dispatch("52;c;\(payload)", origin: .local)
 
-        guard case .osc52(let evaluation) = event else {
+        guard case .osc52(let evaluation, _) = event else {
             return XCTFail("Expected OSC52 evaluation, got \(event)")
         }
         XCTAssertEqual(evaluation.decision, .deny)
