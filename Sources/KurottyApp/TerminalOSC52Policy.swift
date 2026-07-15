@@ -164,13 +164,23 @@ struct TerminalOSC52Policy {
     }
 
     private static func isDecodableBase64Payload(_ payload: String) -> Bool {
+        Data(base64Encoded: paddedBase64Payload(payload)) != nil
+    }
+
+    static func decodedText(fromBase64Payload payload: String) -> String? {
+        guard let data = Data(base64Encoded: paddedBase64Payload(payload)) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func paddedBase64Payload(_ payload: String) -> String {
         var normalizedPayload = payload
         let remainder = normalizedPayload.count % 4
         if remainder != 0 {
             normalizedPayload.append(String(repeating: "=", count: 4 - remainder))
         }
-
-        return Data(base64Encoded: normalizedPayload) != nil
+        return normalizedPayload
     }
 }
 
