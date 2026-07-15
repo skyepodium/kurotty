@@ -10,6 +10,21 @@ private func systemForkpty(
     _ winp: UnsafePointer<winsize>?
 ) -> pid_t
 
+enum TerminalResizeSignalTarget: Equatable {
+    case processGroup(pid_t)
+    case process(pid_t)
+
+    static func resolve(foregroundProcessGroup: pid_t, childProcess: pid_t) -> TerminalResizeSignalTarget? {
+        if foregroundProcessGroup > 0 {
+            return .processGroup(foregroundProcessGroup)
+        }
+        if childProcess > 0 {
+            return .process(childProcess)
+        }
+        return nil
+    }
+}
+
 final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
@@ -127,9 +142,18 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
         )
         let ioctlResult = ioctl(master, TIOCSWINSZ, &size)
         let ioctlErrno = ioctlResult == -1 ? errno : nil
-        var didSendSIGWINCH = false
-        if childPid > 0 {
-            didSendSIGWINCH = kill(childPid, SIGWINCH) == 0
+        let signalTarget = TerminalResizeSignalTarget.resolve(
+            foregroundProcessGroup: tcgetpgrp(master),
+            childProcess: childPid
+        )
+        let didSendSIGWINCH: Bool
+        switch signalTarget {
+        case let .processGroup(processGroup):
+            didSendSIGWINCH = killpg(processGroup, SIGWINCH) == 0
+        case let .process(process):
+            didSendSIGWINCH = kill(process, SIGWINCH) == 0
+        case nil:
+            didSendSIGWINCH = false
         }
         if DebugOptions.ptyLog {
             let completedTrace = TerminalResizeTrace(
