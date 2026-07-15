@@ -43,6 +43,60 @@ final class TerminalLinkRangeTests: XCTestCase {
         ])
     }
 
+    func testWrappedHTTPSLinkUsesCompleteURLOnEveryPhysicalRow() {
+        let firstPart = "https://developers.openai."
+        let secondPart = "com/mcp"
+        let rows = wrappedRows(firstPart, secondPart)
+
+        XCTAssertEqual(TerminalLinkRange.findAll(in: rows, startingRow: 4), [
+            TerminalLinkRange(
+                row: 4,
+                startColumn: 0,
+                endColumn: firstPart.count,
+                urlString: firstPart + secondPart
+            ),
+            TerminalLinkRange(
+                row: 5,
+                startColumn: 0,
+                endColumn: secondPart.count,
+                urlString: firstPart + secondPart
+            ),
+        ])
+    }
+
+    func testWrappedLocalFileLinkUsesCompleteURLOnEveryPhysicalRow() {
+        let firstPart = "file:///Users/skye/Project%20"
+        let secondPart = "One/README.md"
+        let rows = wrappedRows(firstPart, secondPart)
+
+        let ranges = TerminalLinkRange.findAll(in: rows, startingRow: 0)
+
+        XCTAssertEqual(ranges.map(\.urlString), Array(repeating: firstPart + secondPart, count: 2))
+        XCTAssertEqual(ranges.map(\.row), [0, 1])
+    }
+
+    func testHardLineBreakDoesNotJoinAdjacentURLText() {
+        let firstRow = cells("https://example.com/")
+        let secondRow = cells("admin")
+
+        XCTAssertEqual(TerminalLinkRange.findAll(in: [firstRow, secondRow], startingRow: 0), [
+            TerminalLinkRange(
+                row: 0,
+                startColumn: 0,
+                endColumn: firstRow.count,
+                urlString: "https://example.com/"
+            ),
+        ])
+    }
+
+    func testWrappedDisallowedSchemesRemainInactive() {
+        let sshRows = wrappedRows("ssh://example.com/", "repo")
+        let remoteFileRows = wrappedRows("file://server/share/", "report.txt")
+
+        XCTAssertTrue(TerminalLinkRange.findAll(in: sshRows, startingRow: 0).isEmpty)
+        XCTAssertTrue(TerminalLinkRange.findAll(in: remoteFileRows, startingRow: 0).isEmpty)
+    }
+
     func testAutomaticLinksRespectURLSecurityPolicy() {
         let row = cells("ssh://example.com/repo file://server/share/report.txt")
 
@@ -97,5 +151,11 @@ final class TerminalLinkRangeTests: XCTestCase {
         text.map { character in
             TerminalScreenCell(character: character, linkURL: linkURL)
         }
+    }
+
+    private func wrappedRows(_ first: String, _ second: String) -> [[TerminalScreenCell]] {
+        var firstRow = cells(first)
+        firstRow[firstRow.count - 1].wrapsToNextRow = true
+        return [firstRow, cells(second)]
     }
 }

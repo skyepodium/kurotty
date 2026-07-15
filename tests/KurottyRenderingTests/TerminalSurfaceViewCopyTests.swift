@@ -110,6 +110,22 @@ final class TerminalSurfaceViewCopyTests: XCTestCase {
     }
 
     @MainActor
+    func testPlainURLWrapsWithoutDroppingCharactersAtRightMargin() {
+        let surface = TerminalSurfaceView(frame: Fixture.surfaceFrame, session: StubSession())
+        surface.resizeGridForTesting(columns: 30, rows: 8)
+
+        surface.consumeTmuxRestoreOutputForTesting(Data(
+            "Visit\r\nhttps://chatgpt.com/codex/settings\r\nfor up-to-date".utf8
+        ))
+
+        let lines = surface.tmuxRestoreStateForTesting.visibleLines
+        XCTAssertEqual(lines[0].trimmingCharacters(in: .whitespaces), "Visit")
+        XCTAssertEqual(lines[1], "https://chatgpt.com/codex/sett")
+        XCTAssertEqual(lines[2].trimmingCharacters(in: .whitespaces), "ings")
+        XCTAssertEqual(lines[3].trimmingCharacters(in: .whitespaces), "for up-to-date")
+    }
+
+    @MainActor
     func testOSC52WriteFromShellOutputUpdatesPasteboard() {
         setPasteboardSentinel()
 

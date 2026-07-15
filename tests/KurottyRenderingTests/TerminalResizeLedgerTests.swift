@@ -3,6 +3,18 @@ import XCTest
 @testable import KurottyApp
 
 final class TerminalResizeLedgerTests: XCTestCase {
+    func testResizeSignalTargetsForegroundProcessGroupBeforeShellProcess() {
+        XCTAssertEqual(
+            TerminalResizeSignalTarget.resolve(foregroundProcessGroup: 42, childProcess: 7),
+            .processGroup(42)
+        )
+        XCTAssertEqual(
+            TerminalResizeSignalTarget.resolve(foregroundProcessGroup: -1, childProcess: 7),
+            .process(7)
+        )
+        XCTAssertNil(TerminalResizeSignalTarget.resolve(foregroundProcessGroup: -1, childProcess: -1))
+    }
+
     func testMatchedCycleHasNoValidationIssues() {
         let snapshot = makeSnapshot()
 
