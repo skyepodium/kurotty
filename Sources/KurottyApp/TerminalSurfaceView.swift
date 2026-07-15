@@ -1400,8 +1400,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func send(_ text: String, recordsUserActivity: Bool = true) {
-        clearSelection()
+        // Only user-initiated input dismisses the selection. Synthesized
+        // protocol traffic (focus reports, DSR/DA responses) must not clear it.
         if recordsUserActivity {
+            clearSelection()
             followLiveOutputForUserInput()
             recordKeyboardSelectionInputStartIfNeeded(for: text)
             recordUserInput(text)

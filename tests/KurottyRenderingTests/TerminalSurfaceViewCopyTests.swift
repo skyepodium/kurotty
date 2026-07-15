@@ -92,6 +92,24 @@ final class TerminalSurfaceViewCopyTests: XCTestCase {
     }
 
     @MainActor
+    func testSelectionSurvivesSynthesizedTerminalResponse() {
+        let surface = makeSurface(output: "hello world")
+        surface.setSelectionForTesting(
+            anchor: TerminalCellPosition(row: 0, column: 0),
+            focus: TerminalCellPosition(row: 0, column: 4)
+        )
+
+        // A cursor-position query makes the surface write a DSR response to the
+        // PTY. Protocol traffic is not user input and must not clear the
+        // selection (regression: focus-out reports wiped an active selection).
+        surface.consumeTmuxRestoreOutputForTesting(Data("\u{1b}[6n".utf8))
+
+        surface.copy(nil)
+
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "hello")
+    }
+
+    @MainActor
     func testOSC52WriteFromShellOutputUpdatesPasteboard() {
         setPasteboardSentinel()
 
