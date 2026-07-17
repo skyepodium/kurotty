@@ -11,6 +11,64 @@ enum StreamState {
     case oscEscape
 }
 
+enum TerminalCursorPresentationPolicy {
+    private static let minimumContrastRatio: Float = 3
+
+    static func isFocusedForUser(
+        isApplicationActive: Bool,
+        isKeyWindow: Bool,
+        isFirstResponder: Bool
+    ) -> Bool {
+        isApplicationActive && isKeyWindow && isFirstResponder
+    }
+
+    static func shouldRenderBlinkPhase(
+        isFocusedForUser: Bool,
+        cursorBlinkOn: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        !isFocusedForUser || cursorBlinkOn || hasMarkedText
+    }
+
+    static func visibleColor(
+        preferred: SIMD4<Float>,
+        frame: TerminalFrame
+    ) -> SIMD4<Float> {
+        let background = frame.backgrounds.last(where: {
+            $0.row == frame.cursorRow && $0.column == frame.cursorColumn
+        })?.color ?? frame.defaultBackground
+
+        if contrastRatio(preferred, background) >= minimumContrastRatio {
+            return preferred
+        }
+        if contrastRatio(frame.defaultForeground, background) >= minimumContrastRatio {
+            return frame.defaultForeground
+        }
+
+        let black = SIMD4<Float>(0, 0, 0, 1)
+        let white = SIMD4<Float>(1, 1, 1, 1)
+        return contrastRatio(black, background) >= contrastRatio(white, background) ? black : white
+    }
+
+    static func contrastRatio(_ first: SIMD4<Float>, _ second: SIMD4<Float>) -> Float {
+        let lighter = max(relativeLuminance(first), relativeLuminance(second))
+        let darker = min(relativeLuminance(first), relativeLuminance(second))
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    private static func relativeLuminance(_ color: SIMD4<Float>) -> Float {
+        func linearize(_ component: Float) -> Float {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+
+        return 0.2126 * linearize(color.x)
+            + 0.7152 * linearize(color.y)
+            + 0.0722 * linearize(color.z)
+    }
+}
+
 enum TerminalEscapeSequence {
     static func beginsTwoByteDesignator(_ scalar: UnicodeScalar) -> Bool {
         switch scalar {

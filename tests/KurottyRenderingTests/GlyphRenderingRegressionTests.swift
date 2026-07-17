@@ -260,7 +260,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(surfaceSource.contains("private var cursorBlinkOn = true"))
         XCTAssertTrue(surfaceSource.contains("private var cursorBlinkTimer: Timer?"))
-        XCTAssertTrue(surfaceSource.contains("cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn"))
+        XCTAssertTrue(surfaceSource.contains("cursorBlinkOn: TerminalCursorPresentationPolicy.shouldRenderBlinkPhase("))
+        XCTAssertTrue(surfaceSource.contains("isFocusedForUser: isTerminalFocusedForUser"))
+        XCTAssertTrue(surfaceSource.contains("if isTerminalFocusedForUser {\n            startCursorBlinking()"))
+        XCTAssertTrue(surfaceSource.contains("updateCursorBlinkStateForFocus()\n        reportTerminalFocusIfNeeded()"))
         XCTAssertTrue(surfaceSource.contains("stopCursorBlinking(showCursor: true)"))
         XCTAssertTrue(constantsSource.contains("cursorBlinkIntervalSeconds"))
     }
@@ -2175,7 +2178,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private var shouldDeliverUserNotification: Bool"))
         XCTAssertTrue(surfaceSource.contains("!isTerminalFocusedForUser"))
         XCTAssertTrue(surfaceSource.contains("private var isTerminalFocusedForUser: Bool"))
-        XCTAssertTrue(surfaceSource.contains("NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self"))
+        XCTAssertTrue(surfaceSource.contains("isApplicationActive: NSApp.isActive"))
+        XCTAssertTrue(surfaceSource.contains("isKeyWindow: window?.isKeyWindow == true"))
+        XCTAssertTrue(surfaceSource.contains("isFirstResponder: window?.firstResponder === self"))
         XCTAssertTrue(surfaceSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText)"))
         XCTAssertFalse(surfaceSource.contains("TerminalBackgroundTaskNotificationContent.make("))
         XCTAssertFalse(surfaceSource.contains("notifier.notifyBackgroundTaskCompleted(content: content)"))
