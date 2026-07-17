@@ -241,6 +241,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     struct TmuxRestoreStateForTesting: Equatable {
         let cursorRow: Int
         let cursorColumn: Int
+        let cursorVisible: Bool
         let isUsingAlternateScreen: Bool
         let insertModeEnabled: Bool
         let originModeEnabled: Bool
@@ -279,6 +280,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         .init(
             cursorRow: cursorRow,
             cursorColumn: cursorColumn,
+            cursorVisible: cursorVisible,
             isUsingAlternateScreen: isUsingAlternateScreen,
             insertModeEnabled: insertModeEnabled,
             originModeEnabled: originModeEnabled,
@@ -893,6 +895,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
            changedWindow !== window {
             return
         }
+        updateCursorBlinkStateForFocus()
         reportTerminalFocusIfNeeded()
     }
 
@@ -1081,8 +1084,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             isFullDamage: damage.isFull,
             cursorColumn: min(displayCursorColumn + compositionText.terminalColumnWidth, metrics.size.columns - 1),
             cursorRow: cursorVisible && scrollbackOffset == 0 ? min(displayCursorRow, metrics.size.rows - 1) : -1,
-            // Inactive panes keep a steady cursor; focus only controls blink.
-            cursorBlinkOn: window?.firstResponder !== self || cursorBlinkOn || hasMarkedText(),
+            // Inactive apps, windows, and panes keep a steady cursor; only the
+            // terminal that is focused for user input follows the blink phase.
+            cursorBlinkOn: TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
+                isFocusedForUser: isTerminalFocusedForUser,
+                cursorBlinkOn: cursorBlinkOn,
+                hasMarkedText: hasMarkedText()
+            ),
             markedTextColumn: displayCursorColumn,
             markedText: compositionText,
             markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix),
@@ -1512,7 +1520,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private var isTerminalFocusedForUser: Bool {
-        NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self
+        TerminalCursorPresentationPolicy.isFocusedForUser(
+            isApplicationActive: NSApp.isActive,
+            isKeyWindow: window?.isKeyWindow == true,
+            isFirstResponder: window?.firstResponder === self
+        )
     }
 
     private var shouldDeliverUserNotification: Bool {
@@ -1695,7 +1707,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func updateCursorBlinkStateForFocus() {
-        if window?.firstResponder === self {
+        if isTerminalFocusedForUser {
             startCursorBlinking()
         } else {
             stopCursorBlinking(showCursor: true)
@@ -1725,7 +1737,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func toggleCursorBlink() {
-        guard window?.firstResponder === self else {
+        guard isTerminalFocusedForUser else {
             stopCursorBlinking(showCursor: true)
             return
         }
