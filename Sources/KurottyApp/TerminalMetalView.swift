@@ -1052,13 +1052,17 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         updateSharedBuffer(&decorationInstanceBuffer, with: decorations)
 
+        let visibleCursorColor = TerminalCursorPresentationPolicy.visibleColor(
+            preferred: cursorColor,
+            frame: terminalFrame
+        )
         var cursor = solidInstance(
             column: max(0, terminalCursorColumn),
             row: max(0, terminalFrame.cursorRow),
             width: 1,
             height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels)),
             yOffset: 0,
-            color: cursorColor,
+            color: visibleCursorColor,
             overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))
         )
         updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)
@@ -1115,7 +1119,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         hasher.combine(frame.cursorColumn)
         hasher.combine(frame.cursorRow)
         hasher.combine(frame.cursorBlinkOn)
-        combineColor(cursorColor, into: &hasher)
+        combineColor(TerminalCursorPresentationPolicy.visibleColor(
+            preferred: cursorColor,
+            frame: frame
+        ), into: &hasher)
         hasher.combine(frame.markedTextColumn)
         hasher.combine(frame.markedText)
         hasher.combine(frame.markedTextSelectedRange.location)
@@ -2005,7 +2012,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
 
         if terminalFrame.cursorBlinkOn, terminalFrame.cursorRow >= 0 {
-            NSColor(calibratedWhite: 0.85, alpha: 1).setFill()
+            let visibleCursorColor = TerminalCursorPresentationPolicy.visibleColor(
+                preferred: cursorColor,
+                frame: terminalFrame
+            )
+            NSColor(
+                calibratedRed: CGFloat(visibleCursorColor.x),
+                green: CGFloat(visibleCursorColor.y),
+                blue: CGFloat(visibleCursorColor.z),
+                alpha: CGFloat(visibleCursorColor.w)
+            ).setFill()
             NSRect(
                 x: terminalFrame.padding.cgX + CGFloat(max(0, terminalCursorColumn)) * terminalFrame.cellSize.cgWidth,
                 y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(max(0, terminalFrame.cursorRow) + 1),
