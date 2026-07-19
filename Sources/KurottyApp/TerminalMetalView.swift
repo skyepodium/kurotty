@@ -513,6 +513,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     func update(frame: TerminalFrame) {
+        applyBackdropColor(frame.defaultBackground)
         terminalFrame = frame
         rebuildFontCellMetrics()
         synchronizeBackingScaleAndDrawableSize()
@@ -553,14 +554,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         cursorColor: SIMD4<Float>
     ) {
         self.font = font
-        self.backgroundColor = backgroundColor
         self.cursorColor = cursorColor
-        clearColor = MTLClearColor(
-            red: Double(backgroundColor.x),
-            green: Double(backgroundColor.y),
-            blue: Double(backgroundColor.z),
-            alpha: Double(backgroundColor.w)
-        )
+        applyBackdropColor(backgroundColor)
         rebuildFontCellMetrics()
         resetAtlas()
         rebuildAtlasBuffers()
@@ -568,6 +563,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             rebuildTextTexture()
         }
         setNeedsDisplay(bounds)
+    }
+
+    private func applyBackdropColor(_ backgroundColor: SIMD4<Float>) {
+        self.backgroundColor = backgroundColor
+        clearColor = MTLClearColor(
+            red: Double(backgroundColor.x),
+            green: Double(backgroundColor.y),
+            blue: Double(backgroundColor.z),
+            alpha: Double(backgroundColor.w)
+        )
     }
 
     func draw(in view: MTKView) {
