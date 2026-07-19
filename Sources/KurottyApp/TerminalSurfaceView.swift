@@ -22,6 +22,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
     private var terminalDefaultStyle: TerminalTextStyle
+    private var viewportBackground: SIMD4<Float>?
     private var terminalAnsiColors: [SIMD4<Float>]
     private var maxScrollbackRows: Int
     private var screen = TerminalScreen(rows: AppConstants.Terminal.defaultRows, columns: AppConstants.Terminal.defaultColumns)
@@ -956,12 +957,25 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func updateRendererFrame() {
         let metrics = terminalMetrics()
+        let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
+        let nextViewportBackground = TerminalViewportBackgroundPolicy.background(
+            in: rowsToRender,
+            columns: metrics.size.columns,
+            fallback: terminalDefaultStyle.background
+        )
+        let viewportBackgroundChanged = viewportBackground.map {
+            !$0.sameColor(as: nextViewportBackground)
+        } ?? true
+        if viewportBackgroundChanged {
+            viewportBackground = nextViewportBackground
+            layer?.backgroundColor = nextViewportBackground.cgColor
+            markFullDamage()
+        }
         let damage = consumePendingDamage(metrics: metrics)
         var cells: [TerminalCell] = []
         var backgrounds: [TerminalBackground] = []
         var decorations: [TerminalDecoration] = []
         cells.reserveCapacity(metrics.size.rows * metrics.size.columns / AppConstants.Rendering.visibleCellReserveDivisor)
-        let rowsToRender = visibleRowsForRendering(limit: metrics.size.rows)
         let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)
         let linkRanges = visibleLinkRanges(
             visibleStartRow: visibleStartRow,
@@ -1078,7 +1092,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             backgrounds: backgrounds,
             decorations: decorations,
             defaultForeground: terminalDefaultStyle.foreground,
-            defaultBackground: terminalDefaultStyle.background,
+            defaultBackground: nextViewportBackground,
             dirtyRows: damage.rows,
             dirtyRects: damage.rects,
             isFullDamage: damage.isFull,
@@ -2252,6 +2266,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markFullDamage()
         }
         updateScrollIndicator()
+        viewportBackground = nil
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
         renderer.applyAppearance(
             font: nextFont,
