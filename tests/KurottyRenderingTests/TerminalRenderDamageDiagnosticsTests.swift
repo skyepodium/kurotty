@@ -1,6 +1,8 @@
+import AppKit
 import CoreGraphics
 @testable import KurottyApp
 @testable import KurottyCore
+import Metal
 import XCTest
 
 final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
@@ -158,6 +160,203 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.scissorRectCount, 1)
     }
 
+    func testDrawPassPlanUsesScissorOnlyWhenEverySafetyConditionHolds() {
+        let plan = TerminalDrawPassPlan.make(
+            cpuFallbackActive: false,
+            atlasPathReady: true,
+            offscreenTextureAvailable: true,
+            pendingFullRedrawRequired: false,
+            offscreenContentIsValid: true,
+            scissorRectsFitDrawable: true,
+            cursorDamageIsCovered: true
+        )
+
+        XCTAssertTrue(plan.usesScissor)
+        XCTAssertEqual(plan.fullRedrawReason, .none)
+        XCTAssertEqual(plan.fullRedrawReason.description, "none")
+    }
+
+    func testDrawPassPlanFallsBackToFullRedrawForEveryUnsafeCondition() {
+        let unsafeConditions: [(TerminalDrawPassPlan, TerminalDrawPassFullRedrawReason, String)] = [
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: true,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: true
+                ),
+                .cpuFallbackActive,
+                "cpu-fallback-active"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: false,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: true
+                ),
+                .atlasPathNotReady,
+                "atlas-path-not-ready"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: false,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: true
+                ),
+                .offscreenTextureUnavailable,
+                "offscreen-texture-unavailable"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: true,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: true
+                ),
+                .pendingFullRedraw,
+                "pending-full-redraw"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: false,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: true
+                ),
+                .offscreenContentInvalid,
+                "offscreen-content-invalid"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: false,
+                    cursorDamageIsCovered: true
+                ),
+                .scissorRectOutsideDrawable,
+                "scissor-rect-outside-drawable"
+            ),
+            (
+                TerminalDrawPassPlan.make(
+                    cpuFallbackActive: false,
+                    atlasPathReady: true,
+                    offscreenTextureAvailable: true,
+                    pendingFullRedrawRequired: false,
+                    offscreenContentIsValid: true,
+                    scissorRectsFitDrawable: true,
+                    cursorDamageIsCovered: false
+                ),
+                .cursorDamageNotCovered,
+                "cursor-damage-not-covered"
+            ),
+        ]
+
+        for (plan, expectedReason, expectedDescription) in unsafeConditions {
+            XCTAssertFalse(plan.usesScissor)
+            XCTAssertEqual(plan.fullRedrawReason, expectedReason)
+            XCTAssertEqual(plan.fullRedrawReason.description, expectedDescription)
+        }
+    }
+
+    func testMetalScissorRectConversionFlipsBottomUpDamageIntoTopLeftOrigin() {
+        let bottomUpRect = TerminalRenderScissorRect(x: 10, y: 40, width: 30, height: 20)
+        let converted = TerminalMetalView.metalScissorRect(
+            from: bottomUpRect,
+            drawableWidthPixels: 100,
+            drawableHeightPixels: 100
+        )
+
+        XCTAssertEqual(converted?.x, 10)
+        XCTAssertEqual(converted?.y, 40)
+        XCTAssertEqual(converted?.width, 30)
+        XCTAssertEqual(converted?.height, 20)
+
+        let bottomEdgeRect = TerminalRenderScissorRect(x: 0, y: 0, width: 100, height: 10)
+        let bottomEdgeConverted = TerminalMetalView.metalScissorRect(
+            from: bottomEdgeRect,
+            drawableWidthPixels: 100,
+            drawableHeightPixels: 100
+        )
+        XCTAssertEqual(bottomEdgeConverted?.y, 90)
+    }
+
+    func testMetalScissorRectConversionRejectsRectsOutsideTheDrawable() {
+        let overflowingRects = [
+            TerminalRenderScissorRect(x: -1, y: 0, width: 10, height: 10),
+            TerminalRenderScissorRect(x: 0, y: -1, width: 10, height: 10),
+            TerminalRenderScissorRect(x: 95, y: 0, width: 10, height: 10),
+            TerminalRenderScissorRect(x: 0, y: 95, width: 10, height: 10),
+            TerminalRenderScissorRect(x: 0, y: 0, width: 0, height: 10),
+            TerminalRenderScissorRect(x: 0, y: 0, width: 10, height: 0),
+        ]
+
+        for rect in overflowingRects {
+            XCTAssertNil(
+                TerminalMetalView.metalScissorRect(
+                    from: rect,
+                    drawableWidthPixels: 100,
+                    drawableHeightPixels: 100
+                ),
+                "rect \(rect) must be rejected so a mismatched plan forces a full redraw"
+            )
+        }
+    }
+
+    func testScissorRectContainmentGuardsCursorDamageCoverage() {
+        let rowBand = TerminalRenderScissorRect(x: 0, y: 40, width: 80, height: 40)
+
+        XCTAssertTrue(rowBand.contains(rowBand))
+        XCTAssertTrue(rowBand.contains(TerminalRenderScissorRect(x: 10, y: 50, width: 20, height: 10)))
+        XCTAssertFalse(rowBand.contains(TerminalRenderScissorRect(x: 10, y: 30, width: 20, height: 20)))
+        XCTAssertFalse(rowBand.contains(TerminalRenderScissorRect(x: 70, y: 40, width: 20, height: 40)))
+    }
+
+    @MainActor
+    func testMetalViewExposesAppliedDrawPassDiagnosticsWithSafeDefaults() {
+        let view = TerminalMetalView(font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
+
+        XCTAssertFalse(view.lastDrawUsedScissorForDiagnostics)
+        XCTAssertEqual(view.lastDrawScissorRectCountForDiagnostics, 0)
+        XCTAssertEqual(view.lastDrawEncodePathForDiagnostics, "none")
+        XCTAssertEqual(view.lastDrawFullRedrawReasonForDiagnostics, "none")
+    }
+
+    func testDrawAppliesScissorPlanThroughPersistentOffscreenContentTexture() throws {
+        let source = try metalViewSourceForDamageDiagnostics()
+
+        XCTAssertTrue(source.contains("encoder.setScissorRect(scissorRect)"))
+        XCTAssertTrue(source.contains("private func encodeDamageRegionTerminalContent("))
+        XCTAssertTrue(source.contains("private func encodeDamageRegionBackdropFill(using encoder: MTLRenderCommandEncoder)"))
+        XCTAssertTrue(source.contains("colorAttachment?.loadAction = plan.usesScissor ? .load : .clear"))
+        XCTAssertTrue(source.contains("descriptor.usage = [.renderTarget, .shaderRead]"))
+        XCTAssertTrue(source.contains("private var offscreenContentTexture: MTLTexture?"))
+        XCTAssertTrue(source.contains("private var offscreenContentIsValid = false"))
+        XCTAssertTrue(source.contains("private var pendingRequiresFullRedraw = true"))
+        XCTAssertTrue(source.contains("private func invalidateOffscreenContent()"))
+        XCTAssertTrue(source.contains("private func cursorDamageIsCoveredByPendingScissorRects() -> Bool"))
+        XCTAssertTrue(source.contains("let topOriginY = drawableHeightPixels - (rect.y + rect.height)"))
+    }
+
     private func makeFrame(
         dirtyRects: [TerminalFrameRect],
         isFullDamage: Bool
@@ -187,4 +386,10 @@ final class TerminalRenderDamageDiagnosticsTests: XCTestCase {
     private func rowRect(_ row: Int) -> TerminalFrameRect {
         TerminalFrameRect(x: 0, y: Double(row * 20), width: 40, height: 20)
     }
+}
+
+private func metalViewSourceForDamageDiagnostics() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalMetalView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
 }

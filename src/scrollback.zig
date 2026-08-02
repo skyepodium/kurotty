@@ -46,7 +46,7 @@ pub const Scrollback = struct {
     }
 
     fn appendOwned(self: *Scrollback, line: []u8) !void {
-        if (self.len() == self.capacity and self.capacity > 0) {
+        if (self.len() == self.capacity) {
             const old = self.lines.items[self.start_index];
             self.byte_count -= old.len;
             self.allocator.free(old);

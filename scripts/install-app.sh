@@ -11,7 +11,15 @@ INSTALLED_APP="$INSTALL_DIR/${APP_NAME}.app"
 RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 ICONSET_DIR="$APP_BUNDLE/Contents/Resources/kurotty.iconset"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
-SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}"
+# No fallback key: an install without the Sparkle secret must omit the Sparkle
+# Info.plist keys instead of silently shipping a hardcoded public key.
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
+SPARKLE_CONFIGURED_UPDATES="1"
+if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
+  SPARKLE_CONFIGURED_UPDATES="0"
+  echo "Skipping Sparkle metadata: KUROTTY_SPARKLE_PUBLIC_KEY is not set." >&2
+  echo "WARNING: the installed app will have no SUFeedURL/SUPublicEDKey and cannot self-update." >&2
+fi
 SIGN_IDENTITY="${KUROTTY_LOCAL_SIGN_IDENTITY:-${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
@@ -62,6 +70,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+$(if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
+  cat <<SPARKLE_KEYS
   <key>SUFeedURL</key>
   <string>$SPARKLE_FEED_URL</string>
   <key>SUPublicEDKey</key>
@@ -72,6 +82,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>SUAllowsAutomaticUpdates</key>
   <true/>
+SPARKLE_KEYS
+fi)
 </dict>
 </plist>
 PLIST

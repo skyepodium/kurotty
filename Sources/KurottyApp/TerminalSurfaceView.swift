@@ -21,50 +21,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
-    private var terminalDefaultStyle: TerminalTextStyle
+    private let interpreter: TerminalOutputInterpreter
     private var viewportBackground: SIMD4<Float>?
-    private var terminalAnsiColors: [SIMD4<Float>]
-    private var maxScrollbackRows: Int
-    private var screen = TerminalScreen(rows: AppConstants.Terminal.defaultRows, columns: AppConstants.Terminal.defaultColumns)
-    private var scrollbackRows = BoundedScrollbackRows()
-    private var scrollbackOffset = 0
     private var scrollWheelAccumulator = TerminalScrollWheelAccumulator()
-    private var normalScreenSnapshot: TerminalScreen?
-    private var cursorRow = 0
-    private var cursorColumn = 0
-    private var savedCursorRow = 0
-    private var savedCursorColumn = 0
-    private var alternateSavedCursorRow = 0
-    private var alternateSavedCursorColumn = 0
-    private var scrollRegionTop = 0
-    private var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
-    private var cursorVisible = true
     private var cursorBlinkOn = true
     private var cursorBlinkTimer: Timer?
-    private var isUsingAlternateScreen = false
-    private var alternateScreenRestoresCursor = false
-    private var insertModeEnabled = false
-    private var originModeEnabled = false
-    private var wraparoundModeEnabled = true
-    private var applicationCursorKeysEnabled = false
-    private var applicationKeypadEnabled = false
-    private var modifyOtherKeysMode = 0
-    private var extendedKeyFormat: TerminalExtendedKeyFormat = .xterm
-    private var tabStops = Set(stride(from: 8, through: 992, by: 8))
-    private var bracketedPasteEnabled = false
-    private var mouseReportingState = TerminalMouseReportingState()
-    private var focusReportingState = TerminalFocusReportingState()
-    private var pressedMouseButton: TerminalMouseButton?
-    private var currentStyle: TerminalTextStyle
-    private var activeHyperlinkURL: String?
-    private var parserState = StreamState.normal
-    private var csiBuffer = ""
-    private var oscBuffer = ""
-    private var terminalTitle = "-zsh"
-    private var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-    private var shellIntegration = TerminalShellIntegration(
-        currentWorkingDirectoryCandidate: FileManager.default.homeDirectoryForCurrentUser.path
-    )
     private var selectionAnchor: TerminalCellPosition?
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
@@ -82,18 +43,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var pendingMarkedTextAnchor: TerminalCellPosition?
     private var committedMarkedTextPrefix = ""
     private var committedMarkedTextPrefixAnchor: TerminalCellPosition?
+    private var markedTextInputSourceID: String?
+    private var inputSourceChangeCommitToSuppress: String?
     private var textInputEventDepth = 0
     private var needsDeferredTextInputFrame = false
     private var isTextInputRendererFrameScheduled = false
     private var keyTextAccumulator: [String]?
     private var keyboardSelectionInputStart: TerminalCellPosition?
-    private var lastSentSize = TerminalSize(columns: AppConstants.Terminal.defaultColumns, rows: AppConstants.Terminal.defaultRows)
     private var font: NSFont
-    private var pendingDirtyRows = Set<Int>()
-    private var pendingFullDamage = true
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
-    private var scrollbackRowsAppendedDuringOutput = 0
     private var pendingSubmittedInputText = ""
     private var lastSubmittedCommandText: String?
     private var debugFrameIndex: UInt64 = 0
@@ -129,13 +88,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             size: CGFloat(settings.terminal.fontSize)
         ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
         font = configuredFont
-        terminalDefaultStyle = TerminalTextStyle(
+        let terminalDefaultStyle = TerminalTextStyle(
             foreground: settings.terminal.colors.foregroundColor,
             background: settings.terminal.colors.backgroundColor
         )
-        terminalAnsiColors = Self.ansiColors(from: settings)
-        currentStyle = terminalDefaultStyle
-        maxScrollbackRows = max(1, settings.terminal.scrollbackLines)
+        interpreter = TerminalOutputInterpreter(
+            defaultStyle: terminalDefaultStyle,
+            ansiColors: Self.ansiColors(from: settings),
+            maxScrollbackRows: max(1, settings.terminal.scrollbackLines)
+        )
         renderer = TerminalRendererFactory.makeDefaultRenderer(
             font: configuredFont,
             backgroundColor: terminalDefaultStyle.background,
@@ -157,6 +118,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             rendererView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         scrollIndicatorCoordinator.install(in: self)
+        interpreter.host = TerminalOutputInterpreterHost(
+            sendTerminalResponse: { [weak self] text in self?.sendTerminalResponse(text) },
+            respondToOscQuery: { [weak self] code in self?.respondToOscQuery(code) },
+            dispatchTerminalIntegrationOsc: { [weak self] command in
+                self?.dispatchTerminalIntegrationOsc(command) ?? .ignored
+            },
+            publishTitle: { [weak self] in self?.publishTitle() },
+            handleTerminalIntegrationEvent: { [weak self] event in self?.handleTerminalIntegrationEvent(event) },
+            handleDesktopNotificationEvent: { [weak self] event in self?.handleDesktopNotificationEvent(event) },
+            handleClipboardWriteEvent: { [weak self] event in self?.handleClipboardWriteEvent(event) },
+            ringTerminalBell: { [weak self] in self?.ringTerminalBell() },
+            updateScrollIndicator: { [weak self] in self?.updateScrollIndicator() },
+            maxScrollbackOffset: { [weak self] visibleRows in
+                self?.maxScrollbackOffset(visibleRows: visibleRows) ?? 0
+            },
+            reportTerminalFocusIfNeeded: { [weak self] in self?.reportTerminalFocusIfNeeded() }
+        )
         installOutputInterceptor { [weak self] text in
             guard let self else { return text }
             let wasActive = tmuxControlModeDriver.isActive
@@ -315,6 +293,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func setSelectionForTesting(anchor: TerminalCellPosition?, focus: TerminalCellPosition?) {
         selectionAnchor = anchor
         selectionFocus = focus
+    }
+
+    var selectionForTesting: (anchor: TerminalCellPosition?, focus: TerminalCellPosition?) {
+        (selectionAnchor, selectionFocus)
+    }
+
+    var contentRowCountForTesting: Int {
+        contentRowCount
     }
 
     func terminalSequenceForTesting(_ selector: Selector) -> String? {
@@ -582,6 +568,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
         core.recordKeyEvent()
+        // keyboardSelectionDidChange can arrive after the first keystroke on the
+        // new input source. If the source changed while a composition is alive,
+        // commit the preedit now so this key cannot be written ahead of it.
+        if hasMarkedText(), markedTextInputSourceID != inputContext?.selectedKeyboardInputSource {
+            commitPendingCompositionForInputSourceChange()
+        }
         if handleCommandKey(event) {
             return
         }
@@ -663,6 +655,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     @objc func cut(_ sender: Any?) {
         copy(sender)
+    }
+
+    override func selectAll(_ sender: Any?) {
+        selectEntireBuffer()
+    }
+
+    /// Selects every content row: the full scrollback plus the visible screen.
+    /// Selection positions are content-absolute (scrollback + screen), so the
+    /// existing highlight rendering and copy path work unchanged.
+    private func selectEntireBuffer() {
+        let totalRows = contentRowCount
+        guard totalRows > 0, screen.columns > 0 else { return }
+        selectionGestureState.beginCharacterSelection()
+        selectionAnchor = TerminalCellPosition(row: 0, column: 0)
+        selectionFocus = TerminalCellPosition(row: totalRows - 1, column: screen.columns - 1)
+        markFullDamage()
+        updateRendererFrame()
     }
 
     func sendText(_ text: String) {
@@ -784,6 +793,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             return true
         case "x" where flags == .command:
             cut(nil)
+            return true
+        case "a" where flags == .command:
+            // latinKeyEquivalent falls back to the hardware keyCode (kVK_ANSI_A
+            // = 0 maps to "a"), so Cmd+A matches even when a non-Latin input
+            // source reports "ㅁ" in charactersIgnoringModifiers. Returning true
+            // here also keeps Cmd+A out of the command-shortcut control-text
+            // fallback that would otherwise write Ctrl-A to the shell.
+            selectAll(nil)
             return true
         default:
             return false
@@ -912,11 +929,31 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func handleInputSourceChanged() {
-        // Reset only kurotty's overlay state here. Calling discardMarkedText()
-        // from the global keyboardSelectionDidChange notification re-enters
-        // AppKit/IMK synchronously; with split panes every surface observes the
-        // notification, which can pin the main thread during the next key event.
+        commitPendingCompositionForInputSourceChange()
+    }
+
+    /// An input-source switch (한/영) ends the current composition, but IMK does
+    /// not reliably deliver the dying preedit's insertText before the next
+    /// keystroke on the new source reaches the PTY. Left alone, the preedit
+    /// either vanishes (flicker) or lands after later keystrokes ("dks안").
+    /// Commit it to the PTY here, then swallow IMK's duplicate commit if one
+    /// still arrives. discardMarkedText() must not run synchronously inside the
+    /// global keyboardSelectionDidChange notification — it re-enters AppKit/IMK
+    /// and can pin the main thread with split panes — so it is deferred.
+    private func commitPendingCompositionForInputSourceChange() {
+        guard hasMarkedText() || !committedMarkedTextPrefix.isEmpty else { return }
+        let pendingComposition = committedMarkedTextPrefix + markedText.string
+        let isActiveInputClient = window?.firstResponder === self
         resetMarkedTextForInputSourceChange()
+        guard isActiveInputClient, !pendingComposition.isEmpty else { return }
+        sendCommittedText(pendingComposition, source: "inputSourceChange")
+        inputSourceChangeCommitToSuppress = pendingComposition
+        DispatchQueue.main.async { [weak self] in
+            self?.inputContext?.discardMarkedText()
+            DispatchQueue.main.async { [weak self] in
+                self?.inputSourceChangeCommitToSuppress = nil
+            }
+        }
     }
 
     private func resetMarkedTextForInputSourceChange() {
@@ -926,6 +963,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         inputSelectedRange = NSRange(location: NSNotFound, length: 0)
         markedTextAnchor = nil
         pendingMarkedTextAnchor = nil
+        markedTextInputSourceID = nil
         clearCommittedMarkedTextPrefix()
         markDirty(row: cursorRow)
         updateRendererFrame()
@@ -1211,6 +1249,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = TerminalTextInputRouter.committedText(from: string)
         TerminalTextInputRouter.logInsertText(text, replacementRange: replacementRange)
+        if let suppressed = inputSourceChangeCommitToSuppress {
+            inputSourceChangeCommitToSuppress = nil
+            if text == suppressed, !hasMarkedText() {
+                // Already committed by commitPendingCompositionForInputSourceChange();
+                // this is IMK's late duplicate for the dead composition.
+                return
+            }
+        }
         appendCommittedMarkedTextPrefix(text)
         recordPendingMarkedTextAnchor(afterCommitting: text)
         clearMarkedText(renderFrame: false)
@@ -1248,6 +1294,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markedTextAnchor = pendingMarkedTextAnchor ?? TerminalCellPosition(row: cursorRow, column: cursorColumn)
             pendingMarkedTextAnchor = nil
         }
+        markedTextInputSourceID = inputContext?.selectedKeyboardInputSource
+        inputSourceChangeCommitToSuppress = nil
         markedText = NSMutableAttributedString(attributedString: attr)
         inputSelectedRange = selectedRange
         markMarkedTextDirty()
@@ -1552,10 +1600,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         // TUIs often clear and repaint the same status/input row across adjacent
         // PTY chunks. Coalescing one display tick avoids presenting the cleared
         // intermediate model as visible flicker or a cursor jump.
+        // The closure already runs on the main queue after the coalescing tick;
+        // a nested Task { @MainActor } would only add one more scheduling hop.
         DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Component.ptyOutputCoalescingDelaySeconds) { [weak self] in
-            Task { @MainActor in
-                self?.flushPendingOutput()
-            }
+            guard let self else { return }
+            self.flushPendingOutput()
         }
     }
 
@@ -1590,35 +1639,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             markDirty(row: previousCursorRow)
         }
         core.feed(text)
-        for character in text {
-            if parserState == .normal && character.isTerminalPrintableGrapheme {
-                appendPrintable(String(character))
-                continue
-            }
-
-            for scalar in character.unicodeScalars {
-                if consumeControl(scalar) {
-                    continue
-                }
-
-                switch scalar.value {
-                case 10:
-                    lineFeed()
-                case 13:
-                    cursorColumn = 0
-                case 8:
-                    cursorColumn = max(0, cursorColumn - 1)
-                case 9:
-                    cursorColumn = tabStops.filter { $0 > cursorColumn }.min() ?? max(0, screen.columns - 1)
-                case 7:
-                    ringTerminalBell()
-                case 0..<32, 127:
-                    continue
-                default:
-                    appendPrintable(String(Character(scalar)))
-                }
-            }
-        }
+        interpreter.interpret(text)
         pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput
@@ -1688,10 +1709,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func selectedCellSet() -> Set<TerminalCellPosition> {
         guard let range = normalizedSelectionRange() else { return [] }
-        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
+        let visibleRowLimit = terminalMetrics().size.rows
+        let rows = visibleRowsForRendering(limit: visibleRowLimit)
+        let visibleStartRow = visibleRowStartIndex(limit: visibleRowLimit)
+        // The renderer only consumes visible cells, so clamp the walk to the
+        // visible band. A whole-buffer selection (Select All) must not build a
+        // position set across the entire scrollback on every frame.
+        let firstRow = max(range.start.row, visibleStartRow)
+        let lastRow = min(range.end.row, visibleStartRow + rows.count - 1)
+        guard firstRow <= lastRow else { return [] }
         var cells = Set<TerminalCellPosition>()
-        for row in range.start.row...range.end.row {
-            let sourceRow = rows.indices.contains(row) ? rows[row] : []
+        for row in firstRow...lastRow {
+            let visibleIndex = row - visibleStartRow
+            let sourceRow = rows.indices.contains(visibleIndex) ? rows[visibleIndex] : []
             let startColumn = row == range.start.row ? range.start.column : 0
             let baseEndColumn = row == range.end.row ? range.end.column : screen.columns - 1
             let selectionCells = sourceRow.map {
@@ -2386,117 +2416,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
-    private func appendPrintable(_ text: String) {
-        for character in text {
-            let width = character.terminalColumnWidth
-            guard width > 0 else {
-                screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)
-                markDirty(row: cursorRow)
-                continue
-            }
-            if wraparoundModeEnabled {
-                if width == 2 && cursorColumn == screen.columns - 1 {
-                    screen.markRowWrapped(cursorRow)
-                    carriageReturnLineFeed()
-                } else if cursorColumn >= screen.columns {
-                    screen.markRowWrapped(cursorRow)
-                    carriageReturnLineFeed()
-                }
-            } else {
-                cursorColumn = min(max(0, cursorColumn), max(0, screen.columns - 1))
-            }
-
-            if insertModeEnabled {
-                screen.insertCharacters(
-                    row: cursorRow,
-                    column: cursorColumn,
-                    count: min(width, screen.columns - cursorColumn),
-                    style: currentStyle
-                )
-            }
-
-            screen.set(
-                character: character,
-                row: cursorRow,
-                column: cursorColumn,
-                width: width,
-                style: currentStyle,
-                linkURL: activeHyperlinkURL
-            )
-            markDirty(row: cursorRow)
-            if wraparoundModeEnabled {
-                cursorColumn += width
-            } else {
-                cursorColumn = min(screen.columns - 1, cursorColumn + width)
-            }
-        }
-    }
-
-    private func lineFeed() {
-        markDirty(row: cursorRow)
-        if cursorRow >= scrollRegionTop && cursorRow == scrollRegionBottom {
-            let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)
-            if shouldAppendScrollbackForActiveScrollRegion() {
-                appendScrollback(rows: removed)
-            }
-            markFullDamage()
-        } else {
-            cursorRow = min(screen.rows - 1, cursorRow + 1)
-            markDirty(row: cursorRow)
-        }
-    }
-
-    private func resetScrollRegion() {
-        scrollRegionTop = 0
-        scrollRegionBottom = max(0, screen.rows - 1)
-        logScrollRegion(reason: "reset")
-    }
-
-    private func setScrollRegion(_ parsed: CsiParameters) {
-        guard !parsed.isPrivate else { return }
-        if parsed.values.isEmpty {
-            resetScrollRegion()
-        } else {
-            let top = max(0, min(screen.rows - 1, parsed.value(at: 0, default: 1) - 1))
-            let bottom = max(0, min(screen.rows - 1, parsed.value(at: 1, default: screen.rows) - 1))
-            guard top < bottom else { return }
-            scrollRegionTop = top
-            scrollRegionBottom = bottom
-            logScrollRegion(reason: "set")
-        }
-        // DECSTBM moves the cursor home so subsequent TUI draws target the new
-        // scroll contract rather than the old cursor row.
-        cursorRow = originModeEnabled ? scrollRegionTop : 0
-        cursorColumn = 0
-        markFullDamage()
-    }
-
-    private func logScrollRegion(reason: String) {
-        guard DebugOptions.scrollRegion || DebugOptions.vtParser else { return }
-        NSLog(
-            "Kurotty scroll region %@: top=%d bottom=%d rows=%d cursor=(%d,%d)",
-            reason,
-            scrollRegionTop,
-            scrollRegionBottom,
-            screen.rows,
-            cursorRow,
-            cursorColumn
-        )
-    }
-
-    private func appendScrollback(rows: [[TerminalScreenCell]]) {
-        scrollbackRowsAppendedDuringOutput += rows.count
-        scrollbackRows.append(contentsOf: rows, limit: maxScrollbackRows)
-        scrollbackOffset = min(scrollbackOffset, maxScrollbackOffset())
-        updateScrollIndicator()
-    }
-
-    @discardableResult
-    private func trimScrollbackRowsToLimit() -> Bool {
-        let didTrim = scrollbackRows.trim(to: maxScrollbackRows)
-        scrollbackOffset = min(scrollbackOffset, maxScrollbackOffset())
-        return didTrim
-    }
 
     private func layoutScrollIndicator() {
         let visibleRows = max(1, terminalMetrics().size.rows)
@@ -2518,150 +2437,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
-    private func shouldAppendScrollbackForActiveScrollRegion() -> Bool {
-        // TUIs such as Codex often reserve bottom rows with DECSTBM while still
-        // scrolling the transcript from row 0. Lines leaving that top-anchored
-        // region should remain reachable via terminal scrollback.
-        scrollRegionTop == 0
-    }
-
-    private func carriageReturnLineFeed() {
-        cursorColumn = 0
-        lineFeed()
-    }
-
-    private func consumeControl(_ scalar: UnicodeScalar) -> Bool {
-        switch parserState {
-        case .normal:
-            if scalar.value == 0x1b {
-                parserState = .escape
-                return true
-            }
-            return false
-        case .escape:
-            switch scalar {
-            case "[":
-                csiBuffer = ""
-                parserState = .csi
-            case "]":
-                oscBuffer = ""
-                parserState = .osc
-            case let scalar where TerminalEscapeSequence.beginsTwoByteDesignator(scalar):
-                parserState = .escapeDesignator
-            case let scalar where TerminalEscapeSequence.beginsTwoByteDecPrivate(scalar):
-                parserState = .escapeDecPrivate
-            case "7":
-                savedCursorRow = cursorRow
-                savedCursorColumn = cursorColumn
-                parserState = .normal
-            case "8":
-                cursorRow = min(screen.rows - 1, savedCursorRow)
-                cursorColumn = min(screen.columns - 1, savedCursorColumn)
-                parserState = .normal
-            case "H":
-                tabStops.insert(cursorColumn)
-                parserState = .normal
-            case "=":
-                applicationKeypadEnabled = true
-                parserState = .normal
-            case ">":
-                applicationKeypadEnabled = false
-                parserState = .normal
-            case "D":
-                lineFeed()
-                parserState = .normal
-            case "E":
-                carriageReturnLineFeed()
-                parserState = .normal
-            case "M":
-                reverseIndex()
-                parserState = .normal
-            case "c":
-                resetTerminal()
-                parserState = .normal
-            default:
-                parserState = .normal
-            }
-            return true
-        case .escapeDesignator:
-            parserState = .normal
-            return true
-        case .escapeDecPrivate:
-            parserState = .normal
-            return true
-        case .csi:
-            if scalar.value >= 0x40 && scalar.value <= 0x7e {
-                executeCsi(final: Character(scalar), params: csiBuffer)
-                csiBuffer = ""
-                parserState = .normal
-            } else {
-                csiBuffer.append(Character(scalar))
-            }
-            return true
-        case .osc:
-            if scalar.value == 0x07 {
-                executeOsc(oscBuffer)
-                oscBuffer = ""
-                parserState = .normal
-            } else if scalar.value == 0x1b {
-                parserState = .oscEscape
-            } else {
-                oscBuffer.append(Character(scalar))
-            }
-            return true
-        case .oscEscape:
-            if scalar == "\\" {
-                executeOsc(oscBuffer)
-            }
-            oscBuffer = ""
-            parserState = .normal
-            return true
-        }
-    }
-
-    private func executeOsc(_ command: String) {
-        let parts = command.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else { return }
-        let code = String(parts[0])
-        let payload = String(parts[1])
-
-        if payload == "?" {
-            respondToOscQuery(code)
-            return
-        }
-
-        let terminalEvent = dispatchTerminalIntegrationOsc(command)
-
-        switch code {
-        case "0", "1", "2":
-            terminalTitle = payload
-            publishTitle()
-        case "7":
-            if case let .shellIntegration(.workingDirectoryChanged(path)) = terminalEvent {
-                currentWorkingDirectory = path
-            }
-            publishTitle()
-        case "8":
-            applyHyperlinkControl(payload)
-        default:
-            break
-        }
-
-        handleTerminalIntegrationEvent(terminalEvent)
-        handleDesktopNotificationEvent(terminalEvent)
-        handleClipboardWriteEvent(terminalEvent)
-    }
-
-    private func applyHyperlinkControl(_ payload: String) {
-        switch TerminalHyperlinkControl.update(fromOSC8Payload: payload) {
-        case .activate(let urlString):
-            activeHyperlinkURL = urlString
-        case .clear:
-            activeHyperlinkURL = nil
-        case .ignore:
-            break
-        }
-    }
 
     private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
         var dispatcher = TerminalOSCDispatcher(
@@ -2786,378 +2561,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return "rgb:\(component(color.x))/\(component(color.y))/\(component(color.z))"
     }
 
-    private func executeCsi(final: Character, params: String) {
-        let parsed = CsiParameters(params)
-        let previousCursorRow = cursorRow
-        logCsi(final: final, params: params, parsed: parsed, phase: "before")
-        switch final {
-        case "A":
-            cursorRow = max(0, cursorRow - parsed.value(at: 0, default: 1))
-        case "B", "e":
-            cursorRow = min(screen.rows - 1, cursorRow + parsed.value(at: 0, default: 1))
-        case "C", "a":
-            cursorColumn = min(screen.columns - 1, cursorColumn + parsed.value(at: 0, default: 1))
-        case "D":
-            cursorColumn = max(0, cursorColumn - parsed.value(at: 0, default: 1))
-        case "E":
-            cursorRow = min(screen.rows - 1, cursorRow + parsed.value(at: 0, default: 1))
-            cursorColumn = 0
-        case "F":
-            cursorRow = max(0, cursorRow - parsed.value(at: 0, default: 1))
-            cursorColumn = 0
-        case "G", "`":
-            cursorColumn = min(screen.columns - 1, max(0, parsed.value(at: 0, default: 1) - 1))
-        case "H":
-            setCursorPosition(parsed)
-        case "f":
-            if parsed.prefix == ">" {
-                applyExtendedKeyFormat(parsed)
-            } else {
-                setCursorPosition(parsed)
-            }
-        case "J":
-            eraseInDisplay(mode: parsed.value(at: 0, default: 0))
-        case "K":
-            eraseInLine(mode: parsed.value(at: 0, default: 0))
-        case "L":
-            insertLines(count: parsed.value(at: 0, default: 1))
-        case "M":
-            deleteLines(count: parsed.value(at: 0, default: 1))
-        case "P":
-            screen.deleteCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            markDirty(row: cursorRow)
-        case "X":
-            let count = max(1, parsed.value(at: 0, default: 1))
-            screen.clear(row: cursorRow, from: cursorColumn, through: cursorColumn + count - 1, style: currentStyle)
-            markDirty(row: cursorRow)
-        case "@":
-            screen.insertCharacters(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            markDirty(row: cursorRow)
-        case "b":
-            let written = screen.repeatPrecedingGraphicCharacter(row: cursorRow, column: cursorColumn, count: parsed.value(at: 0, default: 1))
-            if written > 0 {
-                cursorColumn = min(screen.columns, cursorColumn + written)
-                markDirty(row: cursorRow)
-            }
-        case "S":
-            let removed = screen.scrollUpRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            if shouldAppendScrollbackForActiveScrollRegion() {
-                appendScrollback(rows: removed)
-            }
-            markFullDamage()
-        case "T":
-            screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, count: parsed.value(at: 0, default: 1), style: currentStyle)
-            markFullDamage()
-        case "m":
-            if parsed.prefix == ">" {
-                applyModifyOtherKeysMode(parsed)
-            } else if TerminalSgrPolicy.shouldApplySgr(for: parsed) {
-                applySgr(parsed.elements)
-            }
-        case "r":
-            setScrollRegion(parsed)
-        case "g":
-            guard !parsed.isPrivate else { break }
-            switch parsed.value(at: 0, default: 0) {
-            case 0:
-                tabStops.remove(cursorColumn)
-            case 3:
-                tabStops.removeAll(keepingCapacity: true)
-            default:
-                break
-            }
-        case "s":
-            savedCursorRow = cursorRow
-            savedCursorColumn = cursorColumn
-        case "u":
-            guard !parsed.isPrivate else { break }
-            cursorRow = min(screen.rows - 1, savedCursorRow)
-            cursorColumn = min(screen.columns - 1, savedCursorColumn)
-        case "n":
-            if parsed.prefix == ">", parsed.values.first == 4 {
-                modifyOtherKeysMode = 0
-            } else if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6 {
-                sendTerminalResponse(cursorPositionReport())
-            }
-        case "c":
-            if let response = TerminalDeviceAttributes.response(for: parsed) {
-                sendTerminalResponse(response)
-            }
-        case "h":
-            setMode(params: parsed, enabled: true)
-        case "l":
-            setMode(params: parsed, enabled: false)
-        default:
-            break
-        }
-        if cursorRow != previousCursorRow {
-            markDirty(row: previousCursorRow)
-            markDirty(row: cursorRow)
-        }
-        logCsi(final: final, params: params, parsed: parsed, phase: "after")
-    }
-
-    private func logCsi(final: Character, params: String, parsed: CsiParameters, phase: String) {
-        guard DebugOptions.vtParser || DebugOptions.cursorLog else { return }
-        NSLog(
-            "Kurotty CSI %@: ESC[%@%@ private=%@ values=%@ cursor=(%d,%d) scrollRegion=%d-%d fg=%@ bg=%@",
-            phase,
-            params,
-            String(final),
-            parsed.isPrivate ? "yes" : "no",
-            parsed.values.map(String.init).joined(separator: ","),
-            cursorRow,
-            cursorColumn,
-            scrollRegionTop,
-            scrollRegionBottom,
-            currentStyle.effectiveForeground.debugRGB,
-            currentStyle.effectiveBackground.debugRGB
-        )
-    }
-
-    private func setCursorPosition(_ params: CsiParameters) {
-        guard params.prefix == nil else { return }
-        let requestedRow = max(0, params.value(at: 0, default: 1) - 1)
-        if originModeEnabled {
-            cursorRow = min(scrollRegionBottom, scrollRegionTop + requestedRow)
-        } else {
-            cursorRow = min(screen.rows - 1, requestedRow)
-        }
-        cursorColumn = min(screen.columns - 1, max(0, params.value(at: 1, default: 1) - 1))
-    }
-
-    private func applyModifyOtherKeysMode(_ params: CsiParameters) {
-        guard params.values.first == 4 else { return }
-        let requested = params.values.count > 1 ? params.values[1] : 0
-        guard (0...2).contains(requested) else { return }
-        modifyOtherKeysMode = requested
-    }
-
-    private func applyExtendedKeyFormat(_ params: CsiParameters) {
-        guard params.values.first == 4 else { return }
-        let requested = params.values.count > 1 ? params.values[1] : 0
-        switch requested {
-        case 0:
-            extendedKeyFormat = .xterm
-        case 1:
-            extendedKeyFormat = .csiU
-        default:
-            break
-        }
-    }
-
-    private func insertLines(count: Int) {
-        let bottom = cursorRow >= scrollRegionTop && cursorRow <= scrollRegionBottom ? scrollRegionBottom : screen.rows - 1
-        screen.insertLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)
-        markDirty(rows: cursorRow..<(bottom + 1))
-    }
-
-    private func deleteLines(count: Int) {
-        let bottom = cursorRow >= scrollRegionTop && cursorRow <= scrollRegionBottom ? scrollRegionBottom : screen.rows - 1
-        screen.deleteLines(at: cursorRow, bottom: bottom, count: count, style: currentStyle)
-        markDirty(rows: cursorRow..<(bottom + 1))
-    }
-
-    private func cursorPositionReport() -> String {
-        "\u{1b}[\(cursorRow + 1);\(cursorColumn + 1)R"
-    }
-
-    private func setMode(params: CsiParameters, enabled: Bool) {
-        if !params.isPrivate {
-            for value in params.values where value == 4 {
-                insertModeEnabled = enabled
-            }
-            return
-        }
-        for value in params.values {
-            switch value {
-            case 1:
-                applicationCursorKeysEnabled = enabled
-            case 6:
-                originModeEnabled = enabled
-                cursorRow = enabled ? scrollRegionTop : 0
-                cursorColumn = 0
-            case 7:
-                wraparoundModeEnabled = enabled
-            case 25:
-                cursorVisible = enabled
-                markDirty(row: cursorRow)
-            case 47, 1047:
-                if enabled {
-                    enterAlternateScreen(restoresCursor: false)
-                } else {
-                    leaveAlternateScreen(restoresCursor: false)
-                }
-            case 1048:
-                if enabled {
-                    savedCursorRow = cursorRow
-                    savedCursorColumn = cursorColumn
-                } else {
-                    cursorRow = min(screen.rows - 1, savedCursorRow)
-                    cursorColumn = min(screen.columns - 1, savedCursorColumn)
-                }
-            case 1049:
-                if enabled {
-                    enterAlternateScreen(restoresCursor: true)
-                } else {
-                    leaveAlternateScreen(restoresCursor: true)
-                }
-            case 2004:
-                bracketedPasteEnabled = enabled
-            case 1004:
-                focusReportingState.set(enabled: enabled)
-                reportTerminalFocusIfNeeded()
-            case 1000, 1002, 1003, 1005, 1006:
-                mouseReportingState.set(decPrivateMode: value, enabled: enabled)
-            default:
-                break
-            }
-        }
-    }
-
-    private func eraseInLine(mode: Int) {
-        switch mode {
-        case 0:
-            screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1, style: currentStyle)
-            markDirty(row: cursorRow)
-        case 1:
-            screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)
-            markDirty(row: cursorRow)
-        case 2:
-            screen.clear(row: cursorRow, style: currentStyle)
-            markDirty(row: cursorRow)
-        default:
-            break
-        }
-    }
-
-    private func eraseInDisplay(mode: Int) {
-        switch mode {
-        case 0:
-            eraseInLine(mode: 0)
-            if cursorRow + 1 < screen.rows {
-                for row in (cursorRow + 1)..<screen.rows {
-                    screen.clear(row: row, style: currentStyle)
-                }
-                markDirty(rows: (cursorRow + 1)..<screen.rows)
-            }
-        case 1:
-            if cursorRow > 0 {
-                for row in 0..<cursorRow {
-                    screen.clear(row: row, style: currentStyle)
-                }
-                markDirty(rows: 0..<cursorRow)
-            }
-            eraseInLine(mode: 1)
-        case 2:
-            screen.clear(style: currentStyle)
-            cursorRow = 0
-            cursorColumn = 0
-            markFullDamage()
-        case 3:
-            scrollbackRows = BoundedScrollbackRows()
-            scrollbackOffset = 0
-            updateScrollIndicator()
-            markFullDamage()
-        default:
-            break
-        }
-    }
-
-    private func reverseIndex() {
-        markDirty(row: cursorRow)
-        if cursorRow >= scrollRegionTop && cursorRow == scrollRegionTop {
-            screen.scrollDownRegion(top: scrollRegionTop, bottom: scrollRegionBottom, style: currentStyle)
-            markFullDamage()
-        } else {
-            cursorRow = max(0, cursorRow - 1)
-            markDirty(row: cursorRow)
-        }
-    }
-
-    private func enterAlternateScreen(restoresCursor: Bool) {
-        guard !isUsingAlternateScreen else { return }
-        if restoresCursor {
-            alternateSavedCursorRow = cursorRow
-            alternateSavedCursorColumn = cursorColumn
-        }
-        normalScreenSnapshot = screen
-        screen.clear()
-        cursorRow = 0
-        cursorColumn = 0
-        resetScrollRegion()
-        isUsingAlternateScreen = true
-        alternateScreenRestoresCursor = restoresCursor
-        markFullDamage()
-    }
-
-    private func leaveAlternateScreen(restoresCursor: Bool) {
-        guard isUsingAlternateScreen else { return }
-        let shouldRestoreCursor = restoresCursor || alternateScreenRestoresCursor
-        if let snapshot = normalScreenSnapshot {
-            screen = snapshot
-            cursorRow = screen.resize(
-                rows: lastSentSize.rows,
-                columns: lastSentSize.columns,
-                anchorRow: shouldRestoreCursor ? alternateSavedCursorRow : cursorRow
-            )
-        } else {
-            screen.clear()
-        }
-        if shouldRestoreCursor {
-            cursorRow = min(max(0, alternateSavedCursorRow), screen.rows - 1)
-            cursorColumn = min(max(0, alternateSavedCursorColumn), screen.columns - 1)
-        } else {
-            cursorRow = min(cursorRow, screen.rows - 1)
-            cursorColumn = min(cursorColumn, screen.columns - 1)
-        }
-        resetScrollRegion()
-        normalScreenSnapshot = nil
-        isUsingAlternateScreen = false
-        alternateScreenRestoresCursor = false
-        markFullDamage()
-    }
-
-    private func resetTerminal() {
-        screen.clear()
-        cursorRow = 0
-        cursorColumn = 0
-        cursorVisible = true
-        insertModeEnabled = false
-        originModeEnabled = false
-        wraparoundModeEnabled = true
-        applicationCursorKeysEnabled = false
-        applicationKeypadEnabled = false
-        modifyOtherKeysMode = 0
-        extendedKeyFormat = .xterm
-        tabStops = Set(stride(from: 8, through: 992, by: 8))
-        bracketedPasteEnabled = false
-        mouseReportingState.reset()
-        focusReportingState.set(enabled: false)
-        pressedMouseButton = nil
-        currentStyle = terminalDefaultStyle
-        activeHyperlinkURL = nil
-        normalScreenSnapshot = nil
-        isUsingAlternateScreen = false
-        alternateScreenRestoresCursor = false
-        resetScrollRegion()
-        markFullDamage()
-    }
-
-    private func markDirty(row: Int) {
-        guard row >= 0 else { return }
-        pendingDirtyRows.insert(row)
-    }
-
-    private func markDirty(rows: Range<Int>) {
-        for row in rows {
-            markDirty(row: row)
-        }
-    }
-
-    private func markFullDamage() {
-        pendingFullDamage = true
-    }
 
     private func consumePendingDamage(metrics: TerminalMetrics) -> TerminalFrameDamage {
         let visibleRows = max(1, metrics.size.rows)
@@ -3185,143 +2588,201 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         return TerminalFrameDamage(rows: rows, rects: rects, isFull: isFull)
     }
 
-    private func applySgr(_ elements: [CsiParameterElement]) {
-        let codes = elements.isEmpty ? [CsiParameterElement(values: [0])] : elements
-        var index = 0
-        while index < codes.count {
-            let element = codes[index]
-            let code = element.value
-            switch code {
-            case 0:
-                currentStyle = terminalDefaultStyle
-            case 1:
-                currentStyle.bold = true
-            case 2:
-                currentStyle.dim = true
-            case 3:
-                currentStyle.italic = true
-            case 4:
-                applyUnderlineSgr(element)
-            case 5:
-                currentStyle.blink = true
-            case 9:
-                currentStyle.strikethrough = true
-            case 22:
-                currentStyle.bold = false
-                currentStyle.dim = false
-            case 23:
-                currentStyle.italic = false
-            case 24:
-                currentStyle.underline = false
-            case 25:
-                currentStyle.blink = false
-            case 29:
-                currentStyle.strikethrough = false
-            case 7:
-                currentStyle.inverse = true
-            case 27:
-                currentStyle.inverse = false
-            case 30...37:
-                currentStyle.foreground = terminalAnsiColor(code - 30, bright: currentStyle.bold)
-            case 39:
-                currentStyle.foreground = terminalDefaultStyle.foreground
-            case 40...47:
-                currentStyle.background = terminalAnsiColor(code - 40, bright: false)
-            case 49:
-                currentStyle.background = terminalDefaultStyle.background
-            case 90...97:
-                currentStyle.foreground = terminalAnsiColor(code - 90, bright: true)
-            case 100...107:
-                currentStyle.background = terminalAnsiColor(code - 100, bright: true)
-            case 38, 48:
-                let isForeground = code == 38
-                if let color = colorFromColonSgr(element) {
-                    if isForeground {
-                        currentStyle.foreground = color
-                    } else {
-                        currentStyle.background = color
-                    }
-                    break
-                }
-                guard index + 1 < codes.count else { break }
-                if codes[index + 1].value == 5, index + 2 < codes.count {
-                    let color = xterm256Color(codes[index + 2].value)
-                    if isForeground {
-                        currentStyle.foreground = color
-                    } else {
-                        currentStyle.background = color
-                    }
-                    index += 2
-                } else if codes[index + 1].value == 2, index + 4 < codes.count {
-                    let color = TerminalTextStyle.rgb(red: codes[index + 2].value, green: codes[index + 3].value, blue: codes[index + 4].value)
-                    if isForeground {
-                        currentStyle.foreground = color
-                    } else {
-                        currentStyle.background = color
-                    }
-                    index += 4
-                }
-            default:
-                break
-            }
-            index += 1
-        }
+}
+
+// MARK: - Interpreter state and mutation forwarding
+// TerminalOutputInterpreter owns the terminal-model state. These forwarders
+// keep the surface view's rendering, selection, resize, IME, and testing
+// paths reading and writing that state under the original names.
+extension TerminalSurfaceView {
+    private var terminalDefaultStyle: TerminalTextStyle {
+        get { interpreter.terminalDefaultStyle }
+        set { interpreter.terminalDefaultStyle = newValue }
     }
 
-    private func applyUnderlineSgr(_ element: CsiParameterElement) {
-        guard element.values.count > 1 else {
-            currentStyle.underline = true
-            return
-        }
-        currentStyle.underline = element.values[1] != 0
+    private var terminalAnsiColors: [SIMD4<Float>] {
+        get { interpreter.terminalAnsiColors }
+        set { interpreter.terminalAnsiColors = newValue }
     }
 
-    private func colorFromColonSgr(_ element: CsiParameterElement) -> SIMD4<Float>? {
-        guard element.values.count > 1 else { return nil }
-        switch element.values[1] {
-        case 5:
-            guard element.values.count > 2 else { return nil }
-            return xterm256Color(element.values[2])
-        case 2:
-            let colorComponents = Array(element.values.dropFirst(2).suffix(3))
-            guard colorComponents.count == 3 else { return nil }
-            return TerminalTextStyle.rgb(red: colorComponents[0], green: colorComponents[1], blue: colorComponents[2])
-        default:
-            return nil
-        }
+    private var maxScrollbackRows: Int {
+        get { interpreter.maxScrollbackRows }
+        set { interpreter.maxScrollbackRows = newValue }
     }
 
-    private func terminalAnsiColor(_ index: Int, bright: Bool) -> SIMD4<Float> {
-        let offset = bright ? DesignTokens.Color.ansiNormal.count : 0
-        let clampedIndex = max(0, min(offset + index, terminalAnsiColors.count - 1))
-        return terminalAnsiColors[clampedIndex]
+    private var screen: TerminalScreen {
+        get { interpreter.screen }
+        set { interpreter.screen = newValue }
     }
 
-    private func xterm256Color(_ value: Int) -> SIMD4<Float> {
-        let index = max(0, min(value, 255))
-        if index < TerminalColorSettings.requiredAnsiColorCount {
-            return terminalAnsiColors[index]
-        }
-        if terminalDefaultStyle.isLightBackground, index >= 250 {
-            return lightThemeGray(index)
-        }
-        if index < 232 {
-            let cube = index - 16
-            let red = cube / 36
-            let green = (cube / 6) % 6
-            let blue = cube % 6
-            func component(_ value: Int) -> Int { value == 0 ? 0 : 55 + value * 40 }
-            return TerminalTextStyle.rgb(red: component(red), green: component(green), blue: component(blue))
-        }
-        let gray = 8 + (index - 232) * 10
-        return TerminalTextStyle.rgb(red: gray, green: gray, blue: gray)
+    private var scrollbackRows: BoundedScrollbackRows {
+        get { interpreter.scrollbackRows }
+        set { interpreter.scrollbackRows = newValue }
     }
 
-    private func lightThemeGray(_ index: Int) -> SIMD4<Float> {
-        let clamped = max(250, min(index, 255))
-        // Keep Codex's muted gray panels visible without making them heavy blocks
-        // on the lightty background.
-        let component = 205 + (clamped - 250) * 6
-        return TerminalTextStyle.rgb(red: component, green: component, blue: component)
+    private var scrollbackOffset: Int {
+        get { interpreter.scrollbackOffset }
+        set { interpreter.scrollbackOffset = newValue }
+    }
+
+    private var normalScreenSnapshot: TerminalScreen? {
+        get { interpreter.normalScreenSnapshot }
+        set { interpreter.normalScreenSnapshot = newValue }
+    }
+
+    private var cursorRow: Int {
+        get { interpreter.cursorRow }
+        set { interpreter.cursorRow = newValue }
+    }
+
+    private var cursorColumn: Int {
+        get { interpreter.cursorColumn }
+        set { interpreter.cursorColumn = newValue }
+    }
+
+    private var scrollRegionTop: Int {
+        get { interpreter.scrollRegionTop }
+        set { interpreter.scrollRegionTop = newValue }
+    }
+
+    private var scrollRegionBottom: Int {
+        get { interpreter.scrollRegionBottom }
+        set { interpreter.scrollRegionBottom = newValue }
+    }
+
+    private var cursorVisible: Bool {
+        get { interpreter.cursorVisible }
+        set { interpreter.cursorVisible = newValue }
+    }
+
+    private var isUsingAlternateScreen: Bool {
+        get { interpreter.isUsingAlternateScreen }
+        set { interpreter.isUsingAlternateScreen = newValue }
+    }
+
+    private var insertModeEnabled: Bool {
+        get { interpreter.insertModeEnabled }
+        set { interpreter.insertModeEnabled = newValue }
+    }
+
+    private var originModeEnabled: Bool {
+        get { interpreter.originModeEnabled }
+        set { interpreter.originModeEnabled = newValue }
+    }
+
+    private var wraparoundModeEnabled: Bool {
+        get { interpreter.wraparoundModeEnabled }
+        set { interpreter.wraparoundModeEnabled = newValue }
+    }
+
+    private var applicationCursorKeysEnabled: Bool {
+        get { interpreter.applicationCursorKeysEnabled }
+        set { interpreter.applicationCursorKeysEnabled = newValue }
+    }
+
+    private var applicationKeypadEnabled: Bool {
+        get { interpreter.applicationKeypadEnabled }
+        set { interpreter.applicationKeypadEnabled = newValue }
+    }
+
+    private var modifyOtherKeysMode: Int {
+        get { interpreter.modifyOtherKeysMode }
+        set { interpreter.modifyOtherKeysMode = newValue }
+    }
+
+    private var extendedKeyFormat: TerminalExtendedKeyFormat {
+        get { interpreter.extendedKeyFormat }
+        set { interpreter.extendedKeyFormat = newValue }
+    }
+
+    private var tabStops: Set<Int> {
+        get { interpreter.tabStops }
+        set { interpreter.tabStops = newValue }
+    }
+
+    private var bracketedPasteEnabled: Bool {
+        get { interpreter.bracketedPasteEnabled }
+        set { interpreter.bracketedPasteEnabled = newValue }
+    }
+
+    private var mouseReportingState: TerminalMouseReportingState {
+        get { interpreter.mouseReportingState }
+        set { interpreter.mouseReportingState = newValue }
+    }
+
+    private var focusReportingState: TerminalFocusReportingState {
+        get { interpreter.focusReportingState }
+        set { interpreter.focusReportingState = newValue }
+    }
+
+    private var pressedMouseButton: TerminalMouseButton? {
+        get { interpreter.pressedMouseButton }
+        set { interpreter.pressedMouseButton = newValue }
+    }
+
+    private var currentStyle: TerminalTextStyle {
+        get { interpreter.currentStyle }
+        set { interpreter.currentStyle = newValue }
+    }
+
+    private var activeHyperlinkURL: String? {
+        get { interpreter.activeHyperlinkURL }
+        set { interpreter.activeHyperlinkURL = newValue }
+    }
+
+    private var terminalTitle: String {
+        get { interpreter.terminalTitle }
+        set { interpreter.terminalTitle = newValue }
+    }
+
+    private var currentWorkingDirectory: String {
+        get { interpreter.currentWorkingDirectory }
+        set { interpreter.currentWorkingDirectory = newValue }
+    }
+
+    private var shellIntegration: TerminalShellIntegration {
+        get { interpreter.shellIntegration }
+        set { interpreter.shellIntegration = newValue }
+    }
+
+    private var lastSentSize: TerminalSize {
+        get { interpreter.lastSentSize }
+        set { interpreter.lastSentSize = newValue }
+    }
+
+    private var pendingDirtyRows: Set<Int> {
+        get { interpreter.pendingDirtyRows }
+        set { interpreter.pendingDirtyRows = newValue }
+    }
+
+    private var pendingFullDamage: Bool {
+        get { interpreter.pendingFullDamage }
+        set { interpreter.pendingFullDamage = newValue }
+    }
+
+    private var scrollbackRowsAppendedDuringOutput: Int {
+        get { interpreter.scrollbackRowsAppendedDuringOutput }
+        set { interpreter.scrollbackRowsAppendedDuringOutput = newValue }
+    }
+
+    private func markDirty(row: Int) {
+        interpreter.markDirty(row: row)
+    }
+
+    private func markDirty(rows: Range<Int>) {
+        interpreter.markDirty(rows: rows)
+    }
+
+    private func markFullDamage() {
+        interpreter.markFullDamage()
+    }
+
+    private func resetScrollRegion() {
+        interpreter.resetScrollRegion()
+    }
+
+    @discardableResult
+    private func trimScrollbackRowsToLimit() -> Bool {
+        interpreter.trimScrollbackRowsToLimit()
     }
 }

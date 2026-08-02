@@ -39,6 +39,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     unit_tests.root_module.addImport("kurotty_core", core_mod);
+    unit_tests.root_module.linkLibrary(static_lib);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run Zig core tests");

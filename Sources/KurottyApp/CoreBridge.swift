@@ -15,6 +15,43 @@ private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
 private typealias ResizeFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> Void
 private typealias CellAtFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> UInt8
 private typealias CopyRowFn = @convention(c) (TerminalHandle?, UInt32, UnsafeMutablePointer<UInt8>?, Int) -> Int
+private typealias CopyRowCellsFn = @convention(c) (TerminalHandle?, UInt32, UnsafeMutableRawPointer?, Int) -> Int
+
+/// Mirrors the 16-byte `kurotty_cell` record documented in docs/abi.md.
+struct CoreCell {
+    struct Attributes: OptionSet {
+        let rawValue: UInt16
+
+        static let bold = Attributes(rawValue: 1 << 0)
+        static let dim = Attributes(rawValue: 1 << 1)
+        static let italic = Attributes(rawValue: 1 << 2)
+        static let underline = Attributes(rawValue: 1 << 3)
+        static let strikethrough = Attributes(rawValue: 1 << 4)
+        static let inverse = Attributes(rawValue: 1 << 5)
+    }
+
+    enum Width: UInt8 {
+        case continuation = 0
+        case single = 1
+        case wide = 2
+    }
+
+    let codepoint: UInt32
+    let foreground: UInt32
+    let background: UInt32
+    let attributes: Attributes
+    let width: Width
+}
+
+/// Raw C-layout twin of CoreCell used only for the ABI copy.
+private struct RawCoreCell {
+    var codepoint: UInt32 = 0
+    var fg: UInt32 = 0
+    var bg: UInt32 = 0
+    var attrs: UInt16 = 0
+    var width: UInt8 = 0
+    var pad: UInt8 = 0
+}
 
 private enum CoreLibraryPath {
     static let appBundleExtension = "app"
@@ -132,6 +169,31 @@ final class CoreBridge: TerminalCore,
             symbols.copyRow(handle, row, rawBuffer.baseAddress, rawBuffer.count)
         }
     }
+
+    /// True when the loaded core dylib exports the styled cell row copy.
+    var supportsStyledRows: Bool {
+        symbols?.copyRowCells != nil
+    }
+
+    /// Reads one grid row as styled cells via `kurotty_terminal_copy_row_cells`.
+    /// Returns an empty array when the core or the symbol is unavailable.
+    func copyStyledRow(_ row: UInt32, maxCells: Int) -> [CoreCell] {
+        guard let symbols, let copyRowCells = symbols.copyRowCells, maxCells > 0 else { return [] }
+        var raw = [RawCoreCell](repeating: RawCoreCell(), count: maxCells)
+        let copied = raw.withUnsafeMutableBytes { rawBuffer in
+            copyRowCells(handle, row, rawBuffer.baseAddress, maxCells)
+        }
+        guard copied > 0 else { return [] }
+        return raw.prefix(copied).map { cell in
+            CoreCell(
+                codepoint: cell.codepoint,
+                foreground: cell.fg,
+                background: cell.bg,
+                attributes: CoreCell.Attributes(rawValue: cell.attrs),
+                width: CoreCell.Width(rawValue: cell.width) ?? .single
+            )
+        }
+    }
 }
 
 private struct CoreSymbols {
@@ -149,6 +211,8 @@ private struct CoreSymbols {
     let resize: ResizeFn
     let cellAt: CellAtFn
     let copyRow: CopyRowFn
+    /// Optional: absent in older core dylibs; loading must not fail without it.
+    let copyRowCells: CopyRowCellsFn?
 
     static func load() -> CoreSymbols? {
         let names = dylibCandidates()
@@ -175,6 +239,8 @@ private struct CoreSymbols {
             return nil
         }
 
+        let copyRowCells: CopyRowCellsFn? = symbol(dylib, "kurotty_terminal_copy_row_cells")
+
         return CoreSymbols(
             dylib: dylib,
             create: create,
@@ -189,7 +255,8 @@ private struct CoreSymbols {
             endFrame: endFrame,
             resize: resize,
             cellAt: cellAt,
-            copyRow: copyRow
+            copyRow: copyRow,
+            copyRowCells: copyRowCells
         )
     }
 

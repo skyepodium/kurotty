@@ -1,6 +1,10 @@
 import AppKit
 
 enum MainMenu {
+    // The Edit menu is hidden, so this title is never user-visible today.
+    // Migrate to an AppLocalization `.selectAll` key if the menu is ever shown.
+    private static let selectAllMenuTitle = "Select All"
+
     @MainActor
     static func install(target: AppDelegate) {
         let mainMenu = NSMenu()
@@ -70,9 +74,17 @@ enum MainMenu {
         copy.target = nil
         let paste = NSMenuItem(title: AppLocalization.string(.paste), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         paste.target = nil
+        // Select All resolves through the responder chain so the focused
+        // terminal surface receives it. The keyEquivalent match alone is not
+        // enough under non-Latin input sources (2-set Korean reports "ㅁ" for
+        // the A key), so TerminalSurfaceView also matches Cmd+A by hardware
+        // keyCode in its own command-key handling.
+        let selectAll = NSMenuItem(title: selectAllMenuTitle, action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        selectAll.target = nil
         editMenu.addItem(cut)
         editMenu.addItem(copy)
         editMenu.addItem(paste)
+        editMenu.addItem(selectAll)
         editMenuItem.submenu = editMenu
         editMenuItem.isHidden = true
         mainMenu.addItem(editMenuItem)

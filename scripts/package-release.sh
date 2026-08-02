@@ -35,11 +35,14 @@ NOTARY_APPLE_ID="${KUROTTY_NOTARY_APPLE_ID:-}"
 NOTARY_TEAM_ID="${KUROTTY_NOTARY_TEAM_ID:-}"
 NOTARY_PASSWORD="${KUROTTY_NOTARY_PASSWORD:-}"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
-SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=}"
+# No fallback key: a build without the Sparkle secret must take the
+# skip-Sparkle path instead of silently shipping a hardcoded public key.
+SPARKLE_PUBLIC_KEY="${KUROTTY_SPARKLE_PUBLIC_KEY:-}"
 SPARKLE_CONFIGURED_UPDATES="1"
 if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
   SPARKLE_CONFIGURED_UPDATES="0"
-  echo "Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set."
+  echo "Skipping Sparkle metadata/appcast: KUROTTY_SPARKLE_PUBLIC_KEY is not set." >&2
+  echo "WARNING: the packaged app will have no SUFeedURL/SUPublicEDKey and cannot self-update." >&2
 fi
 SPARKLE_PRIVATE_KEY="${KUROTTY_SPARKLE_PRIVATE_KEY:-}"
 SPARKLE_TOOLS_DERIVED_DATA="$WORK_DIR/sparkle-tools"
@@ -164,19 +167,19 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+$(if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
+  cat <<SPARKLE_KEYS
   <key>SUFeedURL</key>
   <string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key>
+  <string>$SPARKLE_PUBLIC_KEY</string>
   <key>SUEnableAutomaticChecks</key>
   <true/>
   <key>SUAutomaticallyUpdate</key>
   <true/>
   <key>SUAllowsAutomaticUpdates</key>
   <true/>
-$(if [[ "$SPARKLE_CONFIGURED_UPDATES" == "1" ]]; then
-  cat <<SUPUBLIC
-  <key>SUPublicEDKey</key>
-  <string>$SPARKLE_PUBLIC_KEY</string>
-SUPUBLIC
+SPARKLE_KEYS
 fi)
 </dict>
 </plist>
