@@ -38,6 +38,10 @@ final class TerminalWindowControllerSettingsTests: XCTestCase {
     @MainActor
     func testThemeAndFontSettingsChangeDoesNotResizeOrRecenterWindow() throws {
         let controller = makeController()
+        // Leaked controllers keep observing global notifications (settings,
+        // tmux activation) and destabilize unrelated suites in the same
+        // process, so every test must close its window deterministically.
+        defer { controller.close() }
         let window = try XCTUnwrap(controller.window)
         window.setFrameOrigin(Fixture.offCenterOrigin)
         let frameBeforeChange = window.frame
@@ -57,6 +61,7 @@ final class TerminalWindowControllerSettingsTests: XCTestCase {
     @MainActor
     func testWindowSizeSettingsChangeResizesWindow() throws {
         let controller = makeController()
+        defer { controller.close() }
         let window = try XCTUnwrap(controller.window)
 
         var settings = loadedSettings()
@@ -74,6 +79,7 @@ final class TerminalWindowControllerSettingsTests: XCTestCase {
     @MainActor
     func testRepeatedUnchangedWindowSettingsDoNotMoveWindow() throws {
         let controller = makeController()
+        defer { controller.close() }
         let window = try XCTUnwrap(controller.window)
 
         var settings = loadedSettings()
