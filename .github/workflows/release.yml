@@ -54,7 +54,10 @@ jobs:
           KUROTTY_NOTARY_APPLE_ID: ${{ secrets.KUROTTY_NOTARY_APPLE_ID }}
           KUROTTY_NOTARY_TEAM_ID: ${{ secrets.KUROTTY_NOTARY_TEAM_ID }}
           KUROTTY_NOTARY_PASSWORD: ${{ secrets.KUROTTY_NOTARY_PASSWORD }}
-          KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY }}
+          # The Sparkle ED public key is not sensitive; default it here so a
+          # missing repo secret cannot silently ship a release without the
+          # appcast/update metadata (the script skips Sparkle when empty).
+          KUROTTY_SPARKLE_PUBLIC_KEY: ${{ secrets.KUROTTY_SPARKLE_PUBLIC_KEY || '11d8W6utP7UYrBIN+uA7cLTjBTrBn4vPG1OWTr2fV6A=' }}
           KUROTTY_SPARKLE_PRIVATE_KEY: ${{ secrets.KUROTTY_SPARKLE_PRIVATE_KEY }}
         run: |
           if [[ -z "${MACOS_SIGN_IDENTITY}" ]]; then
