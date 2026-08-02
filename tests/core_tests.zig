@@ -1,6 +1,18 @@
 const std = @import("std");
 const core = @import("kurotty_core");
 
+extern fn kurotty_terminal_create(width: u32, height: u32) ?*anyopaque;
+extern fn kurotty_terminal_destroy(terminal: ?*anyopaque) void;
+extern fn kurotty_terminal_feed(terminal: ?*anyopaque, bytes: [*]const u8, len: usize) usize;
+extern fn kurotty_terminal_cursor_row(terminal: ?*anyopaque) u32;
+extern fn kurotty_terminal_cursor_col(terminal: ?*anyopaque) u32;
+extern fn kurotty_terminal_copy_row(terminal: ?*anyopaque, row: u32, buffer: ?[*]u8, buffer_len: usize) usize;
+extern fn kurotty_terminal_copy_row_cells(terminal: ?*anyopaque, row: u32, buffer: ?[*]core.AbiCell, max_cells: usize) usize;
+
+fn feedText(terminal: ?*anyopaque, text: []const u8) usize {
+    return kurotty_terminal_feed(terminal, text.ptr, text.len);
+}
+
 test "parser emits printable runs and CSI SGR events" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -319,7 +331,8 @@ test "screen mutation recorder captures parser intent without mutating grid" {
     try std.testing.expectEqual(@as(u8, 'J'), recorder.items()[1].csi.final);
     try std.testing.expectEqualSlices(u16, &.{2}, recorder.items()[1].csi.params);
     try std.testing.expectEqualStrings("!", recorder.items()[2].printable.bytes);
-    try std.testing.expectEqualStrings("    ", grid.rowText(0));
+    var row_buffer: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("    ", grid.rowText(0, &row_buffer));
     try std.testing.expectEqual(@as(usize, 0), grid.cursorRow());
     try std.testing.expectEqual(@as(usize, 0), grid.cursorCol());
 }
@@ -373,8 +386,9 @@ test "grid applies printable text, cursor movement, and erase in display" {
     try grid.write("XY");
     grid.eraseDisplay(.below);
 
-    try std.testing.expectEqualStrings("abXY", grid.rowText(0));
-    try std.testing.expectEqualStrings("    ", grid.rowText(1));
+    var row_buffer: [16]u8 = undefined;
+    try std.testing.expectEqualStrings("abXY", grid.rowText(0, &row_buffer));
+    try std.testing.expectEqualStrings("    ", grid.rowText(1, &row_buffer));
     try std.testing.expectEqual(@as(usize, 0), grid.cursorRow());
     try std.testing.expectEqual(@as(usize, 4), grid.cursorCol());
 }
@@ -383,23 +397,24 @@ test "grid applies absolute cursor, line erase, insert, delete, and alternate sc
     var grid = try core.Grid.init(std.testing.allocator, 5, 3);
     defer grid.deinit();
 
+    var row_buffer: [32]u8 = undefined;
     try grid.write("abcde");
     grid.setCursor(0, 2);
     grid.insertCharacters(2);
-    try std.testing.expectEqualStrings("ab  c", grid.rowText(0));
+    try std.testing.expectEqualStrings("ab  c", grid.rowText(0, &row_buffer));
 
     grid.deleteCharacters(1);
-    try std.testing.expectEqualStrings("ab c ", grid.rowText(0));
+    try std.testing.expectEqualStrings("ab c ", grid.rowText(0, &row_buffer));
 
     grid.eraseLine(.right);
-    try std.testing.expectEqualStrings("ab   ", grid.rowText(0));
+    try std.testing.expectEqualStrings("ab   ", grid.rowText(0, &row_buffer));
 
     try grid.enterAlternateScreen();
     try grid.write("alt");
-    try std.testing.expectEqualStrings("alt  ", grid.rowText(0));
+    try std.testing.expectEqualStrings("alt  ", grid.rowText(0, &row_buffer));
 
     grid.leaveAlternateScreen();
-    try std.testing.expectEqualStrings("ab   ", grid.rowText(0));
+    try std.testing.expectEqualStrings("ab   ", grid.rowText(0, &row_buffer));
 }
 
 test "grid rejects zero dimensions before allocation and cursor math" {
@@ -418,11 +433,12 @@ test "grid restores alternate screen deterministically after resize" {
 
     grid.leaveAlternateScreen();
 
+    var row_buffer: [32]u8 = undefined;
     try std.testing.expectEqual(@as(usize, 5), grid.width);
     try std.testing.expectEqual(@as(usize, 3), grid.height);
-    try std.testing.expectEqualStrings("abc  ", grid.rowText(0));
-    try std.testing.expectEqualStrings("def  ", grid.rowText(1));
-    try std.testing.expectEqualStrings("     ", grid.rowText(2));
+    try std.testing.expectEqualStrings("abc  ", grid.rowText(0, &row_buffer));
+    try std.testing.expectEqualStrings("def  ", grid.rowText(1, &row_buffer));
+    try std.testing.expectEqualStrings("     ", grid.rowText(2, &row_buffer));
 }
 
 test "grid reports current dimensions after init and resize" {
@@ -577,4 +593,241 @@ test "pty resize request construction validates requested dimensions" {
     try std.testing.expectEqual(@as(u16, 132), request.dimensions.cols);
     try std.testing.expectEqual(@as(u16, 43), request.dimensions.rows);
     try std.testing.expectError(error.InvalidDimensions, core.PtyResizeRequest.init(0, 43, .renderer, 8));
+}
+
+test "grid gives Korean wide char a head cell plus continuation cell" {
+    var grid = try core.Grid.init(std.testing.allocator, 6, 2);
+    defer grid.deinit();
+
+    try grid.write("한A");
+
+    const head = grid.cellInfoAt(0, 0);
+    try std.testing.expectEqual(@as(u21, 0xd55c), head.codepoint);
+    try std.testing.expectEqual(core.CellWidth.wide, head.width);
+    try std.testing.expectEqual(core.CellWidth.continuation, grid.cellInfoAt(0, 1).width);
+    try std.testing.expectEqual(@as(u21, 'A'), grid.cellInfoAt(0, 2).codepoint);
+    try std.testing.expectEqual(@as(usize, 3), grid.cursorCol());
+
+    var row_buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("한A   ", grid.rowText(0, &row_buffer));
+}
+
+test "grid wraps a wide char that does not fit in the last column" {
+    var grid = try core.Grid.init(std.testing.allocator, 3, 2);
+    defer grid.deinit();
+
+    try grid.write("ab界");
+
+    try std.testing.expectEqual(@as(u21, 'a'), grid.cellInfoAt(0, 0).codepoint);
+    try std.testing.expectEqual(@as(u21, ' '), grid.cellInfoAt(0, 2).codepoint);
+    try std.testing.expectEqual(core.CellWidth.wide, grid.cellInfoAt(1, 0).width);
+    try std.testing.expectEqual(core.CellWidth.continuation, grid.cellInfoAt(1, 1).width);
+    try std.testing.expectEqual(@as(usize, 1), grid.cursorRow());
+    try std.testing.expectEqual(@as(usize, 2), grid.cursorCol());
+}
+
+test "grid overwriting half of a wide char clears its partner cell" {
+    var grid = try core.Grid.init(std.testing.allocator, 6, 1);
+    defer grid.deinit();
+
+    try grid.write("한");
+    grid.setCursor(0, 1);
+    try grid.write("x");
+
+    try std.testing.expectEqual(@as(u21, ' '), grid.cellInfoAt(0, 0).codepoint);
+    try std.testing.expectEqual(core.CellWidth.single, grid.cellInfoAt(0, 0).width);
+    try std.testing.expectEqual(@as(u21, 'x'), grid.cellInfoAt(0, 1).codepoint);
+}
+
+test "grid attaches combining mark to previous cell without advancing cursor" {
+    var grid = try core.Grid.init(std.testing.allocator, 4, 1);
+    defer grid.deinit();
+
+    try grid.write("a\u{0301}b");
+
+    try std.testing.expectEqual(@as(u21, 'a'), grid.cellInfoAt(0, 0).codepoint);
+    try std.testing.expectEqual(@as(u21, 0x0301), grid.cellInfoAt(0, 0).combining);
+    try std.testing.expectEqual(@as(u21, 'b'), grid.cellInfoAt(0, 1).codepoint);
+    try std.testing.expectEqual(@as(usize, 2), grid.cursorCol());
+
+    var row_buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("a\u{0301}b  ", grid.rowText(0, &row_buffer));
+}
+
+test "grid decodes UTF-8 sequences split across write calls" {
+    var grid = try core.Grid.init(std.testing.allocator, 4, 1);
+    defer grid.deinit();
+
+    const bytes = "한";
+    try grid.write(bytes[0..1]);
+    try grid.write(bytes[1..]);
+
+    try std.testing.expectEqual(@as(u21, 0xd55c), grid.cellInfoAt(0, 0).codepoint);
+    try std.testing.expectEqual(core.CellWidth.wide, grid.cellInfoAt(0, 0).width);
+    try std.testing.expectEqual(@as(usize, 2), grid.cursorCol());
+}
+
+test "grid tab moves cursor to next multiple-of-8 stop without erasing" {
+    var grid = try core.Grid.init(std.testing.allocator, 20, 1);
+    defer grid.deinit();
+
+    try grid.write("abc");
+    grid.setCursor(0, 1);
+    grid.tab();
+    try std.testing.expectEqual(@as(usize, 8), grid.cursorCol());
+    try std.testing.expectEqual(@as(u21, 'c'), grid.cellInfoAt(0, 2).codepoint);
+
+    grid.tab();
+    try std.testing.expectEqual(@as(usize, 16), grid.cursorCol());
+    grid.tab();
+    try std.testing.expectEqual(@as(usize, 19), grid.cursorCol());
+}
+
+test "grid restores saved cursor when leaving the alternate screen" {
+    var grid = try core.Grid.init(std.testing.allocator, 10, 4);
+    defer grid.deinit();
+
+    grid.setCursor(2, 5);
+    try grid.enterAlternateScreen();
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorRow());
+    try std.testing.expectEqual(@as(usize, 0), grid.cursorCol());
+
+    grid.setCursor(3, 9);
+    grid.leaveAlternateScreen();
+    try std.testing.expectEqual(@as(usize, 2), grid.cursorRow());
+    try std.testing.expectEqual(@as(usize, 5), grid.cursorCol());
+}
+
+test "ABI tab control moves the cursor non-destructively" {
+    const terminal = kurotty_terminal_create(20, 2) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "ab\rx\ty");
+    try std.testing.expectEqual(@as(u32, 9), kurotty_terminal_cursor_col(terminal));
+
+    var buffer: [20]u8 = undefined;
+    _ = kurotty_terminal_copy_row(terminal, 0, &buffer, buffer.len);
+    try std.testing.expectEqualStrings("xb      y", buffer[0..9]);
+}
+
+test "ABI SGR colors and attributes round-trip through copy_row_cells" {
+    const terminal = kurotty_terminal_create(8, 2) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "\x1b[1;4;31;48;5;200mA\x1b[38;2;10;20;30mB\x1b[0mC");
+
+    var cells: [8]core.AbiCell = undefined;
+    try std.testing.expectEqual(@as(usize, 8), kurotty_terminal_copy_row_cells(terminal, 0, &cells, cells.len));
+
+    try std.testing.expectEqual(@as(u32, 'A'), cells[0].codepoint);
+    try std.testing.expectEqual(core.Color.indexed(1), cells[0].fg);
+    try std.testing.expectEqual(core.Color.indexed(200), cells[0].bg);
+    const attrs_a: core.Attributes = @bitCast(cells[0].attrs);
+    try std.testing.expect(attrs_a.bold);
+    try std.testing.expect(attrs_a.underline);
+    try std.testing.expect(!attrs_a.inverse);
+    try std.testing.expectEqual(@as(u8, 1), cells[0].width);
+
+    try std.testing.expectEqual(@as(u32, 'B'), cells[1].codepoint);
+    try std.testing.expectEqual(core.Color.rgb(10, 20, 30), cells[1].fg);
+    try std.testing.expectEqual(core.Color.indexed(200), cells[1].bg);
+
+    try std.testing.expectEqual(@as(u32, 'C'), cells[2].codepoint);
+    try std.testing.expectEqual(core.Color.default, cells[2].fg);
+    try std.testing.expectEqual(core.Color.default, cells[2].bg);
+    try std.testing.expectEqual(@as(u16, 0), cells[2].attrs);
+}
+
+test "ABI copy_row_cells reports wide head and continuation widths" {
+    const terminal = kurotty_terminal_create(6, 1) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "한A");
+
+    var cells: [6]core.AbiCell = undefined;
+    try std.testing.expectEqual(@as(usize, 6), kurotty_terminal_copy_row_cells(terminal, 0, &cells, cells.len));
+    try std.testing.expectEqual(@as(u32, 0xd55c), cells[0].codepoint);
+    try std.testing.expectEqual(@as(u8, 2), cells[0].width);
+    try std.testing.expectEqual(@as(u8, 0), cells[1].width);
+    try std.testing.expectEqual(@as(u32, 'A'), cells[2].codepoint);
+
+    var bytes: [6]u8 = undefined;
+    _ = kurotty_terminal_copy_row(terminal, 0, &bytes, bytes.len);
+    try std.testing.expectEqualStrings("  A   ", &bytes);
+}
+
+test "ABI CSI parameter defaults are explicit per opcode" {
+    const terminal = kurotty_terminal_create(10, 4) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "\x1b[2;5H");
+    try std.testing.expectEqual(@as(u32, 1), kurotty_terminal_cursor_row(terminal));
+    try std.testing.expectEqual(@as(u32, 4), kurotty_terminal_cursor_col(terminal));
+
+    _ = feedText(terminal, "\x1b[H");
+    try std.testing.expectEqual(@as(u32, 0), kurotty_terminal_cursor_row(terminal));
+    try std.testing.expectEqual(@as(u32, 0), kurotty_terminal_cursor_col(terminal));
+
+    _ = feedText(terminal, "\x1b[0B\x1b[0C");
+    try std.testing.expectEqual(@as(u32, 1), kurotty_terminal_cursor_row(terminal));
+    try std.testing.expectEqual(@as(u32, 1), kurotty_terminal_cursor_col(terminal));
+
+    _ = feedText(terminal, "ab\x1b[3G");
+    try std.testing.expectEqual(@as(u32, 2), kurotty_terminal_cursor_col(terminal));
+
+    _ = feedText(terminal, "\x1b[K");
+    var bytes: [10]u8 = undefined;
+    _ = kurotty_terminal_copy_row(terminal, 1, &bytes, bytes.len);
+    try std.testing.expectEqualStrings(" a        ", &bytes);
+}
+
+test "ABI alternate screen restores cursor position on leave" {
+    const terminal = kurotty_terminal_create(10, 4) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "\x1b[3;7H\x1b[?1049h");
+    try std.testing.expectEqual(@as(u32, 0), kurotty_terminal_cursor_row(terminal));
+    try std.testing.expectEqual(@as(u32, 0), kurotty_terminal_cursor_col(terminal));
+
+    _ = feedText(terminal, "alt\x1b[?1049l");
+    try std.testing.expectEqual(@as(u32, 2), kurotty_terminal_cursor_row(terminal));
+    try std.testing.expectEqual(@as(u32, 6), kurotty_terminal_cursor_col(terminal));
+}
+
+test "renderer clips damage rects to grid bounds and caps the pending list" {
+    var renderer = core.RendererOrchestrator.init(std.testing.allocator);
+    defer renderer.deinit();
+    renderer.setGridBounds(24, 80);
+
+    try renderer.markDamage(.{ .row = 30, .col = 0, .rows = 1, .cols = 4 });
+    try renderer.markDamage(.{ .row = 0, .col = 0, .rows = 0, .cols = 4 });
+    try std.testing.expectEqual(@as(u32, 0), renderer.beginFrame(1).dirty_rects);
+
+    try renderer.markDamage(.{ .row = 20, .col = 70, .rows = 100, .cols = 100 });
+    try std.testing.expectEqual(@as(u32, 1), renderer.beginFrame(1).dirty_rects);
+    renderer.endFrame();
+
+    const cap: u32 = @intCast(core.RendererOrchestrator.max_damage_rects);
+    var index: u32 = 0;
+    while (index < cap) : (index += 1) {
+        try renderer.markDamage(.{ .row = index % 24, .col = index % 80, .rows = 1, .cols = 1 });
+    }
+    try std.testing.expectEqual(cap, renderer.beginFrame(1).dirty_rects);
+
+    try renderer.markDamage(.{ .row = 5, .col = 5, .rows = 1, .cols = 1 });
+    try std.testing.expectEqual(@as(u32, 1), renderer.beginFrame(1).dirty_rects);
+}
+
+test "ABI ignores private CSI m sequences for text style" {
+    const terminal = kurotty_terminal_create(8, 1) orelse return error.TerminalCreateFailed;
+    defer kurotty_terminal_destroy(terminal);
+
+    _ = feedText(terminal, "\x1b[>4;2mA");
+
+    var cells: [8]core.AbiCell = undefined;
+    try std.testing.expectEqual(@as(usize, 8), kurotty_terminal_copy_row_cells(terminal, 0, &cells, cells.len));
+    try std.testing.expectEqual(@as(u32, 'A'), cells[0].codepoint);
+    try std.testing.expectEqual(@as(u16, 0), cells[0].attrs);
+    try std.testing.expectEqual(core.Color.default, cells[0].fg);
+    try std.testing.expectEqual(core.Color.default, cells[0].bg);
 }

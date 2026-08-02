@@ -1,5 +1,6 @@
 const std = @import("std");
 const parser = @import("parser.zig");
+const cell = @import("cell.zig");
 
 pub const ScreenViewport = struct {
     width: usize,
@@ -158,8 +159,8 @@ fn displayCells(bytes: []const u8) usize {
     var cells: usize = 0;
     var index: usize = 0;
     while (index < bytes.len) {
-        const decoded = decodeUtf8(bytes[index..]);
-        cells += codepointWidth(decoded.codepoint);
+        const decoded = cell.decodeUtf8(bytes[index..]);
+        cells += cell.codepointWidth(decoded.codepoint);
         index += decoded.len;
     }
     return cells;
@@ -175,8 +176,8 @@ fn fittingPrefix(bytes: []const u8, max_cells: usize) FittingPrefix {
     var index: usize = 0;
     var byte_len: usize = 0;
     while (index < bytes.len) {
-        const decoded = decodeUtf8(bytes[index..]);
-        const width = codepointWidth(decoded.codepoint);
+        const decoded = cell.decodeUtf8(bytes[index..]);
+        const width = cell.codepointWidth(decoded.codepoint);
         if (width > 0 and cells + width > max_cells) {
             break;
         }
@@ -185,60 +186,4 @@ fn fittingPrefix(bytes: []const u8, max_cells: usize) FittingPrefix {
         byte_len = index;
     }
     return .{ .byte_len = byte_len, .cells = cells };
-}
-
-const DecodedCodepoint = struct {
-    codepoint: u21,
-    len: usize,
-};
-
-fn decodeUtf8(bytes: []const u8) DecodedCodepoint {
-    const first = bytes[0];
-    if (first < 0x80) return .{ .codepoint = first, .len = 1 };
-    if (first & 0xe0 == 0xc0 and bytes.len >= 2) {
-        return .{
-            .codepoint = (@as(u21, first & 0x1f) << 6) | @as(u21, bytes[1] & 0x3f),
-            .len = 2,
-        };
-    }
-    if (first & 0xf0 == 0xe0 and bytes.len >= 3) {
-        return .{
-            .codepoint = (@as(u21, first & 0x0f) << 12) | (@as(u21, bytes[1] & 0x3f) << 6) | @as(u21, bytes[2] & 0x3f),
-            .len = 3,
-        };
-    }
-    if (first & 0xf8 == 0xf0 and bytes.len >= 4) {
-        return .{
-            .codepoint = (@as(u21, first & 0x07) << 18) | (@as(u21, bytes[1] & 0x3f) << 12) | (@as(u21, bytes[2] & 0x3f) << 6) | @as(u21, bytes[3] & 0x3f),
-            .len = 4,
-        };
-    }
-    return .{ .codepoint = first, .len = 1 };
-}
-
-fn codepointWidth(codepoint: u21) usize {
-    if (codepoint == 0) return 0;
-    if (codepoint < 0x20 or (codepoint >= 0x7f and codepoint < 0xa0)) return 0;
-    if ((codepoint >= 0x0300 and codepoint <= 0x036f) or
-        (codepoint >= 0x1ab0 and codepoint <= 0x1aff) or
-        (codepoint >= 0x1dc0 and codepoint <= 0x1dff) or
-        (codepoint >= 0x20d0 and codepoint <= 0x20ff) or
-        (codepoint >= 0xfe00 and codepoint <= 0xfe0f))
-    {
-        return 0;
-    }
-    if ((codepoint >= 0x1100 and codepoint <= 0x115f) or
-        (codepoint >= 0x2329 and codepoint <= 0x232a) or
-        (codepoint >= 0x2e80 and codepoint <= 0xa4cf) or
-        (codepoint >= 0xac00 and codepoint <= 0xd7a3) or
-        (codepoint >= 0xf900 and codepoint <= 0xfaff) or
-        (codepoint >= 0xfe10 and codepoint <= 0xfe19) or
-        (codepoint >= 0xfe30 and codepoint <= 0xfe6f) or
-        (codepoint >= 0xff00 and codepoint <= 0xff60) or
-        (codepoint >= 0xffe0 and codepoint <= 0xffe6) or
-        (codepoint >= 0x1f300 and codepoint <= 0x1faff))
-    {
-        return 2;
-    }
-    return 1;
 }

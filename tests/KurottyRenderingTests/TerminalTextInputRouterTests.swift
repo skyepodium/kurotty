@@ -471,6 +471,100 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "\u{3}")
     }
 
+    func testCommandAMatchesLatinKeyEquivalentUnderKoreanInputSource() throws {
+        // 2-set Korean reports "ㅁ" for the physical A key (kVK_ANSI_A = 0);
+        // the hardware keyCode fallback must still resolve it to "a".
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "ㅁ",
+            charactersIgnoringModifiers: "ㅁ",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        XCTAssertEqual(TerminalTextInputRouter.latinKeyEquivalent(for: event), "a")
+    }
+
+    @MainActor
+    func testCommandASelectsAllWithoutWritingToShellUnderKoreanInputSource() throws {
+        let session = RecordingTerminalSession()
+        let surface = TerminalSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            session: session
+        )
+        surface.consumeTmuxRestoreOutputForTesting(Data("first line\r\nsecond line".utf8))
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "ㅁ",
+            charactersIgnoringModifiers: "ㅁ",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        surface.keyDown(with: event)
+
+        XCTAssertEqual(session.writes, [], "Cmd+A must not be forwarded to the shell as Ctrl-A")
+        let selection = surface.selectionForTesting
+        XCTAssertEqual(selection.anchor, TerminalCellPosition(row: 0, column: 0))
+        XCTAssertEqual(selection.focus?.row, surface.contentRowCountForTesting - 1)
+    }
+
+    @MainActor
+    func testCommandASelectsAllUnderLatinInputSource() throws {
+        let session = RecordingTerminalSession()
+        let surface = TerminalSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            session: session
+        )
+        surface.consumeTmuxRestoreOutputForTesting(Data("hello world".utf8))
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        surface.keyDown(with: event)
+
+        XCTAssertEqual(session.writes, [])
+        XCTAssertEqual(surface.selectionForTesting.anchor, TerminalCellPosition(row: 0, column: 0))
+    }
+
+    @MainActor
+    func testPlainAKeyUnderKoreanInputSourceStillRoutesToTextInputContext() throws {
+        // Plain "ㅁ" typing (no Command) must keep flowing into the IME path.
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "ㅁ",
+            charactersIgnoringModifiers: "ㅁ",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        XCTAssertTrue(TerminalTextInputRouter.handleKeyDown(event, in: NSView(), hasMarkedText: false))
+    }
+
     private func terminalInputViewSource() throws -> String {
         let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Sources/KurottyApp/TerminalInputView.swift")

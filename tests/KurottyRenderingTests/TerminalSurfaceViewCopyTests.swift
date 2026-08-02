@@ -126,6 +126,52 @@ final class TerminalSurfaceViewCopyTests: XCTestCase {
     }
 
     @MainActor
+    func testSelectAllSpansScrollbackAndVisibleScreen() {
+        let surface = TerminalSurfaceView(frame: Fixture.surfaceFrame, session: StubSession())
+        surface.resizeGridForTesting(columns: 30, rows: 8)
+        let lineCount = 40
+        let output = (0..<lineCount).map { "line-\($0)" }.joined(separator: "\r\n")
+        surface.consumeTmuxRestoreOutputForTesting(Data(output.utf8))
+
+        let totalRows = surface.contentRowCountForTesting
+        XCTAssertGreaterThan(totalRows, 8, "fixture must overflow the visible screen into scrollback")
+
+        surface.selectAll(nil)
+
+        let selection = surface.selectionForTesting
+        XCTAssertEqual(selection.anchor, TerminalCellPosition(row: 0, column: 0))
+        XCTAssertEqual(selection.focus, TerminalCellPosition(row: totalRows - 1, column: 29))
+    }
+
+    @MainActor
+    func testSelectAllThenCopyCopiesEntireBufferIncludingScrollback() {
+        let surface = TerminalSurfaceView(frame: Fixture.surfaceFrame, session: StubSession())
+        surface.resizeGridForTesting(columns: 30, rows: 8)
+        let lineCount = 40
+        let output = (0..<lineCount).map { "line-\($0)" }.joined(separator: "\r\n")
+        surface.consumeTmuxRestoreOutputForTesting(Data(output.utf8))
+
+        surface.selectAll(nil)
+        surface.copy(nil)
+
+        let copiedText = NSPasteboard.general.string(forType: .string) ?? ""
+        let copiedLines = copiedText.split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertEqual(copiedLines.first, "line-0")
+        XCTAssertTrue(copiedText.contains("line-\(lineCount - 1)"))
+    }
+
+    @MainActor
+    func testSelectAllOnEmptyBufferKeepsSelectionValid() {
+        let surface = TerminalSurfaceView(frame: Fixture.surfaceFrame, session: StubSession())
+
+        surface.selectAll(nil)
+
+        let selection = surface.selectionForTesting
+        XCTAssertEqual(selection.anchor, TerminalCellPosition(row: 0, column: 0))
+        XCTAssertEqual(selection.focus?.row, surface.contentRowCountForTesting - 1)
+    }
+
+    @MainActor
     func testOSC52WriteFromShellOutputUpdatesPasteboard() {
         setPasteboardSentinel()
 

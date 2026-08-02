@@ -64,6 +64,107 @@ struct TerminalRenderScissorRect: Equatable, CustomStringConvertible {
     var description: String {
         "{x:\(x),y:\(y),w:\(width),h:\(height)}"
     }
+
+    func contains(_ other: TerminalRenderScissorRect) -> Bool {
+        other.x >= x &&
+            other.y >= y &&
+            other.x + other.width <= x + width &&
+            other.y + other.height <= y + height
+    }
+}
+
+enum TerminalDrawPassFullRedrawReason: Equatable, CustomStringConvertible {
+    case none
+    case cpuFallbackActive
+    case atlasPathNotReady
+    case offscreenTextureUnavailable
+    case pendingFullRedraw
+    case offscreenContentInvalid
+    case scissorRectOutsideDrawable
+    case cursorDamageNotCovered
+
+    var description: String {
+        switch self {
+        case .none:
+            "none"
+        case .cpuFallbackActive:
+            "cpu-fallback-active"
+        case .atlasPathNotReady:
+            "atlas-path-not-ready"
+        case .offscreenTextureUnavailable:
+            "offscreen-texture-unavailable"
+        case .pendingFullRedraw:
+            "pending-full-redraw"
+        case .offscreenContentInvalid:
+            "offscreen-content-invalid"
+        case .scissorRectOutsideDrawable:
+            "scissor-rect-outside-drawable"
+        case .cursorDamageNotCovered:
+            "cursor-damage-not-covered"
+        }
+    }
+}
+
+enum TerminalDrawEncodePath: Equatable, CustomStringConvertible {
+    case none
+    case directFull
+    case offscreenFull
+    case offscreenPartial
+
+    var description: String {
+        switch self {
+        case .none:
+            "none"
+        case .directFull:
+            "direct-full"
+        case .offscreenFull:
+            "offscreen-full"
+        case .offscreenPartial:
+            "offscreen-partial"
+        }
+    }
+}
+
+struct TerminalDrawPassPlan: Equatable {
+    let usesScissor: Bool
+    let fullRedrawReason: TerminalDrawPassFullRedrawReason
+
+    static func make(
+        cpuFallbackActive: Bool,
+        atlasPathReady: Bool,
+        offscreenTextureAvailable: Bool,
+        pendingFullRedrawRequired: Bool,
+        offscreenContentIsValid: Bool,
+        scissorRectsFitDrawable: Bool,
+        cursorDamageIsCovered: Bool
+    ) -> TerminalDrawPassPlan {
+        if cpuFallbackActive {
+            return fullRedraw(reason: .cpuFallbackActive)
+        }
+        if !atlasPathReady {
+            return fullRedraw(reason: .atlasPathNotReady)
+        }
+        if !offscreenTextureAvailable {
+            return fullRedraw(reason: .offscreenTextureUnavailable)
+        }
+        if pendingFullRedrawRequired {
+            return fullRedraw(reason: .pendingFullRedraw)
+        }
+        if !offscreenContentIsValid {
+            return fullRedraw(reason: .offscreenContentInvalid)
+        }
+        if !scissorRectsFitDrawable {
+            return fullRedraw(reason: .scissorRectOutsideDrawable)
+        }
+        if !cursorDamageIsCovered {
+            return fullRedraw(reason: .cursorDamageNotCovered)
+        }
+        return TerminalDrawPassPlan(usesScissor: true, fullRedrawReason: .none)
+    }
+
+    static func fullRedraw(reason: TerminalDrawPassFullRedrawReason) -> TerminalDrawPassPlan {
+        TerminalDrawPassPlan(usesScissor: false, fullRedrawReason: reason)
+    }
 }
 
 struct TerminalRenderDamageDiagnostics {
@@ -363,41 +464,48 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             } else {
                 texture = nil
             }
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticPixelSnappingEnabled = true {
         didSet {
             rebuildAtlasBuffers()
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticLinearGlyphSamplingEnabled = false {
         didSet {
             rebuildAtlasBuffers()
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticCellBoundaryOverlayEnabled = false {
         didSet {
             rebuildAtlasBuffers()
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticBaselineOverlayEnabled = false {
         didSet {
             rebuildAtlasBuffers()
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticGlyphQuadOverlayEnabled = false {
         didSet {
             rebuildAtlasBuffers()
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
     var diagnosticFullRedrawEnabled = false {
         didSet {
+            invalidateOffscreenContent()
             setNeedsDisplay(bounds)
         }
     }
@@ -418,8 +526,20 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var texture: MTLTexture?
     private var atlasTexture: MTLTexture?
     private var atlasPixels: [UInt8] = []
-    private var glyphs: [String: GlyphAtlasEntry] = [:]
+    private var glyphs: [String: CachedAtlasGlyph] = [:]
     private var atlasSlot = 0
+    private var glyphUsageFrameStamp: UInt64 = 0
+    private var glyphAtlasEvictionCount = 0
+    private var glyphAtlasEvictionExhaustionCount = 0
+    private var offscreenContentTexture: MTLTexture?
+    private var offscreenContentIsValid = false
+    private var pendingRequiresFullRedraw = true
+    private var pendingScissorRects: [TerminalRenderScissorRect] = []
+    private var lastDrawPassPlan = TerminalDrawPassPlan.fullRedraw(reason: .none)
+    private var lastDrawScissorRectCount = 0
+    private var lastDrawEncodePath = TerminalDrawEncodePath.none
+    private var lastEncodedCursorState: EncodedCursorState?
+    private var lastEncodedCursorRowPixelRect: TerminalRenderScissorRect?
     private var atlasCellSize = TerminalFrameSize.zero
     private var atlasBackingScale: CGFloat = 0
     private var windowScreenObserver: NSObjectProtocol?
@@ -533,6 +653,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             scissorDisabled: DebugOptions.noScissor
         )
         lastDamageDiagnostics = damageDiagnostics
+        accumulatePendingDamage(damageDiagnostics)
         let submittedDisplayRects = damageDiagnostics.submittedDisplayRects
         for rect in submittedDisplayRects {
             setNeedsDisplay(rect)
@@ -540,6 +661,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        invalidateOffscreenContent()
         synchronizeBackingScaleAndDrawableSize()
         rebuildVertexBuffer()
         rebuildAtlasBuffers()
@@ -566,6 +688,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private func applyBackdropColor(_ backgroundColor: SIMD4<Float>) {
+        if !self.backgroundColor.sameColor(as: backgroundColor) {
+            // Undamaged regions of the preserved offscreen content were painted with
+            // the previous default background; a backdrop change must repaint everything.
+            invalidateOffscreenContent()
+        }
         self.backgroundColor = backgroundColor
         clearColor = MTLClearColor(
             red: Double(backgroundColor.x),
@@ -585,10 +712,60 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         configureRenderPassDescriptor(descriptor)
         logFrameStartIfNeeded(descriptor: descriptor)
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
-            return
+
+        // CAMetalLayer recycles drawables from a small pool, so a drawable's previous
+        // contents are several frames old. Partial redraw therefore renders into a
+        // persistent offscreen texture (scissored, loadAction .load) and presents it
+        // with a full-screen textured quad instead of loading stale drawable pixels.
+        let contentTexture = diagnosticCPUFallbackEnabled
+            ? nil
+            : offscreenContentTextureMatching(drawableTexture: drawable.texture)
+        let metalScissorRects = contentTexture.flatMap { pendingMetalScissorRects(for: $0) }
+        let plan = TerminalDrawPassPlan.make(
+            cpuFallbackActive: diagnosticCPUFallbackEnabled,
+            atlasPathReady: isAtlasPathReadyForRendering,
+            offscreenTextureAvailable: contentTexture != nil && pipeline != nil && vertexBuffer != nil,
+            pendingFullRedrawRequired: pendingRequiresFullRedraw,
+            offscreenContentIsValid: offscreenContentIsValid,
+            scissorRectsFitDrawable: metalScissorRects != nil,
+            cursorDamageIsCovered: cursorDamageIsCoveredByPendingScissorRects()
+        )
+
+        var encodePath = TerminalDrawEncodePath.directFull
+        if let contentTexture,
+           plan.fullRedrawReason != .cpuFallbackActive,
+           plan.fullRedrawReason != .atlasPathNotReady,
+           plan.fullRedrawReason != .offscreenTextureUnavailable,
+           encodeOffscreenContentPasses(
+               plan: plan,
+               scissorRects: plan.usesScissor ? (metalScissorRects ?? []) : [],
+               contentTexture: contentTexture,
+               drawableDescriptor: descriptor,
+               commandBuffer: commandBuffer
+           ) {
+            encodePath = plan.usesScissor ? .offscreenPartial : .offscreenFull
+        } else {
+            guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+                return
+            }
+            encodeTerminalContent(using: encoder)
+            encoder.endEncoding()
+            offscreenContentIsValid = false
         }
 
+        lastDrawPassPlan = plan
+        lastDrawScissorRectCount = plan.usesScissor ? (metalScissorRects?.count ?? 0) : 0
+        lastDrawEncodePath = encodePath
+        rememberEncodedCursorState()
+        consumePendingDamage()
+        let presentedCompletionHandler = Self.makePresentedCompletionHandler(onPresented)
+        commandBuffer.present(drawable)
+        commandBuffer.addCompletedHandler(presentedCompletionHandler)
+        commandBuffer.commit()
+        renderFrameIndex &+= 1
+    }
+
+    private func encodeTerminalContent(using encoder: MTLRenderCommandEncoder) {
         if diagnosticCPUFallbackEnabled,
            !isAtlasPathReadyForRendering,
            let pipeline,
@@ -654,13 +831,222 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: debugOverlayInstanceCount)
             }
         }
+    }
 
-        encoder.endEncoding()
-        let presentedCompletionHandler = Self.makePresentedCompletionHandler(onPresented)
-        commandBuffer.present(drawable)
-        commandBuffer.addCompletedHandler(presentedCompletionHandler)
-        commandBuffer.commit()
-        renderFrameIndex &+= 1
+    private func encodeOffscreenContentPasses(
+        plan: TerminalDrawPassPlan,
+        scissorRects: [MTLScissorRect],
+        contentTexture: MTLTexture,
+        drawableDescriptor: MTLRenderPassDescriptor,
+        commandBuffer: MTLCommandBuffer
+    ) -> Bool {
+        guard let pipeline, let vertexBuffer else { return false }
+        let shouldEncodeContentPass = !plan.usesScissor || !scissorRects.isEmpty
+        if shouldEncodeContentPass {
+            let contentDescriptor = MTLRenderPassDescriptor()
+            let colorAttachment = contentDescriptor.colorAttachments[0]
+            colorAttachment?.texture = contentTexture
+            colorAttachment?.storeAction = .store
+            colorAttachment?.clearColor = clearColor
+            // The offscreen texture persists across frames, so .load really does
+            // preserve the previously rendered terminal content for partial passes.
+            colorAttachment?.loadAction = plan.usesScissor ? .load : .clear
+            guard let contentEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: contentDescriptor) else {
+                return false
+            }
+            if plan.usesScissor {
+                encodeDamageRegionTerminalContent(using: contentEncoder, scissorRects: scissorRects)
+            } else {
+                encodeTerminalContent(using: contentEncoder)
+            }
+            contentEncoder.endEncoding()
+        }
+        guard let presentEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: drawableDescriptor) else {
+            return false
+        }
+        presentEncoder.setRenderPipelineState(pipeline)
+        presentEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+        presentEncoder.setFragmentTexture(contentTexture, index: 0)
+        presentEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        presentEncoder.endEncoding()
+        offscreenContentIsValid = true
+        return true
+    }
+
+    private func encodeDamageRegionTerminalContent(
+        using encoder: MTLRenderCommandEncoder,
+        scissorRects: [MTLScissorRect]
+    ) {
+        for scissorRect in scissorRects {
+            encoder.setScissorRect(scissorRect)
+            encodeDamageRegionBackdropFill(using: encoder)
+            encodeTerminalContent(using: encoder)
+        }
+    }
+
+    private func encodeDamageRegionBackdropFill(using encoder: MTLRenderCommandEncoder) {
+        guard let solidPipeline, let atlasVertexBuffer, let uniformsBuffer else { return }
+        var backdrop = GlyphInstance(
+            origin: .zero,
+            size: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
+            uvOrigin: .zero,
+            uvSize: .zero,
+            color: backgroundColor
+        )
+        encoder.setRenderPipelineState(solidPipeline)
+        encoder.setVertexBuffer(atlasVertexBuffer, offset: 0, index: 0)
+        encoder.setVertexBytes(&backdrop, length: MemoryLayout<GlyphInstance>.stride, index: 1)
+        encoder.setVertexBuffer(uniformsBuffer, offset: 0, index: 2)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: 1)
+    }
+
+    private func offscreenContentTextureMatching(drawableTexture: MTLTexture) -> MTLTexture? {
+        guard let device else { return nil }
+        let width = drawableTexture.width
+        let height = drawableTexture.height
+        guard width > 0, height > 0 else { return nil }
+        if let existing = offscreenContentTexture, existing.width == width, existing.height == height {
+            return existing
+        }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: Self.renderTargetPixelFormat,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .private
+        offscreenContentTexture = device.makeTexture(descriptor: descriptor)
+        offscreenContentIsValid = false
+        return offscreenContentTexture
+    }
+
+    private func pendingMetalScissorRects(for contentTexture: MTLTexture) -> [MTLScissorRect]? {
+        var converted: [MTLScissorRect] = []
+        converted.reserveCapacity(pendingScissorRects.count)
+        for rect in pendingScissorRects {
+            guard let metalRect = Self.metalScissorRect(
+                from: rect,
+                drawableWidthPixels: contentTexture.width,
+                drawableHeightPixels: contentTexture.height
+            ) else {
+                return nil
+            }
+            converted.append(metalRect)
+        }
+        return converted
+    }
+
+    nonisolated static func metalScissorRect(
+        from rect: TerminalRenderScissorRect,
+        drawableWidthPixels: Int,
+        drawableHeightPixels: Int
+    ) -> MTLScissorRect? {
+        guard rect.width > 0,
+              rect.height > 0,
+              rect.x >= 0,
+              rect.y >= 0,
+              rect.x + rect.width <= drawableWidthPixels,
+              rect.y + rect.height <= drawableHeightPixels
+        else {
+            return nil
+        }
+        // Damage rects are produced in bottom-up AppKit pixel space; Metal scissor
+        // rects use a top-left origin, so flip vertically inside the drawable.
+        let topOriginY = drawableHeightPixels - (rect.y + rect.height)
+        return MTLScissorRect(x: rect.x, y: topOriginY, width: rect.width, height: rect.height)
+    }
+
+    private func accumulatePendingDamage(_ diagnostics: TerminalRenderDamageDiagnostics) {
+        guard !pendingRequiresFullRedraw else { return }
+        guard diagnostics.redrawDecision == .partial, diagnostics.scissorPlanIsReady else {
+            requestPendingFullRedraw()
+            return
+        }
+        pendingScissorRects.append(contentsOf: diagnostics.scissorRects)
+        if pendingScissorRects.count > DesignTokens.Component.partialRedrawPendingScissorRectBudgetCount {
+            requestPendingFullRedraw()
+        }
+    }
+
+    private func requestPendingFullRedraw() {
+        pendingRequiresFullRedraw = true
+        pendingScissorRects.removeAll(keepingCapacity: true)
+    }
+
+    private func consumePendingDamage() {
+        pendingRequiresFullRedraw = false
+        pendingScissorRects.removeAll(keepingCapacity: true)
+    }
+
+    private func invalidateOffscreenContent() {
+        offscreenContentIsValid = false
+        requestPendingFullRedraw()
+    }
+
+    private func cursorDamageIsCoveredByPendingScissorRects() -> Bool {
+        guard currentEncodedCursorState() != lastEncodedCursorState else { return true }
+        if let previousRect = lastEncodedCursorRowPixelRect,
+           !isCoveredByPendingScissorRects(previousRect) {
+            return false
+        }
+        if terminalFrame.cursorRow >= 0 {
+            guard let currentRect = cursorRowPixelRect(forRow: terminalFrame.cursorRow),
+                  isCoveredByPendingScissorRects(currentRect)
+            else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func isCoveredByPendingScissorRects(_ required: TerminalRenderScissorRect) -> Bool {
+        pendingScissorRects.contains { $0.contains(required) }
+    }
+
+    private func cursorRowPixelRect(forRow row: Int) -> TerminalRenderScissorRect? {
+        guard row >= 0 else { return nil }
+        let rowRect = TerminalFrameRect(
+            x: terminalFrame.padding.x,
+            y: Double(bounds.height) - terminalFrame.padding.y - terminalFrame.cellSize.height * Double(row + 1),
+            width: terminalFrame.cellSize.width * Double(terminalFrame.columns),
+            height: terminalFrame.cellSize.height
+        )
+        guard let pixelRect = rowRect.stablePixelBounds(
+            scale: Double(backingScale),
+            clipTo: TerminalFrameSize(width: Double(bounds.width), height: Double(bounds.height))
+        ) else {
+            return nil
+        }
+        return TerminalRenderScissorRect(
+            x: pixelRect.x,
+            y: pixelRect.y,
+            width: pixelRect.width,
+            height: pixelRect.height
+        )
+    }
+
+    private func currentEncodedCursorState() -> EncodedCursorState {
+        EncodedCursorState(
+            column: terminalFrame.cursorColumn,
+            row: terminalFrame.cursorRow,
+            blinkOn: terminalFrame.cursorBlinkOn,
+            markedText: terminalFrame.markedText,
+            markedTextColumn: terminalFrame.markedTextColumn,
+            markedTextSelectedRangeLocation: terminalFrame.markedTextSelectedRange.location,
+            markedTextSelectedRangeLength: terminalFrame.markedTextSelectedRange.length,
+            visibleCursorColor: TerminalCursorPresentationPolicy.visibleColor(
+                preferred: cursorColor,
+                frame: terminalFrame
+            )
+        )
+    }
+
+    private func rememberEncodedCursorState() {
+        lastEncodedCursorState = currentEncodedCursorState()
+        lastEncodedCursorRowPixelRect = terminalFrame.cursorRow >= 0
+            ? cursorRowPixelRect(forRow: terminalFrame.cursorRow)
+            : nil
     }
 
     nonisolated private static func makePresentedCompletionHandler(
@@ -776,6 +1162,56 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
 
     var lastFrameScissorRectsForDiagnostics: [TerminalRenderScissorRect] {
         lastDamageDiagnostics.scissorRects
+    }
+
+    var lastDrawUsedScissorForDiagnostics: Bool {
+        lastDrawPassPlan.usesScissor
+    }
+
+    var lastDrawScissorRectCountForDiagnostics: Int {
+        lastDrawScissorRectCount
+    }
+
+    var lastDrawEncodePathForDiagnostics: String {
+        lastDrawEncodePath.description
+    }
+
+    var lastDrawFullRedrawReasonForDiagnostics: String {
+        lastDrawPassPlan.fullRedrawReason.description
+    }
+
+    var glyphAtlasSlotCapacityForDiagnostics: Int {
+        atlasSlotCapacity
+    }
+
+    var glyphAtlasCachedGlyphCountForDiagnostics: Int {
+        glyphs.count
+    }
+
+    var glyphAtlasEvictionCountForDiagnostics: Int {
+        glyphAtlasEvictionCount
+    }
+
+    var glyphAtlasEvictionExhaustionCountForDiagnostics: Int {
+        glyphAtlasEvictionExhaustionCount
+    }
+
+    var cachedGlyphKeysForTesting: [String] {
+        Array(glyphs.keys)
+    }
+
+    func beginGlyphUsageFrameForTesting() {
+        beginGlyphUsageFrame()
+    }
+
+    @discardableResult
+    func cacheGlyphForTesting(_ character: Character) -> Bool {
+        let entry = glyphEntry(for: character)
+        return entry.pixelSize.width > 0 && entry.pixelSize.height > 0
+    }
+
+    func cachedGlyphSlotForTesting(_ character: Character) -> Int? {
+        glyphs[String(character)]?.slot
     }
 
     private var atlasInstanceCount: Int {
@@ -951,6 +1387,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard device != nil, bounds.width > 0, bounds.height > 0 else { return }
         resetAtlasIfBackingScaleChanged()
         resetAtlasIfCellMetricsChanged()
+        beginGlyphUsageFrame()
         var instances: [GlyphInstance] = []
         var glyphDebugRects: [CGRect] = []
         var pixelProbes: [TerminalPixelProbe] = []
@@ -1460,18 +1897,56 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         )
     }
 
+    private var atlasSlotCapacity: Int {
+        (atlasSize / glyphSlotWidth) * (atlasSize / glyphSlotHeight)
+    }
+
+    private func allocateAtlasSlot() -> Int? {
+        if atlasSlot < atlasSlotCapacity {
+            let slot = atlasSlot
+            atlasSlot += 1
+            return slot
+        }
+        return evictLeastRecentlyUsedGlyphSlot()
+    }
+
+    private func evictLeastRecentlyUsedGlyphSlot() -> Int? {
+        var evictionKey: String?
+        var evictionSlot = 0
+        var oldestFrameStamp = UInt64.max
+        // Entries stamped with the current frame are in use by the frame being built
+        // and must never be evicted; only older entries are reuse candidates.
+        for (key, cached) in glyphs where cached.lastUsedFrameStamp < glyphUsageFrameStamp {
+            if cached.lastUsedFrameStamp < oldestFrameStamp {
+                oldestFrameStamp = cached.lastUsedFrameStamp
+                evictionKey = key
+                evictionSlot = cached.slot
+            }
+        }
+        guard let evictionKey else { return nil }
+        glyphs.removeValue(forKey: evictionKey)
+        glyphAtlasEvictionCount += 1
+        return evictionSlot
+    }
+
     private func glyphEntry(for character: Character) -> GlyphAtlasEntry {
         let key = String(character)
-        if let existing = glyphs[key] {
-            return existing
+        if var cached = glyphs[key] {
+            cached.lastUsedFrameStamp = glyphUsageFrameStamp
+            glyphs[key] = cached
+            return cached.entry
         }
-        let slotsPerRow = atlasSize / glyphSlotWidth
-        let x = (atlasSlot % slotsPerRow) * glyphSlotWidth
-        let y = (atlasSlot / slotsPerRow) * glyphSlotHeight
-        atlasSlot += 1
-        if y + glyphSlotHeight > atlasSize {
+        guard !atlasPixels.isEmpty else {
             return GlyphAtlasEntry.empty(metrics: fontCellMetrics)
         }
+        guard let slot = allocateAtlasSlot() else {
+            // Pathological: every slot is used by the frame currently being built.
+            glyphAtlasEvictionExhaustionCount += 1
+            return GlyphAtlasEntry.empty(metrics: fontCellMetrics)
+        }
+        let slotsPerRow = atlasSize / glyphSlotWidth
+        let x = (slot % slotsPerRow) * glyphSlotWidth
+        let y = (slot / slotsPerRow) * glyphSlotHeight
 
         let rasterized = rasterizeGlyph(character, x: x, y: y)
         let drawWidthPixels = rasterized.pixelSize.width
@@ -1504,7 +1979,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             cellHeightPixels: rasterized.cellHeightPixels,
             baselineOffsetPixels: rasterized.baselineOffsetPixels
         )
-        glyphs[key] = entry
+        glyphs[key] = CachedAtlasGlyph(
+            entry: entry,
+            slot: slot,
+            lastUsedFrameStamp: glyphUsageFrameStamp
+        )
         return entry
     }
 
@@ -1718,6 +2197,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         atlasSlot = 0
         atlasPixels = [UInt8](repeating: 0, count: atlasSize * atlasSize * 4)
         uploadAtlas()
+        // Glyph UVs and rasterized pixels changed wholesale; preserved partial
+        // content could otherwise mix old-atlas and new-atlas rendering.
+        invalidateOffscreenContent()
+    }
+
+    private func beginGlyphUsageFrame() {
+        glyphUsageFrameStamp &+= 1
     }
 
     private func synchronizeBackingScaleAndDrawableSize() {
@@ -1739,6 +2225,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         let drawableChanged = previousDrawableSize != scaledDrawableSize
         guard atlasInvalidated || drawableChanged else { return }
 
+        invalidateOffscreenContent()
         // Display transfers can change both AppKit point scale and Metal drawable
         // pixels. Rebuild dependent buffers immediately so the next frame cannot use
         // a Retina atlas or viewport on a 1x external monitor.
@@ -2198,6 +2685,23 @@ private struct GlyphInstance {
 private struct TerminalUniforms {
     let viewport: SIMD2<Float>
     let useLinearGlyphSampling: UInt32
+}
+
+private struct CachedAtlasGlyph {
+    let entry: GlyphAtlasEntry
+    let slot: Int
+    var lastUsedFrameStamp: UInt64
+}
+
+private struct EncodedCursorState: Equatable {
+    let column: Int
+    let row: Int
+    let blinkOn: Bool
+    let markedText: String
+    let markedTextColumn: Int
+    let markedTextSelectedRangeLocation: Int
+    let markedTextSelectedRangeLength: Int
+    let visibleCursorColor: SIMD4<Float>
 }
 
 private struct GlyphAtlasEntry {
