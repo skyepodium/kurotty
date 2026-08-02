@@ -25,3 +25,12 @@ jobs:
         run: swift build
       - name: Swift rendering regression tests
         run: swift test
+      - name: Dump crash reports on failure
+        if: failure()
+        run: |
+          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null || true
+          for f in ~/Library/Logs/DiagnosticReports/xctest*; do
+            [ -e "$f" ] || continue
+            echo "===== $f ====="
+            cat "$f"
+          done
