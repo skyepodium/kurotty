@@ -19,6 +19,7 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case selectNextTab = "window.selectNextTab"
     case selectPreviousTab = "window.selectPreviousTab"
     case findTerminalOutput = "terminal.findOutput"
+    case toggleCommandHistoryPanel = "history.togglePanel"
     case tmuxSwapPanePrevious = "tmux.swapPane.previous"
     case tmuxSwapPaneNext = "tmux.swapPane.next"
     case tmuxRotateWindowPrevious = "tmux.rotateWindow.previous"
@@ -40,6 +41,7 @@ enum TerminalWindowCommandAction: Equatable {
     case selectNextTab
     case selectPreviousTab
     case findTerminalOutput
+    case toggleCommandHistoryPanel
     case tmuxSwapPane(TmuxPaneSwapDirection)
     case tmuxRotateWindow(TmuxRotationDirection)
     case tmuxToggleZoom
@@ -250,6 +252,14 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "f", modifiers: .command),
             action: .findTerminalOutput,
             searchTokens: ["find text", "search output", "search scrollback", "terminal search"]
+        ),
+        TerminalCommand(
+            id: .toggleCommandHistoryPanel,
+            title: AppLocalization.string(.commandHistory, language: language),
+            category: .navigation,
+            shortcut: TerminalCommandShortcut(keyEquivalent: "y", modifiers: [.command, .shift]),
+            action: .toggleCommandHistoryPanel,
+            searchTokens: ["command history", "history panel", "recent commands", "session list", "toggle history sidebar"]
         ),
         TerminalCommand(
             id: .focusPaneLeft,

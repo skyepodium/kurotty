@@ -86,6 +86,8 @@ enum TerminalCommandDispatcher {
             controller.selectNextTab()
         case .findTerminalOutput:
             controller.findTerminalOutput()
+        case .toggleCommandHistoryPanel:
+            controller.toggleCommandHistoryPanel()
         case let .tmuxSwapPane(direction):
             controller.swapTmuxPane(direction)
         case let .tmuxRotateWindow(direction):

@@ -60,6 +60,8 @@ enum L10nKey: String, CaseIterable {
     case tmuxEvenVerticalLayout, tmuxDetachClient
     case foldCommandOutput, copyCommandReference, replayCommand
     case foldCommandOutputSubtitle, copyCommandReferenceSubtitle, replayCommandSubtitle
+    case view, commandHistory, commandHistoryFilterPlaceholder, commandHistoryEmpty, commandHistoryDisabledExplanation, commandHistorySectionTitle
+    case insertIntoTerminal, runAgain, copyCommand, copyChangeDirectoryCommand, revealDirectoryInFinder
 }
 
 enum AppLocalization {
@@ -120,6 +122,8 @@ enum AppLocalization {
             .tmuxEvenVerticalLayout: "Tmux: Even Vertical Layout", .tmuxDetachClient: "Tmux: Detach Client",
             .foldCommandOutput: "Fold Command Output", .copyCommandReference: "Copy Command Reference", .replayCommand: "Replay Command",
             .foldCommandOutputSubtitle: "Collapse a completed command's output while keeping the command reference.", .copyCommandReferenceSubtitle: "Copy a stable command-span reference without including raw output.", .replayCommandSubtitle: "Run the captured command again after explicit confirmation.",
+            .view: "View", .commandHistory: "Command History", .commandHistoryFilterPlaceholder: "Search", .commandHistoryEmpty: "Commands you run appear here.", .commandHistoryDisabledExplanation: "Command history is turned off in Settings.", .commandHistorySectionTitle: "History",
+            .insertIntoTerminal: "Insert into Terminal", .runAgain: "Run Again...", .copyCommand: "Copy Command", .copyChangeDirectoryCommand: "Copy 'cd' Command", .revealDirectoryInFinder: "Reveal Directory in Finder",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -141,6 +145,8 @@ enum AppLocalization {
             .tmuxEvenVerticalLayout: "Tmux: 상하 균등 레이아웃", .tmuxDetachClient: "Tmux: 클라이언트 분리",
             .foldCommandOutput: "명령 출력 접기", .copyCommandReference: "명령 참조 복사", .replayCommand: "명령 다시 실행",
             .foldCommandOutputSubtitle: "명령 참조는 유지하고 완료된 명령 출력을 접습니다.", .copyCommandReferenceSubtitle: "원본 출력을 제외하고 안정적인 명령 범위 참조를 복사합니다.", .replayCommandSubtitle: "확인 후 캡처한 명령을 다시 실행합니다.",
+            .view: "보기", .commandHistory: "명령 기록", .commandHistoryFilterPlaceholder: "검색", .commandHistoryEmpty: "실행한 명령이 여기에 표시됩니다.", .commandHistoryDisabledExplanation: "설정에서 명령 기록이 꺼져 있습니다.", .commandHistorySectionTitle: "기록",
+            .insertIntoTerminal: "터미널에 입력", .runAgain: "다시 실행...", .copyCommand: "명령 복사", .copyChangeDirectoryCommand: "'cd' 명령 복사", .revealDirectoryInFinder: "Finder에서 폴더 보기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -162,6 +168,8 @@ enum AppLocalization {
             .tmuxEvenVerticalLayout: "Tmux: 上下均等レイアウト", .tmuxDetachClient: "Tmux: クライアントをデタッチ",
             .foldCommandOutput: "コマンド出力を折りたたむ", .copyCommandReference: "コマンド参照をコピー", .replayCommand: "コマンドを再実行",
             .foldCommandOutputSubtitle: "コマンド参照を残したまま、完了したコマンドの出力を折りたたみます。", .copyCommandReferenceSubtitle: "生の出力を含めず、安定したコマンド範囲の参照をコピーします。", .replayCommandSubtitle: "確認後、取得したコマンドを再実行します。",
+            .view: "表示", .commandHistory: "コマンド履歴", .commandHistoryFilterPlaceholder: "検索", .commandHistoryEmpty: "実行したコマンドがここに表示されます。", .commandHistoryDisabledExplanation: "設定でコマンド履歴がオフになっています。", .commandHistorySectionTitle: "履歴",
+            .insertIntoTerminal: "ターミナルに入力", .runAgain: "再実行...", .copyCommand: "コマンドをコピー", .copyChangeDirectoryCommand: "'cd'コマンドをコピー", .revealDirectoryInFinder: "Finderでフォルダを表示",
         ],
     ]
 }

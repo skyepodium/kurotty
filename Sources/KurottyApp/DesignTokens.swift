@@ -88,6 +88,7 @@ enum DesignTokens {
         static let accentPurple = NSColor(calibratedRed: 139.0 / 255.0, green: 92.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
         static let successGreen = NSColor(calibratedRed: 47.0 / 255.0, green: 191.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
         static let warningOrange = NSColor(calibratedRed: 233.0 / 255.0, green: 148.0 / 255.0, blue: 26.0 / 255.0, alpha: 1)
+        static let errorRed = NSColor(calibratedRed: 255.0 / 255.0, green: 95.0 / 255.0, blue: 103.0 / 255.0, alpha: 1)
         static let cyanTerminalAccent = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
         static let scrollerThumb = NSColor(calibratedRed: 207.0 / 255.0, green: 207.0 / 255.0, blue: 207.0 / 255.0, alpha: 0.72)
         static let scrollerThumbHover = NSColor(calibratedRed: 176.0 / 255.0, green: 176.0 / 255.0, blue: 176.0 / 255.0, alpha: 0.88)
@@ -112,6 +113,12 @@ enum DesignTokens {
         static let labelFontSizePT: CGFloat = 13
         static let paneHeaderFontSizePT: CGFloat = 12
         static let statusFontSizePT: CGFloat = 12
+        static let sidebarSectionHeaderFontSizePT: CGFloat = 11
+        static let sidebarGroupNameFontSizePT: CGFloat = 13
+        static let sidebarSecondaryFontSizePT: CGFloat = 11
+        static let sidebarCommandFontSizePT: CGFloat = 12
+        static let sidebarBadgeFontSizePT: CGFloat = 10
+        static let sidebarSearchFontSizePT: CGFloat = 12
     }
 
     enum Space {
@@ -171,6 +178,38 @@ enum DesignTokens {
         static let terminalTabTitleLeadingPX: CGFloat = 12
         static let terminalTabTitleCloseGapPX: CGFloat = 4
         static let terminalTabCloseTrailingPX: CGFloat = 5
+        static let commandHistoryPanelDefaultWidthPX: CGFloat = 260
+        static let commandHistoryPanelMinWidthPX: CGFloat = 200
+        static let commandHistoryPanelMaxWidthPX: CGFloat = 400
+        static let commandHistoryPanelInsetXPX: CGFloat = 10
+        static let commandHistoryPanelInsetYPX: CGFloat = 10
+        static let commandHistorySearchPillHeightPX: CGFloat = 26
+        static let commandHistorySearchPillCornerRadiusPX: CGFloat = 7
+        static let commandHistorySearchPillTextInsetXPX: CGFloat = 6
+        static let commandHistorySectionHeaderTopGapPX: CGFloat = 14
+        static let commandHistorySectionHeaderBottomGapPX: CGFloat = 6
+        static let commandHistorySectionHeaderInsetXPX: CGFloat = 12
+        static let commandHistoryGroupRowHeightPX: CGFloat = 28
+        static let commandHistoryCommandRowHeightPX: CGFloat = 25
+        static let commandHistoryStatusDotSizePX: CGFloat = 8
+        static let commandHistoryRowInsetXPX: CGFloat = 8
+        static let commandHistoryRowGapPX: CGFloat = 6
+        static let commandHistoryRowCornerRadiusPX: CGFloat = 5
+        static let commandHistoryRowHighlightInsetXPX: CGFloat = 4
+        static let commandHistoryRowHighlightInsetYPX: CGFloat = 1
+        static let commandHistoryTimeLabelMinWidthPX: CGFloat = 28
+        static let commandHistoryBadgeHeightPX: CGFloat = 16
+        static let commandHistoryBadgeTextInsetXPX: CGFloat = 6
+        static let commandHistoryBadgeMinWidthPX: CGFloat = 20
+        static let commandHistoryGroupIconPointSizePT: CGFloat = 12
+        static let commandHistoryEmptyStateIconPointSizePT: CGFloat = 24
+        static let commandHistoryEmptyStateGapPX: CGFloat = 8
+        static let commandHistoryOutlineIndentationPX: CGFloat = 6
+        static let commandHistoryDefaultExpandedGroupCount = 3
+        static let commandHistorySearchPillBackgroundAlphaRATIO: CGFloat = 0.08
+        static let commandHistoryHoverBackgroundAlphaRATIO: CGFloat = 0.07
+        static let commandHistorySelectionBackgroundAlphaRATIO: CGFloat = 0.24
+        static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
         static let paneDropTargetBorderWidthPX: CGFloat = 2
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28

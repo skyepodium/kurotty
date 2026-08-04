@@ -10,6 +10,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let tabBarView = NSView()
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
+    // Command-history split chrome; layout and handlers live in
+    // TerminalWindowCommandHistory.swift to keep this controller thin.
+    let commandHistorySplitView = NSSplitView()
+    let commandHistoryPanel = TerminalCommandHistoryPanelView()
+    let terminalContentHostView = NSView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
     var chromeTheme: DesignTokens.ChromeTheme
     private var lastAppliedWindowSettings: WindowSettings
@@ -250,16 +255,16 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         tabView.delegate = self
         tabView.drawsBackground = false
         tabView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.addSubview(tabBarView)
-        rootView.addSubview(tabView)
+        terminalContentHostView.addSubview(tabBarView)
+        terminalContentHostView.addSubview(tabView)
         tabBarView.addSubview(tabStackView)
 
         let tabBarHeightConstraint = tabBarView.heightAnchor.constraint(equalToConstant: 0)
         self.tabBarHeightConstraint = tabBarHeightConstraint
         NSLayoutConstraint.activate([
-            tabBarView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            tabBarView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            tabBarView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            tabBarView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
+            tabBarView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
+            tabBarView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
             tabBarHeightConstraint,
 
             tabStackView.leadingAnchor.constraint(equalTo: tabBarView.leadingAnchor),
@@ -267,11 +272,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabStackView.topAnchor.constraint(equalTo: tabBarView.topAnchor),
             tabStackView.bottomAnchor.constraint(equalTo: tabBarView.bottomAnchor),
 
-            tabView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            tabView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            tabView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
+            tabView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
             tabView.topAnchor.constraint(equalTo: tabBarView.bottomAnchor),
-            tabView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
         ])
+        configureCommandHistorySplit(in: rootView)
         addTab(with: initialPane)
     }
 
@@ -376,6 +382,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        commandHistoryPanel.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
         updateTabBar()
     }

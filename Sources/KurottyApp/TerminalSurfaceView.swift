@@ -2476,6 +2476,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         case .commandStart:
             shellIntegration.setActiveCommandText(lastSubmittedCommandText)
         case .commandEnd(let context):
+            TerminalCommandHistoryStore.shared.record(completion: context)
             notifyCommandFinishedIfNeeded(context)
         default:
             break

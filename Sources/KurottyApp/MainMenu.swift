@@ -52,6 +52,18 @@ enum MainMenu {
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: AppLocalization.string(.view))
+        let commandHistory = NSMenuItem(
+            title: AppLocalization.string(.commandHistory),
+            action: #selector(AppDelegate.toggleCommandHistoryPanel),
+            keyEquivalent: "y"
+        )
+        commandHistory.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(commandHistory)
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
         let languageMenuItem = NSMenuItem()
         let languageMenu = NSMenu(title: AppLocalization.string(.language))
         let languageOptions: [(AppLanguagePreference, L10nKey)] = [

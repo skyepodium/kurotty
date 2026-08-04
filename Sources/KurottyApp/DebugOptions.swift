@@ -18,6 +18,8 @@ enum DebugOptions {
     static let inputClient = flag("--debug-input-client", env: "KUROTTY_DEBUG_INPUT_CLIENT")
     static let cursorCoordinates = flag("--debug-cursor-coordinates", env: "KUROTTY_DEBUG_CURSOR_COORDINATES")
     static let testNotification = flag("--debug-test-notification", env: "KUROTTY_DEBUG_TEST_NOTIFICATION")
+    static let showHistoryPanel = flag("--debug-show-history-panel", env: "KUROTTY_DEBUG_SHOW_HISTORY_PANEL")
+    static let seedHistory = flag("--debug-seed-history", env: "KUROTTY_DEBUG_SEED_HISTORY")
 
     private static func flag(_ argument: String, env: String) -> Bool {
         if CommandLine.arguments.contains(argument) {
