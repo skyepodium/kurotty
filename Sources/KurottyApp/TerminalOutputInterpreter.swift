@@ -17,6 +17,12 @@ struct TerminalOutputInterpreterHost {
     let updateScrollIndicator: () -> Void
     let maxScrollbackOffset: (_ visibleRows: Int?) -> Int
     let reportTerminalFocusIfNeeded: () -> Void
+    /// Live cell/grid geometry from the renderer's single metrics path. `nil`
+    /// while the surface has no usable size yet, which suppresses the pixel
+    /// capability replies rather than inventing a second source of truth.
+    let terminalCapabilityMetrics: () -> TerminalCapabilityMetrics?
+    /// The terminal's current color scheme, used by DEC mode 2031 replies.
+    let terminalColorSchemeMode: () -> TerminalColorSchemeMode
 }
 
 /// VT parser and screen-mutation engine extracted from TerminalSurfaceView.
@@ -54,6 +60,15 @@ final class TerminalOutputInterpreter {
     var extendedKeyFormat: TerminalExtendedKeyFormat = .xterm
     var tabStops = Set(stride(from: 8, through: 992, by: 8))
     var bracketedPasteEnabled = false
+    /// DEC private mode 2031. While enabled, an appearance change pushes a
+    /// color-scheme notification so subscribed TUIs can re-theme live.
+    var colorSchemeUpdateModeEnabled = false
+    /// While true, every terminal reply is suppressed. Persisted scrollback
+    /// being replayed into the interpreter can contain the *old* session's
+    /// capability queries; answering those would inject stray bytes into the
+    /// fresh shell's stdin. The replay path owns this flag and must clear it
+    /// once live PTY output resumes.
+    var isReplayingScrollback = false
     var mouseReportingState = TerminalMouseReportingState()
     var focusReportingState = TerminalFocusReportingState()
     var pressedMouseButton: TerminalMouseButton?
@@ -478,6 +493,8 @@ final class TerminalOutputInterpreter {
             if let response = TerminalDeviceAttributes.response(for: parsed) {
                 sendTerminalResponse(response)
             }
+        case "t", "p":
+            respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":
@@ -490,6 +507,24 @@ final class TerminalOutputInterpreter {
             markDirty(row: cursorRow)
         }
         logCsi(final: final, params: params, parsed: parsed, phase: "after")
+    }
+
+    private func respondToCapabilityQuery(final: Character, rawParameters: String, parsed: CsiParameters) {
+        guard let query = TerminalCapabilityReplies.query(
+            final: final,
+            rawParameters: rawParameters,
+            parsed: parsed
+        ) else {
+            return
+        }
+        guard let reply = TerminalCapabilityReplies.reply(
+            for: query,
+            metrics: terminalCapabilityMetrics(),
+            colorSchemeUpdateModeEnabled: colorSchemeUpdateModeEnabled
+        ) else {
+            return
+        }
+        sendTerminalResponse(reply)
     }
 
     private func logCsi(final: Character, params: String, parsed: CsiParameters, phase: String) {
@@ -599,6 +634,8 @@ final class TerminalOutputInterpreter {
                 }
             case 2004:
                 bracketedPasteEnabled = enabled
+            case TerminalCapabilityReplies.colorSchemeUpdateMode:
+                colorSchemeUpdateModeEnabled = enabled
             case 1004:
                 focusReportingState.set(enabled: enabled)
                 reportTerminalFocusIfNeeded()
@@ -727,6 +764,7 @@ final class TerminalOutputInterpreter {
         extendedKeyFormat = .xterm
         tabStops = Set(stride(from: 8, through: 992, by: 8))
         bracketedPasteEnabled = false
+        colorSchemeUpdateModeEnabled = false
         mouseReportingState.reset()
         focusReportingState.set(enabled: false)
         pressedMouseButton = nil
@@ -896,11 +934,17 @@ final class TerminalOutputInterpreter {
 
     // MARK: - Host forwarding
 
+    /// Single choke point for every terminal reply the interpreter produces
+    /// (DA1, DA2, CPR, XTWINOPS, DECRPM). Replies are dropped while persisted
+    /// scrollback is being replayed so restored output cannot re-answer a
+    /// previous session's queries into the live shell.
     private func sendTerminalResponse(_ text: String) {
+        guard !isReplayingScrollback else { return }
         host?.sendTerminalResponse(text)
     }
 
     private func respondToOscQuery(_ code: String) {
+        guard !isReplayingScrollback else { return }
         host?.respondToOscQuery(code)
     }
 
@@ -938,5 +982,15 @@ final class TerminalOutputInterpreter {
 
     private func reportTerminalFocusIfNeeded() {
         host?.reportTerminalFocusIfNeeded()
+    }
+
+    private func terminalCapabilityMetrics() -> TerminalCapabilityMetrics? {
+        host?.terminalCapabilityMetrics()
+    }
+
+    func terminalColorSchemeMode() -> TerminalColorSchemeMode {
+        host?.terminalColorSchemeMode() ?? TerminalColorSchemeMode(
+            isLightBackground: terminalDefaultStyle.isLightBackground
+        )
     }
 }

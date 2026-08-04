@@ -26,7 +26,7 @@ enum TerminalResizeSignalTarget: Equatable {
     }
 }
 
-final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, @unchecked Sendable {
+final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalSessionInputBackpressureReporting, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
@@ -43,6 +43,11 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     private var isInputDrainScheduled = false
     private var pendingInput = Data()
     private var pendingInputStartIndex = 0
+    /// Bytes accepted from callers but not yet handed to the PTY. Published
+    /// under `queuedInputLock` so the main actor can pace large pastes without
+    /// reaching into `readQueue` state.
+    private var publishedQueuedInputByteCount = 0
+    private let queuedInputLock = NSLock()
     private var pendingOutput = Data()
     private var pendingOutputStartIndex = 0
     private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
@@ -125,6 +130,14 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         readQueue.async { [weak self] in
             self?.enqueueInput(data)
         }
+    }
+
+    /// Bytes still queued for the PTY. Read from any thread; the paste writer
+    /// uses it to stay behind the write path.
+    var queuedInputByteCount: Int {
+        queuedInputLock.lock()
+        defer { queuedInputLock.unlock() }
+        return publishedQueuedInputByteCount
     }
 
     func foregroundProcessName() -> String? {
@@ -223,6 +236,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     private func enqueueInput(_ data: Data) {
         guard !data.isEmpty else { return }
         pendingInput.append(data)
+        publishQueuedInputByteCount()
         drainInput()
     }
 
@@ -231,8 +245,10 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         guard master >= 0 else {
             pendingInput.removeAll(keepingCapacity: true)
             pendingInputStartIndex = 0
+            publishQueuedInputByteCount()
             return
         }
+        defer { publishQueuedInputByteCount() }
 
         var didWrite = false
         while pendingInputReadableCount > 0 {
@@ -281,6 +297,13 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
 
     private var pendingInputReadableCount: Int {
         pendingInput.count - pendingInputStartIndex
+    }
+
+    private func publishQueuedInputByteCount() {
+        let count = max(0, pendingInputReadableCount)
+        queuedInputLock.lock()
+        publishedQueuedInputByteCount = count
+        queuedInputLock.unlock()
     }
 
     private func consumePendingInput(_ count: Int) {

@@ -45,6 +45,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(commandHistoryToggled(_:))
     )
+    private lazy var confirmMultilinePasteCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(confirmMultilinePasteToggled(_:))
+    )
     private lazy var agentSessionIndexCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
@@ -243,6 +248,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         textSection.addArrangedSubview(row(label: copy(.fontSize), control: numericControl(field: fontSizeField, stepper: fontSizeStepper, suffix: "pt")))
         hideMouseCursorCheckbox.title = copy(.hideMouseCursorCheckboxTitle)
         textSection.addArrangedSubview(row(label: copy(.hideMouseCursor), control: hideMouseCursorCheckbox))
+        confirmMultilinePasteCheckbox.title = copy(.confirmMultilinePasteCheckboxTitle)
+        textSection.addArrangedSubview(row(label: copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox))
         detailStack.addArrangedSubview(textSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
@@ -508,6 +515,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    @objc private func confirmMultilinePasteToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.confirmMultilinePaste = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func agentSessionIndexToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.agentSessionIndexEnabled = sender.state == .on
@@ -581,6 +594,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scrollbackField.integerValue = settings.terminal.scrollbackLines
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
         commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off
+        confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off

@@ -1411,7 +1411,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
         XCTAssertFalse(shellSource.contains("protocol TerminalSession"))
-        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, @unchecked Sendable"))
+        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalSessionInputBackpressureReporting, @unchecked Sendable"))
         XCTAssertTrue(shellSource.contains("foregroundProcessGroup: tcgetpgrp(master)"))
         XCTAssertTrue(shellSource.contains("killpg(processGroup, SIGWINCH)"))
         XCTAssertTrue(shellSource.contains("#if os(macOS)"))
@@ -1522,7 +1522,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 12"))
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 13"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))

@@ -284,5 +284,9 @@ enum AppConstants {
         static let ptyRawLogPrefix = "Kurotty PTY raw"
         static let notificationSkippedPrefix = "Kurotty notification skipped outside app bundle"
         static let notificationEnqueuePrefix = "Kurotty notification enqueue"
+        /// Paste logging is redacted by construction: only counts and modes are
+        /// ever formatted behind this prefix, never clipboard content.
+        static let pasteLogPrefix = "Kurotty paste"
+        static let diagnosticsReportPrefix = "Kurotty diagnostics report"
     }
 }

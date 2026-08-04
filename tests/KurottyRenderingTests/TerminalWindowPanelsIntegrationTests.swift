@@ -91,6 +91,22 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
     /// A hidden pane must leave the split view entirely: while it merely had
     /// `isHidden` set, the split view kept the pane's last frame and drew a
     /// divider hairline plus an empty strip at the window edge.
+    /// Menu items that carry their own action object must survive the
+    /// target-rewrite loop in `MainMenu.install`; the app delegate does not
+    /// implement their selectors, so a rewritten target disables them.
+    func testMainMenuKeepsItemsThatCarryTheirOwnActionTarget() throws {
+        let menuSource = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/KurottyApp/MainMenu.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(menuSource.contains("guard submenuItem.target == nil else { return }"))
+        XCTAssertFalse(menuSource.contains("item.submenu?.items.forEach { $0.target = target }"))
+    }
+
     @MainActor
     func testHidingASidebarRemovesItsPaneAndGivesTheWidthBackToTheTerminal() {
         let controller = makeWindowController()

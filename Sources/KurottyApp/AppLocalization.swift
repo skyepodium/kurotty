@@ -52,7 +52,9 @@ enum L10nKey: String, CaseIterable {
     case closePane, focusPaneLeft, focusPaneRight, focusPaneDown, focusPaneUp
     case splitRight, splitLeft, splitDown, splitUp
     case replayCommandQuestion, openLinkQuestion, cancel, open, openInBrowser, replay
+    case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     case updateUnavailableTitle, updateUnavailableMessage, ok
+    case help, copyDiagnosticsReport, diagnosticsReportCopiedTitle, diagnosticsReportCopiedMessage
     case settingsWindow, settingsValid, errors, warnings
     case invalidSettingsJSON, settingsLoaded, settingsLoadFailed, settingsNotApplied, settingsApplying, settingsApplied, settingsApplyFailed
     case tmuxSwapPanePrevious, tmuxSwapPaneNext, tmuxRotatePanesPrevious, tmuxRotatePanesNext
@@ -135,7 +137,11 @@ enum AppLocalization {
             .closePane: "Close Pane", .focusPaneLeft: "Focus Pane Left", .focusPaneRight: "Focus Pane Right", .focusPaneDown: "Focus Pane Down", .focusPaneUp: "Focus Pane Up",
             .splitRight: "Split Right", .splitLeft: "Split Left", .splitDown: "Split Down", .splitUp: "Split Up",
             .replayCommandQuestion: "Replay Command?", .openLinkQuestion: "Open Link?", .cancel: "Cancel", .open: "Open", .openInBrowser: "Open in Browser", .replay: "Replay",
+            .pasteLinesQuestion: "Paste %d lines?", .pasteLinesExplanation: "The shell can run every line this paste contains.", .pasteConfirm: "Paste",
+            .pasteTooLargeTitle: "Paste Too Large", .pasteTooLargeExplanation: "This clipboard content is %d bytes, above the %d byte paste limit.",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
+            .help: "Help", .copyDiagnosticsReport: "Copy Diagnostics Report",
+            .diagnosticsReportCopiedTitle: "Diagnostics Report Copied", .diagnosticsReportCopiedMessage: "The report is on the clipboard. It contains version, renderer, and event counts only — no terminal output, commands, or full paths.",
             .settingsWindow: "%@ Settings", .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
             .invalidSettingsJSON: "Settings JSON is invalid: %@", .settingsLoaded: "Loaded %@. Edits apply automatically. %@", .settingsLoadFailed: "Load failed: %@", .settingsNotApplied: "Not applied. %@", .settingsApplying: "Applying settings. %@", .settingsApplied: "Applied %@. %@", .settingsApplyFailed: "Apply failed: %@",
             .tmuxSwapPanePrevious: "Tmux: Swap Pane Previous", .tmuxSwapPaneNext: "Tmux: Swap Pane Next", .tmuxRotatePanesPrevious: "Tmux: Rotate Panes Previous", .tmuxRotatePanesNext: "Tmux: Rotate Panes Next",
@@ -179,7 +185,11 @@ enum AppLocalization {
             .closePane: "패널 닫기", .focusPaneLeft: "왼쪽 패널로 이동", .focusPaneRight: "오른쪽 패널로 이동", .focusPaneDown: "아래 패널로 이동", .focusPaneUp: "위 패널로 이동",
             .splitRight: "오른쪽으로 분할", .splitLeft: "왼쪽으로 분할", .splitDown: "아래로 분할", .splitUp: "위로 분할",
             .replayCommandQuestion: "명령을 다시 실행할까요?", .openLinkQuestion: "링크를 열까요?", .cancel: "취소", .open: "열기", .openInBrowser: "브라우저에서 열기", .replay: "다시 실행",
+            .pasteLinesQuestion: "%d줄을 붙여넣을까요?", .pasteLinesExplanation: "이 붙여넣기에 포함된 모든 줄이 셸에서 실행될 수 있습니다.", .pasteConfirm: "붙여넣기",
+            .pasteTooLargeTitle: "붙여넣기 내용이 너무 큽니다", .pasteTooLargeExplanation: "클립보드 내용이 %d바이트로, 붙여넣기 한도 %d바이트를 넘습니다.",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
+            .help: "도움말", .copyDiagnosticsReport: "진단 리포트 복사",
+            .diagnosticsReportCopiedTitle: "진단 리포트를 복사했습니다", .diagnosticsReportCopiedMessage: "리포트가 클립보드에 있습니다. 버전, 렌더러, 이벤트 개수만 포함하며 터미널 출력, 명령어, 전체 경로는 들어 있지 않습니다.",
             .settingsWindow: "%@ 설정", .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
             .invalidSettingsJSON: "설정 JSON이 올바르지 않습니다: %@", .settingsLoaded: "%@을(를) 불러왔습니다. 변경 사항은 자동으로 적용됩니다. %@", .settingsLoadFailed: "불러오기 실패: %@", .settingsNotApplied: "적용되지 않았습니다. %@", .settingsApplying: "설정을 적용하는 중입니다. %@", .settingsApplied: "%@에 적용했습니다. %@", .settingsApplyFailed: "적용 실패: %@",
             .tmuxSwapPanePrevious: "Tmux: 이전 패널과 교체", .tmuxSwapPaneNext: "Tmux: 다음 패널과 교체", .tmuxRotatePanesPrevious: "Tmux: 패널을 이전 방향으로 회전", .tmuxRotatePanesNext: "Tmux: 패널을 다음 방향으로 회전",
@@ -223,7 +233,11 @@ enum AppLocalization {
             .closePane: "ペインを閉じる", .focusPaneLeft: "左のペインに移動", .focusPaneRight: "右のペインに移動", .focusPaneDown: "下のペインに移動", .focusPaneUp: "上のペインに移動",
             .splitRight: "右に分割", .splitLeft: "左に分割", .splitDown: "下に分割", .splitUp: "上に分割",
             .replayCommandQuestion: "コマンドを再実行しますか？", .openLinkQuestion: "リンクを開きますか？", .cancel: "キャンセル", .open: "開く", .openInBrowser: "ブラウザで開く", .replay: "再実行",
+            .pasteLinesQuestion: "%d行をペーストしますか？", .pasteLinesExplanation: "このペーストに含まれるすべての行がシェルで実行される可能性があります。", .pasteConfirm: "ペースト",
+            .pasteTooLargeTitle: "ペースト内容が大きすぎます", .pasteTooLargeExplanation: "クリップボードの内容は %d バイトで、ペースト上限の %d バイトを超えています。",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
+            .help: "ヘルプ", .copyDiagnosticsReport: "診断レポートをコピー",
+            .diagnosticsReportCopiedTitle: "診断レポートをコピーしました", .diagnosticsReportCopiedMessage: "レポートはクリップボードにあります。バージョン、レンダラー、イベント数のみを含み、ターミナル出力・コマンド・完全なパスは含まれません。",
             .settingsWindow: "%@の設定", .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
             .invalidSettingsJSON: "設定JSONが無効です: %@", .settingsLoaded: "%@を読み込みました。変更は自動的に適用されます。%@", .settingsLoadFailed: "読み込みに失敗しました: %@", .settingsNotApplied: "適用されていません。%@", .settingsApplying: "設定を適用しています。%@", .settingsApplied: "%@に適用しました。%@", .settingsApplyFailed: "適用に失敗しました: %@",
             .tmuxSwapPanePrevious: "Tmux: 前のペインと交換", .tmuxSwapPaneNext: "Tmux: 次のペインと交換", .tmuxRotatePanesPrevious: "Tmux: ペインを前方向に回転", .tmuxRotatePanesNext: "Tmux: ペインを次方向に回転",

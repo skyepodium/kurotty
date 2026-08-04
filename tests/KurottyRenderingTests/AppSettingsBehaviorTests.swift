@@ -548,7 +548,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 12 pane-behavior keys
 
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 12)
+        // Re-pointed at schema 13 when `terminal.confirmMultilinePaste` was
+        // added; the schema-12 keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 13)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertFalse(

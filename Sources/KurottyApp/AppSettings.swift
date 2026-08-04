@@ -19,6 +19,7 @@ struct AppSettings: Codable, Equatable {
             scrollbackLines: Defaults.scrollbackLines,
             colors: TerminalColorSettings.default,
             commandHistoryEnabled: Defaults.commandHistoryEnabled,
+            confirmMultilinePaste: Defaults.confirmMultilinePaste,
             agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
             hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
             agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled
@@ -42,6 +43,7 @@ struct AppSettings: Codable, Equatable {
         static let windowHeight = SettingsDefaults.defaultWindowHeightPX
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
         static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
+        static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
         static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
         static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
@@ -85,6 +87,9 @@ struct AppSettings: Codable, Equatable {
 /// The index is metadata held in memory only; transcript content is never
 /// copied into Kurotty's own storage regardless of this setting.
 /// `hideMouseCursorWhileTyping` is live-applied and defaults on.
+/// `confirmMultilinePaste` is live-applied and defaults **on**: a paste that
+/// spans more than one line asks before any byte reaches the PTY, because the
+/// shell would otherwise execute every line the clipboard carried.
 /// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
 /// starts a loopback listener and writes Kurotty-marked entries into the user's
 /// agent hook configuration, so it is always an explicit opt-in.
@@ -95,6 +100,7 @@ struct TerminalSettings: Codable, Equatable {
     var scrollbackLines: Int
     var colors: TerminalColorSettings
     var commandHistoryEnabled: Bool
+    var confirmMultilinePaste: Bool
     var agentSessionIndexEnabled: Bool
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
@@ -106,6 +112,7 @@ struct TerminalSettings: Codable, Equatable {
         case scrollbackLines
         case colors
         case commandHistoryEnabled
+        case confirmMultilinePaste
         case agentSessionIndexEnabled
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
@@ -118,6 +125,7 @@ struct TerminalSettings: Codable, Equatable {
         scrollbackLines: Int,
         colors: TerminalColorSettings,
         commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled,
+        confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
         agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled
@@ -128,6 +136,7 @@ struct TerminalSettings: Codable, Equatable {
         self.scrollbackLines = scrollbackLines
         self.colors = colors
         self.commandHistoryEnabled = commandHistoryEnabled
+        self.confirmMultilinePaste = confirmMultilinePaste
         self.agentSessionIndexEnabled = agentSessionIndexEnabled
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
@@ -142,6 +151,8 @@ struct TerminalSettings: Codable, Equatable {
         colors = try container.decode(TerminalColorSettings.self, forKey: .colors)
         commandHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .commandHistoryEnabled)
             ?? SettingsDefaults.commandHistoryEnabled
+        confirmMultilinePaste = try container.decodeIfPresent(Bool.self, forKey: .confirmMultilinePaste)
+            ?? SettingsDefaults.confirmMultilinePaste
         // Absent in schema versions below 11; those files fall back to the
         // current default rather than failing to decode.
         agentSessionIndexEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentSessionIndexEnabled)
@@ -324,6 +335,8 @@ struct AppSettingsNormalizer {
         /// `terminal.agentStatusHooksEnabled`, and
         /// `shell.perProjectHistoryEnabled`.
         static let paneBehaviorSchemaVersion = 12
+        /// Schema version that introduced `terminal.confirmMultilinePaste`.
+        static let multilinePasteConfirmationSchemaVersion = 13
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -349,6 +362,13 @@ struct AppSettingsNormalizer {
             next.terminal.hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
             next.terminal.agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
             next.shell.perProjectHistoryEnabled = SettingsDefaults.perProjectHistoryEnabled
+        }
+        if sourceSchemaVersion < Migration.multilinePasteConfirmationSchemaVersion {
+            // Settings written before schema 13 predate the multi-line paste
+            // confirmation, so the key carries no user intent. Migrated files
+            // land on the current default; from schema 13 on, an explicit
+            // choice in either direction is preserved.
+            next.terminal.confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -15,8 +15,22 @@ final class TerminalAgentSessionPanelView: NSView {
         static let search = "magnifyingglass"
     }
 
+    /// Strings that belong in `AppLocalization` once this wave's file ownership
+    /// split ends. Listed in the handoff report for migration.
+    private enum Copy {
+        static let openTranscript = "Open Transcript"
+    }
+
     var onInsertResumeCommand: ((AgentSessionRecord) -> Void)?
     var onOpenDirectoryInExplorer: ((AgentSessionRecord) -> Void)?
+    /// Set by a host that wants the transcript somewhere other than its own
+    /// window, such as a center editor tab. When nil the panel presents the
+    /// read-only viewer itself.
+    var onOpenTranscript: ((AgentSessionRecord) -> Void)?
+
+    /// Owned here so the viewer's lifetime matches the sidebar's rather than
+    /// living in a global.
+    private let transcriptPresenter = AgentSessionTranscriptPresenter()
 
     private let store: AgentSessionIndexStore
     private let homeDirectory: String
@@ -79,6 +93,7 @@ final class TerminalAgentSessionPanelView: NSView {
         emptyStateLabel.alphaValue = 0.72
         outlineView.reloadData()
         applyExpansionState()
+        transcriptPresenter.applyChromeTheme(theme)
     }
 
     func focusFilterField() {
@@ -402,7 +417,24 @@ final class TerminalAgentSessionPanelView: NSView {
         return selectedRecord()
     }
 
+    /// Opens the read-only transcript viewer. Never writes to a PTY and never
+    /// resumes the session; resuming stays on the explicit insert path.
+    func openTranscript(for record: AgentSessionRecord) {
+        guard !record.filePath.isEmpty else {
+            return
+        }
+        guard let onOpenTranscript else {
+            transcriptPresenter.present(record: record)
+            return
+        }
+        onOpenTranscript(record)
+    }
+
     @objc private func rowClicked(_ sender: Any?) {
+        if let record = record(atRow: outlineView.clickedRow) {
+            openTranscript(for: record)
+            return
+        }
         guard let groupItem = outlineView.item(atRow: outlineView.clickedRow)
             as? TerminalAgentSessionGroupOutlineItem
         else {
@@ -441,12 +473,26 @@ final class TerminalAgentSessionPanelView: NSView {
             (.revealTranscriptInFinder, #selector(revealTranscriptFromContextMenu(_:))),
             (.openDirectoryInExplorer, #selector(openDirectoryFromContextMenu(_:))),
         ]
+        let transcriptItem = NSMenuItem(
+            title: Copy.openTranscript,
+            action: #selector(openTranscriptFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        transcriptItem.target = self
+        menu.addItem(transcriptItem)
         for (key, action) in entries {
             let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
         return menu
+    }
+
+    @objc private func openTranscriptFromContextMenu(_ sender: Any?) {
+        guard let record = clickedOrSelectedRecord() else {
+            return
+        }
+        openTranscript(for: record)
     }
 
     @objc private func insertResumeFromContextMenu(_ sender: Any?) {

@@ -1,8 +1,11 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 12
+    public static let schemaVersion = 13
     public static let commandHistoryEnabled = true
+    /// Live-applied and on by default. A paste that spans more than one line
+    /// can execute every line it contains, so it asks for confirmation first.
+    public static let confirmMultilinePaste = true
     /// On by default. Indexing reads the user's AI agent transcripts, so the
     /// Settings checkbox must always be able to turn it off; when disabled no
     /// scan runs at all and no index is retained.

@@ -89,6 +89,20 @@ enum MainMenu {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
+        // Help owns the one-shot diagnostics report. It targets the feature's
+        // own action object so the report does not add a case to AppDelegate.
+        let helpMenuItem = NSMenuItem()
+        let helpMenu = NSMenu(title: AppLocalization.string(.help))
+        let copyDiagnosticsReport = NSMenuItem(
+            title: AppLocalization.string(.copyDiagnosticsReport),
+            action: #selector(DiagnosticsReportMenuActionTarget.copyDiagnosticsReport(_:)),
+            keyEquivalent: ""
+        )
+        copyDiagnosticsReport.target = DiagnosticsReportMenuActionTarget.shared
+        helpMenu.addItem(copyDiagnosticsReport)
+        helpMenuItem.submenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
+
         let languageMenuItem = NSMenuItem()
         let languageMenu = NSMenu(title: AppLocalization.string(.language))
         let languageOptions: [(AppLanguagePreference, L10nKey)] = [
@@ -128,8 +142,17 @@ enum MainMenu {
 
         for item in mainMenu.items {
             item.target = target
-            guard item.submenu !== editMenu else { continue }
-            item.submenu?.items.forEach { $0.target = target }
+            // The Edit menu resolves through the responder chain, and the Help
+            // menu keeps the diagnostics report's own action object, so neither
+            // may have its item targets rewritten to the app delegate.
+            guard item.submenu !== editMenu, item.submenu !== helpMenu else { continue }
+            // Items that already carry their own action object keep it: the
+            // app delegate does not implement their selectors, so rewriting
+            // the target here would leave them permanently disabled.
+            item.submenu?.items.forEach { submenuItem in
+                guard submenuItem.target == nil else { return }
+                submenuItem.target = target
+            }
         }
 
         NSApp.mainMenu = mainMenu

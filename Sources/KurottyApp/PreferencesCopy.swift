@@ -8,6 +8,7 @@ enum PreferencesCopy {
         case commandHistory, commandHistoryCheckboxTitle
         case agentSessionIndex, agentSessionIndexCheckboxTitle
         case hideMouseCursor, hideMouseCursorCheckboxTitle
+        case confirmMultilinePaste, confirmMultilinePasteCheckboxTitle
         case perProjectHistory, perProjectHistoryCheckboxTitle
         case agentStatusHooks, agentStatusHooksCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
@@ -43,6 +44,7 @@ enum PreferencesCopy {
             .commandHistory: "Command history", .commandHistoryCheckboxTitle: "Record commands for the Command History panel",
             .agentSessionIndex: "Agent sessions", .agentSessionIndexCheckboxTitle: "Index AI agent sessions stored on this Mac (read-only)",
             .hideMouseCursor: "Pointer", .hideMouseCursorCheckboxTitle: "Hide the mouse pointer while typing",
+            .confirmMultilinePaste: "Paste", .confirmMultilinePasteCheckboxTitle: "Ask before pasting more than one line",
             .perProjectHistory: "Shell history", .perProjectHistoryCheckboxTitle: "Keep a separate shell history per project (new sessions)",
             .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let agents report status through Kurotty's local hook (off by default)",
             .quickCommandsSection: "Quick Commands", .quickCommandsSectionHelp: "Named commands offered in the command palette and the terminal context menu.",
@@ -64,6 +66,7 @@ enum PreferencesCopy {
             .historySection: "기록", .historySectionHelp: "메모리 사용량을 예측할 수 있도록 스크롤백 보관량을 제한합니다.", .scrollback: "스크롤백", .lines: "줄",
             .commandHistory: "명령 기록", .commandHistoryCheckboxTitle: "명령 기록 패널을 위해 실행한 명령을 저장",
             .agentSessionIndex: "에이전트 세션", .agentSessionIndexCheckboxTitle: "이 Mac에 저장된 AI 에이전트 세션을 색인 (읽기 전용)",
+            .confirmMultilinePaste: "붙여넣기", .confirmMultilinePasteCheckboxTitle: "여러 줄을 붙여넣기 전에 확인",
             .hideMouseCursor: "포인터", .hideMouseCursorCheckboxTitle: "입력하는 동안 마우스 포인터 숨기기",
             .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
             .agentStatusHooks: "에이전트 상태 훅", .agentStatusHooksCheckboxTitle: "Kurotty의 로컬 훅으로 에이전트가 상태를 보고하도록 허용 (기본 꺼짐)",
@@ -86,6 +89,7 @@ enum PreferencesCopy {
             .historySection: "履歴", .historySectionHelp: "メモリ使用量を予測可能にするため、スクロールバックの保持量を制限します。", .scrollback: "スクロールバック", .lines: "行",
             .commandHistory: "コマンド履歴", .commandHistoryCheckboxTitle: "コマンド履歴パネルのために実行したコマンドを保存",
             .agentSessionIndex: "エージェントセッション", .agentSessionIndexCheckboxTitle: "このMacに保存されたAIエージェントのセッションをインデックス（読み取り専用）",
+            .confirmMultilinePaste: "ペースト", .confirmMultilinePasteCheckboxTitle: "複数行をペーストする前に確認",
             .hideMouseCursor: "ポインタ", .hideMouseCursorCheckboxTitle: "入力中はマウスポインタを隠す",
             .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
             .agentStatusHooks: "エージェント状態フック", .agentStatusHooksCheckboxTitle: "Kurottyのローカルフック経由でエージェントが状態を報告できるようにする（既定はオフ）",
