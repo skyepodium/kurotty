@@ -38,7 +38,12 @@ final class TerminalCommandHistoryPanelView: NSView {
 
     private let store: TerminalCommandHistoryStore
     private let searchPillView = NSView()
-    private let filterField = NSSearchField()
+    // A plain text field with our own leading magnifier: NSSearchField draws
+    // its search button from its cell, and with the bezel disabled for the
+    // pill styling the cell stops insetting the text, so the placeholder was
+    // drawn on top of the icon whenever the field was not being edited.
+    private let searchIconView = NSImageView()
+    private let filterField = NSTextField()
     private let sectionHeaderLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
@@ -74,6 +79,8 @@ final class TerminalCommandHistoryPanelView: NSView {
             .withAlphaComponent(DesignTokens.Component.commandHistorySearchPillBackgroundAlphaRATIO)
             .cgColor
         filterField.textColor = theme.textPrimary
+        searchIconView.contentTintColor = theme.textMuted
+        applyFilterPlaceholder()
         sectionHeaderLabel.textColor = theme.textMuted
         emptyStateIconView.contentTintColor = theme.textMuted
         emptyStateLabel.textColor = theme.textMuted
@@ -119,18 +126,45 @@ final class TerminalCommandHistoryPanelView: NSView {
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
 
-        filterField.placeholderString = AppLocalization.string(.commandHistoryFilterPlaceholder)
+        searchIconView.image = NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(
+                pointSize: DesignTokens.Typography.sidebarSearchFontSizePT,
+                weight: .regular
+            )
+        )
+        searchIconView.contentTintColor = chromeTheme.textMuted
+        searchIconView.imageScaling = .scaleNone
+        searchIconView.translatesAutoresizingMaskIntoConstraints = false
+        searchPillView.addSubview(searchIconView)
+
+        filterField.delegate = self
         filterField.target = self
         filterField.action = #selector(filterChanged(_:))
-        filterField.sendsSearchStringImmediately = true
-        filterField.sendsWholeSearchString = false
         filterField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
         filterField.isBezeled = false
         filterField.isBordered = false
         filterField.drawsBackground = false
         filterField.focusRingType = .none
+        filterField.lineBreakMode = .byTruncatingTail
+        filterField.cell?.usesSingleLineMode = true
         filterField.translatesAutoresizingMaskIntoConstraints = false
         searchPillView.addSubview(filterField)
+        applyFilterPlaceholder()
+    }
+
+    /// The placeholder needs an explicit muted color so it reads correctly
+    /// against the pill in both the light and dark chrome themes.
+    private func applyFilterPlaceholder() {
+        filterField.placeholderAttributedString = NSAttributedString(
+            string: AppLocalization.string(.commandHistoryFilterPlaceholder),
+            attributes: [
+                .foregroundColor: chromeTheme.textMuted,
+                .font: NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT),
+            ]
+        )
     }
 
     private func configureSectionHeader() {
@@ -220,7 +254,13 @@ final class TerminalCommandHistoryPanelView: NSView {
                 equalToConstant: DesignTokens.Component.commandHistorySearchPillHeightPX
             ),
 
-            filterField.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: pillTextInset),
+            searchIconView.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: pillTextInset),
+            searchIconView.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
+
+            filterField.leadingAnchor.constraint(
+                equalTo: searchIconView.trailingAnchor,
+                constant: DesignTokens.Component.commandHistorySearchIconGapPX
+            ),
             filterField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -pillTextInset),
             filterField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
@@ -259,7 +299,7 @@ final class TerminalCommandHistoryPanelView: NSView {
         reloadGroups()
     }
 
-    @objc private func filterChanged(_ sender: NSSearchField) {
+    @objc private func filterChanged(_ sender: NSTextField) {
         reloadGroups()
     }
 
@@ -493,6 +533,14 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
             return
         }
         explicitExpansionByPath[groupItem.group.display.path] = isExpanded
+    }
+}
+
+extension TerminalCommandHistoryPanelView: NSTextFieldDelegate {
+    /// Filter as the user types, matching the previous search field's
+    /// immediate-send behavior.
+    func controlTextDidChange(_ notification: Notification) {
+        reloadGroups()
     }
 }
 

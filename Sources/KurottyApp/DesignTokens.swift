@@ -194,6 +194,7 @@ enum DesignTokens {
         static let commandHistoryPanelInsetYPX: CGFloat = 12
         static let commandHistorySearchPillHeightPX: CGFloat = 26
         static let commandHistorySearchPillCornerRadiusPX: CGFloat = 7
+        static let commandHistorySearchIconGapPX: CGFloat = 6
         static let commandHistorySearchPillTextInsetXPX: CGFloat = 6
         static let commandHistorySectionHeaderTopGapPX: CGFloat = 14
         static let commandHistorySectionHeaderBottomGapPX: CGFloat = 6

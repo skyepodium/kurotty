@@ -167,7 +167,11 @@ final class TerminalFileExplorerPanelView: NSView {
     private let directoryNameLabel = NSTextField(labelWithString: "")
     private let refreshButton = ChromeIconButton(frame: .zero)
     private let searchPillView = NSView()
-    private let searchField = NSSearchField()
+    // Own magnifier + plain text field: an unbezeled NSSearchField stops
+    // insetting its text, so the placeholder overlapped the cell's built-in
+    // search icon whenever the field was not being edited.
+    private let searchIconView = NSImageView()
+    private let searchField = NSTextField()
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
 
@@ -222,6 +226,8 @@ final class TerminalFileExplorerPanelView: NSView {
             .withAlphaComponent(DesignTokens.Component.fileExplorerSearchPillBackgroundAlphaRATIO)
             .cgColor
         searchField.textColor = theme.textPrimary
+        searchIconView.contentTintColor = theme.textMuted
+        applySearchPlaceholder()
         outlineView.reloadData()
     }
 
@@ -272,18 +278,33 @@ final class TerminalFileExplorerPanelView: NSView {
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
 
-        searchField.placeholderString = AppLocalization.string(.fileExplorerSearchPlaceholder)
+        searchIconView.image = NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(
+                pointSize: DesignTokens.Typography.sidebarSearchFontSizePT,
+                weight: .regular
+            )
+        )
+        searchIconView.contentTintColor = chromeTheme.textMuted
+        searchIconView.imageScaling = .scaleNone
+        searchIconView.translatesAutoresizingMaskIntoConstraints = false
+        searchPillView.addSubview(searchIconView)
+
         searchField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
-        searchField.sendsSearchStringImmediately = true
-        searchField.sendsWholeSearchString = false
         searchField.isBezeled = false
         searchField.isBordered = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
+        searchField.lineBreakMode = .byTruncatingTail
+        searchField.cell?.usesSingleLineMode = true
+        searchField.delegate = self
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchPillView.addSubview(searchField)
+        applySearchPlaceholder()
 
         configureOutlineView()
         scrollView.documentView = outlineView
@@ -357,7 +378,13 @@ final class TerminalFileExplorerPanelView: NSView {
                 equalToConstant: DesignTokens.Component.fileExplorerSearchPillHeightPX
             ),
 
-            searchField.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: searchTextInset),
+            searchIconView.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: searchTextInset),
+            searchIconView.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
+
+            searchField.leadingAnchor.constraint(
+                equalTo: searchIconView.trailingAnchor,
+                constant: DesignTokens.Component.commandHistorySearchIconGapPX
+            ),
             searchField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -searchTextInset),
             searchField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
@@ -388,7 +415,19 @@ final class TerminalFileExplorerPanelView: NSView {
 
     // MARK: Filtering
 
-    @objc private func searchChanged(_ sender: NSSearchField) {
+    /// Explicit muted placeholder color so it reads correctly against the
+    /// pill in both chrome themes.
+    private func applySearchPlaceholder() {
+        searchField.placeholderAttributedString = NSAttributedString(
+            string: AppLocalization.string(.fileExplorerSearchPlaceholder),
+            attributes: [
+                .foregroundColor: chromeTheme.textMuted,
+                .font: NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT),
+            ]
+        )
+    }
+
+    @objc private func searchChanged(_ sender: NSTextField) {
         reapplyFilterIfNeeded()
     }
 
@@ -578,6 +617,14 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
             badge: badge,
             chromeTheme: chromeTheme
         )
+    }
+}
+
+extension TerminalFileExplorerPanelView: NSTextFieldDelegate {
+    /// Filter as the user types, matching the previous search field's
+    /// immediate-send behavior.
+    func controlTextDidChange(_ notification: Notification) {
+        reapplyFilterIfNeeded()
     }
 }
 
