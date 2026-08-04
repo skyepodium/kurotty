@@ -30,6 +30,8 @@ enum FileExplorerMetrics {
     static let badgeMinWidthPX: CGFloat = 14
     static let outlineIndentPX: CGFloat = 12
     static let dimmedAlphaRATIO: CGFloat = 0.55
+    static let emptyStateIconAlphaRATIO: CGFloat = 0.66
+    static let emptyStateLabelAlphaRATIO: CGFloat = 0.72
     static let watcherDebounceMS = 300
 }
 
@@ -155,6 +157,10 @@ final class TerminalFileExplorerPanelView: NSView {
     var callbacks = TerminalFileExplorerCallbacks()
 
     private(set) var rootDirectory: URL?
+    /// Set while the active pane's working directory lives on another machine.
+    /// The explorer browses local files only, so in this state it lists
+    /// nothing, watches nothing, and runs no `git`.
+    private(set) var remoteLocation: TerminalWorkingDirectoryLocation?
     private var rootItem: TerminalFileExplorerOutlineItem?
     private var filterMatchItems: [TerminalFileExplorerOutlineItem]?
     private var gitOverlay = FileExplorerGitOverlay.empty
@@ -172,8 +178,11 @@ final class TerminalFileExplorerPanelView: NSView {
     // search icon whenever the field was not being edited.
     private let searchIconView = NSImageView()
     private let searchField = NSTextField()
+    private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
+    private let emptyStateIconView = NSImageView()
+    private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
     init() {
         super.init(frame: .zero)
@@ -186,8 +195,24 @@ final class TerminalFileExplorerPanelView: NSView {
 
     // MARK: Public API
 
+    /// Primary entry point: points the panel at the active pane's working
+    /// directory, local or remote. Remote sessions short-circuit before any
+    /// filesystem, watcher, or `git` work.
+    func update(location: TerminalWorkingDirectoryLocation) {
+        guard location.isRemote else {
+            update(rootDirectory: URL(fileURLWithPath: location.path, isDirectory: true))
+            return
+        }
+        showRemoteLocation(location)
+    }
+
     func update(rootDirectory: URL) {
         let standardized = rootDirectory.standardizedFileURL
+        if remoteLocation != nil {
+            remoteLocation = nil
+            self.rootDirectory = nil
+            updateRemoteEmptyState()
+        }
         if self.rootDirectory != standardized {
             self.rootDirectory = standardized
             directoryNameLabel.stringValue = standardized.lastPathComponent
@@ -204,7 +229,32 @@ final class TerminalFileExplorerPanelView: NSView {
         refresh()
     }
 
+    /// Switches the panel into the remote empty state. Idempotent: repeating
+    /// the same remote location does nothing, so a pane that keeps emitting
+    /// OSC 7 for the same SSH directory cannot flicker the tree.
+    private func showRemoteLocation(_ location: TerminalWorkingDirectoryLocation) {
+        guard remoteLocation != location else {
+            return
+        }
+        remoteLocation = location
+        rootDirectory = nil
+        rootItem = nil
+        filterMatchItems = nil
+        // Invalidate any in-flight filter scan started for the previous local
+        // root so its result cannot repopulate the tree after the switch.
+        filterGeneration += 1
+        gitOverlay = .empty
+        watcher?.stop()
+        watcher = nil
+        outlineView.reloadData()
+        updateRemoteEmptyState()
+    }
+
     func refresh() {
+        // A remote session has nothing local to list, watch, or `git` on.
+        guard remoteLocation == nil else {
+            return
+        }
         guard let rootDirectory, let rootItem else {
             return
         }
@@ -227,12 +277,33 @@ final class TerminalFileExplorerPanelView: NSView {
             .cgColor
         searchField.textColor = theme.textPrimary
         searchIconView.contentTintColor = theme.textMuted
+        emptyStateIconView.contentTintColor = theme.textMuted
+        emptyStateLabel.textColor = theme.textMuted
         applySearchPlaceholder()
+        updateRemoteEmptyState()
         outlineView.reloadData()
     }
 
     func focusSearchField() {
         window?.makeFirstResponder(searchField)
+    }
+
+    // MARK: Testing accessors
+
+    var visibleRowCountForTesting: Int {
+        outlineView.numberOfRows
+    }
+
+    var isRemoteEmptyStateHiddenForTesting: Bool {
+        emptyStateLabel.isHidden && emptyStateIconView.isHidden
+    }
+
+    var remoteEmptyStateTextForTesting: String {
+        emptyStateLabel.stringValue
+    }
+
+    var isSearchEnabledForTesting: Bool {
+        searchField.isEnabled
     }
 
     // MARK: Setup
@@ -306,13 +377,67 @@ final class TerminalFileExplorerPanelView: NSView {
         searchPillView.addSubview(searchField)
         applySearchPlaceholder()
 
+        listContainerView.wantsLayer = true
+        listContainerView.clipsToBounds = true
+        listContainerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listContainerView)
+
         configureOutlineView()
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        listContainerView.addSubview(scrollView)
+        configureRemoteEmptyState()
         activateLayoutConstraints()
+        updateRemoteEmptyState()
+    }
+
+    /// Empty state for remote sessions. Lives inside the list container, so it
+    /// occupies the tree region only and can never overlap the header or the
+    /// search pill.
+    private func configureRemoteEmptyState() {
+        emptyStateIconView.image = NSImage(
+            systemSymbolName: FileExplorerIcon.remoteSymbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
+            weight: .regular
+        ))
+        emptyStateIconView.contentTintColor = chromeTheme.textMuted
+        emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
+        listContainerView.addSubview(emptyStateIconView)
+
+        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
+        emptyStateLabel.textColor = chromeTheme.textMuted
+        emptyStateLabel.alignment = .center
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        listContainerView.addSubview(emptyStateLabel)
+    }
+
+    /// Shows or hides the remote message and keeps the local-only controls
+    /// (search, refresh) disabled while there is nothing local to act on.
+    private func updateRemoteEmptyState() {
+        let isRemote = remoteLocation != nil
+        emptyStateIconView.isHidden = !isRemote
+        emptyStateLabel.isHidden = !isRemote
+        scrollView.isHidden = isRemote
+        searchField.isEnabled = !isRemote
+        refreshButton.isEnabled = !isRemote
+        emptyStateIconView.alphaValue = FileExplorerMetrics.emptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = FileExplorerMetrics.emptyStateLabelAlphaRATIO
+        guard let remoteLocation else {
+            emptyStateLabel.stringValue = ""
+            return
+        }
+        searchField.stringValue = ""
+        directoryNameLabel.stringValue = FileExplorerRemoteCopy.title()
+        emptyStateLabel.stringValue = FileExplorerRemoteCopy.explanation(
+            hostPath: TerminalCommandHistoryRowBuilder.hostPrefixed(
+                remoteLocation.path,
+                host: remoteLocation.remoteHost
+            )
+        )
     }
 
     private func configureOutlineView() {
@@ -388,14 +513,25 @@ final class TerminalFileExplorerPanelView: NSView {
             searchField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -searchTextInset),
             searchField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
-            scrollView.topAnchor.constraint(
+            listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
                 constant: controlGap
             ),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+            listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            scrollView.topAnchor.constraint(equalTo: listContainerView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: listContainerView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: listContainerView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: listContainerView.bottomAnchor),
+        ] + TerminalSidebarEmptyStateLayout.constraints(
+            iconView: emptyStateIconView,
+            label: emptyStateLabel,
+            in: listContainerView,
+            insetX: insetX,
+            insetY: insetY
+        ))
     }
 
     // MARK: Git status
@@ -433,6 +569,11 @@ final class TerminalFileExplorerPanelView: NSView {
 
     private func reapplyFilterIfNeeded() {
         filterGeneration += 1
+        // No local tree to scan while the session is remote.
+        guard remoteLocation == nil else {
+            filterMatchItems = nil
+            return
+        }
         let query = searchField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
             filterMatchItems = nil

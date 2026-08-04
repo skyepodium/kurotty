@@ -66,6 +66,23 @@ enum L10nKey: String, CaseIterable {
     case refresh, revealInFinder, copyPath, insertPathIntoTerminal
     case editorBinaryFile, editorFileTooLarge, editorLoadFailed
     case unsavedChangesQuestion, save, discardChanges
+    case agentSessions, agentSessionsSectionTitle, agentSessionsFilterPlaceholder
+    case agentSessionsEmpty, agentSessionsDisabledExplanation
+    case insertResumeCommand, copyResumeCommand, copySessionIdentifier, copyTranscriptPath
+    case revealTranscriptInFinder, openDirectoryInExplorer
+    case fileExplorerRemoteTitle, fileExplorerRemoteExplanation
+    case agentStatusWorking, agentStatusWaitingForInput, agentStatusBlocked, agentStatusDone
+    case quickCommands, quickCommandsMenuTitle, quickCommandsEditorTitle, quickCommandsEmptyState
+    case quickCommandsPaletteCategory, quickCommandScopeGlobal, quickCommandScopeDirectory
+    case quickCommandActionTerminalCommand, quickCommandActionAgentPrompt
+    case quickCommandInsertsOnly, quickCommandRunsImmediately
+    case quickCommandColumnName, quickCommandColumnScope, quickCommandColumnAction
+    case quickCommandFieldName, quickCommandFieldCommandText, quickCommandFieldScopeDirectory
+    case quickCommandFieldAppendEnter, quickCommandFieldShortcut
+    case quickCommandAdd, quickCommandRemove, quickCommandDone
+    case quickCommandChooseDirectory, quickCommandClearDirectory, quickCommandUntitled
+    case quickCommandSeedGitStatus, quickCommandSeedGitDiffStat
+    case quickCommandSeedGitLogGraph, quickCommandSeedClaudeResume
 }
 
 enum AppLocalization {
@@ -132,6 +149,23 @@ enum AppLocalization {
             .refresh: "Refresh", .revealInFinder: "Reveal in Finder", .copyPath: "Copy Path", .insertPathIntoTerminal: "Insert Path into Terminal",
             .editorBinaryFile: "Binary file", .editorFileTooLarge: "File too large", .editorLoadFailed: "Could not open file",
             .unsavedChangesQuestion: "Save changes to \"%@\"?", .save: "Save", .discardChanges: "Don't Save",
+            .agentSessions: "Agent Sessions", .agentSessionsSectionTitle: "Agent Sessions", .agentSessionsFilterPlaceholder: "Search sessions",
+            .agentSessionsEmpty: "AI agent sessions stored on this Mac appear here.", .agentSessionsDisabledExplanation: "Agent session indexing is turned off in Settings.",
+            .insertResumeCommand: "Insert Resume Command", .copyResumeCommand: "Copy Resume Command", .copySessionIdentifier: "Copy Session ID", .copyTranscriptPath: "Copy Transcript Path",
+            .revealTranscriptInFinder: "Reveal Transcript in Finder", .openDirectoryInExplorer: "Open Directory in Explorer Panel",
+            .fileExplorerRemoteTitle: "Remote directory", .fileExplorerRemoteExplanation: "%@ is on another machine. The explorer shows local files only.",
+            .agentStatusWorking: "Working", .agentStatusWaitingForInput: "Waiting for input", .agentStatusBlocked: "Blocked", .agentStatusDone: "Done",
+            .quickCommands: "Quick Commands", .quickCommandsMenuTitle: "Quick Commands", .quickCommandsEditorTitle: "Quick Commands", .quickCommandsEmptyState: "No quick commands yet.",
+            .quickCommandsPaletteCategory: "Quick Commands", .quickCommandScopeGlobal: "All directories", .quickCommandScopeDirectory: "In %@",
+            .quickCommandActionTerminalCommand: "Terminal command", .quickCommandActionAgentPrompt: "Agent prompt",
+            .quickCommandInsertsOnly: "Inserts without running", .quickCommandRunsImmediately: "Runs immediately",
+            .quickCommandColumnName: "Name", .quickCommandColumnScope: "Scope", .quickCommandColumnAction: "Action",
+            .quickCommandFieldName: "Name", .quickCommandFieldCommandText: "Command text", .quickCommandFieldScopeDirectory: "Only in directory",
+            .quickCommandFieldAppendEnter: "Press Return after inserting (runs the command)", .quickCommandFieldShortcut: "Shortcut",
+            .quickCommandAdd: "Add", .quickCommandRemove: "Remove", .quickCommandDone: "Done",
+            .quickCommandChooseDirectory: "Choose…", .quickCommandClearDirectory: "All directories", .quickCommandUntitled: "Untitled Command",
+            .quickCommandSeedGitStatus: "Git Status", .quickCommandSeedGitDiffStat: "Git Diff Stat",
+            .quickCommandSeedGitLogGraph: "Git Log Graph", .quickCommandSeedClaudeResume: "Resume Claude Session",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -159,6 +193,23 @@ enum AppLocalization {
             .refresh: "새로 고침", .revealInFinder: "Finder에서 보기", .copyPath: "경로 복사", .insertPathIntoTerminal: "터미널에 경로 입력",
             .editorBinaryFile: "바이너리 파일", .editorFileTooLarge: "파일이 너무 큽니다", .editorLoadFailed: "파일을 열 수 없습니다",
             .unsavedChangesQuestion: "\"%@\"의 변경 사항을 저장할까요?", .save: "저장", .discardChanges: "저장 안 함",
+            .agentSessions: "에이전트 세션", .agentSessionsSectionTitle: "에이전트 세션", .agentSessionsFilterPlaceholder: "세션 검색",
+            .agentSessionsEmpty: "이 Mac에 저장된 AI 에이전트 세션이 여기에 표시됩니다.", .agentSessionsDisabledExplanation: "설정에서 에이전트 세션 색인이 꺼져 있습니다.",
+            .insertResumeCommand: "이어하기 명령 입력", .copyResumeCommand: "이어하기 명령 복사", .copySessionIdentifier: "세션 ID 복사", .copyTranscriptPath: "대화 기록 경로 복사",
+            .revealTranscriptInFinder: "Finder에서 대화 기록 보기", .openDirectoryInExplorer: "탐색기 패널에서 폴더 열기",
+            .fileExplorerRemoteTitle: "원격 디렉터리", .fileExplorerRemoteExplanation: "%@은(는) 다른 컴퓨터에 있습니다. 탐색기는 로컬 파일만 표시합니다.",
+            .agentStatusWorking: "작업 중", .agentStatusWaitingForInput: "입력 대기 중", .agentStatusBlocked: "차단됨", .agentStatusDone: "완료",
+            .quickCommands: "빠른 명령", .quickCommandsMenuTitle: "빠른 명령", .quickCommandsEditorTitle: "빠른 명령", .quickCommandsEmptyState: "저장된 빠른 명령이 없습니다.",
+            .quickCommandsPaletteCategory: "빠른 명령", .quickCommandScopeGlobal: "모든 디렉터리", .quickCommandScopeDirectory: "%@ 에서만",
+            .quickCommandActionTerminalCommand: "터미널 명령", .quickCommandActionAgentPrompt: "에이전트 프롬프트",
+            .quickCommandInsertsOnly: "실행하지 않고 입력만", .quickCommandRunsImmediately: "바로 실행",
+            .quickCommandColumnName: "이름", .quickCommandColumnScope: "범위", .quickCommandColumnAction: "동작",
+            .quickCommandFieldName: "이름", .quickCommandFieldCommandText: "명령 텍스트", .quickCommandFieldScopeDirectory: "이 디렉터리에서만",
+            .quickCommandFieldAppendEnter: "입력 후 Return 누르기 (명령을 실행합니다)", .quickCommandFieldShortcut: "단축키",
+            .quickCommandAdd: "추가", .quickCommandRemove: "삭제", .quickCommandDone: "완료",
+            .quickCommandChooseDirectory: "선택…", .quickCommandClearDirectory: "모든 디렉터리", .quickCommandUntitled: "제목 없는 명령",
+            .quickCommandSeedGitStatus: "Git 상태", .quickCommandSeedGitDiffStat: "Git 변경 요약",
+            .quickCommandSeedGitLogGraph: "Git 로그 그래프", .quickCommandSeedClaudeResume: "Claude 세션 이어하기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -186,6 +237,23 @@ enum AppLocalization {
             .refresh: "再読み込み", .revealInFinder: "Finderで表示", .copyPath: "パスをコピー", .insertPathIntoTerminal: "ターミナルにパスを挿入",
             .editorBinaryFile: "バイナリファイル", .editorFileTooLarge: "ファイルが大きすぎます", .editorLoadFailed: "ファイルを開けませんでした",
             .unsavedChangesQuestion: "\"%@\"の変更内容を保存しますか？", .save: "保存", .discardChanges: "保存しない",
+            .agentSessions: "エージェントセッション", .agentSessionsSectionTitle: "エージェントセッション", .agentSessionsFilterPlaceholder: "セッションを検索",
+            .agentSessionsEmpty: "このMacに保存されたAIエージェントのセッションがここに表示されます。", .agentSessionsDisabledExplanation: "設定でエージェントセッションのインデックスがオフになっています。",
+            .insertResumeCommand: "再開コマンドを入力", .copyResumeCommand: "再開コマンドをコピー", .copySessionIdentifier: "セッションIDをコピー", .copyTranscriptPath: "記録のパスをコピー",
+            .revealTranscriptInFinder: "Finderで記録を表示", .openDirectoryInExplorer: "エクスプローラパネルでフォルダを開く",
+            .fileExplorerRemoteTitle: "リモートディレクトリ", .fileExplorerRemoteExplanation: "%@ は別のマシン上にあります。エクスプローラはローカルファイルのみを表示します。",
+            .agentStatusWorking: "作業中", .agentStatusWaitingForInput: "入力待ち", .agentStatusBlocked: "ブロック中", .agentStatusDone: "完了",
+            .quickCommands: "クイックコマンド", .quickCommandsMenuTitle: "クイックコマンド", .quickCommandsEditorTitle: "クイックコマンド", .quickCommandsEmptyState: "クイックコマンドがありません。",
+            .quickCommandsPaletteCategory: "クイックコマンド", .quickCommandScopeGlobal: "すべてのディレクトリ", .quickCommandScopeDirectory: "%@ のみ",
+            .quickCommandActionTerminalCommand: "ターミナルコマンド", .quickCommandActionAgentPrompt: "エージェントプロンプト",
+            .quickCommandInsertsOnly: "実行せずに入力", .quickCommandRunsImmediately: "すぐに実行",
+            .quickCommandColumnName: "名前", .quickCommandColumnScope: "範囲", .quickCommandColumnAction: "動作",
+            .quickCommandFieldName: "名前", .quickCommandFieldCommandText: "コマンドテキスト", .quickCommandFieldScopeDirectory: "このディレクトリのみ",
+            .quickCommandFieldAppendEnter: "入力後に Return を押す (コマンドを実行)", .quickCommandFieldShortcut: "ショートカット",
+            .quickCommandAdd: "追加", .quickCommandRemove: "削除", .quickCommandDone: "完了",
+            .quickCommandChooseDirectory: "選択…", .quickCommandClearDirectory: "すべてのディレクトリ", .quickCommandUntitled: "無題のコマンド",
+            .quickCommandSeedGitStatus: "Git ステータス", .quickCommandSeedGitDiffStat: "Git 差分サマリ",
+            .quickCommandSeedGitLogGraph: "Git ロググラフ", .quickCommandSeedClaudeResume: "Claude セッションを再開",
         ],
     ]
 }

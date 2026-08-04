@@ -4,6 +4,7 @@ struct CommandPalettePresentedEntry: Equatable {
     enum Kind: Equatable {
         case window(TerminalCommandPaletteEntry)
         case commandSpan(TerminalCommandSpanPaletteEntry)
+        case quickCommand(TerminalQuickCommandPaletteEntry)
     }
 
     let kind: Kind
@@ -14,6 +15,8 @@ struct CommandPalettePresentedEntry: Equatable {
         case let .window(entry):
             return entry.title
         case let .commandSpan(entry):
+            return entry.title
+        case let .quickCommand(entry):
             return entry.title
         }
     }
@@ -26,6 +29,12 @@ struct CommandPalettePresentedEntry: Equatable {
             return entry.requiresExplicitApproval
                 ? "\(entry.categoryTitle) - \(AppLocalization.string(.requiresConfirmation, language: language))"
                 : entry.categoryTitle
+        case let .quickCommand(entry):
+            // A quick command that appends Return executes on selection, so the
+            // row says so instead of looking like the insert-only ones.
+            return entry.executesOnDispatch
+                ? "\(entry.categoryTitle) - \(AppLocalization.string(.quickCommandRunsImmediately, language: language))"
+                : "\(entry.categoryTitle) - \(AppLocalization.string(.quickCommandInsertsOnly, language: language))"
         }
     }
 
@@ -41,6 +50,13 @@ struct CommandPalettePresentedEntry: Equatable {
             return nil
         }
         return entry.command
+    }
+
+    var quickCommand: QuickCommand? {
+        guard case let .quickCommand(entry) = kind else {
+            return nil
+        }
+        return entry.quickCommand
     }
 }
 
@@ -98,7 +114,8 @@ struct CommandPalettePresenter {
 
     func executeSelected(
         windowCommandExecutor: (TerminalCommand) -> Void,
-        commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool
+        commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool,
+        quickCommandExecutor: (QuickCommand) -> Bool = { _ in false }
     ) -> Bool {
         guard let selectedEntry else {
             return false
@@ -109,9 +126,14 @@ struct CommandPalettePresenter {
             return true
         case let .commandSpan(entry):
             return commandSpanExecutor(entry.command)
+        case let .quickCommand(entry):
+            return quickCommandExecutor(entry.quickCommand)
         }
     }
 
+    /// Quick commands are listed last: the built-in window commands and the
+    /// selection's command-span actions keep their existing ranking, and the
+    /// user's own commands form a trailing section.
     private static func presentedEntries(
         in palette: TerminalCommandPalette,
         matching query: String,
@@ -119,6 +141,7 @@ struct CommandPalettePresenter {
     ) -> [CommandPalettePresentedEntry] {
         palette.results(for: query).map { .init(kind: .window($0), language: language) }
             + palette.commandSpanResults(for: query).map { .init(kind: .commandSpan($0), language: language) }
+            + palette.quickCommandResults(for: query).map { .init(kind: .quickCommand($0), language: language) }
     }
 }
 
@@ -129,16 +152,19 @@ final class CommandPaletteWindowController: NSWindowController {
     private let scrollView = NSScrollView()
     private let commandExecutor: (TerminalCommand) -> Void
     private let commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool
+    private let quickCommandExecutor: (QuickCommand) -> Bool
     private var presenter: CommandPalettePresenter
 
     init(
         palette: TerminalCommandPalette = TerminalCommandPalette(includesCommandSpanCommands: true),
         commandExecutor: @escaping (TerminalCommand) -> Void,
-        commandSpanExecutor: @escaping (TerminalCommandSpanCommand) -> Bool = { _ in false }
+        commandSpanExecutor: @escaping (TerminalCommandSpanCommand) -> Bool = { _ in false },
+        quickCommandExecutor: @escaping (QuickCommand) -> Bool = { _ in false }
     ) {
         self.presenter = CommandPalettePresenter(palette: palette, language: AppLocalization.language)
         self.commandExecutor = commandExecutor
         self.commandSpanExecutor = commandSpanExecutor
+        self.quickCommandExecutor = quickCommandExecutor
 
         let window = NSWindow(
             contentRect: NSRect(
@@ -247,7 +273,8 @@ final class CommandPaletteWindowController: NSWindowController {
     private func executeSelectedCommand() {
         guard presenter.executeSelected(
             windowCommandExecutor: commandExecutor,
-            commandSpanExecutor: commandSpanExecutor
+            commandSpanExecutor: commandSpanExecutor,
+            quickCommandExecutor: quickCommandExecutor
         ) else {
             return
         }

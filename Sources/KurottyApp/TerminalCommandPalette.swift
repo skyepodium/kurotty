@@ -20,14 +20,40 @@ struct TerminalCommandSpanPaletteEntry: Equatable {
     let aliases: [String]
 }
 
+struct TerminalQuickCommandPaletteEntry: Equatable {
+    let quickCommand: QuickCommand
+    let title: String
+    let subtitle: String
+    let id: String
+    let categoryTitle: String
+    let shortcutLabel: String?
+    /// True when selecting this entry runs the command instead of only
+    /// inserting it. Surfaces use it to mark the destructive-looking entries.
+    let executesOnDispatch: Bool
+    let aliases: [String]
+}
+
 struct TerminalCommandPalette {
     let entries: [TerminalCommandPaletteEntry]
     let commandSpanEntries: [TerminalCommandSpanPaletteEntry]
+    let quickCommandEntries: [TerminalQuickCommandPaletteEntry]
 
     init(
         registry: TerminalCommandRegistry = .default,
         includesCommandSpanCommands: Bool = false
     ) {
+        self.quickCommandEntries = registry.quickCommands.map { entry in
+            TerminalQuickCommandPaletteEntry(
+                quickCommand: entry.quickCommand,
+                title: entry.title,
+                subtitle: entry.subtitle,
+                id: entry.paletteIdentifier,
+                categoryTitle: AppLocalization.string(.quickCommandsPaletteCategory, language: .english),
+                shortcutLabel: entry.shortcutLabel,
+                executesOnDispatch: entry.executesOnDispatch,
+                aliases: entry.searchTokens
+            )
+        }
         self.entries = registry.windowCommands.map { command in
             TerminalCommandPaletteEntry(
                 command: command,
@@ -107,6 +133,30 @@ struct TerminalCommandPalette {
             }
             .map(\.entry)
     }
+
+    func quickCommandResults(for query: String) -> [TerminalQuickCommandPaletteEntry] {
+        let normalizedQuery = query.paletteSearchText
+
+        guard !normalizedQuery.isEmpty else {
+            return quickCommandEntries
+        }
+
+        return quickCommandEntries
+            .enumerated()
+            .compactMap { index, entry -> RankedQuickCommandPaletteEntry? in
+                guard let rank = entry.matchRank(for: normalizedQuery) else {
+                    return nil
+                }
+                return RankedQuickCommandPaletteEntry(entry: entry, rank: rank, index: index)
+            }
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank {
+                    return lhs.rank < rhs.rank
+                }
+                return lhs.index < rhs.index
+            }
+            .map(\.entry)
+    }
 }
 
 enum TerminalCommandSpanPaletteActions {
@@ -128,13 +178,18 @@ enum TerminalCommandSpanPaletteActions {
         }
     }
 
+    /// Swaps in the command-span commands for the current selection while
+    /// preserving everything else the caller already registered — in
+    /// particular the pane's quick commands, which would otherwise be dropped
+    /// on the way to the palette.
     static func registryForPalette(
         commandSpanCommands: [TerminalCommandSpanCommand],
         registry: TerminalCommandRegistry = .default
     ) -> TerminalCommandRegistry {
         TerminalCommandRegistry(
             windowCommands: registry.windowCommands,
-            commandSpanCommands: commandSpanCommands
+            commandSpanCommands: commandSpanCommands,
+            quickCommands: registry.quickCommands
         )
     }
 }
@@ -149,6 +204,47 @@ private struct RankedCommandSpanPaletteEntry {
     let entry: TerminalCommandSpanPaletteEntry
     let rank: Int
     let index: Int
+}
+
+private struct RankedQuickCommandPaletteEntry {
+    let entry: TerminalQuickCommandPaletteEntry
+    let rank: Int
+    let index: Int
+}
+
+private extension TerminalQuickCommandPaletteEntry {
+    func matchRank(for query: String) -> Int? {
+        let normalizedTitle = title.paletteSearchText
+        let normalizedBody = quickCommand.bodyText.paletteSearchText
+        let normalizedSubtitle = subtitle.paletteSearchText
+        let normalizedAliases = aliases.map(\.paletteSearchText)
+
+        if normalizedTitle == query {
+            return 0
+        }
+        if normalizedTitle.hasPrefix(query) {
+            return 1
+        }
+        if normalizedTitle.contains(query) {
+            return 2
+        }
+        if normalizedBody.hasPrefix(query) {
+            return 3
+        }
+        if normalizedBody.contains(query) {
+            return 4
+        }
+        if normalizedSubtitle.contains(query) {
+            return 5
+        }
+        if normalizedAliases.contains(where: { $0.hasPrefix(query) || $0.contains(query) }) {
+            return 7
+        }
+        if normalizedTitle.paletteContainsTokens(in: query) || normalizedTitle.paletteContainsSubsequence(query) {
+            return 8
+        }
+        return nil
+    }
 }
 
 private extension TerminalCommandPaletteEntry {

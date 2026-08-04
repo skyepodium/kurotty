@@ -45,6 +45,31 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(commandHistoryToggled(_:))
     )
+    private lazy var agentSessionIndexCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(agentSessionIndexToggled(_:))
+    )
+    private lazy var hideMouseCursorCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(hideMouseCursorToggled(_:))
+    )
+    private lazy var perProjectHistoryCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(perProjectHistoryToggled(_:))
+    )
+    private lazy var agentStatusHooksCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(agentStatusHooksToggled(_:))
+    )
+    private lazy var quickCommandsButton = NSButton(
+        title: "",
+        target: self,
+        action: #selector(openQuickCommandsEditor(_:))
+    )
     private lazy var themePopup = NSPopUpButton()
     private lazy var customColorsStack = NSStackView()
     private lazy var previewView = PreferencesThemePreviewView()
@@ -204,6 +229,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let shellSection = section(title: copy(.shellSection), subtitle: copy(.shellSectionHelp))
         shellSection.addArrangedSubview(row(label: copy(.workingDirectory), control: workingDirectoryField))
         configureTextField(workingDirectoryField, action: #selector(textFieldChanged(_:)))
+        perProjectHistoryCheckbox.title = copy(.perProjectHistoryCheckboxTitle)
+        shellSection.addArrangedSubview(row(label: copy(.perProjectHistory), control: perProjectHistoryCheckbox))
         detailStack.addArrangedSubview(shellSection)
 
         let textSection = section(title: copy(.textSection), subtitle: copy(.textSectionHelp))
@@ -214,6 +241,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         textSection.addArrangedSubview(row(label: copy(.font), control: fontPopup))
         configureNumericField(fontSizeField, stepper: fontSizeStepper, minimum: SettingsDefaults.minimumTerminalFontSizePT, maximum: SettingsDefaults.maximumTerminalFontSizePT, increment: 1)
         textSection.addArrangedSubview(row(label: copy(.fontSize), control: numericControl(field: fontSizeField, stepper: fontSizeStepper, suffix: "pt")))
+        hideMouseCursorCheckbox.title = copy(.hideMouseCursorCheckboxTitle)
+        textSection.addArrangedSubview(row(label: copy(.hideMouseCursor), control: hideMouseCursorCheckbox))
         detailStack.addArrangedSubview(textSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
@@ -221,7 +250,20 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         historySection.addArrangedSubview(row(label: copy(.scrollback), control: numericControl(field: scrollbackField, stepper: scrollbackStepper, suffix: copy(.lines))))
         commandHistoryCheckbox.title = copy(.commandHistoryCheckboxTitle)
         historySection.addArrangedSubview(row(label: copy(.commandHistory), control: commandHistoryCheckbox))
+        agentSessionIndexCheckbox.title = copy(.agentSessionIndexCheckboxTitle)
+        historySection.addArrangedSubview(row(label: copy(.agentSessionIndex), control: agentSessionIndexCheckbox))
+        agentStatusHooksCheckbox.title = copy(.agentStatusHooksCheckboxTitle)
+        historySection.addArrangedSubview(row(label: copy(.agentStatusHooks), control: agentStatusHooksCheckbox))
         detailStack.addArrangedSubview(historySection)
+
+        let quickCommandsSection = section(
+            title: copy(.quickCommandsSection),
+            subtitle: copy(.quickCommandsSectionHelp)
+        )
+        quickCommandsButton.title = copy(.quickCommandsButtonTitle)
+        quickCommandsButton.bezelStyle = .rounded
+        quickCommandsSection.addArrangedSubview(row(label: copy(.quickCommands), control: quickCommandsButton))
+        detailStack.addArrangedSubview(quickCommandsSection)
     }
 
     private func buildAppearancePage() {
@@ -466,6 +508,34 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    @objc private func agentSessionIndexToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.agentSessionIndexEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
+    @objc private func hideMouseCursorToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.hideMouseCursorWhileTyping = sender.state == .on
+        scheduleAutosave()
+    }
+
+    @objc private func perProjectHistoryToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.shell.perProjectHistoryEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
+    @objc private func agentStatusHooksToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.agentStatusHooksEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
+    @objc private func openQuickCommandsEditor(_ sender: NSButton) {
+        QuickCommandsEditorPresenter.presentQuickCommandsEditor()
+    }
+
     @objc private func textFieldChanged(_ sender: NSTextField) {
         guard !isUpdatingControls else { return }
         applyTextFieldsToSettings()
@@ -511,6 +581,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scrollbackField.integerValue = settings.terminal.scrollbackLines
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
         commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off
+        agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
+        hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
+        perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off
+        agentStatusHooksCheckbox.state = settings.terminal.agentStatusHooksEnabled ? .on : .off
         windowWidthField.doubleValue = settings.window.width
         windowWidthStepper.doubleValue = settings.window.width
         windowHeightField.doubleValue = settings.window.height

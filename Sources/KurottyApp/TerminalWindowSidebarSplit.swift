@@ -73,6 +73,60 @@ extension TerminalWindowController: NSSplitViewDelegate {
         false
     }
 
+    /// Shows or hides one sidebar pane.
+    ///
+    /// Hiding is done by removing the pane from the split view entirely rather
+    /// than by `isHidden`. A split view draws one divider per gap between its
+    /// arranged subviews and owns their geometry through divider positions, so
+    /// a merely hidden pane kept its last frame and left a divider hairline and
+    /// an empty strip at the window edge. With the pane removed there is no gap
+    /// to draw and no frame to keep; showing re-inserts it at its edge and
+    /// re-applies the width constraints and holding priorities.
+    func setSidebarPanelHidden(
+        _ hidden: Bool,
+        panel: NSView,
+        widthConstraints: [NSLayoutConstraint]
+    ) {
+        let splitView = commandHistorySplitView
+        panel.isHidden = hidden
+        if hidden {
+            NSLayoutConstraint.deactivate(widthConstraints)
+            guard splitView.arrangedSubviews.contains(panel) else {
+                return
+            }
+            splitView.removeArrangedSubview(panel)
+            panel.removeFromSuperview()
+        } else {
+            guard !splitView.arrangedSubviews.contains(panel) else {
+                return
+            }
+            // The history panel is always the leading pane and the explorer the
+            // trailing one; the terminal host stays in the middle.
+            if panel === leftSidebarPanel {
+                splitView.insertArrangedSubview(panel, at: 0)
+            } else {
+                splitView.addArrangedSubview(panel)
+            }
+            NSLayoutConstraint.activate(widthConstraints)
+        }
+        applySidebarHoldingPriorities()
+        splitView.adjustSubviews()
+        splitView.needsLayout = true
+        splitView.needsDisplay = true
+    }
+
+    /// Only the terminal host should absorb leftover width, so every sidebar
+    /// pane holds its size. Indices shift as panes are added and removed, so
+    /// this is re-applied on every visibility change.
+    private func applySidebarHoldingPriorities() {
+        for (index, subview) in commandHistorySplitView.arrangedSubviews.enumerated() {
+            commandHistorySplitView.setHoldingPriority(
+                subview === terminalContentHostView ? .defaultLow : .defaultHigh,
+                forSubviewAt: index
+            )
+        }
+    }
+
     /// The split view's autosaved frames remember a pane that was hidden as
     /// zero-width, so a freshly shown panel can come back with no width at all.
     /// Push the divider back out to the panel's default width in that case.

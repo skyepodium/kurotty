@@ -1411,7 +1411,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
         XCTAssertFalse(shellSource.contains("protocol TerminalSession"))
-        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable"))
+        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, @unchecked Sendable"))
         XCTAssertTrue(shellSource.contains("foregroundProcessGroup: tcgetpgrp(master)"))
         XCTAssertTrue(shellSource.contains("killpg(processGroup, SIGWINCH)"))
         XCTAssertTrue(shellSource.contains("#if os(macOS)"))
@@ -1429,7 +1429,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(shellSource.contains("strdup(\"-f\")"))
         XCTAssertFalse(shellSource.contains("setenv(\"ZDOTDIR\","))
         XCTAssertFalse(shellSource.contains("zshrcContents"))
-        XCTAssertTrue(shellSource.contains("setenv(\"HISTFILE\""))
+        // HISTFILE is now per-project and check-before-set: a user-configured
+        // HISTFILE must survive, and the global file is only the fallback.
+        XCTAssertTrue(shellSource.contains("setenv(\"HISTFILE\", perProjectHistoryFilePath, 1)"))
+        XCTAssertTrue(shellSource.contains("} else if mayExportGlobalHistoryFallback {"))
+        XCTAssertTrue(shellSource.contains("TerminalShellHistoryEnvironment.resolvedHistoryFilePath("))
+        XCTAssertTrue(shellSource.contains("inheritedHistoryFile: inheritedHistoryFile"))
         XCTAssertTrue(shellSource.contains("if chdir(workingDirectory) == 0"))
         XCTAssertTrue(shellSource.contains("actualWorkingDirectory = homeDirectory"))
         XCTAssertTrue(shellSource.contains("setenv(\"PWD\", actualWorkingDirectory, 1)"))
@@ -1517,7 +1522,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 10"))
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 12"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -1864,8 +1869,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("TerminalOSCDispatcher("))
         XCTAssertTrue(surfaceSource.contains("TerminalOSC52Policy(policy: securityPolicy)"))
         XCTAssertTrue(surfaceSource.contains("shellIntegration = dispatcher.shellIntegration"))
-        XCTAssertTrue(interpreterSource.contains("if case let .shellIntegration(.workingDirectoryChanged(path)) = terminalEvent"))
-        XCTAssertTrue(interpreterSource.contains("currentWorkingDirectory = path"))
+        // Re-pointed with the OSC 7 host capture: the event now carries a
+        // `TerminalWorkingDirectoryLocation` (path plus remote host) instead
+        // of a bare path string.
+        XCTAssertTrue(interpreterSource.contains("if case let .shellIntegration(.workingDirectoryChanged(location)) = terminalEvent"))
+        XCTAssertTrue(interpreterSource.contains("currentWorkingDirectory = location.path"))
+        XCTAssertTrue(interpreterSource.contains("currentWorkingDirectoryRemoteHost = location.remoteHost"))
         XCTAssertTrue(surfaceSource.contains("publishTitle()"))
         XCTAssertTrue(surfaceSource.contains("displayTitle()"))
 

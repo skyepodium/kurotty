@@ -30,7 +30,9 @@ extension TerminalWindowController {
             equalToConstant: DesignTokens.Component.fileExplorerPanelDefaultWidthPX
         )
         preferredWidthConstraint.priority = .defaultLow
-        NSLayoutConstraint.activate([
+        // Held inactive while the panel is hidden; see
+        // `setSidebarPanelHidden(_:panel:widthConstraints:)` for why.
+        fileExplorerWidthConstraints = [
             fileExplorerPanel.widthAnchor.constraint(
                 greaterThanOrEqualToConstant: DesignTokens.Component.fileExplorerPanelMinWidthPX
             ),
@@ -38,11 +40,16 @@ extension TerminalWindowController {
                 lessThanOrEqualToConstant: DesignTokens.Component.fileExplorerPanelMaxWidthPX
             ),
             preferredWidthConstraint,
-        ])
+        ]
 
-        // The panel starts collapsed; a hidden NSSplitView arranged subview is
-        // the standard collapse mechanism and keeps the divider inactive.
-        fileExplorerPanel.isHidden = true
+        // The panel starts collapsed through the shared helper so the hidden
+        // state, the released width constraints, and the zero-width pin are
+        // established exactly once, in one place.
+        setSidebarPanelHidden(
+            true,
+            panel: fileExplorerPanel,
+            widthConstraints: fileExplorerWidthConstraints
+        )
         fileExplorerPanel.callbacks = TerminalFileExplorerCallbacks(
             openFile: { [weak self] url in
                 self?.openEditorTab(for: url)
@@ -66,8 +73,11 @@ extension TerminalWindowController {
         guard isFileExplorerPanelVisible != visible else {
             return
         }
-        fileExplorerPanel.isHidden = !visible
-        commandHistorySplitView.adjustSubviews()
+        setSidebarPanelHidden(
+            !visible,
+            panel: fileExplorerPanel,
+            widthConstraints: fileExplorerWidthConstraints
+        )
         updateSidebarToggleButtonStates()
         if visible {
             restoreSidebarWidthIfCollapsed(fileExplorerPanel)
@@ -78,10 +88,14 @@ extension TerminalWindowController {
         }
     }
 
-    /// Re-points the panel at the active pane's working directory. Safe to
-    /// call redundantly: `update(rootDirectory:)` is idempotent for an
-    /// unchanged directory. When an editor tab is selected the previous root
-    /// is kept so the tree does not jump while browsing a file.
+    /// Re-points the panel at the active pane's working *location*, local or
+    /// remote. Safe to call redundantly: both `update(location:)` paths are
+    /// idempotent for an unchanged location. When an editor tab is selected the
+    /// previous root is kept so the tree does not jump while browsing a file.
+    ///
+    /// The location — not a bare URL — is what reaches the panel, so an SSH
+    /// session lands in the remote empty state instead of listing a same-named
+    /// local path.
     func refreshFileExplorerRootDirectory() {
         guard isFileExplorerPanelVisible else {
             return
@@ -89,18 +103,11 @@ extension TerminalWindowController {
         guard let splitView = currentSplitView() else {
             return
         }
-        fileExplorerPanel.update(rootDirectory: workingDirectoryURL(for: splitView))
-    }
-
-    private func workingDirectoryURL(for splitView: SplitTerminalView) -> URL {
         guard let surface = splitView.activeTerminalSurface() else {
-            return FileManager.default.homeDirectoryForCurrentUser
+            fileExplorerPanel.update(rootDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            return
         }
-        let path = surface.workingDirectoryPath
-        guard !path.isEmpty else {
-            return FileManager.default.homeDirectoryForCurrentUser
-        }
-        return URL(fileURLWithPath: path, isDirectory: true)
+        fileExplorerPanel.update(location: surface.workingDirectoryLocation)
     }
 
     /// Safe default mirroring the command-history insert: put the quoted path

@@ -3,11 +3,36 @@ import AppKit
 /// Support pieces for `TerminalFileExplorerPanelView`: file icons and the row
 /// cell. Localized copy lives in `AppLocalization` (fileExplorer* keys).
 
+// MARK: - Remote-session copy
+
+/// Thin presentation helper over the shared `fileExplorerRemote*` localization
+/// keys; the panel's only formatting need is substituting the `user@host:/srv`
+/// label into the explanation.
+enum FileExplorerRemoteCopy {
+    static func title(language: AppLanguage = AppLocalization.language) -> String {
+        AppLocalization.string(.fileExplorerRemoteTitle, language: language)
+    }
+
+    /// `hostPath` is the `user@host:/srv/app` label for the active session.
+    static func explanation(
+        hostPath: String,
+        language: AppLanguage = AppLocalization.language
+    ) -> String {
+        String(
+            format: AppLocalization.string(.fileExplorerRemoteExplanation, language: language),
+            locale: Locale(identifier: language.rawValue),
+            hostPath
+        )
+    }
+}
+
 // MARK: - Icons
 
 enum FileExplorerIcon {
     static let folderSymbolName = "folder"
     static let refreshSymbolName = "arrow.clockwise"
+    /// Empty-state glyph for a working directory that lives on another machine.
+    static let remoteSymbolName = "network"
     static let ignoredBadgeText = "⊘"
     static let modifiedBadgeText = "M"
     static let untrackedBadgeText = "U"

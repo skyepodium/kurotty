@@ -7,8 +7,9 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let event = integration.consumeOsc("7;file://localhost/Users/skye/Project%20One")
 
-        XCTAssertEqual(event, .workingDirectoryChanged("/Users/skye/Project One"))
+        XCTAssertEqual(event, .workingDirectoryChanged(.local("/Users/skye/Project One")))
         XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/Users/skye/Project One")
+        XCTAssertNil(integration.currentWorkingDirectoryRemoteHost)
     }
 
     func testOsc7FileUrlDecodesReservedPathCharactersEmittedBySnippets() {
@@ -16,7 +17,7 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         let event = integration.consumeOsc("7;file://localhost/tmp/a%23b%3Fc%25d%20e")
 
-        XCTAssertEqual(event, .workingDirectoryChanged("/tmp/a#b?c%d e"))
+        XCTAssertEqual(event, .workingDirectoryChanged(.local("/tmp/a#b?c%d e")))
         XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/tmp/a#b?c%d e")
     }
 
@@ -25,9 +26,90 @@ final class TerminalShellIntegrationTests: XCTestCase {
 
         XCTAssertNil(integration.consumeOsc("7;https://example.com/tmp"))
         XCTAssertNil(integration.consumeOsc("7;not a url"))
-        XCTAssertNil(integration.consumeOsc("7;file://remote.example.com/tmp"))
 
         XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/before")
+        XCTAssertNil(integration.currentWorkingDirectoryRemoteHost)
+    }
+
+    // MARK: - OSC 7 host component
+
+    /// Re-pointed from the previous contract, which dropped every OSC 7 whose
+    /// host was not empty/`localhost`. Silently discarding it froze the panels
+    /// on the last local directory for the whole SSH session.
+    func testOsc7RemoteHostIsCapturedInsteadOfDropped() {
+        var integration = TerminalShellIntegration(currentWorkingDirectoryCandidate: "/before")
+
+        let event = integration.consumeOsc("7;file://build-box.example.com/srv/app")
+
+        XCTAssertEqual(
+            event,
+            .workingDirectoryChanged(
+                TerminalWorkingDirectoryLocation(path: "/srv/app", remoteHost: "build-box.example.com")
+            )
+        )
+        XCTAssertEqual(integration.currentWorkingDirectoryCandidate, "/srv/app")
+        XCTAssertEqual(integration.currentWorkingDirectoryRemoteHost, "build-box.example.com")
+    }
+
+    func testOsc7RemoteHostKeepsTheUserComponentForDisplay() {
+        var integration = TerminalShellIntegration()
+
+        let event = integration.consumeOsc("7;file://deploy@build-box/srv/app%20one")
+
+        XCTAssertEqual(
+            event,
+            .workingDirectoryChanged(
+                TerminalWorkingDirectoryLocation(path: "/srv/app one", remoteHost: "deploy@build-box")
+            )
+        )
+    }
+
+    func testOsc7WithoutHostComponentIsLocal() {
+        var integration = TerminalShellIntegration()
+
+        let event = integration.consumeOsc("7;file:///Users/skye/project")
+
+        XCTAssertEqual(event, .workingDirectoryChanged(.local("/Users/skye/project")))
+        XCTAssertNil(integration.currentWorkingDirectoryRemoteHost)
+    }
+
+    func testOsc7TreatsThisMachinesOwnHostNameAsLocal() {
+        var integration = TerminalShellIntegration()
+        let localHostName = TerminalHostIdentity.localHostName
+        try? XCTSkipIf(localHostName.isEmpty)
+
+        let event = integration.consumeOsc("7;file://\(localHostName)/Users/skye/project")
+
+        XCTAssertEqual(event, .workingDirectoryChanged(.local("/Users/skye/project")))
+        XCTAssertNil(integration.currentWorkingDirectoryRemoteHost)
+    }
+
+    func testHostClassificationCoversLoopbackDomainSuffixAndCase() {
+        let localHostName = "Skye-MacBook.local"
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: nil, localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "localhost", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "LOCALHOST", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "127.0.0.1", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "::1", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "skye-macbook", localHostName: localHostName))
+        XCTAssertTrue(TerminalHostIdentity.isLocal(host: "Skye-MacBook.local", localHostName: localHostName))
+        XCTAssertFalse(TerminalHostIdentity.isLocal(host: "build-box", localHostName: localHostName))
+        XCTAssertFalse(TerminalHostIdentity.isLocal(host: "skye-macbook-2", localHostName: localHostName))
+    }
+
+    func testRemoteWorkingDirectoryIsCarriedOntoTheCompletedCommandSpan() {
+        var integration = TerminalShellIntegration()
+        _ = integration.consumeOsc("7;file://deploy@build-box/srv/app")
+        _ = integration.consumeOsc("133;B")
+        integration.setActiveCommandText("systemctl restart app")
+        let event = integration.consumeOsc("133;D;0")
+
+        guard case let .commandEnd(context) = event else {
+            return XCTFail("expected a command-end event, got \(String(describing: event))")
+        }
+        XCTAssertEqual(context.cwd, "/srv/app")
+        XCTAssertEqual(context.cwdHost, "deploy@build-box")
     }
 
     func testOsc133PromptStartMarksPromptBoundaryAndClearsCommandState() {

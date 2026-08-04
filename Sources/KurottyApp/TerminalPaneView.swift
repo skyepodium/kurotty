@@ -4,15 +4,23 @@ final class TerminalPaneView: NSView {
     private let chromeView = PaneChromeView()
     private let activeIndicatorView = NSView()
     private let statusDotView = NSView()
+    private let agentActivityIndicatorView = AgentActivityIndicatorView(frame: .zero)
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let terminalSurfaceView: TerminalSurfaceView
     private let searchBarView = TerminalSearchBarView()
     private var chromeHeightConstraint: NSLayoutConstraint?
+    private var agentActivityWidthConstraint: NSLayoutConstraint?
+    private var agentActivityTitleGapConstraint: NSLayoutConstraint?
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isChromeActive = false
     private var isChromeHovered = false
     private var isTmuxDisplayTitleManaged = false
+    /// Stable identity for the agent activity channel and for the
+    /// `KUROTTY_PANE_ID` value injected into this pane's PTY. Generated here so
+    /// the pane, its PTY, and the registry always agree.
+    let agentPaneIdentifier: String
+
     var closeRequested: ((TerminalPaneView) -> Void)?
     var focusChanged: ((TerminalPaneView) -> Void)?
     var detachDragRequested: ((TerminalPaneView, NSEvent) -> Void)?
@@ -58,13 +66,22 @@ final class TerminalPaneView: NSView {
     }
 
     init(frame frameRect: NSRect, session: any TerminalSession) {
-        terminalSurfaceView = TerminalSurfaceView(frame: .zero, session: session)
+        // Generated locally because the surface starts the shell inside its own
+        // init, before `super.init()` lets us read `self.agentPaneIdentifier`.
+        let paneIdentifier = UUID().uuidString
+        agentPaneIdentifier = paneIdentifier
+        terminalSurfaceView = TerminalSurfaceView(
+            frame: .zero,
+            session: session,
+            paneIdentifier: paneIdentifier
+        )
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         configureLayout()
         observeTerminalTitle()
         observeTerminalFocus()
+        observeAgentActivity()
     }
 
     required init?(coder: NSCoder) {
@@ -73,6 +90,13 @@ final class TerminalPaneView: NSView {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        let paneIdentifier = agentPaneIdentifier
+        // Registry is main-actor isolated; deinit may run off it, so hop.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                AgentActivityRegistry.shared.removePane(paneIdentifier)
+            }
+        }
     }
 
     private func configureLayout() {
@@ -101,6 +125,9 @@ final class TerminalPaneView: NSView {
         statusDotView.wantsLayer = true
         statusDotView.layer?.cornerRadius = DesignTokens.Component.terminalPaneChromeDotSizePX / 2
         chromeView.addSubview(statusDotView)
+
+        agentActivityIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        chromeView.addSubview(agentActivityIndicatorView)
 
         titleField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .medium)
         titleField.textColor = chromeTheme.textSecondary
@@ -141,6 +168,15 @@ final class TerminalPaneView: NSView {
 
         let chromeHeightConstraint = chromeView.heightAnchor.constraint(equalToConstant: 0)
         self.chromeHeightConstraint = chromeHeightConstraint
+        // Both collapse to 0 while no agent status is present, so the header
+        // keeps its existing geometry until an agent actually reports.
+        let agentActivityWidthConstraint = agentActivityIndicatorView.widthAnchor.constraint(equalToConstant: 0)
+        self.agentActivityWidthConstraint = agentActivityWidthConstraint
+        let agentActivityTitleGapConstraint = titleField.leadingAnchor.constraint(
+            equalTo: agentActivityIndicatorView.trailingAnchor,
+            constant: 0
+        )
+        self.agentActivityTitleGapConstraint = agentActivityTitleGapConstraint
         NSLayoutConstraint.activate([
             chromeView.leadingAnchor.constraint(equalTo: leadingAnchor),
             chromeView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -157,7 +193,17 @@ final class TerminalPaneView: NSView {
             statusDotView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeDotSizePX),
             statusDotView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalPaneChromeDotSizePX),
 
-            titleField.leadingAnchor.constraint(equalTo: statusDotView.trailingAnchor, constant: 8),
+            agentActivityIndicatorView.leadingAnchor.constraint(
+                equalTo: statusDotView.trailingAnchor,
+                constant: 8
+            ),
+            agentActivityIndicatorView.centerYAnchor.constraint(equalTo: chromeView.centerYAnchor),
+            agentActivityIndicatorView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.agentActivityIndicatorSizePX
+            ),
+            agentActivityWidthConstraint,
+            agentActivityTitleGapConstraint,
+
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -6),
             titleField.centerYAnchor.constraint(equalTo: chromeView.centerYAnchor),
 
@@ -186,6 +232,7 @@ final class TerminalPaneView: NSView {
         ).isActive = true
         setChromeVisible(false)
         updateChromeAppearance()
+        updateAgentActivityIndicator()
     }
 
     override func viewDidMoveToWindow() {
@@ -305,6 +352,39 @@ final class TerminalPaneView: NSView {
             name: TerminalSurfaceView.focusDidChangeNotification,
             object: terminalSurfaceView
         )
+    }
+
+    private func observeAgentActivity() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(agentActivityDidChange(_:)),
+            name: AgentActivityRegistry.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func agentActivityDidChange(_ notification: Notification) {
+        let changedPaneIdentifier = notification.userInfo?[
+            AgentActivityRegistry.paneIdentifierNotificationKey
+        ] as? String
+        guard changedPaneIdentifier == nil || changedPaneIdentifier == agentPaneIdentifier else {
+            return
+        }
+        updateAgentActivityIndicator()
+    }
+
+    /// Resolved agent status for this pane, or `nil` when nothing should show.
+    var agentActivityStatus: AgentActivityStatus? {
+        AgentActivityRegistry.shared.status(for: agentPaneIdentifier)
+    }
+
+    private func updateAgentActivityIndicator() {
+        let status = agentActivityStatus
+        agentActivityIndicatorView.update(status: status)
+        agentActivityWidthConstraint?.constant = status == nil
+            ? 0
+            : DesignTokens.Component.agentActivityIndicatorSizePX
+        agentActivityTitleGapConstraint?.constant = status == nil ? 0 : 6
     }
 
     @objc private func terminalFocusDidChange(_ notification: Notification) {

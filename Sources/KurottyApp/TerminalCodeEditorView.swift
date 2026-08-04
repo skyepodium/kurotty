@@ -153,6 +153,24 @@ final class TerminalCodeEditorView: NSView {
         updatePathBar()
     }
 
+    /// Scrolls to and selects a 1-based `line`, optionally placing the caret at
+    /// `column`. Used by `path:line:col` terminal links. Out-of-range lines are
+    /// ignored rather than clamped, so a stale line number is a no-op.
+    func scrollTo(line: Int, column: Int? = nil) {
+        guard isShowingText else { return }
+        let text = textView.string
+        guard let lineRange = TerminalCodeEditorLineRange.characterRange(forLine: line, in: text)
+        else { return }
+        let selection = TerminalCodeEditorLineRange.caretRange(
+            forLine: line,
+            column: column,
+            in: text
+        ) ?? lineRange
+        textView.setSelectedRange(selection)
+        textView.scrollRangeToVisible(lineRange)
+        textView.showFindIndicator(for: lineRange)
+    }
+
     func save() {
         guard let url = fileURL, isShowingText, !isReadOnly else { return }
         // Write the buffer exactly as edited; trailing-newline state is

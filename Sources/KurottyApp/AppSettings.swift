@@ -18,14 +18,18 @@ struct AppSettings: Codable, Equatable {
             fontSize: Defaults.fontSize,
             scrollbackLines: Defaults.scrollbackLines,
             colors: TerminalColorSettings.default,
-            commandHistoryEnabled: Defaults.commandHistoryEnabled
+            commandHistoryEnabled: Defaults.commandHistoryEnabled,
+            agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
+            hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
+            agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
             height: Defaults.windowHeight
         ),
         shell: ShellSettings(
-            workingDirectory: Defaults.shellWorkingDirectory
+            workingDirectory: Defaults.shellWorkingDirectory,
+            perProjectHistoryEnabled: Defaults.perProjectHistoryEnabled
         )
     )
 
@@ -38,6 +42,10 @@ struct AppSettings: Codable, Equatable {
         static let windowHeight = SettingsDefaults.defaultWindowHeightPX
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
         static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
+        static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
+        static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
+        static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
+        static let perProjectHistoryEnabled = SettingsDefaults.perProjectHistoryEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -71,6 +79,15 @@ struct AppSettings: Codable, Equatable {
 /// Live-applied to existing terminal surfaces when settings change.
 /// `commandHistoryEnabled` is live-applied: recording starts or stops as soon
 /// as the setting changes; already-recorded entries are kept on disk.
+/// `agentSessionIndexEnabled` is live-applied and defaults on: it gates whether
+/// Kurotty reads the AI agent transcripts already stored under the user's home
+/// directory. When it is off, no scan runs at all and no index is retained.
+/// The index is metadata held in memory only; transcript content is never
+/// copied into Kurotty's own storage regardless of this setting.
+/// `hideMouseCursorWhileTyping` is live-applied and defaults on.
+/// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
+/// starts a loopback listener and writes Kurotty-marked entries into the user's
+/// agent hook configuration, so it is always an explicit opt-in.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -78,6 +95,9 @@ struct TerminalSettings: Codable, Equatable {
     var scrollbackLines: Int
     var colors: TerminalColorSettings
     var commandHistoryEnabled: Bool
+    var agentSessionIndexEnabled: Bool
+    var hideMouseCursorWhileTyping: Bool
+    var agentStatusHooksEnabled: Bool
 
     private enum CodingKeys: String, CodingKey {
         case theme
@@ -86,6 +106,9 @@ struct TerminalSettings: Codable, Equatable {
         case scrollbackLines
         case colors
         case commandHistoryEnabled
+        case agentSessionIndexEnabled
+        case hideMouseCursorWhileTyping
+        case agentStatusHooksEnabled
     }
 
     init(
@@ -94,7 +117,10 @@ struct TerminalSettings: Codable, Equatable {
         fontSize: Double,
         scrollbackLines: Int,
         colors: TerminalColorSettings,
-        commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled
+        commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled,
+        agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
+        hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
+        agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -102,6 +128,9 @@ struct TerminalSettings: Codable, Equatable {
         self.scrollbackLines = scrollbackLines
         self.colors = colors
         self.commandHistoryEnabled = commandHistoryEnabled
+        self.agentSessionIndexEnabled = agentSessionIndexEnabled
+        self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
+        self.agentStatusHooksEnabled = agentStatusHooksEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -113,6 +142,16 @@ struct TerminalSettings: Codable, Equatable {
         colors = try container.decode(TerminalColorSettings.self, forKey: .colors)
         commandHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .commandHistoryEnabled)
             ?? SettingsDefaults.commandHistoryEnabled
+        // Absent in schema versions below 11; those files fall back to the
+        // current default rather than failing to decode.
+        agentSessionIndexEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentSessionIndexEnabled)
+            ?? SettingsDefaults.agentSessionIndexEnabled
+        // Absent in schema versions below 12; those files fall back to the
+        // current defaults rather than failing to decode.
+        hideMouseCursorWhileTyping = try container.decodeIfPresent(Bool.self, forKey: .hideMouseCursorWhileTyping)
+            ?? SettingsDefaults.hideMouseCursorWhileTyping
+        agentStatusHooksEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentStatusHooksEnabled)
+            ?? SettingsDefaults.agentStatusHooksEnabled
     }
 }
 
@@ -127,13 +166,37 @@ struct WindowSettings: Codable, Equatable {
     )
 }
 
-/// Launch-only default for new shell sessions; filesystem validation happens at shell launch.
+/// Launch-only defaults for new shell sessions; filesystem validation happens at
+/// shell launch. `perProjectHistoryEnabled` is next-session: already-running
+/// shells keep the `HISTFILE` they were spawned with.
 struct ShellSettings: Codable, Equatable {
     var workingDirectory: String
+    var perProjectHistoryEnabled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case workingDirectory
+        case perProjectHistoryEnabled
+    }
 
     static let `default` = ShellSettings(
         workingDirectory: SettingsDefaults.shellWorkingDirectory
     )
+
+    init(
+        workingDirectory: String,
+        perProjectHistoryEnabled: Bool = SettingsDefaults.perProjectHistoryEnabled
+    ) {
+        self.workingDirectory = workingDirectory
+        self.perProjectHistoryEnabled = perProjectHistoryEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workingDirectory = try container.decode(String.self, forKey: .workingDirectory)
+        // Absent in schema versions below 12; those files take the default.
+        perProjectHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .perProjectHistoryEnabled)
+            ?? SettingsDefaults.perProjectHistoryEnabled
+    }
 
     static func normalizedWorkingDirectory(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -254,6 +317,15 @@ enum ColorHexParser {
 // MARK: - Portable Settings Normalization
 
 struct AppSettingsNormalizer {
+    private enum Migration {
+        /// Schema version that introduced `terminal.agentSessionIndexEnabled`.
+        static let agentSessionIndexSchemaVersion = 11
+        /// Schema version that introduced `terminal.hideMouseCursorWhileTyping`,
+        /// `terminal.agentStatusHooksEnabled`, and
+        /// `shell.perProjectHistoryEnabled`.
+        static let paneBehaviorSchemaVersion = 12
+    }
+
     static func normalized(_ settings: AppSettings) -> AppSettings {
         var next = settings
         let sourceSchemaVersion = next.schemaVersion ?? 0
@@ -261,6 +333,22 @@ struct AppSettingsNormalizer {
         next.schemaVersion = currentSchemaVersion
         if sourceSchemaVersion < currentSchemaVersion {
             migrateLegacyDefaults(&next)
+        }
+        if sourceSchemaVersion < Migration.agentSessionIndexSchemaVersion {
+            // Settings written before schema 11 predate the agent-session
+            // index, so the key carries no user intent. Migrated files land on
+            // the current default instead of inheriting whatever a hand-edited
+            // older file might contain; from schema 11 on, an explicit choice
+            // in either direction is preserved.
+            next.terminal.agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
+        }
+        if sourceSchemaVersion < Migration.paneBehaviorSchemaVersion {
+            // Settings written before schema 12 predate these three keys, so
+            // they carry no user intent. Migrated files land on the current
+            // defaults; from schema 12 on, an explicit choice is preserved.
+            next.terminal.hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
+            next.terminal.agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
+            next.shell.perProjectHistoryEnabled = SettingsDefaults.perProjectHistoryEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

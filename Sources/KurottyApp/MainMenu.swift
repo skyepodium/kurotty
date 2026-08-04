@@ -61,6 +61,13 @@ enum MainMenu {
         )
         commandHistory.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(commandHistory)
+        let agentSessions = NSMenuItem(
+            title: AppLocalization.string(.agentSessions),
+            action: #selector(AppDelegate.toggleAgentSessionPanel),
+            keyEquivalent: "A"
+        )
+        agentSessions.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(agentSessions)
         let fileExplorer = NSMenuItem(
             title: AppLocalization.string(.fileExplorer),
             action: #selector(AppDelegate.toggleFileExplorerPanel),
@@ -68,6 +75,17 @@ enum MainMenu {
         )
         fileExplorer.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(fileExplorer)
+        // ⌘⇧K: free in TerminalCommandRegistry, in this menu, and in the
+        // surface's key handling. Targets the feature's own action object so
+        // quick commands do not add a case to AppDelegate.
+        let quickCommands = NSMenuItem(
+            title: AppLocalization.string(.quickCommands) + "…",
+            action: #selector(QuickCommandsMenuActionTarget.showQuickCommandsEditor(_:)),
+            keyEquivalent: "K"
+        )
+        quickCommands.keyEquivalentModifierMask = [.command, .shift]
+        quickCommands.target = QuickCommandsMenuActionTarget.shared
+        viewMenu.addItem(quickCommands)
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

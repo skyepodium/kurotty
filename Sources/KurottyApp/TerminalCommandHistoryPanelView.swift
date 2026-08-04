@@ -45,6 +45,11 @@ final class TerminalCommandHistoryPanelView: NSView {
     private let searchIconView = NSImageView()
     private let filterField = NSTextField()
     private let sectionHeaderLabel = NSTextField(labelWithString: "")
+    /// Clipping container for everything below the search pill. The scroll
+    /// view and the empty state are both children of this view, so the empty
+    /// state is centered in the list region instead of the whole panel and can
+    /// never be drawn over the section header or the search pill.
+    private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
     private let emptyStateIconView = NSImageView()
@@ -98,6 +103,38 @@ final class TerminalCommandHistoryPanelView: NSView {
         groupItems.map(\.group)
     }
 
+    /// Panel-relative union of the empty-state icon and label, so layout
+    /// regression tests can compare it against the header, pill, and list
+    /// frames without depending on the view hierarchy's nesting.
+    var emptyStateFrameForTesting: NSRect {
+        convert(emptyStateIconView.bounds, from: emptyStateIconView)
+            .union(convert(emptyStateLabel.bounds, from: emptyStateLabel))
+    }
+
+    var emptyStateIsHiddenForTesting: Bool {
+        emptyStateLabel.isHidden && emptyStateIconView.isHidden
+    }
+
+    var searchPillFrameForTesting: NSRect {
+        convert(searchPillView.bounds, from: searchPillView)
+    }
+
+    var sectionHeaderFrameForTesting: NSRect {
+        convert(sectionHeaderLabel.bounds, from: sectionHeaderLabel)
+    }
+
+    var listRegionFrameForTesting: NSRect {
+        convert(listContainerView.bounds, from: listContainerView)
+    }
+
+    var emptyStateLabelFrameForTesting: NSRect {
+        convert(emptyStateLabel.bounds, from: emptyStateLabel)
+    }
+
+    var emptyStateTextOverflowsFrameForTesting: Bool {
+        TerminalSidebarEmptyStateLayout.textOverflowsFrame(label: emptyStateLabel)
+    }
+
     func isGroupExpandedForTesting(path: String) -> Bool {
         guard let item = groupItems.first(where: { $0.group.display.path == path }) else {
             return false
@@ -112,9 +149,20 @@ final class TerminalCommandHistoryPanelView: NSView {
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
         configureSectionHeader()
+        configureListContainer()
         configureOutline()
         configureEmptyState()
         activateLayoutConstraints()
+    }
+
+    /// The container is added before the pill and header are populated with
+    /// content but after them in the subview order only for the outline; it
+    /// clips so no descendant can paint into the header/pill band.
+    private func configureListContainer() {
+        listContainerView.wantsLayer = true
+        listContainerView.clipsToBounds = true
+        listContainerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listContainerView)
     }
 
     private func configureSearchPill() {
@@ -209,7 +257,7 @@ final class TerminalCommandHistoryPanelView: NSView {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        listContainerView.addSubview(scrollView)
     }
 
     private func configureEmptyState() {
@@ -220,13 +268,13 @@ final class TerminalCommandHistoryPanelView: NSView {
             ))
         emptyStateIconView.contentTintColor = chromeTheme.textMuted
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(emptyStateIconView)
+        listContainerView.addSubview(emptyStateIconView)
 
         emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
         emptyStateLabel.textColor = chromeTheme.textMuted
         emptyStateLabel.alignment = .center
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(emptyStateLabel)
+        listContainerView.addSubview(emptyStateLabel)
     }
 
     private func activateLayoutConstraints() {
@@ -264,24 +312,25 @@ final class TerminalCommandHistoryPanelView: NSView {
             filterField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -pillTextInset),
             filterField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
-            scrollView.topAnchor.constraint(
+            listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
                 constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
             ),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyStateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyStateIconView.bottomAnchor.constraint(
-                equalTo: emptyStateLabel.topAnchor,
-                constant: -DesignTokens.Component.commandHistoryEmptyStateGapPX
-            ),
-            emptyStateLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insetX),
-            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -insetX),
-        ])
+            scrollView.topAnchor.constraint(equalTo: listContainerView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: listContainerView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: listContainerView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: listContainerView.bottomAnchor),
+        ] + TerminalSidebarEmptyStateLayout.constraints(
+            iconView: emptyStateIconView,
+            label: emptyStateLabel,
+            in: listContainerView,
+            insetX: insetX,
+            insetY: insetY
+        ))
     }
 
     // MARK: - Data
@@ -443,8 +492,13 @@ final class TerminalCommandHistoryPanelView: NSView {
         copyToPasteboard("cd \(shellQuotedPath(cwd))")
     }
 
+    /// Finder can only reveal local directories, so a remote entry's path is
+    /// never handed to the local filesystem.
     @objc private func revealDirectoryFromContextMenu(_ sender: Any?) {
-        guard let cwd = clickedOrSelectedEntry()?.cwd, !cwd.isEmpty else {
+        guard let entry = clickedOrSelectedEntry(), !entry.isRemote else {
+            return
+        }
+        guard let cwd = entry.cwd, !cwd.isEmpty else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
@@ -549,10 +603,16 @@ extension TerminalCommandHistoryPanelView: NSMenuDelegate {
         let entry = clickedOrSelectedEntry()
         let hasEntry = entry != nil
         let hasDirectory = !(entry?.cwd ?? "").isEmpty
+        // `cd` stays available for remote entries (it is valid once the user
+        // is back on that host); Finder reveal does not, because the path has
+        // no local meaning.
+        let hasLocalDirectory = hasDirectory && !(entry?.isRemote ?? false)
         for item in menu.items {
             switch item.action {
-            case #selector(copyChangeDirectoryFromContextMenu(_:)), #selector(revealDirectoryFromContextMenu(_:)):
+            case #selector(copyChangeDirectoryFromContextMenu(_:)):
                 item.isEnabled = hasDirectory
+            case #selector(revealDirectoryFromContextMenu(_:)):
+                item.isEnabled = hasLocalDirectory
             default:
                 item.isEnabled = hasEntry
             }

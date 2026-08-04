@@ -88,6 +88,81 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertFalse(controller.isFileExplorerPanelVisible)
     }
 
+    /// A hidden pane must leave the split view entirely: while it merely had
+    /// `isHidden` set, the split view kept the pane's last frame and drew a
+    /// divider hairline plus an empty strip at the window edge.
+    @MainActor
+    func testHidingASidebarRemovesItsPaneAndGivesTheWidthBackToTheTerminal() {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let splitView = controller.commandHistorySplitView
+        splitView.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+
+        controller.setCommandHistoryPanelVisible(true)
+        controller.setFileExplorerPanelVisible(true)
+        splitView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(splitView.arrangedSubviews.contains(controller.leftSidebarPanel))
+        XCTAssertTrue(splitView.arrangedSubviews.contains(controller.fileExplorerPanel))
+        XCTAssertEqual(splitView.arrangedSubviews.count, 3)
+
+        controller.setCommandHistoryPanelVisible(false)
+        controller.setFileExplorerPanelVisible(false)
+        splitView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(
+            splitView.arrangedSubviews.contains(controller.leftSidebarPanel),
+            "a hidden sidebar must not stay in the split view, or its divider is still drawn"
+        )
+        XCTAssertFalse(splitView.arrangedSubviews.contains(controller.fileExplorerPanel))
+        XCTAssertEqual(
+            splitView.arrangedSubviews,
+            [controller.terminalContentHostView],
+            "only the terminal host may remain, so no divider gap exists"
+        )
+        XCTAssertEqual(
+            controller.terminalContentHostView.frame.width,
+            splitView.bounds.width,
+            accuracy: 0.5,
+            "the terminal must reclaim the full width once both sidebars are hidden"
+        )
+    }
+
+    /// Re-showing must restore the pane at its default width on the correct
+    /// side, since hiding removes it from the split view outright.
+    @MainActor
+    func testShowingASidebarAgainRestoresItsPaneAtTheCorrectEdge() {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let splitView = controller.commandHistorySplitView
+        splitView.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+
+        controller.setCommandHistoryPanelVisible(true)
+        controller.setFileExplorerPanelVisible(true)
+        controller.setCommandHistoryPanelVisible(false)
+        controller.setFileExplorerPanelVisible(false)
+        controller.setCommandHistoryPanelVisible(true)
+        controller.setFileExplorerPanelVisible(true)
+        splitView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            splitView.arrangedSubviews,
+            [
+                controller.leftSidebarPanel,
+                controller.terminalContentHostView,
+                controller.fileExplorerPanel,
+            ],
+            "the history panel stays leading and the explorer trailing across toggles"
+        )
+        XCTAssertGreaterThanOrEqual(
+            controller.leftSidebarPanel.frame.width,
+            DesignTokens.Component.commandHistoryPanelMinWidthPX
+        )
+        XCTAssertGreaterThanOrEqual(
+            controller.fileExplorerPanel.frame.width,
+            DesignTokens.Component.fileExplorerPanelMinWidthPX
+        )
+    }
+
     @MainActor
     func testShowingExplorerAdoptsActivePaneWorkingDirectoryWithHomeFallback() {
         let controller = makeWindowController()
@@ -131,9 +206,91 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         )
 
         let explorerSource = try sourceFile("Sources/KurottyApp/TerminalWindowFileExplorer.swift")
-        XCTAssertTrue(explorerSource.contains("surface.workingDirectoryPath"))
+        // Re-pointed deliberately: the explorer now receives the pane's full
+        // working *location* (path plus remote host) instead of a bare path, so
+        // an SSH session lands in the remote empty state.
+        XCTAssertTrue(explorerSource.contains("surface.workingDirectoryLocation"))
         XCTAssertTrue(explorerSource.contains("TerminalSurfaceView.focusDidChangeNotification"))
         XCTAssertTrue(explorerSource.contains("homeDirectoryForCurrentUser"))
+    }
+
+    // MARK: - Remote working directories
+
+    private enum RemoteFixture {
+        static let host = "build-box.example.com"
+        static let path = "/srv/app"
+        /// `ESC ] 7 ; file://host/path ESC \` — the OSC 7 an SSH-aware shell
+        /// integration emits for a directory on another machine.
+        static var osc7Sequence: String {
+            "\u{1b}]7;file://\(host)\(path)\u{1b}\\"
+        }
+    }
+
+    /// The full window path, not just the panel: a pane whose OSC 7 directory
+    /// lives on another machine must leave the explorer in its remote empty
+    /// state and must not list, watch, or `git` anything locally. Before the
+    /// location was threaded through, a bare path reached the panel and a
+    /// same-named local directory would have been listed instead.
+    @MainActor
+    func testRemoteWorkingDirectoryLeavesTheExplorerInItsRemoteEmptyState() throws {
+        let controller = makeWindowController()
+        defer { controller.close() }
+
+        let surface = try XCTUnwrap(controller.currentSplitView()?.activeTerminalSurface())
+        surface.consumeTmuxRestoreOutputForTesting(Data(RemoteFixture.osc7Sequence.utf8))
+        XCTAssertTrue(
+            surface.workingDirectoryLocation.isRemote,
+            "the fixture must actually produce a remote OSC 7 location"
+        )
+
+        controller.setFileExplorerPanelVisible(true)
+        controller.fileExplorerPanel.layoutSubtreeIfNeeded()
+
+        let panel = controller.fileExplorerPanel
+        XCTAssertEqual(
+            panel.remoteLocation,
+            TerminalWorkingDirectoryLocation(path: RemoteFixture.path, remoteHost: RemoteFixture.host)
+        )
+        XCTAssertNil(panel.rootDirectory, "no local directory may be adopted for a remote session")
+        XCTAssertEqual(panel.visibleRowCountForTesting, 0, "a remote session must list nothing locally")
+        XCTAssertFalse(panel.isRemoteEmptyStateHiddenForTesting)
+        XCTAssertTrue(panel.remoteEmptyStateTextForTesting.contains(RemoteFixture.host))
+    }
+
+    /// Replaying a stored command always writes into the *local* pane, so the
+    /// confirmation dialog has to say when the entry came from another machine.
+    func testReplayConfirmationSurfacesTheHostForRemoteEntries() {
+        let remoteText = TerminalCommandHistoryReplay.confirmationInformativeText(
+            for: TerminalCommandHistoryEntry(
+                commandText: "systemctl restart app",
+                cwd: RemoteFixture.path,
+                cwdHost: "deploy@\(RemoteFixture.host)",
+                exitCode: 0,
+                finishedAt: Date()
+            )
+        )
+        XCTAssertTrue(remoteText.hasPrefix("deploy@\(RemoteFixture.host):\(RemoteFixture.path)"))
+        XCTAssertTrue(remoteText.contains("systemctl restart app"))
+
+        let localText = TerminalCommandHistoryReplay.confirmationInformativeText(
+            for: TerminalCommandHistoryEntry(
+                commandText: "swift build",
+                cwd: "/Users/tester/dev",
+                exitCode: 0,
+                finishedAt: Date()
+            )
+        )
+        XCTAssertEqual(localText, "swift build", "a local entry must not gain a host prefix")
+    }
+
+    func testReplayDialogUsesTheHostAwareInformativeText() throws {
+        let source = try sourceFile("Sources/KurottyApp/TerminalWindowCommandHistory.swift")
+        XCTAssertTrue(
+            source.contains(
+                "alert.informativeText = TerminalCommandHistoryReplay.confirmationInformativeText(for: entry)"
+            ),
+            "the confirmation alert must show the host-aware text, not the bare command"
+        )
     }
 
     // MARK: - Editor tabs

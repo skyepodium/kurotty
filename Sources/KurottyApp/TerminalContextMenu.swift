@@ -83,7 +83,36 @@ struct TerminalContextMenuEntry: Equatable {
     )
 }
 
+/// The full terminal context menu: the flat entries the surface view already
+/// renders, plus an optional "Quick Commands" submenu appended after them.
+///
+/// Kept separate from `TerminalContextMenuAction` on purpose: quick commands
+/// are data-driven and identified by string id, so they cannot be a case in the
+/// fixed action enum the surface view switches over exhaustively.
+struct TerminalContextMenuLayout: Equatable {
+    let entries: [TerminalContextMenuEntry]
+    let quickCommandSubmenu: QuickCommandContextSubmenu?
+}
+
 enum TerminalContextMenuBuilder {
+    /// Context menu including the quick-command submenu for a pane whose
+    /// working directory is `workingDirectory`.
+    static func layout(
+        for state: TerminalContextMenuState,
+        quickCommands: [QuickCommand],
+        workingDirectory: String?,
+        language: AppLanguage = .english
+    ) -> TerminalContextMenuLayout {
+        TerminalContextMenuLayout(
+            entries: entries(for: state, language: language),
+            quickCommandSubmenu: QuickCommandContextMenuBuilder.submenu(
+                for: quickCommands,
+                workingDirectory: workingDirectory,
+                language: language
+            )
+        )
+    }
+
     static func entries(for state: TerminalContextMenuState, language: AppLanguage = .english) -> [TerminalContextMenuEntry] {
         var entries: [TerminalContextMenuEntry] = []
         if state.hasSelection {

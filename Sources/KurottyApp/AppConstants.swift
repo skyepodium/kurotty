@@ -73,7 +73,162 @@ enum AppConstants {
         static let maximumEntryCount = 1_000
         static let saveDebounceSeconds: TimeInterval = 1
         static let persistenceQueueLabel = "dev.kurotty.command-history.persistence"
-        static let splitViewAutosaveName = "dev.kurotty.command-history.split"
+        // Versioned: the autosaved widths win over the default tokens, so a
+        // changed default only reaches existing installs under a fresh name.
+        static let splitViewAutosaveName = "dev.kurotty.command-history.split.v3"
+    }
+
+    /// Read-only index of AI coding-agent transcripts the agents themselves
+    /// wrote. Kurotty never creates or modifies files under these roots.
+    enum AgentSessions {
+        static let claudeProjectsRelativePath = ".claude/projects"
+        static let codexSessionsRelativePath = ".codex/sessions"
+        static let transcriptFileExtension = "jsonl"
+        static let codexRolloutFileNamePrefix = "rollout-"
+        static let maximumSessionCount = 500
+        static let maximumScannedFileCount = 4_000
+        /// Transcripts larger than this are ignored entirely.
+        static let maximumTranscriptBytes = 64 * 1024 * 1024
+        /// At or below this size a transcript is read whole.
+        static let fullReadThresholdBytes = 512 * 1024
+        /// Head and tail window size used for larger transcripts.
+        static let boundedReadWindowBytes = 128 * 1024
+        static let maximumJSONSearchDepth = 4
+        static let maximumTitleCharacters = 120
+        static let maximumPromptCharacters = 400
+    }
+
+    /// Out-of-band agent activity channel. Status is only ever accepted from an
+    /// explicit protocol (OSC 9999) or from an authenticated loopback hook post.
+    /// It is never inferred from window titles or rendered rows.
+    enum AgentStatus {
+        /// `ESC ] 9999 ; <json> BEL` (ST terminator `ESC \` also accepted).
+        static let oscNumber = "9999"
+        /// Largest sequence Kurotty will buffer across PTY chunks before it
+        /// gives up and discards bytes up to the next terminator.
+        static let maximumSequenceBytes = 4 * 1024
+        static let maximumAgentNameCharacters = 40
+        static let maximumDetailCharacters = 200
+        static let maximumHistoryCountPerPane = 20
+        static let maximumTrackedPaneCount = 64
+
+        /// Staleness policy. A status that is not refreshed within its window is
+        /// cleared so a killed agent cannot leave a stuck spinner.
+        static let workingStaleAfterSeconds: TimeInterval = 300
+        static let waitingForInputStaleAfterSeconds: TimeInterval = 1_800
+        static let blockedStaleAfterSeconds: TimeInterval = 1_800
+        static let doneStaleAfterSeconds: TimeInterval = 600
+
+        /// Environment contract injected into the PTY for hook-based reporting.
+        static let paneIdentifierEnvironmentName = "KUROTTY_PANE_ID"
+        static let hookPortEnvironmentName = "KUROTTY_HOOK_PORT"
+        static let hookTokenEnvironmentName = "KUROTTY_HOOK_TOKEN"
+
+        /// Loopback hook server.
+        static let hookLoopbackHost = "127.0.0.1"
+        static let hookRequestPath = "/agent-status"
+        static let hookTokenHeaderName = "X-Kurotty-Hook-Token"
+        static let hookTokenByteCount = 32
+        static let hookMaximumRequestBytes = 8 * 1024
+        static let hookMaximumBodyBytes = 4 * 1024
+        static let hookQueueLabel = "dev.kurotty.agent-status.hook-server"
+        static let hookRequestTimeoutSeconds = 2
+
+        /// Claude Code hook installation (opt-in, off by default).
+        static let claudeSettingsRelativePath = ".claude/settings.json"
+        static let claudeSettingsBackupRelativePath = ".claude/settings.json.kurotty-backup"
+        static let claudeHooksKey = "hooks"
+        static let claudeHookMatcherKey = "matcher"
+        static let claudeHookListKey = "hooks"
+        static let claudeHookTypeKey = "type"
+        static let claudeHookCommandKey = "command"
+        static let claudeHookCommandType = "command"
+        /// Marker embedded in every command Kurotty writes. Uninstall removes
+        /// only entries carrying this marker; all other keys are preserved.
+        static let managedCommandMarker = "kurotty-agent-status-hook"
+        static let hookCurlExecutablePath = "/usr/bin/curl"
+        static let settingsKeyPath = "terminal.agentStatusHooksEnabled"
+        static let hooksEnabledDefault = false
+    }
+
+    /// Per-project shell history derivation. Everything here is a filesystem
+    /// name or a bound; the policy lives in `TerminalShellHistoryEnvironment`.
+    enum ShellHistory {
+        static let environmentKey = "HISTFILE"
+        static let applicationSupportDirectoryName = "Kurotty"
+        static let historyDirectoryName = "shell-history"
+        static let projectHashLengthCharacters = 16
+        static let gitDirectoryName = ".git"
+        /// Bounds the upward `.git` walk so a pathological path cannot loop.
+        static let maximumGitRootWalkDepth = 64
+        /// Preserved fallback when no project identity is available.
+        static let globalFallbackHistoryFileName = ".zsh_history"
+        static let zshHistoryFileName = "zsh_history"
+        static let bashHistoryFileName = "bash_history"
+        /// Shell history is sensitive; keep the per-project tree owner-only.
+        static let directoryPermissions: mode_t = 0o700
+    }
+
+    /// File-path link detection and its bounded existence cache.
+    enum TerminalLinks {
+        /// Minimum retained path length; a stray `/` or `./` must not become a
+        /// link.
+        static let minimumPathTextLengthCharacters = 2
+        /// Bounded because terminal output can contain unbounded unique paths
+        /// over a long session; eviction is strict least-recently-used.
+        static let pathExistsCacheMaximumEntryCount = 512
+        static let pathExistsProbeQueueLabel = "dev.kurotty.terminal-path-exists-probe"
+    }
+
+    /// User-authored quick commands: dispatch protocol values, storage, and the
+    /// bounds that keep a settings file inside a safe envelope.
+    ///
+    /// The limits mirror the Orca reference implementation
+    /// (`src/shared/terminal-quick-commands.ts`) so a file written by either
+    /// product stays valid. The agent-prompt cap is deliberately larger than the
+    /// terminal cap: prompts are pasted into a running agent, terminal text
+    /// becomes one shell command list.
+    enum QuickCommands {
+        static let maximumCommandCount = 40
+        static let maximumIdentifierCharacterCount = 80
+        static let maximumNameCharacterCount = 80
+        static let maximumShortcutCharacterCount = 40
+        static let maximumDirectoryPathCharacterCount = 200
+        static let maximumAgentNameCharacterCount = 80
+        static let maximumTerminalTextCharacterCount = 4_000
+        static let maximumAgentPromptCharacterCount = 6_000
+
+        /// What the Return key writes to a PTY. Quick commands that execute
+        /// append exactly this; quick commands that only insert never contain it.
+        static let enterSequence = "\r"
+        /// `"\r\n"` is a single Swift `Character` (one grapheme cluster), so it
+        /// has to be listed alongside the bare carriage return and line feed or
+        /// a CRLF terminal text would never be recognized as multi-line.
+        static let lineBreakCharacters: Set<Character> = ["\r", "\n", "\r\n"]
+        /// Multi-line terminal text is joined into a single shell command list.
+        /// Raw newlines written into a PTY while a foreground program is running
+        /// are consumed as that program's stdin instead of as commands.
+        static let shellCommandListSeparator = "; "
+        /// Agent prompts keep their words but never carry a line break, because
+        /// a newline inside an agent TUI submits the prompt early.
+        static let agentPromptLineSeparator = " "
+
+        static let storageFileName = "quick-commands.json"
+        static let storageSchemaVersion = 1
+        static let persistenceQueueLabel = "dev.kurotty.quick-commands.persistence"
+        static let saveDebounceSeconds: TimeInterval = 1
+        static let didChangeNotificationName = "dev.kurotty.quickCommands.didChange"
+
+        static let identifierPrefix = "quick-command-"
+        static let paletteIdentifierPrefix = "quickCommand."
+
+        static let globalScopeRawValue = "global"
+        static let directoryScopeRawValue = "directory"
+        static let terminalCommandActionRawValue = "terminal-command"
+        static let agentPromptActionRawValue = "agent-prompt"
+
+        /// Longest "Quick Commands" context submenu Kurotty will build.
+        static let contextMenuCommandLimitCount = 12
     }
 
     enum Shell {

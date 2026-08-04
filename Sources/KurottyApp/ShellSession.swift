@@ -1,6 +1,7 @@
 #if os(macOS)
 import Darwin
 import Foundation
+import KurottyCore
 
 @_silgen_name("forkpty")
 private func systemForkpty(
@@ -25,7 +26,7 @@ enum TerminalResizeSignalTarget: Equatable {
     }
 }
 
-final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
+final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
@@ -47,12 +48,40 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
     private var ptyReadTraceSequence: UInt64 = 0
 
+    /// Agent-status hook variables for this pane's PTY, resolved by the owner
+    /// from `AgentStatusHookCoordinator.shared.shellEnvironment(paneIdentifier:)`.
+    ///
+    /// Must be assigned before `start(workingDirectory:)`. Empty by default, so
+    /// a session whose owner never sets it spawns exactly as before.
+    var agentStatusHookEnvironment: [String: String] = [:]
+
+    /// Next-session mirror of `shell.perProjectHistoryEnabled`, assigned by the
+    /// owner before `start(workingDirectory:)`. An inherited `HISTFILE` still
+    /// wins either way.
+    var perProjectHistoryEnabled: Bool = SettingsDefaults.perProjectHistoryEnabled
+
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
         let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)
         let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let launchConfiguration = TerminalShellIntegrationBootstrap.bundledConfiguration(shellPath: shellPath)
         let notificationBridgeEnvironment = KurottyNotificationBridgeEnvironment.shellEnvironment()
+        // Derived at the launch boundary: the `.git` walk needs the filesystem
+        // and must not run inside the forked child. Directory creation is left
+        // to the child, which is off the main actor by construction.
+        let inheritedHistoryFile = launchConfiguration.environment[
+            TerminalShellHistoryEnvironment.environmentKey
+        ] ?? ProcessInfo.processInfo.environment[TerminalShellHistoryEnvironment.environmentKey]
+        let perProjectHistoryFilePath = TerminalShellHistoryEnvironment.resolvedHistoryFilePath(
+            workingDirectory: workingDirectory,
+            shellPath: shellPath,
+            inheritedHistoryFile: inheritedHistoryFile,
+            applicationSupportDirectory:
+                TerminalShellHistoryEnvironment.defaultApplicationSupportDirectory(),
+            isEnabled: perProjectHistoryEnabled
+        )
+        let mayExportGlobalHistoryFallback = TerminalShellHistoryEnvironment
+            .shouldUseGlobalFallback(inheritedHistoryFile: inheritedHistoryFile)
 
         var fd: Int32 = -1
         var size = winsize(
@@ -76,7 +105,10 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
                 shellPath: shellPath,
                 launchConfiguration: launchConfiguration,
                 notificationBridgeEnvironment: notificationBridgeEnvironment,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                perProjectHistoryFilePath: perProjectHistoryFilePath,
+                mayExportGlobalHistoryFallback: mayExportGlobalHistoryFallback,
+                agentStatusHookEnvironment: agentStatusHookEnvironment
             )
             _exit(AppConstants.Shell.childExecFailureStatusCode)
         }
@@ -419,11 +451,32 @@ final class DarwinPTYTerminalSession: TerminalSession, @unchecked Sendable {
     }
 }
 
+/// Creates the parent directories of `path` with raw `mkdir(2)` calls.
+///
+/// This runs in the forked child before `execv`, which keeps the filesystem work
+/// off the main actor without an extra dispatch hop. Failures are ignored: a
+/// missing history directory only degrades history persistence, and the child
+/// must still exec the shell.
+private func createDirectoryTree(forFileAtPath path: String) {
+    let directory = (path as NSString).deletingLastPathComponent
+    guard !directory.isEmpty, directory != "/" else { return }
+    var partial = ""
+    for component in directory.split(separator: "/") {
+        partial += "/" + component
+        _ = partial.withCString {
+            mkdir($0, TerminalShellHistoryEnvironment.directoryPermissions)
+        }
+    }
+}
+
 private func runChildShell(
     shellPath: String,
     launchConfiguration: TerminalShellLaunchConfiguration,
     notificationBridgeEnvironment: [String: String],
-    workingDirectory: String
+    workingDirectory: String,
+    perProjectHistoryFilePath: String?,
+    mayExportGlobalHistoryFallback: Bool,
+    agentStatusHookEnvironment: [String: String]
 ) {
     let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     let actualWorkingDirectory: String
@@ -441,7 +494,21 @@ private func runChildShell(
     unsetenv("NO_COLOR")
     setenv("PWD", actualWorkingDirectory, 1)
     setenv("HOME", homeDirectory, 1)
-    setenv("HISTFILE", "\(homeDirectory)/.zsh_history", 1)
+    // Per-project history. Never overwrite a HISTFILE the user configured: the
+    // caller already resolved that, so a nil path plus a disallowed fallback
+    // means "leave HISTFILE untouched".
+    // The literal name matches the other setenv calls in this function; it is
+    // the same key as TerminalShellHistoryEnvironment.environmentKey.
+    if let perProjectHistoryFilePath {
+        createDirectoryTree(forFileAtPath: perProjectHistoryFilePath)
+        setenv("HISTFILE", perProjectHistoryFilePath, 1)
+    } else if mayExportGlobalHistoryFallback {
+        setenv(
+            "HISTFILE",
+            "\(homeDirectory)/\(TerminalShellHistoryEnvironment.globalFallbackHistoryFileName)",
+            1
+        )
+    }
     setenv("POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD", "true", 1)
     setenv("ZSH_DISABLE_COMPFIX", "true", 1)
 
@@ -452,6 +519,9 @@ private func runChildShell(
         setenv(key, value, 1)
     }
     for (key, value) in notificationBridgeEnvironment {
+        setenv(key, value, 1)
+    }
+    for (key, value) in agentStatusHookEnvironment {
         setenv(key, value, 1)
     }
 

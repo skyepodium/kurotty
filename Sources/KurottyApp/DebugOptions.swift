@@ -21,6 +21,7 @@ enum DebugOptions {
     static let showHistoryPanel = flag("--debug-show-history-panel", env: "KUROTTY_DEBUG_SHOW_HISTORY_PANEL")
     static let seedHistory = flag("--debug-seed-history", env: "KUROTTY_DEBUG_SEED_HISTORY")
     static let showExplorerPanel = flag("--debug-show-explorer-panel", env: "KUROTTY_DEBUG_SHOW_EXPLORER_PANEL")
+    static let showAgentSessions = flag("--debug-show-agent-sessions", env: "KUROTTY_DEBUG_SHOW_AGENT_SESSIONS")
     static let openEditorFilePath = value("--debug-open-editor-file", env: "KUROTTY_DEBUG_OPEN_EDITOR_FILE")
 
     private static func value(_ argument: String, env: String) -> String? {

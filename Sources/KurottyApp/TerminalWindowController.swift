@@ -13,15 +13,28 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private let explorerToggleButton = ChromeIconButton(frame: .zero)
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
-    // Command-history split chrome; layout and handlers live in
-    // TerminalWindowCommandHistory.swift to keep this controller thin.
+    // Left sidebar split chrome; layout and handlers live in
+    // TerminalWindowCommandHistory.swift to keep this controller thin. The
+    // pane hosts one container that switches between the command-history and
+    // agent-session sections.
     let commandHistorySplitView = NSSplitView()
-    let commandHistoryPanel = TerminalCommandHistoryPanelView()
+    let leftSidebarPanel = TerminalLeftSidebarPanelView()
+    var commandHistoryPanel: TerminalCommandHistoryPanelView {
+        leftSidebarPanel.historyPanel
+    }
+    var agentSessionPanel: TerminalAgentSessionPanelView {
+        leftSidebarPanel.agentSessionPanel
+    }
     let terminalContentHostView = NSView()
     // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
     // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
     let fileExplorerPanel = TerminalFileExplorerPanelView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    /// Sidebar width constraints stay active only while the panel is shown: a
+    /// hidden view still participates in Auto Layout, so leaving them on keeps
+    /// the split view reserving a sliver of width plus its divider.
+    var commandHistoryWidthConstraints: [NSLayoutConstraint] = []
+    var fileExplorerWidthConstraints: [NSLayoutConstraint] = []
     var chromeTheme: DesignTokens.ChromeTheme
     private var lastAppliedWindowSettings: WindowSettings
     private var tmuxCoordinators: [TmuxNativeSessionCoordinator] = []
@@ -133,8 +146,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.executeCommandSpanPaletteCommand(command) ?? false
     }
 
+    /// The palette registry for the selected tab, carrying the quick commands
+    /// visible in the active pane's working directory. Directory-scoped
+    /// commands outside that directory are never registered, so they cannot
+    /// appear in the palette at all.
     func commandPaletteRegistry() -> TerminalCommandRegistry {
-        selectedTmuxCoordinator == nil ? .localized : .localizedTmuxControl
+        let registry = selectedTmuxCoordinator == nil ? TerminalCommandRegistry.localized : .localizedTmuxControl
+        let workingDirectory = quickCommandWorkingDirectory
+        return registry.registering(
+            quickCommands: QuickCommandStore.shared.commands(forWorkingDirectory: workingDirectory),
+            workingDirectory: workingDirectory,
+            language: AppLocalization.language
+        )
     }
 
     func swapTmuxPane(_ direction: TmuxPaneSwapDirection) {
@@ -435,7 +458,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
-        commandHistoryPanel.applyChromeTheme(chromeTheme)
+        leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
         updateTabBar()

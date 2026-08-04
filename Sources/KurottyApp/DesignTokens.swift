@@ -133,6 +133,21 @@ enum DesignTokens {
     }
 
     enum Component {
+        /// Quick Commands editor window layout.
+        static let quickCommandEditorWidthPX: CGFloat = 620
+        static let quickCommandEditorHeightPX: CGFloat = 460
+        static let quickCommandEditorPaddingPX: CGFloat = 16
+        static let quickCommandEditorRowSpacingPX: CGFloat = 8
+        static let quickCommandEditorSectionSpacingPX: CGFloat = 12
+        static let quickCommandTableHeightPX: CGFloat = 170
+        static let quickCommandTableRowHeightPX: CGFloat = 22
+        static let quickCommandCommandTextHeightPX: CGFloat = 74
+        static let quickCommandFieldLabelWidthPX: CGFloat = 120
+        static let quickCommandNameColumnWidthPX: CGFloat = 200
+        static let quickCommandScopeColumnWidthPX: CGFloat = 190
+        static let quickCommandActionColumnWidthPX: CGFloat = 160
+        static let quickCommandToolbarButtonWidthPX: CGFloat = 32
+
         static let commandPaletteWidthPX: CGFloat = 680
         static let commandPaletteHeightPX: CGFloat = 500
         static let preferencesWidthPX: CGFloat = 820
@@ -186,9 +201,9 @@ enum DesignTokens {
         static let terminalTabTitleLeadingPX: CGFloat = 11
         static let terminalTabTitleCloseGapPX: CGFloat = 4
         static let terminalTabCloseTrailingPX: CGFloat = 5
-        static let commandHistoryPanelDefaultWidthPX: CGFloat = 248
+        static let commandHistoryPanelDefaultWidthPX: CGFloat = 350
         static let commandHistoryPanelMinWidthPX: CGFloat = 200
-        static let commandHistoryPanelMaxWidthPX: CGFloat = 400
+        static let commandHistoryPanelMaxWidthPX: CGFloat = 460
         static let commandHistoryPanelCornerRadiusPX: CGFloat = 0
         static let commandHistoryPanelInsetXPX: CGFloat = 12
         static let commandHistoryPanelInsetYPX: CGFloat = 12
@@ -220,9 +235,9 @@ enum DesignTokens {
         static let commandHistoryHoverBackgroundAlphaRATIO: CGFloat = 0.07
         static let commandHistorySelectionBackgroundAlphaRATIO: CGFloat = 0.24
         static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
-        static let fileExplorerPanelDefaultWidthPX: CGFloat = 260
+        static let fileExplorerPanelDefaultWidthPX: CGFloat = 350
         static let fileExplorerPanelMinWidthPX: CGFloat = 210
-        static let fileExplorerPanelMaxWidthPX: CGFloat = 380
+        static let fileExplorerPanelMaxWidthPX: CGFloat = 460
         static let fileExplorerPanelCornerRadiusPX: CGFloat = 0
         static let fileExplorerPanelInsetXPX: CGFloat = 12
         static let fileExplorerPanelInsetYPX: CGFloat = 12
@@ -239,6 +254,18 @@ enum DesignTokens {
         static let fileExplorerSearchPillBackgroundAlphaRATIO: CGFloat = 0.08
         static let fileExplorerHoverBackgroundAlphaRATIO: CGFloat = 0.07
         static let fileExplorerSelectionBackgroundAlphaRATIO: CGFloat = 0.24
+        // Agent-session sidebar. Shared metrics (search pill, badges, row
+        // highlight, indentation) intentionally reuse the commandHistory*
+        // tokens so both left-panel sections stay pixel-identical.
+        static let agentSessionRowHeightPX: CGFloat = 42
+        static let agentSessionRowTextGapPY: CGFloat = 2
+        static let agentSessionAgentIconPointSizePT: CGFloat = 12
+        static let agentSessionEmptyStateIconPointSizePT: CGFloat = 18
+        static let agentSessionDefaultExpandedGroupCount = 3
+        static let leftSidebarSegmentedControlHeightPX: CGFloat = 22
+        static let leftSidebarSegmentedControlInsetXPX: CGFloat = 12
+        static let leftSidebarSegmentedControlTopInsetPX: CGFloat = 10
+        static let leftSidebarSegmentedControlBottomGapPX: CGFloat = 2
         static let imagePreviewInsetPX: CGFloat = 24
         static let codeEditorGutterWidthPX: CGFloat = 44
         static let codeEditorGutterLabelTrailingPX: CGFloat = 8
@@ -250,6 +277,11 @@ enum DesignTokens {
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28
         static let terminalPaneChromeDotSizePX: CGFloat = 8
+        static let agentActivityIndicatorSizePX: CGFloat = 12
+        static let agentActivityIndicatorDotSizePX: CGFloat = 7
+        static let agentActivityIndicatorRingWidthPX: CGFloat = 1.5
+        static let agentActivityIndicatorSpinSeconds: CFTimeInterval = 1.1
+        static let agentActivityIndicatorArcRatio: CGFloat = 0.7
         static let terminalPaneDragPreviewMinWidthPX: CGFloat = 220
         static let terminalPaneDragPreviewMaxWidthPX: CGFloat = 420
         static let terminalPaneDragPreviewCornerRadiusPX: CGFloat = 6

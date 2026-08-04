@@ -23,10 +23,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 TerminalCommandHistoryDebugSeed.sampleEntries()
             )
         }
+        // Before the first window, so the first pane's PTY can already carry the
+        // hook variables when the setting is on. A no-op while it is off.
+        AgentStatusHookCoordinator.shared.applyStoredSetting()
         MainMenu.install(target: self)
         openNewWindow()
         if DebugOptions.showHistoryPanel {
             windowController?.setCommandHistoryPanelVisible(true)
+        }
+        if DebugOptions.showAgentSessions {
+            windowController?.setCommandHistoryPanelVisible(true, section: .agentSessions)
         }
         if DebugOptions.showExplorerPanel {
             windowController?.setFileExplorerPanelVisible(true)
@@ -111,6 +117,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return false
                 }
                 return terminalController.executeCommandSpanPaletteCommand(command)
+            },
+            quickCommandExecutor: { [weak terminalController] command in
+                guard let terminalController else {
+                    return false
+                }
+                // Closing the palette is only correct when something was
+                // actually written; a refused or empty command leaves it open.
+                switch QuickCommandInvoker.invoke(command, target: terminalController) {
+                case .insertedText, .executedText:
+                    return true
+                case .requiresApproval, .emptyCommand:
+                    return false
+                }
             }
         )
         commandPaletteController = controller
@@ -210,6 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleCommandHistoryPanel() {
         activeTerminalWindowController?.toggleCommandHistoryPanel()
+    }
+
+    @objc func toggleAgentSessionPanel() {
+        activeTerminalWindowController?.toggleAgentSessionPanel()
     }
 
     @objc func toggleFileExplorerPanel() {

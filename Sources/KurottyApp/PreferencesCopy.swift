@@ -6,6 +6,11 @@ enum PreferencesCopy {
         case terminalTitle, terminalSubtitle, shellSection, shellSectionHelp, workingDirectory
         case textSection, textSectionHelp, font, fontSize, historySection, historySectionHelp, scrollback, lines
         case commandHistory, commandHistoryCheckboxTitle
+        case agentSessionIndex, agentSessionIndexCheckboxTitle
+        case hideMouseCursor, hideMouseCursorCheckboxTitle
+        case perProjectHistory, perProjectHistoryCheckboxTitle
+        case agentStatusHooks, agentStatusHooksCheckboxTitle
+        case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case themeKurotty, themeLightty, themeCustom, customColors, customColorsHelp
         case foreground, background, cursor, ansiPalette
@@ -36,6 +41,12 @@ enum PreferencesCopy {
             .textSection: "Text", .textSectionHelp: "Font changes apply to open terminal surfaces.", .font: "Font", .fontSize: "Font size",
             .historySection: "History", .historySectionHelp: "Limit retained scrollback to keep memory use predictable.", .scrollback: "Scrollback", .lines: "lines",
             .commandHistory: "Command history", .commandHistoryCheckboxTitle: "Record commands for the Command History panel",
+            .agentSessionIndex: "Agent sessions", .agentSessionIndexCheckboxTitle: "Index AI agent sessions stored on this Mac (read-only)",
+            .hideMouseCursor: "Pointer", .hideMouseCursorCheckboxTitle: "Hide the mouse pointer while typing",
+            .perProjectHistory: "Shell history", .perProjectHistoryCheckboxTitle: "Keep a separate shell history per project (new sessions)",
+            .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let agents report status through Kurotty's local hook (off by default)",
+            .quickCommandsSection: "Quick Commands", .quickCommandsSectionHelp: "Named commands offered in the command palette and the terminal context menu.",
+            .quickCommands: "Quick Commands", .quickCommandsButtonTitle: "Edit Quick Commands…",
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "Custom",
@@ -52,6 +63,12 @@ enum PreferencesCopy {
             .textSection: "텍스트", .textSectionHelp: "글꼴 변경은 열려 있는 터미널에도 적용됩니다.", .font: "글꼴", .fontSize: "글꼴 크기",
             .historySection: "기록", .historySectionHelp: "메모리 사용량을 예측할 수 있도록 스크롤백 보관량을 제한합니다.", .scrollback: "스크롤백", .lines: "줄",
             .commandHistory: "명령 기록", .commandHistoryCheckboxTitle: "명령 기록 패널을 위해 실행한 명령을 저장",
+            .agentSessionIndex: "에이전트 세션", .agentSessionIndexCheckboxTitle: "이 Mac에 저장된 AI 에이전트 세션을 색인 (읽기 전용)",
+            .hideMouseCursor: "포인터", .hideMouseCursorCheckboxTitle: "입력하는 동안 마우스 포인터 숨기기",
+            .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
+            .agentStatusHooks: "에이전트 상태 훅", .agentStatusHooksCheckboxTitle: "Kurotty의 로컬 훅으로 에이전트가 상태를 보고하도록 허용 (기본 꺼짐)",
+            .quickCommandsSection: "빠른 명령", .quickCommandsSectionHelp: "명령 팔레트와 터미널 컨텍스트 메뉴에 표시되는 이름 붙인 명령입니다.",
+            .quickCommands: "빠른 명령", .quickCommandsButtonTitle: "빠른 명령 편집…",
             .appearanceTitle: "모양", .appearanceSubtitle: "기본 테마를 선택하거나 직접 색상 팔레트를 만들 수 있습니다.",
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "커스텀",
@@ -68,6 +85,12 @@ enum PreferencesCopy {
             .textSection: "テキスト", .textSectionHelp: "フォントの変更は開いているターミナルにも適用されます。", .font: "フォント", .fontSize: "フォントサイズ",
             .historySection: "履歴", .historySectionHelp: "メモリ使用量を予測可能にするため、スクロールバックの保持量を制限します。", .scrollback: "スクロールバック", .lines: "行",
             .commandHistory: "コマンド履歴", .commandHistoryCheckboxTitle: "コマンド履歴パネルのために実行したコマンドを保存",
+            .agentSessionIndex: "エージェントセッション", .agentSessionIndexCheckboxTitle: "このMacに保存されたAIエージェントのセッションをインデックス（読み取り専用）",
+            .hideMouseCursor: "ポインタ", .hideMouseCursorCheckboxTitle: "入力中はマウスポインタを隠す",
+            .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
+            .agentStatusHooks: "エージェント状態フック", .agentStatusHooksCheckboxTitle: "Kurottyのローカルフック経由でエージェントが状態を報告できるようにする（既定はオフ）",
+            .quickCommandsSection: "クイックコマンド", .quickCommandsSectionHelp: "コマンドパレットとターミナルのコンテキストメニューに表示される名前付きコマンドです。",
+            .quickCommands: "クイックコマンド", .quickCommandsButtonTitle: "クイックコマンドを編集…",
             .appearanceTitle: "外観", .appearanceSubtitle: "組み込みテーマを選ぶか、独自のカラーパレットを作成できます。",
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "カスタム",

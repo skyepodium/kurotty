@@ -37,6 +37,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var isSearchPresentationActive = false
     private var terminalTrackingArea: NSTrackingArea?
     private var hoveredLinkRange: TerminalLinkRange?
+    /// Bounded existence answers for `path:line:col` link candidates. Hit-testing
+    /// runs on every mouse move, so it only ever reads this cache; misses are
+    /// stat'd by `filePathExistsProbe` off the main actor.
+    private let filePathExistsCache = TerminalPathExistsCache()
+    private let filePathExistsProbe = TerminalPathExistsProbe()
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
@@ -61,6 +66,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var outputFlushTraceSequence: UInt64 = 0
     private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
     private var outputInterceptor: ((String) -> String)?
+    /// Stable identity shared by this surface, its PTY (`KUROTTY_PANE_ID`), and
+    /// the agent activity registry.
+    let agentPaneIdentifier: String
+    /// Strips OSC 9999 agent-status sequences out of the PTY stream before any
+    /// of it can reach the screen model.
+    private let agentStatusChannel: AgentStatusOutputChannel
+    /// Live mirror of `terminal.hideMouseCursorWhileTyping`; read on every
+    /// `keyDown`, so it must never touch the filesystem.
+    private var hideMouseCursorWhileTypingEnabled: Bool
     var automaticallyFocusesWhenAttached = true
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
     var closeSearchRequested: (() -> Void)?
@@ -80,9 +94,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         self.init(frame: frameRect, session: TerminalSessionFactory.makeDefaultSession())
     }
 
-    init(frame frameRect: NSRect, session: any TerminalSession) {
+    /// `paneIdentifier` is supplied by the owning `TerminalPaneView` so the
+    /// pane, its PTY environment, and the activity registry agree on one id.
+    /// The default keeps every other call site (and every test double) working
+    /// with a private identity of its own.
+    init(
+        frame frameRect: NSRect,
+        session: any TerminalSession,
+        paneIdentifier: String = UUID().uuidString
+    ) {
         shell = session
+        agentPaneIdentifier = paneIdentifier
+        agentStatusChannel = AgentStatusOutputChannel(paneIdentifier: paneIdentifier)
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         let configuredFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
@@ -151,7 +176,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         shell.onOutput = { [weak self] text in
             DispatchQueue.main.async {
                 guard let self else { return }
-                let visibleText = self.outputInterceptor?(text) ?? text
+                // OSC 9999 is an out-of-band status channel: it is recorded and
+                // stripped here so the sequence can never reach the screen model.
+                let visibleText = self.agentStatusChannel.filter(self.outputInterceptor?(text) ?? text)
                 self.enqueueOutput(visibleText)
             }
         }
@@ -186,6 +213,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         observeTerminalFocusChanges()
         observeInputSourceChanges()
+        // Resolved here, on the main actor, and handed to the session before the
+        // child is spawned. The hook environment is empty unless
+        // `terminal.agentStatusHooksEnabled` is on and the listener is bound.
+        if let launchConfigurableShell = shell as? TerminalShellLaunchConfigurable {
+            launchConfigurableShell.agentStatusHookEnvironment =
+                AgentStatusHookCoordinator.shared.shellEnvironment(paneIdentifier: paneIdentifier)
+            launchConfigurableShell.perProjectHistoryEnabled = settings.shell.perProjectHistoryEnabled
+        }
         shell.start(workingDirectory: settings.shell.workingDirectory)
     }
 
@@ -427,7 +462,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
-            presentOpenLinkDialog(for: link)
+            if let fileTarget = link.fileTarget {
+                openFileLinkInEditorTab(fileTarget)
+            } else {
+                presentOpenLinkDialog(for: link)
+            }
             return
         }
         if event.clickCount >= 2 {
@@ -577,6 +616,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
+        hideMouseCursorWhileTypingIfNeeded(event)
         // Modified ordinary keys must be encoded before NSTextInputContext;
         // otherwise AppKit commits text and discards the protocol modifiers.
         if modifyOtherKeysMode > 0, handleTerminalControlKey(event) {
@@ -593,6 +633,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         performTextInputTransaction {
             interpretKeyEvents([event])
         }
+    }
+
+    /// Ordinary typing hides the pointer until the next mouse move; AppKit
+    /// restores it on its own, so there is no paired "show" call to leak.
+    private func hideMouseCursorWhileTypingIfNeeded(_ event: NSEvent) {
+        guard TerminalTypingCursorHiding.shouldHideCursor(
+            characters: event.characters,
+            modifierFlags: event.modifierFlags,
+            isModalPresentationActive: isModalPresentationActive,
+            isEnabled: hideMouseCursorWhileTypingEnabled
+        ) else { return }
+        NSCursor.setHiddenUntilMouseMoves(true)
+    }
+
+    private var isModalPresentationActive: Bool {
+        NSApp.modalWindow != nil || window?.attachedSheet != nil
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -729,8 +785,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             hasSelection: normalizedSelectionRange() != nil,
             hasPasteboardText: !(NSPasteboard.general.string(forType: .string)?.isEmpty ?? true)
         )
+        let workingDirectory = workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let layout = TerminalContextMenuBuilder.layout(
+            for: state,
+            quickCommands: QuickCommandStore.shared.commands(
+                forWorkingDirectory: workingDirectory.isEmpty ? nil : workingDirectory
+            ),
+            workingDirectory: workingDirectory.isEmpty ? nil : workingDirectory,
+            language: AppLocalization.language
+        )
         let menu = NSMenu()
-        for entry in TerminalContextMenuBuilder.entries(for: state, language: AppLocalization.language) {
+        for entry in layout.entries {
             guard let title = entry.title, let action = entry.action else {
                 menu.addItem(.separator())
                 continue
@@ -744,7 +809,33 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
             menu.addItem(item)
         }
+        // Quick commands are data-driven and identified by string id, so they
+        // are a submenu rather than a case in the fixed action enum above.
+        guard let quickCommandSubmenu = layout.quickCommandSubmenu else {
+            return menu
+        }
+        menu.addItem(.separator())
+        let submenuItem = NSMenuItem(title: quickCommandSubmenu.title, action: nil, keyEquivalent: "")
+        submenuItem.submenu = QuickCommandContextMenuBuilder.makeMenu(
+            for: quickCommandSubmenu,
+            target: self,
+            action: #selector(runQuickCommandFromContextMenu(_:))
+        )
+        menu.addItem(submenuItem)
         return menu
+    }
+
+    /// `representedObject` carries the quick command's id; the window
+    /// controller resolves it and routes it through `QuickCommandInvoker`, the
+    /// only path that may write a quick command to a pane.
+    @objc private func runQuickCommandFromContextMenu(_ sender: NSMenuItem) {
+        guard let quickCommandID = sender.representedObject as? String else {
+            return
+        }
+        guard let controller = window?.windowController as? TerminalWindowController else {
+            return
+        }
+        controller.invokeQuickCommand(withID: quickCommandID)
     }
 
     private func selector(for action: TerminalContextMenuAction) -> Selector {
@@ -2023,8 +2114,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rows = (contextStartRow..<contextEndRow).compactMap(contentRow(at:))
         return TerminalLinkRange.findAll(
             in: rows,
-            startingRow: contextStartRow - visibleStartRow
+            startingRow: contextStartRow - visibleStartRow,
+            fileLinkContext: fileLinkContext()
         )
+    }
+
+    /// Main-actor-safe view of the path-exists cache. Misses schedule a probe
+    /// and repaint once the answer lands, so no `stat` ever runs inline.
+    private func fileLinkContext() -> TerminalFileLinkContext {
+        TerminalFileLinkContext(
+            workingDirectory: workingDirectoryPath,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            cachedExists: { [weak self] path in self?.filePathExistsCache.exists(path) },
+            requestExistsProbe: { [weak self] path in
+                guard let self else { return }
+                self.filePathExistsProbe.probe(path: path) { [weak self] probedPath, exists in
+                    guard let self else { return }
+                    self.filePathExistsCache.record(path: probedPath, exists: exists)
+                    guard exists else { return }
+                    self.markFullDamage()
+                    self.updateRendererFrame()
+                }
+            }
+        )
+    }
+
+    /// Opens a `path:line:col` link in a center editor tab, scrolling to the
+    /// reported line when the link carried one.
+    private func openFileLinkInEditorTab(_ target: TerminalFileLinkTarget) {
+        guard let controller = window?.windowController as? TerminalWindowController else { return }
+        controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
@@ -2267,6 +2386,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func apply(settings: AppSettings) {
+        hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         let nextFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
@@ -2746,6 +2866,13 @@ extension TerminalSurfaceView {
     /// home directory until the shell reports a directory change.
     var workingDirectoryPath: String {
         interpreter.currentWorkingDirectory
+    }
+
+    /// The OSC 7 working directory together with its host, so panels that only
+    /// work on local files (file explorer, git status) can tell an SSH session
+    /// apart from a local one instead of listing a same-named local path.
+    var workingDirectoryLocation: TerminalWorkingDirectoryLocation {
+        interpreter.currentWorkingDirectoryLocation
     }
 
     private var shellIntegration: TerminalShellIntegration {

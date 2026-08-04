@@ -37,10 +37,20 @@ extension TerminalWindowController {
     /// Opens `url` in a center editor tab, reusing an existing tab that
     /// already shows the same file.
     func openEditorTab(for url: URL) {
+        openEditorTab(for: url, line: nil)
+    }
+
+    /// Opens `url` in a center editor tab and, when `line` is non-nil, scrolls
+    /// to and selects that 1-based line. Terminal `path:line:col` links use this
+    /// overload; the file explorer uses the line-free one.
+    func openEditorTab(for url: URL, line: Int?, column: Int? = nil) {
         let standardized = url.standardizedFileURL
         if let existing = editorTabItem(for: standardized) {
             tabView.selectTabViewItem(existing)
             updateTabBar()
+            if let line, let editor = editorView(in: existing) {
+                editor.scrollTo(line: line, column: column)
+            }
             return
         }
 
@@ -63,6 +73,9 @@ extension TerminalWindowController {
         tabView.addTabViewItem(item)
         tabView.selectTabViewItem(item)
         updateTabBar()
+        if let line {
+            editor.scrollTo(line: line, column: column)
+        }
     }
 
     func editorView(in item: NSTabViewItem) -> TerminalCodeEditorView? {

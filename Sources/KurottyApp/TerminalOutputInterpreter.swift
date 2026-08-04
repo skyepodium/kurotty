@@ -64,6 +64,18 @@ final class TerminalOutputInterpreter {
     private var oscBuffer = ""
     var terminalTitle = "-zsh"
     var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    /// `user@host` when the shell reported an OSC 7 directory on another
+    /// machine. `nil` means the directory is on this Mac, which is also the
+    /// state before any OSC 7 arrives.
+    var currentWorkingDirectoryRemoteHost: String?
+    /// Combined view for panels that must decide whether local filesystem work
+    /// is meaningful at all.
+    var currentWorkingDirectoryLocation: TerminalWorkingDirectoryLocation {
+        TerminalWorkingDirectoryLocation(
+            path: currentWorkingDirectory,
+            remoteHost: currentWorkingDirectoryRemoteHost
+        )
+    }
     var shellIntegration = TerminalShellIntegration(
         currentWorkingDirectoryCandidate: FileManager.default.homeDirectoryForCurrentUser.path
     )
@@ -342,8 +354,9 @@ final class TerminalOutputInterpreter {
             terminalTitle = payload
             publishTitle()
         case "7":
-            if case let .shellIntegration(.workingDirectoryChanged(path)) = terminalEvent {
-                currentWorkingDirectory = path
+            if case let .shellIntegration(.workingDirectoryChanged(location)) = terminalEvent {
+                currentWorkingDirectory = location.path
+                currentWorkingDirectoryRemoteHost = location.remoteHost
             }
             publishTitle()
         case "8":
