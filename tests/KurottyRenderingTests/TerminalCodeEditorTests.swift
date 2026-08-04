@@ -43,6 +43,23 @@ final class TerminalCodeEditorTests: XCTestCase {
 
     // MARK: - Language mapping
 
+    @MainActor
+    func testImageFileLoadsIntoReadOnlyPreview() throws {
+        let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )!
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-image-preview-\(UUID().uuidString).png")
+        try png.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let editor = TerminalCodeEditorView()
+        editor.load(url: url)
+
+        XCTAssertTrue(editor.isShowingImageForTesting)
+        XCTAssertFalse(editor.isModified)
+    }
+
     func testLanguageIsDerivedFromFileExtension() {
         XCTAssertEqual(CodeSyntaxLanguage(fileExtension: "swift"), .swift)
         XCTAssertEqual(CodeSyntaxLanguage(fileExtension: "zig"), .zig)

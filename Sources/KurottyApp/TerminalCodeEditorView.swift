@@ -91,6 +91,10 @@ final class TerminalCodeEditorView: NSView {
         dirtyTracker.isDirty
     }
 
+    var isShowingImageForTesting: Bool {
+        !imagePreviewView.isHidden && imagePreviewView.image != nil
+    }
+
     var isReadOnly = false {
         didSet { textView.isEditable = !isReadOnly && isShowingText }
     }
