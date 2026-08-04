@@ -11,6 +11,11 @@ extension TerminalWindowController {
         commandHistorySplitView.autosaveName = AppConstants.CommandHistory.splitViewAutosaveName
         commandHistorySplitView.translatesAutoresizingMaskIntoConstraints = false
 
+        commandHistoryPanel.wantsLayer = true
+        commandHistoryPanel.layer?.cornerRadius = DesignTokens.Component.commandHistoryPanelCornerRadiusPX
+        commandHistoryPanel.layer?.borderWidth = DesignTokens.Component.hairlinePX
+        commandHistoryPanel.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        commandHistoryPanel.layer?.masksToBounds = true
         commandHistoryPanel.translatesAutoresizingMaskIntoConstraints = false
         terminalContentHostView.translatesAutoresizingMaskIntoConstraints = false
         commandHistorySplitView.addArrangedSubview(commandHistoryPanel)
@@ -32,11 +37,14 @@ extension TerminalWindowController {
             preferredWidthConstraint,
         ])
 
+        commandHistorySplitView.delegate = self
         rootView.addSubview(commandHistorySplitView)
         NSLayoutConstraint.activate([
             commandHistorySplitView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             commandHistorySplitView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            commandHistorySplitView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            // The window-wide chrome bar owns the top strip, so panels start
+            // below it and never collide with the title bar's traffic lights.
+            commandHistorySplitView.topAnchor.constraint(equalTo: chromeBarBottomAnchor),
             commandHistorySplitView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
         ])
 
@@ -60,7 +68,9 @@ extension TerminalWindowController {
         }
         commandHistoryPanel.isHidden = !visible
         commandHistorySplitView.adjustSubviews()
+        updateSidebarToggleButtonStates()
         if visible {
+            restoreSidebarWidthIfCollapsed(commandHistoryPanel)
             commandHistoryPanel.focusFilterField()
         } else {
             currentSplitView()?.focusFirstPane()

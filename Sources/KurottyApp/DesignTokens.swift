@@ -119,6 +119,8 @@ enum DesignTokens {
         static let sidebarCommandFontSizePT: CGFloat = 12
         static let sidebarBadgeFontSizePT: CGFloat = 10
         static let sidebarSearchFontSizePT: CGFloat = 12
+        static let codeEditorFontSizePT: CGFloat = 13
+        static let codeEditorGutterFontSizePT: CGFloat = 11
     }
 
     enum Space {
@@ -158,7 +160,14 @@ enum DesignTokens {
         static let terminalSearchCornerRadiusPX: CGFloat = 10
         static let terminalSearchInsetPX: CGFloat = 12
         static let terminalTabBarHeightPX: CGFloat = 44
+        static let terminalTopBarCornerRadiusPX: CGFloat = 9
+        static let terminalTabBarHorizontalInsetPX: CGFloat = 8
+        static let terminalTabBarSideButtonInsetPX: CGFloat = 8
         static let terminalTabHeightPX: CGFloat = 34
+        static let sidebarToggleSizePX: CGFloat = 28
+        static let sidebarDividerGrabPaddingPX: CGFloat = 4
+        static let sidebarToggleEdgeInsetPX: CGFloat = 10
+        static let sidebarToggleSymbolPointSizePT: CGFloat = 14
         static let terminalTabCornerRadiusPX: CGFloat = 8
         static let terminalTabMinWidthPX: CGFloat = 118
         static let terminalTabMaxWidthPX: CGFloat = 260
@@ -181,6 +190,7 @@ enum DesignTokens {
         static let commandHistoryPanelDefaultWidthPX: CGFloat = 260
         static let commandHistoryPanelMinWidthPX: CGFloat = 200
         static let commandHistoryPanelMaxWidthPX: CGFloat = 400
+        static let commandHistoryPanelCornerRadiusPX: CGFloat = 8
         static let commandHistoryPanelInsetXPX: CGFloat = 10
         static let commandHistoryPanelInsetYPX: CGFloat = 10
         static let commandHistorySearchPillHeightPX: CGFloat = 26
@@ -210,6 +220,32 @@ enum DesignTokens {
         static let commandHistoryHoverBackgroundAlphaRATIO: CGFloat = 0.07
         static let commandHistorySelectionBackgroundAlphaRATIO: CGFloat = 0.24
         static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
+        static let fileExplorerPanelDefaultWidthPX: CGFloat = 280
+        static let fileExplorerPanelMinWidthPX: CGFloat = 220
+        static let fileExplorerPanelMaxWidthPX: CGFloat = 420
+        static let fileExplorerPanelCornerRadiusPX: CGFloat = 8
+        static let fileExplorerPanelInsetXPX: CGFloat = 10
+        static let fileExplorerPanelInsetYPX: CGFloat = 10
+        static let fileExplorerHeaderGapPX: CGFloat = 3
+        static let fileExplorerControlGapPX: CGFloat = 8
+        static let fileExplorerRefreshButtonSizePX: CGFloat = 24
+        static let fileExplorerSearchPillHeightPX: CGFloat = 26
+        static let fileExplorerSearchPillCornerRadiusPX: CGFloat = 7
+        static let fileExplorerSearchPillTextInsetXPX: CGFloat = 6
+        static let fileExplorerRowHeightPX: CGFloat = 26
+        static let fileExplorerRowCornerRadiusPX: CGFloat = 5
+        static let fileExplorerRowHighlightInsetXPX: CGFloat = 4
+        static let fileExplorerRowHighlightInsetYPX: CGFloat = 1
+        static let fileExplorerSearchPillBackgroundAlphaRATIO: CGFloat = 0.08
+        static let fileExplorerHoverBackgroundAlphaRATIO: CGFloat = 0.07
+        static let fileExplorerSelectionBackgroundAlphaRATIO: CGFloat = 0.24
+        static let imagePreviewInsetPX: CGFloat = 24
+        static let codeEditorGutterWidthPX: CGFloat = 44
+        static let codeEditorGutterLabelTrailingPX: CGFloat = 8
+        static let codeEditorTextInsetXPX: CGFloat = 6
+        static let codeEditorTextInsetYPX: CGFloat = 8
+        static let codeEditorPathBarInsetXPX: CGFloat = 12
+        static let codeEditorPathBarInsetYPX: CGFloat = 8
         static let paneDropTargetBorderWidthPX: CGFloat = 2
         static let terminalPaneChromeHeightPX: CGFloat = 32
         static let terminalPaneChromeCloseWidthPX: CGFloat = 28

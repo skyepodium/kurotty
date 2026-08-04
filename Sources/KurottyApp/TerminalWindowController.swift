@@ -8,6 +8,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         dropTargetView
     }
     private let tabBarView = NSView()
+    private let historyToggleButton = ChromeIconButton(frame: .zero)
+    private let explorerToggleButton = ChromeIconButton(frame: .zero)
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
     // Command-history split chrome; layout and handlers live in
@@ -15,6 +17,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     let commandHistorySplitView = NSSplitView()
     let commandHistoryPanel = TerminalCommandHistoryPanelView()
     let terminalContentHostView = NSView()
+    // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
+    // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
+    let fileExplorerPanel = TerminalFileExplorerPanelView()
     private var tabBarHeightConstraint: NSLayoutConstraint?
     var chromeTheme: DesignTokens.ChromeTheme
     private var lastAppliedWindowSettings: WindowSettings
@@ -181,6 +186,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             return
         }
         guard !hasActiveTmuxProjection(hosting: item) else { return }
+        guard confirmEditorTabCloseIfNeeded(item) else { return }
         if tabView.numberOfTabViewItems <= 1 {
             window?.performClose(nil)
             return
@@ -239,6 +245,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderWidth = DesignTokens.Component.hairlinePX
         tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        tabBarView.layer?.cornerRadius = DesignTokens.Component.terminalTopBarCornerRadiusPX
+        tabBarView.layer?.masksToBounds = true
 
         tabStackView.orientation = .horizontal
         tabStackView.alignment = .centerY
@@ -255,35 +263,66 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         tabView.delegate = self
         tabView.drawsBackground = false
         tabView.translatesAutoresizingMaskIntoConstraints = false
-        terminalContentHostView.addSubview(tabBarView)
+        // The chrome bar spans the whole window (above the split view) so the
+        // sidebar toggles sit in the window corners and panel content starts
+        // below the title bar instead of colliding with the traffic lights.
+        rootView.addSubview(tabBarView)
         terminalContentHostView.addSubview(tabView)
+        tabBarView.addSubview(historyToggleButton)
+        tabBarView.addSubview(explorerToggleButton)
         tabBarView.addSubview(tabStackView)
+        configureSidebarToggleButtons()
 
         let tabBarHeightConstraint = tabBarView.heightAnchor.constraint(equalToConstant: 0)
         self.tabBarHeightConstraint = tabBarHeightConstraint
         NSLayoutConstraint.activate([
-            tabBarView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
-            tabBarView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
-            tabBarView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
+            tabBarView.leadingAnchor.constraint(
+                equalTo: rootView.leadingAnchor,
+                constant: DesignTokens.Component.terminalTabBarHorizontalInsetPX
+            ),
+            tabBarView.trailingAnchor.constraint(
+                equalTo: rootView.trailingAnchor,
+                constant: -DesignTokens.Component.terminalTabBarHorizontalInsetPX
+            ),
+            tabBarView.topAnchor.constraint(equalTo: rootView.topAnchor),
             tabBarHeightConstraint,
 
-            tabStackView.leadingAnchor.constraint(equalTo: tabBarView.leadingAnchor),
-            tabStackView.trailingAnchor.constraint(lessThanOrEqualTo: tabBarView.trailingAnchor),
+            historyToggleButton.leadingAnchor.constraint(
+                equalTo: tabBarView.leadingAnchor,
+                constant: DesignTokens.Component.terminalTabBarHorizontalInsetPX
+            ),
+            historyToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
+            explorerToggleButton.trailingAnchor.constraint(
+                equalTo: tabBarView.trailingAnchor,
+                constant: -DesignTokens.Component.terminalTabBarHorizontalInsetPX
+            ),
+            explorerToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
+
+            tabStackView.leadingAnchor.constraint(
+                equalTo: historyToggleButton.trailingAnchor,
+                constant: DesignTokens.Component.terminalTabBarSideButtonInsetPX
+            ),
+            tabStackView.trailingAnchor.constraint(
+                lessThanOrEqualTo: explorerToggleButton.leadingAnchor,
+                constant: -DesignTokens.Component.terminalTabBarSideButtonInsetPX
+            ),
             tabStackView.topAnchor.constraint(equalTo: tabBarView.topAnchor),
             tabStackView.bottomAnchor.constraint(equalTo: tabBarView.bottomAnchor),
 
             tabView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
             tabView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
-            tabView.topAnchor.constraint(equalTo: tabBarView.bottomAnchor),
+            tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
             tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
         ])
         configureCommandHistorySplit(in: rootView)
+        configureFileExplorerPane()
         addTab(with: initialPane)
     }
 
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         window?.title = tabViewItem?.label ?? AppConstants.Bundle.displayName
         updateTabBar()
+        refreshFileExplorerRootDirectory()
         if suppressesTmuxSelectionCallbacks {
             return
         }
@@ -382,21 +421,30 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        commandHistoryPanel.layer?.borderColor = chromeTheme.borderHairline.cgColor
+        fileExplorerPanel.layer?.borderColor = chromeTheme.borderHairline.cgColor
         commandHistoryPanel.applyChromeTheme(chromeTheme)
+        fileExplorerPanel.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
         updateTabBar()
     }
 
     private func applyChromeThemeToTabSplits(_ theme: DesignTokens.ChromeTheme) {
         for index in 0..<tabView.numberOfTabViewItems {
-            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView else {
-                continue
+            let item = tabView.tabViewItem(at: index)
+            if let splitView = item.view as? SplitTerminalView {
+                splitView.applyChromeTheme(theme)
+            } else if let editor = editorView(in: item) {
+                editor.applyChromeTheme(theme)
             }
-            splitView.applyChromeTheme(theme)
         }
     }
 
     @objc private func terminalTitleDidChange(_ notification: Notification) {
+        // OSC 7 working-directory changes publish through the same title
+        // notification, so the explorer root follows the active pane's cwd
+        // here. The refresh recomputes from the active pane and is idempotent.
+        refreshFileExplorerRootDirectory()
         guard let surface = notification.object as? TerminalSurfaceView,
               let title = notification.userInfo?[TerminalSurfaceView.titleNotificationKey] as? String,
               let item = tabItem(containing: surface)
@@ -499,10 +547,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func updateTabBar() {
-        tabBarHeightConstraint?.constant = tabView.numberOfTabViewItems > 1
-            ? DesignTokens.Component.terminalTabBarHeightPX
-            : 0
-        tabBarView.isHidden = tabView.numberOfTabViewItems <= 1
+        // The chrome bar also hosts the sidebar toggles, so it stays visible even
+        // with a single tab; only the tab items themselves collapse.
+        tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX
+        tabBarView.isHidden = false
+        updateSidebarToggleButtonStates()
 
         tabStackView.arrangedSubviews.forEach { view in
             tabStackView.removeArrangedSubview(view)
@@ -523,6 +572,70 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
+    }
+
+    /// Bottom of the window-wide chrome bar; the split view hangs off this so
+    /// sidebars start below the title bar rather than under the traffic lights.
+    var chromeBarBottomAnchor: NSLayoutYAxisAnchor {
+        tabBarView.bottomAnchor
+    }
+
+    private func configureSidebarToggleButtons() {
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: DesignTokens.Component.sidebarToggleSymbolPointSizePT,
+            weight: .regular
+        )
+        historyToggleButton.image = NSImage(
+            systemSymbolName: "sidebar.leading",
+            accessibilityDescription: AppLocalization.string(.commandHistory)
+        )?.withSymbolConfiguration(configuration)
+        historyToggleButton.toolTip = AppLocalization.string(.commandHistory)
+        historyToggleButton.target = self
+        historyToggleButton.action = #selector(historyToggleButtonPressed(_:))
+
+        explorerToggleButton.image = NSImage(
+            systemSymbolName: "sidebar.trailing",
+            accessibilityDescription: AppLocalization.string(.fileExplorer)
+        )?.withSymbolConfiguration(configuration)
+        explorerToggleButton.toolTip = AppLocalization.string(.fileExplorer)
+        explorerToggleButton.target = self
+        explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
+
+        for button in [historyToggleButton, explorerToggleButton] {
+            button.imagePosition = .imageOnly
+            button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
+            button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
+        }
+        updateSidebarToggleButtonStates()
+    }
+
+    /// An open panel keeps its toggle tinted like a selected control so the bar
+    /// reads as on/off state, not just as two buttons.
+    func updateSidebarToggleButtonStates() {
+        historyToggleButton.normalTintColor = isCommandHistoryPanelVisible
+            ? chromeTheme.activeIndicator
+            : chromeTheme.textSecondary
+        historyToggleButton.normalBackgroundColor = isCommandHistoryPanelVisible
+            ? chromeTheme.activeIndicator.withAlphaComponent(0.16)
+            : .clear
+        historyToggleButton.hoverTintColor = chromeTheme.textPrimary
+        historyToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        explorerToggleButton.normalTintColor = isFileExplorerPanelVisible
+            ? chromeTheme.activeIndicator
+            : chromeTheme.textSecondary
+        explorerToggleButton.normalBackgroundColor = isFileExplorerPanelVisible
+            ? chromeTheme.activeIndicator.withAlphaComponent(0.16)
+            : .clear
+        explorerToggleButton.hoverTintColor = chromeTheme.textPrimary
+        explorerToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+    }
+
+    @objc private func historyToggleButtonPressed(_ sender: NSButton) {
+        toggleCommandHistoryPanel()
+    }
+
+    @objc private func explorerToggleButtonPressed(_ sender: NSButton) {
+        toggleFileExplorerPanel()
     }
 
     private func makeTabItemView(title: String, index: Int, isSelected: Bool) -> NSView {
@@ -553,6 +666,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             return
         }
         guard !hasActiveTmuxProjection(hosting: item) else { return }
+        guard confirmEditorTabCloseIfNeeded(item) else { return }
         if tabView.numberOfTabViewItems <= 1 {
             window?.performClose(nil)
             return

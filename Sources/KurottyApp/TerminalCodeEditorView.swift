@@ -41,6 +41,14 @@ enum TerminalCodeEditorDocumentPolicy {
     static func isBinary(data: Data) -> Bool {
         data.prefix(binaryProbePrefixBytes).contains(0)
     }
+
+    static let imageFileExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "icns", "bmp", "heic", "heif", "tiff", "webp", "svg"
+    ]
+
+    static func isImageFile(at url: URL) -> Bool {
+        imageFileExtensions.contains(url.pathExtension.lowercased())
+    }
 }
 
 /// Pure dirty-state model. Transition methods return `true` when the modified
@@ -77,6 +85,12 @@ final class TerminalCodeEditorView: NSView {
     private(set) var fileURL: URL?
     var callbacks = TerminalCodeEditorCallbacks()
 
+    /// Whether the buffer has unsaved edits. Owners consult this before
+    /// closing a hosting tab.
+    var isModified: Bool {
+        dirtyTracker.isDirty
+    }
+
     var isReadOnly = false {
         didSet { textView.isEditable = !isReadOnly && isShowingText }
     }
@@ -84,6 +98,7 @@ final class TerminalCodeEditorView: NSView {
     private let pathBar = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let textView = TerminalCodeEditorTextView()
+    private let imagePreviewView = TerminalImagePreviewView()
     private let placeholderLabel = NSTextField(labelWithString: "")
     private var rulerView: TerminalCodeEditorLineNumberRulerView?
     private var dirtyTracker = TerminalCodeEditorDirtyTracker()
@@ -109,15 +124,22 @@ final class TerminalCodeEditorView: NSView {
         language = CodeSyntaxLanguage(fileExtension: url.pathExtension)
         callbacks.onTitleChanged?(url.lastPathComponent)
 
+        if TerminalCodeEditorDocumentPolicy.isImageFile(at: url) {
+            showImage(at: url)
+            _ = dirtyTracker.noteLoaded()
+            callbacks.onModifiedChanged?(false)
+            updatePathBar()
+            return
+        }
         guard let data = try? Data(contentsOf: url) else {
-            showPlaceholder(.loadFailed)
+            showPlaceholder(.editorLoadFailed)
             return
         }
         switch TerminalCodeEditorDocumentPolicy.classify(data: data) {
         case .binary:
-            showPlaceholder(.binaryFile)
+            showPlaceholder(.editorBinaryFile)
         case .tooLarge:
-            showPlaceholder(.fileTooLarge)
+            showPlaceholder(.editorFileTooLarge)
         case .text(let text):
             showText(text)
         }
@@ -173,8 +195,8 @@ final class TerminalCodeEditorView: NSView {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainerInset = NSSize(
-            width: Metrics.textInsetXPX,
-            height: Metrics.textInsetYPX
+            width: DesignTokens.Component.codeEditorTextInsetXPX,
+            height: DesignTokens.Component.codeEditorTextInsetYPX
         )
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
@@ -187,6 +209,10 @@ final class TerminalCodeEditorView: NSView {
         scrollView.drawsBackground = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
+
+        imagePreviewView.translatesAutoresizingMaskIntoConstraints = false
+        imagePreviewView.isHidden = true
+        addSubview(imagePreviewView)
 
         let ruler = TerminalCodeEditorLineNumberRulerView(scrollView: scrollView, textView: textView)
         scrollView.verticalRulerView = ruler
@@ -201,14 +227,19 @@ final class TerminalCodeEditorView: NSView {
         addSubview(placeholderLabel)
 
         NSLayoutConstraint.activate([
-            pathBar.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.pathBarInsetYPX),
-            pathBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.pathBarInsetXPX),
-            pathBar.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.pathBarInsetXPX),
+            pathBar.topAnchor.constraint(equalTo: topAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
+            pathBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetXPX),
+            pathBar.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -DesignTokens.Component.codeEditorPathBarInsetXPX),
 
-            scrollView.topAnchor.constraint(equalTo: pathBar.bottomAnchor, constant: Metrics.pathBarInsetYPX),
+            scrollView.topAnchor.constraint(equalTo: pathBar.bottomAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            imagePreviewView.topAnchor.constraint(equalTo: pathBar.bottomAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
+            imagePreviewView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imagePreviewView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imagePreviewView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             placeholderLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
             placeholderLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
@@ -221,6 +252,8 @@ final class TerminalCodeEditorView: NSView {
         isShowingText = true
         placeholderLabel.isHidden = true
         textView.isHidden = false
+        imagePreviewView.isHidden = true
+        scrollView.rulersVisible = true
         textView.isEditable = !isReadOnly
         textView.string = text
         rehighlight()
@@ -228,12 +261,29 @@ final class TerminalCodeEditorView: NSView {
         textView.scrollToBeginningOfDocument(nil)
     }
 
-    private func showPlaceholder(_ key: TerminalCodeEditorCopy.Key) {
+    private func showImage(at url: URL) {
+        isShowingText = false
+        placeholderLabel.isHidden = true
+        textView.isEditable = false
+        textView.isHidden = true
+        scrollView.rulersVisible = false
+        rulerView?.invalidateLineIndex()
+        if let image = NSImage(contentsOf: url) {
+            imagePreviewView.image = image
+            imagePreviewView.isHidden = false
+            return
+        }
+        showPlaceholder(.editorLoadFailed)
+    }
+
+    private func showPlaceholder(_ key: L10nKey) {
         isShowingText = false
         textView.string = ""
         textView.isHidden = true
         textView.isEditable = false
-        placeholderLabel.stringValue = TerminalCodeEditorCopy.string(key)
+        imagePreviewView.isHidden = true
+        scrollView.rulersVisible = false
+        placeholderLabel.stringValue = AppLocalization.string(key)
         placeholderLabel.isHidden = false
         rulerView?.invalidateLineIndex()
     }
@@ -242,7 +292,7 @@ final class TerminalCodeEditorView: NSView {
 
     private var editorFont: NSFont {
         NSFont.monospacedSystemFont(
-            ofSize: Metrics.codeFontSizePT,
+            ofSize: DesignTokens.Typography.codeEditorFontSizePT,
             weight: .regular
         )
     }
@@ -250,6 +300,7 @@ final class TerminalCodeEditorView: NSView {
     private func applyPalette() {
         layer?.backgroundColor = palette.chromeBackground.cgColor
         scrollView.backgroundColor = palette.editorBackground
+        imagePreviewView.backgroundColor = palette.editorBackground
         textView.backgroundColor = palette.editorBackground
         textView.textColor = palette.plainText
         textView.insertionPointColor = palette.plainText
@@ -276,7 +327,7 @@ final class TerminalCodeEditorView: NSView {
         ))
         if dirtyTracker.isDirty {
             value.append(NSAttributedString(
-                string: " " + Metrics.modifiedDotGlyph,
+                string: " " + TerminalCodeEditorConstants.modifiedDotGlyph,
                 attributes: [.foregroundColor: palette.modifiedDot, .font: font]
             ))
         }
@@ -330,7 +381,7 @@ final class TerminalCodeEditorTextView: NSTextView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let isCommandS = event.modifierFlags.contains(.command)
-            && event.charactersIgnoringModifiers?.lowercased() == Metrics.saveKeyCharacter
+            && event.charactersIgnoringModifiers?.lowercased() == TerminalCodeEditorConstants.saveKeyCharacter
         if isCommandS {
             onSaveKeyEquivalent?()
             return true
@@ -352,7 +403,7 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
     init(scrollView: NSScrollView, textView: NSTextView) {
         self.textView = textView
         super.init(scrollView: scrollView, orientation: .verticalRuler)
-        ruleThickness = Metrics.gutterWidthPX
+        ruleThickness = DesignTokens.Component.codeEditorGutterWidthPX
         clientView = textView
     }
 
@@ -382,7 +433,7 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
 
         rebuildLineIndexIfNeeded(text: textView.string as NSString)
         let currentLine = lineNumber(forCharacterIndex: textView.selectedRange().location)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: Metrics.gutterFontSizePT, weight: .regular)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: DesignTokens.Typography.codeEditorGutterFontSizePT, weight: .regular)
         let inset = textView.textContainerInset.height
         let originOffset = convert(NSPoint.zero, from: textView).y
 
@@ -427,7 +478,7 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
         ]
         let size = label.size(withAttributes: attributes)
         let drawRect = NSRect(
-            x: ruleThickness - size.width - Metrics.gutterLabelTrailingPX,
+            x: ruleThickness - size.width - DesignTokens.Component.codeEditorGutterLabelTrailingPX,
             y: yPosition + (height - size.height) / 2,
             width: size.width,
             height: size.height
@@ -461,6 +512,56 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
             }
         }
         return low
+    }
+}
+
+/// Read-only image canvas used by editor tabs. It keeps the image centered and
+/// aspect-fitted as the terminal window resizes instead of exposing an
+/// arbitrary top-left crop of the source bitmap.
+@MainActor
+final class TerminalImagePreviewView: NSView {
+    var image: NSImage? {
+        didSet {
+            setAccessibilityLabel(image == nil ? "" : AppLocalization.string(.fileExplorer))
+            needsDisplay = true
+        }
+    }
+
+    var backgroundColor = NSColor.clear {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        backgroundColor.setFill()
+        dirtyRect.fill()
+        guard let image, image.size.width > 0, image.size.height > 0 else { return }
+
+        let availableRect = bounds.insetBy(
+            dx: DesignTokens.Component.imagePreviewInsetPX,
+            dy: DesignTokens.Component.imagePreviewInsetPX
+        )
+        guard availableRect.width > 0, availableRect.height > 0 else { return }
+        let scale = min(
+            1,
+            min(availableRect.width / image.size.width, availableRect.height / image.size.height)
+        )
+        let fittedSize = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let fittedRect = NSRect(
+            x: availableRect.midX - fittedSize.width / 2,
+            y: availableRect.midY - fittedSize.height / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+        image.draw(
+            in: fittedRect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
     }
 }
 
@@ -511,51 +612,10 @@ struct TerminalCodeEditorPalette {
     }
 }
 
-/// Placeholder copy shown inside the editor. Kept as a private table for now;
-/// migrate these keys into `AppLocalization` when the file-explorer
-/// coordinator lands (AppLocalization.swift is owned by a concurrent change).
-enum TerminalCodeEditorCopy {
-    enum Key {
-        case binaryFile
-        case fileTooLarge
-        case loadFailed
-    }
-
-    static func string(_ key: Key, language: AppLanguage = AppLocalization.language) -> String {
-        translations[language]?[key] ?? translations[.english]?[key] ?? ""
-    }
-
-    private static let translations: [AppLanguage: [Key: String]] = [
-        .english: [
-            .binaryFile: "Binary file",
-            .fileTooLarge: "File too large",
-            .loadFailed: "Could not open file",
-        ],
-        .korean: [
-            .binaryFile: "바이너리 파일",
-            .fileTooLarge: "파일이 너무 큽니다",
-            .loadFailed: "파일을 열 수 없습니다",
-        ],
-        .japanese: [
-            .binaryFile: "バイナリファイル",
-            .fileTooLarge: "ファイルが大きすぎます",
-            .loadFailed: "ファイルを開けませんでした",
-        ],
-    ]
-}
-
-/// Editor-local layout constants. Sizing values that outlive this component
-/// should migrate into `DesignTokens.Component` once concurrent edits to that
-/// file settle.
-private enum Metrics {
-    static let codeFontSizePT: CGFloat = 13
-    static let gutterFontSizePT: CGFloat = 11
-    static let gutterWidthPX: CGFloat = 44
-    static let gutterLabelTrailingPX: CGFloat = 8
-    static let textInsetXPX: CGFloat = 6
-    static let textInsetYPX: CGFloat = 8
-    static let pathBarInsetXPX: CGFloat = 12
-    static let pathBarInsetYPX: CGFloat = 8
+/// Editor-local domain constants that are not design tokens: the modified-state
+/// glyph and the save key equivalent. Layout/typography values live in
+/// `DesignTokens.Component` and `DesignTokens.Typography`.
+enum TerminalCodeEditorConstants {
     static let modifiedDotGlyph = "●"
     static let saveKeyCharacter = "s"
 }

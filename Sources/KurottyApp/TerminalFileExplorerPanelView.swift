@@ -24,11 +24,6 @@ struct TerminalFileExplorerCallbacks {
 // MARK: - Design metrics
 
 enum FileExplorerMetrics {
-    static let contentInsetPX: CGFloat = 8
-    static let headerControlGapPX: CGFloat = 6
-    static let refreshButtonSizePX: CGFloat = 22
-    static let searchModeControlGapPX: CGFloat = 6
-    static let rowHeightPX: CGFloat = 26
     static let rowIconSizePX: CGFloat = 14
     static let rowGapPX: CGFloat = 6
     static let rowInsetXPX: CGFloat = 8
@@ -168,18 +163,11 @@ final class TerminalFileExplorerPanelView: NSView {
     private var filterGeneration = 0
     private let gitStatusService = TerminalGitStatusService()
 
+    private let panelTitleLabel = NSTextField(labelWithString: "")
     private let directoryNameLabel = NSTextField(labelWithString: "")
     private let refreshButton = ChromeIconButton(frame: .zero)
+    private let searchPillView = NSView()
     private let searchField = NSSearchField()
-    private let searchModeControl = NSSegmentedControl(
-        labels: [
-            FileExplorerL10n.string(.segmentName),
-            FileExplorerL10n.string(.segmentContent),
-        ],
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
 
@@ -229,6 +217,11 @@ final class TerminalFileExplorerPanelView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         directoryNameLabel.textColor = theme.textPrimary
+        panelTitleLabel.textColor = theme.textMuted
+        searchPillView.layer?.backgroundColor = theme.textPrimary
+            .withAlphaComponent(DesignTokens.Component.fileExplorerSearchPillBackgroundAlphaRATIO)
+            .cgColor
+        searchField.textColor = theme.textPrimary
         outlineView.reloadData()
     }
 
@@ -242,9 +235,18 @@ final class TerminalFileExplorerPanelView: NSView {
         wantsLayer = true
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
+        panelTitleLabel.stringValue = AppLocalization.string(.fileExplorer).localizedUppercase
+        panelTitleLabel.font = NSFont.systemFont(
+            ofSize: DesignTokens.Typography.sidebarSectionHeaderFontSizePT,
+            weight: .semibold
+        )
+        panelTitleLabel.textColor = chromeTheme.textMuted
+        panelTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(panelTitleLabel)
+
         directoryNameLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.labelFontSizePT,
-            weight: .bold
+            ofSize: DesignTokens.Typography.sidebarGroupNameFontSizePT,
+            weight: .semibold
         )
         directoryNameLabel.textColor = chromeTheme.textPrimary
         directoryNameLabel.lineBreakMode = .byTruncatingMiddle
@@ -254,31 +256,34 @@ final class TerminalFileExplorerPanelView: NSView {
 
         refreshButton.image = NSImage(
             systemSymbolName: FileExplorerIcon.refreshSymbolName,
-            accessibilityDescription: FileExplorerL10n.string(.refresh)
+            accessibilityDescription: AppLocalization.string(.refresh)
         )
-        refreshButton.toolTip = FileExplorerL10n.string(.refresh)
+        refreshButton.toolTip = AppLocalization.string(.refresh)
         refreshButton.target = self
         refreshButton.action = #selector(refreshClicked(_:))
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(refreshButton)
 
-        searchField.placeholderString = FileExplorerL10n.string(.searchPlaceholder)
-        searchField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        searchPillView.wantsLayer = true
+        searchPillView.layer?.cornerRadius = DesignTokens.Component.fileExplorerSearchPillCornerRadiusPX
+        searchPillView.layer?.backgroundColor = chromeTheme.textPrimary
+            .withAlphaComponent(DesignTokens.Component.fileExplorerSearchPillBackgroundAlphaRATIO)
+            .cgColor
+        searchPillView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(searchPillView)
+
+        searchField.placeholderString = AppLocalization.string(.fileExplorerSearchPlaceholder)
+        searchField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
         searchField.sendsSearchStringImmediately = true
         searchField.sendsWholeSearchString = false
+        searchField.isBezeled = false
+        searchField.isBordered = false
+        searchField.drawsBackground = false
+        searchField.focusRingType = .none
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(searchField)
-
-        // Content search is a v2 feature; keep the segment visible but
-        // disabled so the layout matches the target design.
-        searchModeControl.selectedSegment = 0
-        searchModeControl.setEnabled(false, forSegment: 1)
-        searchModeControl.segmentStyle = .roundRect
-        searchModeControl.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
-        searchModeControl.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(searchModeControl)
+        searchPillView.addSubview(searchField)
 
         configureOutlineView()
         scrollView.documentView = outlineView
@@ -296,7 +301,7 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
         outlineView.backgroundColor = .clear
-        outlineView.style = .sourceList
+        outlineView.style = .plain
         outlineView.rowSizeStyle = .custom
         outlineView.intercellSpacing = .zero
         outlineView.indentationPerLevel = FileExplorerMetrics.outlineIndentPX
@@ -304,42 +309,61 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.autoresizesOutlineColumn = false
         outlineView.dataSource = self
         outlineView.delegate = self
+        outlineView.action = #selector(rowClicked(_:))
         outlineView.target = self
         outlineView.doubleAction = #selector(rowDoubleClicked(_:))
         outlineView.menu = makeContextMenu()
     }
 
     private func activateLayoutConstraints() {
-        let inset = FileExplorerMetrics.contentInsetPX
+        let insetX = DesignTokens.Component.fileExplorerPanelInsetXPX
+        let insetY = DesignTokens.Component.fileExplorerPanelInsetYPX
+        let controlGap = DesignTokens.Component.fileExplorerControlGapPX
+        let searchTextInset = DesignTokens.Component.fileExplorerSearchPillTextInsetXPX
         NSLayoutConstraint.activate([
-            directoryNameLabel.topAnchor.constraint(equalTo: topAnchor, constant: inset),
-            directoryNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-            directoryNameLabel.trailingAnchor.constraint(
+            panelTitleLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
+            panelTitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
+            panelTitleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: refreshButton.leadingAnchor,
-                constant: -FileExplorerMetrics.headerControlGapPX
+                constant: -controlGap
             ),
 
-            refreshButton.centerYAnchor.constraint(equalTo: directoryNameLabel.centerYAnchor),
-            refreshButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-            refreshButton.widthAnchor.constraint(equalToConstant: FileExplorerMetrics.refreshButtonSizePX),
-            refreshButton.heightAnchor.constraint(equalToConstant: FileExplorerMetrics.refreshButtonSizePX),
+            refreshButton.centerYAnchor.constraint(equalTo: panelTitleLabel.centerYAnchor),
+            refreshButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
+            refreshButton.widthAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerRefreshButtonSizePX
+            ),
+            refreshButton.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerRefreshButtonSizePX
+            ),
 
-            searchField.topAnchor.constraint(
+            directoryNameLabel.topAnchor.constraint(
+                equalTo: panelTitleLabel.bottomAnchor,
+                constant: DesignTokens.Component.fileExplorerHeaderGapPX
+            ),
+            directoryNameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
+            directoryNameLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -insetX
+            ),
+
+            searchPillView.topAnchor.constraint(
                 equalTo: directoryNameLabel.bottomAnchor,
-                constant: FileExplorerMetrics.headerControlGapPX
+                constant: controlGap
             ),
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-            searchField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
+            searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
+            searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
+            searchPillView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerSearchPillHeightPX
+            ),
 
-            searchModeControl.topAnchor.constraint(
-                equalTo: searchField.bottomAnchor,
-                constant: FileExplorerMetrics.searchModeControlGapPX
-            ),
-            searchModeControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+            searchField.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: searchTextInset),
+            searchField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -searchTextInset),
+            searchField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
             scrollView.topAnchor.constraint(
-                equalTo: searchModeControl.bottomAnchor,
-                constant: FileExplorerMetrics.searchModeControlGapPX
+                equalTo: searchPillView.bottomAnchor,
+                constant: controlGap
             ),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -422,6 +446,16 @@ final class TerminalFileExplorerPanelView: NSView {
         }
     }
 
+    @objc private func rowClicked(_ sender: Any?) {
+        guard let item = clickedOrSelectedItem(),
+              item.node.kind == .file,
+              FileExplorerIcon.isImageFile(item.node)
+        else {
+            return
+        }
+        callbacks.openFile(item.node.url)
+    }
+
     private func clickedOrSelectedItem() -> TerminalFileExplorerOutlineItem? {
         let clickedRow = outlineView.clickedRow
         if clickedRow >= 0,
@@ -441,14 +475,14 @@ final class TerminalFileExplorerPanelView: NSView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        let entries: [(FileExplorerL10n.Key, Selector)] = [
+        let entries: [(L10nKey, Selector)] = [
             (.open, #selector(openFromContextMenu(_:))),
             (.revealInFinder, #selector(revealFromContextMenu(_:))),
             (.copyPath, #selector(copyPathFromContextMenu(_:))),
             (.insertPathIntoTerminal, #selector(insertPathFromContextMenu(_:))),
         ]
         for (key, action) in entries {
-            let item = NSMenuItem(title: FileExplorerL10n.string(key), action: action, keyEquivalent: "")
+            let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
@@ -522,7 +556,16 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
     }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        FileExplorerMetrics.rowHeightPX
+        DesignTokens.Component.fileExplorerRowHeightPX
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        let rowView = TerminalFileExplorerSidebarRowView()
+        rowView.hoverBackgroundColor = chromeTheme.textPrimary
+            .withAlphaComponent(DesignTokens.Component.fileExplorerHoverBackgroundAlphaRATIO)
+        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
+            .withAlphaComponent(DesignTokens.Component.fileExplorerSelectionBackgroundAlphaRATIO)
+        return rowView
     }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {

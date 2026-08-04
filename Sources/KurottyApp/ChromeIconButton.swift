@@ -10,6 +10,9 @@ final class ChromeIconButton: NSButton {
     var hoverBackgroundColor = DesignTokens.Color.inactiveTabHoverBackground {
         didSet { updateAppearance() }
     }
+    var normalBackgroundColor = NSColor.clear {
+        didSet { updateAppearance() }
+    }
 
     private var isHovered = false
 
@@ -77,6 +80,6 @@ final class ChromeIconButton: NSButton {
         contentTintColor = isEnabled ? tint : DesignTokens.Color.textMuted.withAlphaComponent(0.45)
         layer?.backgroundColor = isEnabled && isHovered
             ? hoverBackgroundColor.cgColor
-            : NSColor.clear.cgColor
+            : normalBackgroundColor.cgColor
     }
 }

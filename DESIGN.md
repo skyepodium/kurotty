@@ -272,6 +272,15 @@ Design rules:
 - Avoid large mascot surfaces, novelty controls, excessive animation, or theme choices that reduce terminal contrast. Brand details must never compete with command output.
 - Native UI should look lightweight: dense enough for repeated work, clear enough for beginners, and free of heavy panels around the terminal surface.
 
+#### Three-pane workspace contract
+
+- The workspace uses one quiet top chrome bar, an optional command-history panel on the left, the active terminal/editor in the center, and an optional file explorer on the right. Side panels begin below the top chrome and never compete with the title-bar traffic lights.
+- Both side panels use the same visual hierarchy: compact uppercase section label, optional contextual subtitle, one search field, then a dense list. Unsupported or future controls are hidden instead of rendered disabled.
+- Panel backgrounds remain close to the top-chrome surface, separated from the center by one hairline border. Hover uses a low-contrast neutral fill; selection uses the active accent with enough contrast to remain obvious in light and dark themes.
+- The top bar keeps tabs as the primary content. Leading and trailing sidebar controls are symmetrical, and an open panel is represented by a persistent filled capsule plus accent tint, not tint alone.
+- File rows preserve native outline disclosure and keyboard selection. A single click on a supported image opens or focuses a read-only preview tab; text files keep the deliberate open gesture already defined by the explorer.
+- Image preview tabs center the source at its intrinsic size and proportionally shrink it when the available canvas is smaller. They never upscale, crop, mutate, or silently convert the source image.
+
 #### Preferences GUI contract
 
 - The preferences window uses native macOS controls with a stable category sidebar and a scrollable detail area. Group related controls into clearly titled sections instead of exposing the raw settings document as the primary UI.

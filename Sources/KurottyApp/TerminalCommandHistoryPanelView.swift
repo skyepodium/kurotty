@@ -198,7 +198,20 @@ final class TerminalCommandHistoryPanelView: NSView {
         let insetY = DesignTokens.Component.commandHistoryPanelInsetYPX
         let pillTextInset = DesignTokens.Component.commandHistorySearchPillTextInsetXPX
         NSLayoutConstraint.activate([
-            searchPillView.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
+            sectionHeaderLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
+            sectionHeaderLabel.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: DesignTokens.Component.commandHistorySectionHeaderInsetXPX
+            ),
+            sectionHeaderLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -insetX
+            ),
+
+            searchPillView.topAnchor.constraint(
+                equalTo: sectionHeaderLabel.bottomAnchor,
+                constant: DesignTokens.Component.commandHistorySectionHeaderBottomGapPX
+            ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
             searchPillView.heightAnchor.constraint(
@@ -209,22 +222,9 @@ final class TerminalCommandHistoryPanelView: NSView {
             filterField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -pillTextInset),
             filterField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
-            sectionHeaderLabel.topAnchor.constraint(
+            scrollView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
                 constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
-            ),
-            sectionHeaderLabel.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderInsetXPX
-            ),
-            sectionHeaderLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingAnchor,
-                constant: -insetX
-            ),
-
-            scrollView.topAnchor.constraint(
-                equalTo: sectionHeaderLabel.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderBottomGapPX
             ),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -416,7 +416,7 @@ final class TerminalCommandHistoryPanelView: NSView {
     /// Single-quote shell quoting so pasted `cd` commands survive spaces and
     /// metacharacters in directory names.
     private func shellQuotedPath(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        TerminalShellPathQuoting.quoted(path)
     }
 }
 

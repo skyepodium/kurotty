@@ -1787,8 +1787,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
         XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor"))
         XCTAssertTrue(windowSource.contains("tabBarView.layer?.borderColor = chromeTheme.borderHairline.cgColor"))
-        XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = tabView.numberOfTabViewItems > 1"))
-        XCTAssertTrue(windowSource.contains("tabBarView.isHidden = tabView.numberOfTabViewItems <= 1"))
+        // The chrome bar hosts the sidebar toggles, so it no longer collapses with a single tab.
+        XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX"))
+        XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
         XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))

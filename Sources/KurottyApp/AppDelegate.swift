@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DebugOptions.showHistoryPanel {
             windowController?.setCommandHistoryPanelVisible(true)
         }
+        if DebugOptions.showExplorerPanel {
+            windowController?.setFileExplorerPanelVisible(true)
+        }
+        if let debugEditorPath = DebugOptions.openEditorFilePath {
+            windowController?.openEditorTab(for: URL(fileURLWithPath: debugEditorPath))
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -204,6 +210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleCommandHistoryPanel() {
         activeTerminalWindowController?.toggleCommandHistoryPanel()
+    }
+
+    @objc func toggleFileExplorerPanel() {
+        activeTerminalWindowController?.toggleFileExplorerPanel()
     }
 
     private var activeTerminalWindowController: TerminalWindowController? {

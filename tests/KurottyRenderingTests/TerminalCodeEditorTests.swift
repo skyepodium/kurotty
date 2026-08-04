@@ -256,16 +256,18 @@ final class TerminalCodeEditorTests: XCTestCase {
 
     // MARK: - Placeholder copy
 
+    // Placeholder copy migrated from the retired TerminalCodeEditorCopy table
+    // into AppLocalization editor* keys.
     func testPlaceholderCopyExistsForAllLanguages() {
         for language in AppLanguage.allCases {
-            XCTAssertFalse(TerminalCodeEditorCopy.string(.binaryFile, language: language).isEmpty)
-            XCTAssertFalse(TerminalCodeEditorCopy.string(.fileTooLarge, language: language).isEmpty)
-            XCTAssertFalse(TerminalCodeEditorCopy.string(.loadFailed, language: language).isEmpty)
+            XCTAssertFalse(AppLocalization.string(.editorBinaryFile, language: language).isEmpty)
+            XCTAssertFalse(AppLocalization.string(.editorFileTooLarge, language: language).isEmpty)
+            XCTAssertFalse(AppLocalization.string(.editorLoadFailed, language: language).isEmpty)
         }
     }
 
     func testPlaceholderCopyEnglishValues() {
-        XCTAssertEqual(TerminalCodeEditorCopy.string(.binaryFile, language: .english), "Binary file")
-        XCTAssertEqual(TerminalCodeEditorCopy.string(.fileTooLarge, language: .english), "File too large")
+        XCTAssertEqual(AppLocalization.string(.editorBinaryFile, language: .english), "Binary file")
+        XCTAssertEqual(AppLocalization.string(.editorFileTooLarge, language: .english), "File too large")
     }
 }

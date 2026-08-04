@@ -61,6 +61,13 @@ enum MainMenu {
         )
         commandHistory.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(commandHistory)
+        let fileExplorer = NSMenuItem(
+            title: AppLocalization.string(.fileExplorer),
+            action: #selector(AppDelegate.toggleFileExplorerPanel),
+            keyEquivalent: "e"
+        )
+        fileExplorer.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(fileExplorer)
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

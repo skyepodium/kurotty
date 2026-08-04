@@ -20,6 +20,17 @@ enum DebugOptions {
     static let testNotification = flag("--debug-test-notification", env: "KUROTTY_DEBUG_TEST_NOTIFICATION")
     static let showHistoryPanel = flag("--debug-show-history-panel", env: "KUROTTY_DEBUG_SHOW_HISTORY_PANEL")
     static let seedHistory = flag("--debug-seed-history", env: "KUROTTY_DEBUG_SEED_HISTORY")
+    static let showExplorerPanel = flag("--debug-show-explorer-panel", env: "KUROTTY_DEBUG_SHOW_EXPLORER_PANEL")
+    static let openEditorFilePath = value("--debug-open-editor-file", env: "KUROTTY_DEBUG_OPEN_EDITOR_FILE")
+
+    private static func value(_ argument: String, env: String) -> String? {
+        if let index = CommandLine.arguments.firstIndex(of: argument),
+           CommandLine.arguments.indices.contains(index + 1) {
+            return CommandLine.arguments[index + 1]
+        }
+        let value = ProcessInfo.processInfo.environment[env]
+        return (value?.isEmpty ?? true) ? nil : value
+    }
 
     private static func flag(_ argument: String, env: String) -> Bool {
         if CommandLine.arguments.contains(argument) {

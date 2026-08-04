@@ -2741,6 +2741,13 @@ extension TerminalSurfaceView {
         set { interpreter.currentWorkingDirectory = newValue }
     }
 
+    /// Read-only view of the OSC 7 shell-integration working directory for
+    /// window chrome such as the file-explorer panel. Defaults to the user's
+    /// home directory until the shell reports a directory change.
+    var workingDirectoryPath: String {
+        interpreter.currentWorkingDirectory
+    }
+
     private var shellIntegration: TerminalShellIntegration {
         get { interpreter.shellIntegration }
         set { interpreter.shellIntegration = newValue }

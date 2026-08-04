@@ -1,46 +1,7 @@
 import AppKit
 
-/// Support pieces for `TerminalFileExplorerPanelView`: panel-local localized
-/// copy, file icons, and the row cell.
-
-// MARK: - Localized copy
-
-/// Panel-local strings mirroring `AppLocalization`'s language resolution.
-/// The coordinator should migrate these keys into `AppLocalization` when it
-/// wires the panel (that file is owned by a concurrent change right now).
-enum FileExplorerL10n {
-    enum Key {
-        case searchPlaceholder, segmentName, segmentContent, refresh
-        case open, revealInFinder, copyPath, insertPathIntoTerminal
-    }
-
-    static func string(_ key: Key) -> String {
-        translations[AppLocalization.language]?[key]
-            ?? translations[.english]?[key]
-            ?? ""
-    }
-
-    private static let translations: [AppLanguage: [Key: String]] = [
-        .english: [
-            .searchPlaceholder: "Find files", .segmentName: "Name", .segmentContent: "Content",
-            .refresh: "Refresh",
-            .open: "Open", .revealInFinder: "Reveal in Finder", .copyPath: "Copy Path",
-            .insertPathIntoTerminal: "Insert Path into Terminal",
-        ],
-        .korean: [
-            .searchPlaceholder: "파일 찾기", .segmentName: "이름", .segmentContent: "내용",
-            .refresh: "새로 고침",
-            .open: "열기", .revealInFinder: "Finder에서 보기", .copyPath: "경로 복사",
-            .insertPathIntoTerminal: "터미널에 경로 입력",
-        ],
-        .japanese: [
-            .searchPlaceholder: "ファイルを検索", .segmentName: "名前", .segmentContent: "内容",
-            .refresh: "再読み込み",
-            .open: "開く", .revealInFinder: "Finderで表示", .copyPath: "パスをコピー",
-            .insertPathIntoTerminal: "ターミナルにパスを挿入",
-        ],
-    ]
-}
+/// Support pieces for `TerminalFileExplorerPanelView`: file icons and the row
+/// cell. Localized copy lives in `AppLocalization` (fileExplorer* keys).
 
 // MARK: - Icons
 
@@ -70,6 +31,16 @@ enum FileExplorerIcon {
         "jpeg": "photo",
         "gif": "photo",
         "icns": "photo",
+        "bmp": "photo",
+        "heic": "photo",
+        "heif": "photo",
+        "tiff": "photo",
+        "webp": "photo",
+        "svg": "photo",
+    ]
+
+    static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "icns", "bmp", "heic", "heif", "tiff", "webp", "svg"
     ]
 
     static func symbolName(for node: FileExplorerNode) -> String {
@@ -79,9 +50,67 @@ enum FileExplorerIcon {
         let fileExtension = node.url.pathExtension.lowercased()
         return symbolNameByExtension[fileExtension] ?? defaultFileSymbolName
     }
+
+    static func isImageFile(_ node: FileExplorerNode) -> Bool {
+        imageExtensions.contains(node.url.pathExtension.lowercased())
+    }
 }
 
 // MARK: - Row cell
+
+@MainActor
+final class TerminalFileExplorerSidebarRowView: NSTableRowView {
+    var hoverBackgroundColor: NSColor = .clear
+    var selectionBackgroundColor: NSColor = .clear
+    private var isMouseInside = false
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isMouseInside = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isMouseInside = false
+        needsDisplay = true
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isMouseInside, !isSelected else { return }
+        fillHighlight(with: hoverBackgroundColor)
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        fillHighlight(with: selectionBackgroundColor)
+    }
+
+    private func fillHighlight(with color: NSColor) {
+        let rect = bounds.insetBy(
+            dx: DesignTokens.Component.fileExplorerRowHighlightInsetXPX,
+            dy: DesignTokens.Component.fileExplorerRowHighlightInsetYPX
+        )
+        color.setFill()
+        NSBezierPath(
+            roundedRect: rect,
+            xRadius: DesignTokens.Component.fileExplorerRowCornerRadiusPX,
+            yRadius: DesignTokens.Component.fileExplorerRowCornerRadiusPX
+        ).fill()
+    }
+}
 
 @MainActor
 final class TerminalFileExplorerRowCellView: NSTableCellView {
