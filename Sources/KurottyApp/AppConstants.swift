@@ -68,6 +68,14 @@ enum AppConstants {
         static let maximumWindowHeightPX = 3_000.0
     }
 
+    enum CommandHistory {
+        static let fileName = "command-history.json"
+        static let maximumEntryCount = 1_000
+        static let saveDebounceSeconds: TimeInterval = 1
+        static let persistenceQueueLabel = "dev.kurotty.command-history.persistence"
+        static let splitViewAutosaveName = "dev.kurotty.command-history.split"
+    }
+
     enum Shell {
         static let term = "xterm-256color"
         static let colorTerm = "truecolor"

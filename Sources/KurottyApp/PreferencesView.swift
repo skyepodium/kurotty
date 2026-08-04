@@ -40,6 +40,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private lazy var fontSizeStepper = NSStepper()
     private lazy var scrollbackField = NSTextField()
     private lazy var scrollbackStepper = NSStepper()
+    private lazy var commandHistoryCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(commandHistoryToggled(_:))
+    )
     private lazy var themePopup = NSPopUpButton()
     private lazy var customColorsStack = NSStackView()
     private lazy var previewView = PreferencesThemePreviewView()
@@ -214,6 +219,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
         configureNumericField(scrollbackField, stepper: scrollbackStepper, minimum: Double(SettingsDefaults.minimumScrollbackRows), maximum: Double(SettingsDefaults.maximumScrollbackRows), increment: 1_000)
         historySection.addArrangedSubview(row(label: copy(.scrollback), control: numericControl(field: scrollbackField, stepper: scrollbackStepper, suffix: copy(.lines))))
+        commandHistoryCheckbox.title = copy(.commandHistoryCheckboxTitle)
+        historySection.addArrangedSubview(row(label: copy(.commandHistory), control: commandHistoryCheckbox))
         detailStack.addArrangedSubview(historySection)
     }
 
@@ -453,6 +460,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    @objc private func commandHistoryToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.commandHistoryEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func textFieldChanged(_ sender: NSTextField) {
         guard !isUpdatingControls else { return }
         applyTextFieldsToSettings()
@@ -497,6 +510,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         fontSizeStepper.doubleValue = settings.terminal.fontSize
         scrollbackField.integerValue = settings.terminal.scrollbackLines
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
+        commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off
         windowWidthField.doubleValue = settings.window.width
         windowWidthStepper.doubleValue = settings.window.width
         windowHeightField.doubleValue = settings.window.height

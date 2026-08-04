@@ -207,6 +207,13 @@ final class SplitTerminalView: NSSplitView {
         pane.sendText(text)
     }
 
+    /// The terminal surface of the focused pane, falling back to the first
+    /// pane. Used by window chrome that tracks the active pane's state, such
+    /// as the file-explorer working directory.
+    func activeTerminalSurface() -> TerminalSurfaceView? {
+        (activePane() ?? firstPane())?.terminalSurface
+    }
+
     func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
         guard let pane = activePane() ?? firstPane() else {
             return []

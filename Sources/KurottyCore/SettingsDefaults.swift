@@ -1,7 +1,8 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 9
+    public static let schemaVersion = 10
+    public static let commandHistoryEnabled = true
     public static let terminalFontName = "Menlo"
     public static let terminalFontSizePT = 15.0
     public static let maximumScrollbackRows = 1_000_000

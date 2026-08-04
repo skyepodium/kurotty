@@ -5,6 +5,7 @@ enum PreferencesCopy {
         case settingsTitle, terminalCategory, appearanceCategory, windowCategory
         case terminalTitle, terminalSubtitle, shellSection, shellSectionHelp, workingDirectory
         case textSection, textSectionHelp, font, fontSize, historySection, historySectionHelp, scrollback, lines
+        case commandHistory, commandHistoryCheckboxTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case themeKurotty, themeLightty, themeCustom, customColors, customColorsHelp
         case foreground, background, cursor, ansiPalette
@@ -34,6 +35,7 @@ enum PreferencesCopy {
             .shellSection: "Shell", .shellSectionHelp: "The working directory is used for new terminal sessions.", .workingDirectory: "Working directory",
             .textSection: "Text", .textSectionHelp: "Font changes apply to open terminal surfaces.", .font: "Font", .fontSize: "Font size",
             .historySection: "History", .historySectionHelp: "Limit retained scrollback to keep memory use predictable.", .scrollback: "Scrollback", .lines: "lines",
+            .commandHistory: "Command history", .commandHistoryCheckboxTitle: "Record commands for the Command History panel",
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "Custom",
@@ -49,6 +51,7 @@ enum PreferencesCopy {
             .shellSection: "셸", .shellSectionHelp: "새 터미널 세션을 시작할 작업 폴더입니다.", .workingDirectory: "작업 폴더",
             .textSection: "텍스트", .textSectionHelp: "글꼴 변경은 열려 있는 터미널에도 적용됩니다.", .font: "글꼴", .fontSize: "글꼴 크기",
             .historySection: "기록", .historySectionHelp: "메모리 사용량을 예측할 수 있도록 스크롤백 보관량을 제한합니다.", .scrollback: "스크롤백", .lines: "줄",
+            .commandHistory: "명령 기록", .commandHistoryCheckboxTitle: "명령 기록 패널을 위해 실행한 명령을 저장",
             .appearanceTitle: "모양", .appearanceSubtitle: "기본 테마를 선택하거나 직접 색상 팔레트를 만들 수 있습니다.",
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "커스텀",
@@ -64,6 +67,7 @@ enum PreferencesCopy {
             .shellSection: "シェル", .shellSectionHelp: "新しいターミナルセッションで使用する作業フォルダです。", .workingDirectory: "作業フォルダ",
             .textSection: "テキスト", .textSectionHelp: "フォントの変更は開いているターミナルにも適用されます。", .font: "フォント", .fontSize: "フォントサイズ",
             .historySection: "履歴", .historySectionHelp: "メモリ使用量を予測可能にするため、スクロールバックの保持量を制限します。", .scrollback: "スクロールバック", .lines: "行",
+            .commandHistory: "コマンド履歴", .commandHistoryCheckboxTitle: "コマンド履歴パネルのために実行したコマンドを保存",
             .appearanceTitle: "外観", .appearanceSubtitle: "組み込みテーマを選ぶか、独自のカラーパレットを作成できます。",
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "カスタム",
