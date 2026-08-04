@@ -127,7 +127,9 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
             systemSymbolName: FileExplorerIcon.symbolName(for: item.node),
             accessibilityDescription: nil
         )
-        iconView.contentTintColor = isDimmed ? chromeTheme.textMuted : chromeTheme.textSecondary
+        iconView.contentTintColor = isDimmed || item.node.kind == .directory
+            ? chromeTheme.textMuted
+            : chromeTheme.textSecondary
         iconView.alphaValue = isDimmed ? FileExplorerMetrics.dimmedAlphaRATIO : 1
         iconView.symbolConfiguration = NSImage.SymbolConfiguration(
             pointSize: FileExplorerMetrics.rowIconSizePX,
@@ -139,7 +141,9 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         let displayName = item.filterDisplayPath ?? item.node.name
         let nameLabel = NSTextField(labelWithString: displayName)
         nameLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
-        nameLabel.textColor = isDimmed ? chromeTheme.textMuted : chromeTheme.textPrimary
+        nameLabel.textColor = isDimmed
+            ? chromeTheme.textMuted
+            : item.node.kind == .directory ? chromeTheme.textSecondary : chromeTheme.textPrimary
         nameLabel.alphaValue = isDimmed ? FileExplorerMetrics.dimmedAlphaRATIO : 1
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.maximumNumberOfLines = 1

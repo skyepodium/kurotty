@@ -12,10 +12,9 @@ extension TerminalWindowController {
         commandHistorySplitView.translatesAutoresizingMaskIntoConstraints = false
 
         commandHistoryPanel.wantsLayer = true
-        commandHistoryPanel.layer?.cornerRadius = DesignTokens.Component.commandHistoryPanelCornerRadiusPX
-        commandHistoryPanel.layer?.borderWidth = DesignTokens.Component.hairlinePX
-        commandHistoryPanel.layer?.borderColor = chromeTheme.borderHairline.cgColor
-        commandHistoryPanel.layer?.masksToBounds = true
+        commandHistoryPanel.layer?.cornerRadius = 0
+        commandHistoryPanel.layer?.borderWidth = 0
+        commandHistoryPanel.layer?.masksToBounds = false
         commandHistoryPanel.translatesAutoresizingMaskIntoConstraints = false
         terminalContentHostView.translatesAutoresizingMaskIntoConstraints = false
         commandHistorySplitView.addArrangedSubview(commandHistoryPanel)

@@ -77,6 +77,8 @@ final class TerminalCommandHistoryPanelView: NSView {
         sectionHeaderLabel.textColor = theme.textMuted
         emptyStateIconView.contentTintColor = theme.textMuted
         emptyStateLabel.textColor = theme.textMuted
+        emptyStateIconView.alphaValue = 0.66
+        emptyStateLabel.alphaValue = 0.72
         outlineView.reloadData()
         applyExpansionState()
     }
@@ -186,7 +188,7 @@ final class TerminalCommandHistoryPanelView: NSView {
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(emptyStateIconView)
 
-        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
         emptyStateLabel.textColor = chromeTheme.textMuted
         emptyStateLabel.alignment = .center
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false

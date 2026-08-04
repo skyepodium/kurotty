@@ -19,10 +19,9 @@ extension TerminalWindowController {
     func configureFileExplorerPane() {
         fileExplorerPanel.translatesAutoresizingMaskIntoConstraints = false
         fileExplorerPanel.wantsLayer = true
-        fileExplorerPanel.layer?.cornerRadius = DesignTokens.Component.fileExplorerPanelCornerRadiusPX
-        fileExplorerPanel.layer?.borderWidth = DesignTokens.Component.hairlinePX
-        fileExplorerPanel.layer?.borderColor = chromeTheme.borderHairline.cgColor
-        fileExplorerPanel.layer?.masksToBounds = true
+        fileExplorerPanel.layer?.cornerRadius = 0
+        fileExplorerPanel.layer?.borderWidth = 0
+        fileExplorerPanel.layer?.masksToBounds = false
         commandHistorySplitView.addArrangedSubview(fileExplorerPanel)
         let explorerSubviewIndex = commandHistorySplitView.arrangedSubviews.count - 1
         commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: explorerSubviewIndex)
