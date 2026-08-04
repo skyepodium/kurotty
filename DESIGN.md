@@ -4,6 +4,100 @@ Kurotty is a macOS-first terminal emulator optimized for low latency, low memory
 
 This design favors boring correctness over feature breadth. Rendering speed matters, but terminal state correctness comes first: PTY bytes, parsed escape events, screen mutations, and rendered cells must remain separable enough to inspect independently.
 
+## Source of truth
+
+- Status: Active
+- Last refreshed: 2026-08-04
+- Primary product surfaces: terminal workspace, top tab chrome, command-history sidebar, file explorer, editor/image preview tabs, preferences, and command palette.
+- Evidence reviewed: current AppKit implementation, Kurotty runtime screenshots, the user-provided Claude desktop reference, `README.md`, `DesignTokens.swift`, and panel/editor integration tests.
+
+## Brand
+
+- Personality: quiet, capable, native, compact, and subtly cute.
+- Trust signals: predictable native behavior, precise alignment, readable terminal output, and explicit state.
+- Avoid: stacked card containers, ornamental gradients, oversized controls, heavy shadows, and decorative chrome around the terminal.
+
+## Product goals
+
+- Goals: make shell work feel immediate while tabs, history, files, and previews remain discoverable.
+- Non-goals: imitate a web dashboard or turn every region into an elevated card.
+- Success signals: the terminal remains visually dominant; chrome reads as one coherent macOS workspace; side panels are understandable without instruction.
+
+## Personas and jobs
+
+- Primary personas: terminal-first developers, agent-assisted developers, and macOS users who prefer native tools.
+- User jobs: run shells, move between tabs/panes, recall commands, browse project files, and inspect text or images without leaving the window.
+- Key contexts of use: long sessions, split layouts, light and dark appearances, and keyboard-heavy workflows.
+
+## Information architecture
+
+- Primary navigation: top tabs plus optional leading and trailing sidebars.
+- Core routes/screens: terminal/editor center, command history left, file explorer right, preferences, and command palette.
+- Content hierarchy: active terminal/editor first; tabs second; contextual sidebars third; transient actions last.
+
+## Design principles
+
+- One shell, not nested cards: top chrome spans edge to edge with one bottom hairline; sidebars are flat workspace regions separated by split dividers.
+- Density with breathing room: controls stay compact while alignment and 8–12 pt insets create calm hierarchy.
+- Tradeoffs: prefer a quieter native surface over strong panel boundaries or decorative brand presence.
+
+## Visual language
+
+- Color: near-neutral chrome surfaces with one accent reserved for focus, selection, and active toggles.
+- Typography: native system fonts for chrome and monospaced fonts only for terminal/code content.
+- Spacing/layout rhythm: 4 pt micro rhythm, 8 pt control rhythm, 12 pt panel inset.
+- Shape/radius/elevation: small 6–7 pt control capsules; no radius or elevation on full-width bars and sidebars.
+- Motion: immediate state changes and native resizing; no decorative transitions.
+- Imagery/iconography: SF Symbols and the Kurotty mascot only in branded or empty-state contexts.
+
+## Components
+
+- Existing components to reuse: `ChromeIconButton`, `TerminalTabItemView`, command-history rows, file-explorer rows, and `DesignTokens`.
+- New/changed components: flat top-bar separator, persistent selected sidebar toggles, centered image preview canvas.
+- Variants and states: normal, hover, selected, focused, empty, disabled, and read-only preview.
+- Token/component ownership: reusable geometry and colors belong to `DesignTokens`; views own only semantic composition.
+
+## Accessibility
+
+- Target standard: macOS native accessibility behavior with WCAG AA-equivalent contrast where applicable.
+- Keyboard/focus behavior: all sidebar, tab, search, and list actions remain keyboard reachable with visible focus.
+- Contrast/readability: terminal content wins over chrome; muted text remains readable in both appearances.
+- Screen-reader semantics: icons require accessible descriptions and controls expose state.
+- Reduced motion and sensory considerations: no essential animation or color-only destructive state.
+
+## Responsive behavior
+
+- Supported breakpoints/devices: resizable macOS windows at supported minimum dimensions.
+- Layout adaptations: sidebars collapse independently; center content absorbs resize; panel widths remain draggable within limits.
+- Touch/hover differences: pointer hover is supplemental; selection and keyboard state remain complete without it.
+
+## Interaction states
+
+- Loading: keep the existing content visible until replacement data is ready when possible.
+- Empty: use restrained icon and one-line explanation.
+- Error: show actionable localized copy without replacing unrelated workspace content.
+- Success: reflect the completed state in-place; avoid toast noise for routine actions.
+- Disabled: hide unsupported future controls instead of presenting inert UI.
+- Offline/slow network: local terminal, history, files, and previews remain independent of network state.
+
+## Content voice
+
+- Tone: terse, direct, calm.
+- Terminology: use macOS and terminal-native terms consistently.
+- Microcopy rules: label the user action or current context; avoid marketing language in active workspaces.
+
+## Implementation constraints
+
+- Framework/styling system: Swift/AppKit with Metal terminal rendering.
+- Design-token constraints: extend `DesignTokens`; do not scatter new geometry or colors through views.
+- Performance constraints: chrome and panels must not add work to terminal rendering or PTY processing.
+- Compatibility constraints: preserve light/dark themes, localization, keyboard shortcuts, and native split behavior.
+- Test/screenshot expectations: run Swift and Zig suites and capture the same window/panel state for visual review.
+
+## Open questions
+
+- [ ] Decide whether tabs should eventually move into a native title-bar accessory after behavior and drag affordances are proven.
+
 ## Product Shape
 
 - Native macOS app built with Swift/AppKit.
@@ -271,6 +365,15 @@ Design rules:
 - Built-in themes should be immediately usable. Custom themes should validate color contrast, required palette slots, and fallback behavior.
 - Avoid large mascot surfaces, novelty controls, excessive animation, or theme choices that reduce terminal contrast. Brand details must never compete with command output.
 - Native UI should look lightweight: dense enough for repeated work, clear enough for beginners, and free of heavy panels around the terminal surface.
+
+#### Three-pane workspace contract
+
+- The workspace uses one quiet top chrome bar, an optional command-history panel on the left, the active terminal/editor in the center, and an optional file explorer on the right. Side panels begin below the top chrome and never compete with the title-bar traffic lights.
+- Both side panels use the same visual hierarchy: compact uppercase section label, optional contextual subtitle, one search field, then a dense list. Unsupported or future controls are hidden instead of rendered disabled.
+- Panel backgrounds remain close to the top-chrome surface, separated from the center by one hairline border. Hover uses a low-contrast neutral fill; selection uses the active accent with enough contrast to remain obvious in light and dark themes.
+- The top bar keeps tabs as the primary content. Leading and trailing sidebar controls are symmetrical, and an open panel is represented by a persistent filled capsule plus accent tint, not tint alone.
+- File rows preserve native outline disclosure and keyboard selection. A single click on a supported image opens or focuses a read-only preview tab; text files keep the deliberate open gesture already defined by the explorer.
+- Image preview tabs center the source at its intrinsic size and proportionally shrink it when the available canvas is smaller. They never upscale, crop, mutate, or silently convert the source image.
 
 #### Preferences GUI contract
 

@@ -17,7 +17,8 @@ struct AppSettings: Codable, Equatable {
             fontName: Defaults.fontName,
             fontSize: Defaults.fontSize,
             scrollbackLines: Defaults.scrollbackLines,
-            colors: TerminalColorSettings.default
+            colors: TerminalColorSettings.default,
+            commandHistoryEnabled: Defaults.commandHistoryEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -36,6 +37,7 @@ struct AppSettings: Codable, Equatable {
         static let windowWidth = SettingsDefaults.defaultWindowWidthPX
         static let windowHeight = SettingsDefaults.defaultWindowHeightPX
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
+        static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -67,12 +69,15 @@ struct AppSettings: Codable, Equatable {
 }
 
 /// Live-applied to existing terminal surfaces when settings change.
+/// `commandHistoryEnabled` is live-applied: recording starts or stops as soon
+/// as the setting changes; already-recorded entries are kept on disk.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
     var fontSize: Double
     var scrollbackLines: Int
     var colors: TerminalColorSettings
+    var commandHistoryEnabled: Bool
 
     private enum CodingKeys: String, CodingKey {
         case theme
@@ -80,14 +85,23 @@ struct TerminalSettings: Codable, Equatable {
         case fontSize
         case scrollbackLines
         case colors
+        case commandHistoryEnabled
     }
 
-    init(theme: String, fontName: String, fontSize: Double, scrollbackLines: Int, colors: TerminalColorSettings) {
+    init(
+        theme: String,
+        fontName: String,
+        fontSize: Double,
+        scrollbackLines: Int,
+        colors: TerminalColorSettings,
+        commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled
+    ) {
         self.theme = theme
         self.fontName = fontName
         self.fontSize = fontSize
         self.scrollbackLines = scrollbackLines
         self.colors = colors
+        self.commandHistoryEnabled = commandHistoryEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +111,8 @@ struct TerminalSettings: Codable, Equatable {
         fontSize = try container.decode(Double.self, forKey: .fontSize)
         scrollbackLines = try container.decode(Int.self, forKey: .scrollbackLines)
         colors = try container.decode(TerminalColorSettings.self, forKey: .colors)
+        commandHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .commandHistoryEnabled)
+            ?? SettingsDefaults.commandHistoryEnabled
     }
 }
 
