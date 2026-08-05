@@ -41,12 +41,6 @@ struct TerminalScrollbackSnapshotStore {
         static let suffix = "tmp"
     }
 
-    /// Constants that belong in `AppConstants` once this wave's file ownership
-    /// split ends. Listed in the handoff report for migration.
-    private enum Path {
-        static let applicationSupportDirectoryName = "Kurotty"
-    }
-
     let rootURL: URL
     private let fileManager: FileManager
 
@@ -62,7 +56,7 @@ struct TerminalScrollbackSnapshotStore {
             return nil
         }
         return base
-            .appendingPathComponent(Path.applicationSupportDirectoryName)
+            .appendingPathComponent(AppConstants.Storage.applicationSupportDirectoryName)
             .appendingPathComponent(TerminalScrollbackSnapshotFormat.directoryName)
     }
 
@@ -247,7 +241,12 @@ final class TerminalScrollbackSnapshotWriter: @unchecked Sendable {
         let rootURL = rootURL
         queue.async {
             let store = TerminalScrollbackSnapshotStore(rootURL: rootURL, fileManager: FileManager())
-            completion?(store.prune(keepingRefs: referencedRefs))
+            // Pruning must run whether or not anyone wants the report. Passing
+            // it straight into `completion?(...)` made the whole call a no-op
+            // when `completion` was nil, because optional chaining skips
+            // evaluating the argument.
+            let report = store.prune(keepingRefs: referencedRefs)
+            completion?(report)
         }
     }
 

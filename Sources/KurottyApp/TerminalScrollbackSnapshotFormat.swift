@@ -18,7 +18,7 @@ import Foundation
 /// Orca's `terminal-scrollback-snapshots.ts`.
 enum TerminalScrollbackSnapshotFormat {
     /// Directory under `Application Support/Kurotty` that holds snapshot files.
-    static let directoryName = "terminal-scrollback"
+    static let directoryName = AppConstants.TerminalScrollbackSnapshots.directoryName
     /// Format tag. A future incompatible payload takes `v2` and leaves `v1`
     /// files to be pruned as unreferenced.
     static let refPrefix = "v1"
@@ -31,12 +31,12 @@ enum TerminalScrollbackSnapshotFormat {
 
     enum Budget {
         /// Largest snapshot written for one pane.
-        static let storeBytesPerPane = 5 * 1024 * 1024
+        static let storeBytesPerPane = AppConstants.TerminalScrollbackSnapshots.storeBytesPerPane
         /// Largest snapshot replayed into one pane at restore.
-        static let replayBytesPerPane = 512 * 1024
+        static let replayBytesPerPane = AppConstants.TerminalScrollbackSnapshots.replayBytesPerPane
         /// Largest total size of the snapshot directory. Pruning drops the
         /// least recently modified files until the directory fits.
-        static let totalStoreBytes = 64 * 1024 * 1024
+        static let totalStoreBytes = AppConstants.TerminalScrollbackSnapshots.totalStoreBytes
     }
 
     /// Content address for one pane: `sha256(tabID \0 paneID)`, truncated to

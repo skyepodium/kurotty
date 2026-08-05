@@ -765,8 +765,8 @@ final class AgentSessionTranscriptViewPresentationTests: XCTestCase {
         )
 
         XCTAssertNotEqual(
-            AgentSessionTranscriptPresenter.sessionKey(for: claude),
-            AgentSessionTranscriptPresenter.sessionKey(for: codex)
+            AgentSessionTranscriptTabTitleFormatter.sessionKey(for: claude),
+            AgentSessionTranscriptTabTitleFormatter.sessionKey(for: codex)
         )
     }
 }

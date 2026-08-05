@@ -12,21 +12,6 @@ import AppKit
 /// stays scannable.
 @MainActor
 final class AgentSessionTranscriptView: NSView {
-    /// Strings that belong in `AppLocalization` once this wave's file ownership
-    /// split ends. Listed in the handoff report for migration.
-    private enum Copy {
-        static let emptyState = "This transcript has no readable records yet."
-        static let readOnlyBadge = "Read-only"
-        static let olderRecordsNotice = "Older records are not shown."
-        static let userRole = "You"
-        static let assistantRole = "Agent"
-        static let toolRole = "Tool"
-        static let systemRole = "System"
-        static let collapseAll = "Collapse All Tool Runs"
-        static let copyTranscriptPath = "Copy Transcript Path"
-        static let revealInFinder = "Reveal in Finder"
-    }
-
     private enum Glyph {
         static let collapsed = "▸"
         static let expanded = "▾"
@@ -34,22 +19,16 @@ final class AgentSessionTranscriptView: NSView {
         static let addedPrefix = "+ "
     }
 
-    private enum Metric {
-        static let rowInsetXPX: CGFloat = 14
-        static let rowInsetYPX: CGFloat = 4
-        static let detailInsetXPX: CGFloat = 30
-        static let headerTopPaddingPX: CGFloat = 10
-        static let bodyFontSizePT: CGFloat = 12
-        static let headerFontSizePT: CGFloat = 10
-        static let monospacedFontSizePT: CGFloat = 11
-        static let detailBackgroundAlphaRATIO: CGFloat = 0.06
-        static let diffBackgroundAlphaRATIO: CGFloat = 0.10
-    }
-
     private let controller: AgentSessionTranscriptController
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private let emptyStateLabel = NSTextField(wrappingLabelWithString: Copy.emptyState)
+    private let emptyStateLabel = NSTextField(wrappingLabelWithString: AppLocalization.string(.transcriptEmpty))
+    /// Shown only while the reader is holding back records older than its
+    /// bounded tail window, so the view never implies it is showing everything.
+    private let olderRecordsLabel = NSTextField(
+        labelWithString: AppLocalization.string(.transcriptOlderRecordsHidden)
+    )
+    private var olderRecordsCollapsedConstraint: NSLayoutConstraint?
     private var rows: [AgentTranscriptRow] = []
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isFollowingTail = true
@@ -87,12 +66,15 @@ final class AgentSessionTranscriptView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.windowBackground.cgColor
         emptyStateLabel.textColor = theme.textMuted
+        olderRecordsLabel.textColor = theme.textMuted
         tableView.reloadData()
     }
 
     private func configure() {
         wantsLayer = true
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
+        // The viewer has no composer and no PTY handle; say so on hover.
+        toolTip = AppLocalization.string(.transcriptReadOnly)
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("transcript"))
         column.resizingMask = .autoresizingMask
@@ -119,12 +101,34 @@ final class AgentSessionTranscriptView: NSView {
 
         emptyStateLabel.alignment = .center
         emptyStateLabel.textColor = chromeTheme.textMuted
-        emptyStateLabel.font = NSFont.systemFont(ofSize: Metric.bodyFontSizePT)
+        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Component.agentTranscriptBodyFontSizePT)
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(emptyStateLabel)
 
+        olderRecordsLabel.font = NSFont.systemFont(
+            ofSize: DesignTokens.Component.agentTranscriptHeaderFontSizePT
+        )
+        olderRecordsLabel.textColor = chromeTheme.textMuted
+        olderRecordsLabel.isHidden = true
+        olderRecordsLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(olderRecordsLabel)
+        // A hidden label still occupies its intrinsic height in Auto Layout, so
+        // collapse it explicitly instead of leaving a blank strip.
+        let collapsed = olderRecordsLabel.heightAnchor.constraint(equalToConstant: 0)
+        collapsed.isActive = true
+        olderRecordsCollapsedConstraint = collapsed
+
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            olderRecordsLabel.topAnchor.constraint(equalTo: topAnchor),
+            olderRecordsLabel.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: DesignTokens.Component.agentTranscriptRowInsetXPX
+            ),
+            olderRecordsLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -DesignTokens.Component.agentTranscriptRowInsetXPX
+            ),
+            scrollView.topAnchor.constraint(equalTo: olderRecordsLabel.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -141,6 +145,8 @@ final class AgentSessionTranscriptView: NSView {
         isFollowingTail = isScrolledToBottom
         rows = snapshot.rows
         emptyStateLabel.isHidden = !rows.isEmpty
+        olderRecordsLabel.isHidden = !snapshot.hasOlderRecords
+        olderRecordsCollapsedConstraint?.isActive = !snapshot.hasOlderRecords
         tableView.reloadData()
         guard isFollowingTail, !rows.isEmpty else {
             return
@@ -170,13 +176,13 @@ final class AgentSessionTranscriptView: NSView {
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let entries: [(String, Selector)] = [
-            (Copy.collapseAll, #selector(collapseAllToolRuns(_:))),
-            (Copy.copyTranscriptPath, #selector(copyTranscriptPath(_:))),
-            (Copy.revealInFinder, #selector(revealInFinder(_:))),
+        let entries: [(L10nKey, Selector)] = [
+            (.collapseAllToolRuns, #selector(collapseAllToolRuns(_:))),
+            (.copyTranscriptPath, #selector(copyTranscriptPath(_:))),
+            (.revealInFinder, #selector(revealInFinder(_:))),
         ]
-        for (title, action) in entries {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        for (key, action) in entries {
+            let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
@@ -204,13 +210,13 @@ final class AgentSessionTranscriptView: NSView {
     static func roleLabel(for role: AgentTranscriptRole) -> String {
         switch role {
         case .user:
-            return Copy.userRole
+            return AppLocalization.string(.transcriptRoleUser)
         case .assistant:
-            return Copy.assistantRole
+            return AppLocalization.string(.transcriptRoleAgent)
         case .tool:
-            return Copy.toolRole
+            return AppLocalization.string(.transcriptRoleTool)
         case .system:
-            return Copy.systemRole
+            return AppLocalization.string(.transcriptRoleSystem)
         }
     }
 
@@ -237,38 +243,38 @@ final class AgentSessionTranscriptView: NSView {
         case let .text(_, _, text):
             return makeLabelView(
                 text: text,
-                font: NSFont.systemFont(ofSize: Metric.bodyFontSizePT),
+                font: NSFont.systemFont(ofSize: DesignTokens.Component.agentTranscriptBodyFontSizePT),
                 color: chromeTheme.textPrimary,
-                insetX: Metric.rowInsetXPX,
+                insetX: DesignTokens.Component.agentTranscriptRowInsetXPX,
                 backgroundColor: nil
             )
         case let .toolRun(_, run, isExpanded):
             return makeLabelView(
                 text: Self.toolRunLabel(run: run, isExpanded: isExpanded),
-                font: NSFont.monospacedSystemFont(ofSize: Metric.monospacedFontSizePT, weight: .medium),
+                font: NSFont.monospacedSystemFont(ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT, weight: .medium),
                 color: chromeTheme.textSecondary,
-                insetX: Metric.rowInsetXPX,
+                insetX: DesignTokens.Component.agentTranscriptRowInsetXPX,
                 backgroundColor: nil
             )
         case let .toolDetail(_, detail):
             return makeLabelView(
                 text: detail,
-                font: NSFont.monospacedSystemFont(ofSize: Metric.monospacedFontSizePT, weight: .regular),
+                font: NSFont.monospacedSystemFont(ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT, weight: .regular),
                 color: chromeTheme.textMuted,
-                insetX: Metric.detailInsetXPX,
+                insetX: DesignTokens.Component.agentTranscriptDetailInsetXPX,
                 backgroundColor: chromeTheme.textPrimary
-                    .withAlphaComponent(Metric.detailBackgroundAlphaRATIO)
+                    .withAlphaComponent(DesignTokens.Component.agentTranscriptDetailBackgroundAlphaRATIO)
             )
         case let .toolDiff(_, diff):
             return makeDiffView(diff)
         case let .toolOutput(_, output, isError):
             return makeLabelView(
                 text: output,
-                font: NSFont.monospacedSystemFont(ofSize: Metric.monospacedFontSizePT, weight: .regular),
+                font: NSFont.monospacedSystemFont(ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT, weight: .regular),
                 color: isError ? chromeTheme.activeIndicator : chromeTheme.textMuted,
-                insetX: Metric.detailInsetXPX,
+                insetX: DesignTokens.Component.agentTranscriptDetailInsetXPX,
                 backgroundColor: chromeTheme.textPrimary
-                    .withAlphaComponent(Metric.detailBackgroundAlphaRATIO)
+                    .withAlphaComponent(DesignTokens.Component.agentTranscriptDetailBackgroundAlphaRATIO)
             )
         }
     }
@@ -276,15 +282,15 @@ final class AgentSessionTranscriptView: NSView {
     private func makeHeaderView(role: AgentTranscriptRole, timestamp: Date?) -> NSView {
         let container = NSView()
         let label = NSTextField(labelWithString: Self.roleLabel(for: role).localizedUppercase)
-        label.font = NSFont.systemFont(ofSize: Metric.headerFontSizePT, weight: .semibold)
+        label.font = NSFont.systemFont(ofSize: DesignTokens.Component.agentTranscriptHeaderFontSizePT, weight: .semibold)
         label.textColor = chromeTheme.textMuted
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metric.rowInsetXPX),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -Metric.rowInsetXPX),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: Metric.headerTopPaddingPX),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Metric.rowInsetYPX),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: DesignTokens.Component.agentTranscriptRowInsetXPX),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetXPX),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: DesignTokens.Component.agentTranscriptHeaderTopPaddingPX),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetYPX),
         ])
         return container
     }
@@ -309,9 +315,9 @@ final class AgentSessionTranscriptView: NSView {
         container.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: insetX),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metric.rowInsetXPX),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: Metric.rowInsetYPX),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Metric.rowInsetYPX),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetXPX),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: DesignTokens.Component.agentTranscriptRowInsetYPX),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetYPX),
         ])
         return container
     }
@@ -320,10 +326,10 @@ final class AgentSessionTranscriptView: NSView {
         let container = NSView()
         container.wantsLayer = true
         container.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(Metric.diffBackgroundAlphaRATIO).cgColor
+            .withAlphaComponent(DesignTokens.Component.agentTranscriptDiffBackgroundAlphaRATIO).cgColor
 
         let text = NSMutableAttributedString()
-        let font = NSFont.monospacedSystemFont(ofSize: Metric.monospacedFontSizePT, weight: .regular)
+        let font = NSFont.monospacedSystemFont(ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT, weight: .regular)
         for line in diff.lines {
             let color = line.kind == .removed ? NSColor.systemRed : NSColor.systemGreen
             text.append(NSAttributedString(
@@ -338,10 +344,10 @@ final class AgentSessionTranscriptView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metric.detailInsetXPX),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metric.rowInsetXPX),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: Metric.rowInsetYPX),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Metric.rowInsetYPX),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: DesignTokens.Component.agentTranscriptDetailInsetXPX),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetXPX),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: DesignTokens.Component.agentTranscriptRowInsetYPX),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -DesignTokens.Component.agentTranscriptRowInsetYPX),
         ])
         return container
     }

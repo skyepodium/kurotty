@@ -6,20 +6,6 @@ struct AgentTranscriptLine: Equatable, Sendable {
     var byteOffset: Int
 }
 
-/// Bounded byte limits shared by the tail and incremental readers.
-enum AgentTranscriptReadLimits {
-    /// Backward read granularity. A 200 MB transcript opens by touching a few
-    /// of these instead of the whole file.
-    static let tailChunkBytes = 64 * 1024
-    /// A single record above this is dropped rather than buffered. Transcripts
-    /// can contain a pasted binary blob; one bad record must not blow up memory.
-    static let maximumRecordBytes = 2 * 1024 * 1024
-    /// Records decoded for the initial paint.
-    static let initialTailRecordCount = 400
-    /// Messages handed to the UI per batch during tail-follow.
-    static let appendBatchMessageCount = 40
-}
-
 /// Reads the newest records of a JSONL transcript by walking backwards in
 /// fixed-size chunks.
 ///
@@ -44,9 +30,9 @@ enum AgentSessionTranscriptTailReader {
 
     static func readTail(
         fileURL: URL,
-        limit: Int = AgentTranscriptReadLimits.initialTailRecordCount,
-        chunkBytes: Int = AgentTranscriptReadLimits.tailChunkBytes,
-        maximumRecordBytes: Int = AgentTranscriptReadLimits.maximumRecordBytes
+        limit: Int = AppConstants.AgentTranscript.initialTailRecordCount,
+        chunkBytes: Int = AppConstants.AgentTranscript.tailChunkBytes,
+        maximumRecordBytes: Int = AppConstants.AgentTranscript.maximumRecordBytes
     ) -> Result {
         guard limit > 0,
               let handle = try? FileHandle(forReadingFrom: fileURL),
@@ -202,7 +188,7 @@ struct AgentSessionTranscriptIncrementalReader: Sendable {
 
     init(
         offset: Int = 0,
-        maximumRecordBytes: Int = AgentTranscriptReadLimits.maximumRecordBytes
+        maximumRecordBytes: Int = AppConstants.AgentTranscript.maximumRecordBytes
     ) {
         self.offset = offset
         pendingStart = offset

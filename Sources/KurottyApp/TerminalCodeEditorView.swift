@@ -625,13 +625,20 @@ struct TerminalCodeEditorPalette {
             primaryText: theme.textPrimary,
             mutedText: theme.textMuted,
             modifiedDot: theme.activeIndicator,
-            keyword: DesignTokens.Color.accentPurple,
-            string: DesignTokens.Color.successGreen,
+            keyword: TerminalCodeEditorSyntaxColors.syntaxKeyword,
+            string: theme.success,
             comment: theme.textMuted,
-            number: DesignTokens.Color.warningOrange,
+            number: theme.warning,
             typeName: DesignTokens.Color.cyanTerminalAccent
         )
     }
+}
+
+/// Syntax hues that are not chrome roles. Purple used to live in
+/// `DesignTokens.Color` as `accentPurple` and leaked into chrome (status dots,
+/// active borders); it now survives only here, as a keyword color.
+enum TerminalCodeEditorSyntaxColors {
+    static let syntaxKeyword = NSColor.designTokenSRGB(0x8B_5C_F6)
 }
 
 /// Editor-local domain constants that are not design tokens: the modified-state

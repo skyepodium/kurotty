@@ -8,6 +8,10 @@ final class TerminalPaneView: NSView {
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
     private let terminalSurfaceView: TerminalSurfaceView
+    /// Retained so pane-level chrome (the window status bar) can ask the
+    /// session for optional capabilities such as its shell pid. The surface
+    /// owns the session's I/O; this reference is read-only.
+    private let session: any TerminalSession
     private let searchBarView = TerminalSearchBarView()
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var agentActivityWidthConstraint: NSLayoutConstraint?
@@ -70,6 +74,7 @@ final class TerminalPaneView: NSView {
         // init, before `super.init()` lets us read `self.agentPaneIdentifier`.
         let paneIdentifier = UUID().uuidString
         agentPaneIdentifier = paneIdentifier
+        self.session = session
         terminalSurfaceView = TerminalSurfaceView(
             frame: .zero,
             session: session,
@@ -371,6 +376,33 @@ final class TerminalPaneView: NSView {
             return
         }
         updateAgentActivityIndicator()
+    }
+
+    /// Snapshot of this pane for the window status bar.
+    ///
+    /// `shellProcessIdentifier` is `nil` for sessions that do not own a real
+    /// child process (tmux placeholders, test doubles) and for PTY sessions
+    /// until `TerminalShellProcessIdentifying` is adopted by the session type.
+    var statusBarDescriptor: TerminalStatusBarPaneDescriptor {
+        // The title is read into a local first so this live-chrome descriptor
+        // can never be confused with the layout-only workspace snapshot, which
+        // must not persist runtime titles.
+        let paneTitle = displayTitle
+        return TerminalStatusBarPaneDescriptor(
+            paneIdentifier: agentPaneIdentifier,
+            title: paneTitle,
+            shellProcessIdentifier: shellProcessIdentifier,
+            workingDirectoryPath: terminalSurfaceView.workingDirectoryPath
+        )
+    }
+
+    /// The pane's shell child pid, when the session publishes one.
+    var shellProcessIdentifier: pid_t? {
+        guard let identifying = session as? any TerminalShellProcessIdentifying else {
+            return nil
+        }
+        let processIdentifier = identifying.shellProcessIdentifier
+        return processIdentifier > 1 ? processIdentifier : nil
     }
 
     /// Resolved agent status for this pane, or `nil` when nothing should show.

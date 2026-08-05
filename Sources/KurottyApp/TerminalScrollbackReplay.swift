@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 /// Anything that can absorb restored scrollback bytes for display.
 ///
@@ -29,13 +30,10 @@ extension TerminalOutputInterpreter: TerminalScrollbackReplayTarget {
     }
 }
 
-// `TerminalSurfaceView` mirrors the same flag but keeps its interpreter
-// private and exposes no public byte-ingest entry point, so a pane-level
-// conformance needs one line in that file:
-//
-//     func consumeReplayedScrollback(_ text: String) { interpreter.interpret(text) }
-//
-// Until then the restore path replays through the interpreter directly.
+/// `TerminalSurfaceView` mirrors the same flag but keeps its interpreter
+/// private, so its `consumeReplayedScrollback` lives in that file while the
+/// conformance stays here with the rest of the replay contract.
+extension TerminalSurfaceView: TerminalScrollbackReplayTarget {}
 
 /// Closure-shaped adapter for hosts that are not reference types or that want
 /// to route replay through their own entry point.
@@ -116,13 +114,19 @@ enum TerminalScrollbackReplayer {
 
 /// Settings contract for scrollback restore.
 ///
-/// Kurotty's settings schema lives in `AppSettings`/`SettingsDefaults`, owned by
-/// another agent this wave, so the key and its default are declared here and
-/// listed in the handoff report for migration. The lifecycle contract is
-/// **launch-only**: the value is read once while restoring a workspace.
+/// The stored key lives in `AppSettings.terminal.restoreScrollbackOnLaunch`;
+/// this enum names the key path and the default so call sites do not spell
+/// either out. The lifecycle contract is **launch-only**: the value is read once
+/// while restoring a workspace.
 enum TerminalScrollbackRestoreSetting {
     static let keyPath = "terminal.restoreScrollbackOnLaunch"
-    static let defaultValue = true
+    static let defaultValue = SettingsDefaults.restoreScrollbackOnLaunch
+
+    /// The stored value, or the default when settings cannot be loaded.
+    @MainActor
+    static func currentValue(store: AppSettingsStore = .shared) -> Bool {
+        ((try? store.load()) ?? .default).terminal.restoreScrollbackOnLaunch
+    }
 
     /// Replaying scrollback *bytes* is display-only and therefore safe by
     /// default. Replaying *commands* stays a separate opt-in governed by

@@ -26,7 +26,7 @@ enum TerminalResizeSignalTarget: Equatable {
     }
 }
 
-final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalSessionInputBackpressureReporting, @unchecked Sendable {
+final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalShellProcessIdentifying, TerminalSessionInputBackpressureReporting, @unchecked Sendable {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
@@ -64,6 +64,13 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     /// owner before `start(workingDirectory:)`. An inherited `HISTFILE` still
     /// wins either way.
     var perProjectHistoryEnabled: Bool = SettingsDefaults.perProjectHistoryEnabled
+
+    /// The pane's direct shell child, published for the window status bar.
+    ///
+    /// `childPid` stays at `-1` before `start(workingDirectory:)` and is reset
+    /// to `-1` on exit/stop, so the sampler's `> 1` guard already covers both
+    /// "not started" and "already exited" without a second liveness check here.
+    var shellProcessIdentifier: pid_t { childPid }
 
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }

@@ -741,10 +741,7 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
 
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalFileExplorerSidebarRowView()
-        rowView.hoverBackgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.fileExplorerHoverBackgroundAlphaRATIO)
-        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
-            .withAlphaComponent(DesignTokens.Component.fileExplorerSelectionBackgroundAlphaRATIO)
+        rowView.chromeTheme = chromeTheme
         return rowView
     }
 

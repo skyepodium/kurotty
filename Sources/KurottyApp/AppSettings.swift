@@ -19,10 +19,12 @@ struct AppSettings: Codable, Equatable {
             scrollbackLines: Defaults.scrollbackLines,
             colors: TerminalColorSettings.default,
             commandHistoryEnabled: Defaults.commandHistoryEnabled,
+            statusBarEnabled: Defaults.statusBarEnabled,
             confirmMultilinePaste: Defaults.confirmMultilinePaste,
             agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
             hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
-            agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled
+            agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled,
+            restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -43,11 +45,13 @@ struct AppSettings: Codable, Equatable {
         static let windowHeight = SettingsDefaults.defaultWindowHeightPX
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
         static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
+        static let statusBarEnabled = SettingsDefaults.statusBarEnabled
         static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
         static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
         static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
         static let perProjectHistoryEnabled = SettingsDefaults.perProjectHistoryEnabled
+        static let restoreScrollbackOnLaunch = SettingsDefaults.restoreScrollbackOnLaunch
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -93,6 +97,13 @@ struct AppSettings: Codable, Equatable {
 /// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
 /// starts a loopback listener and writes Kurotty-marked entries into the user's
 /// agent hook configuration, so it is always an explicit opt-in.
+/// `statusBarEnabled` is live-applied and defaults on: the bottom status bar is
+/// passive chrome, so turning it off collapses it to zero height and stops the
+/// resource sampler entirely rather than only hiding a view.
+/// `restoreScrollbackOnLaunch` is **launch-only** and defaults on: it is read
+/// once while a workspace is restored. Restored scrollback is display-only —
+/// bytes go into the screen model and nothing is written to the shell — so it is
+/// deliberately independent of the command-replay opt-in.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -100,10 +111,12 @@ struct TerminalSettings: Codable, Equatable {
     var scrollbackLines: Int
     var colors: TerminalColorSettings
     var commandHistoryEnabled: Bool
+    var statusBarEnabled: Bool
     var confirmMultilinePaste: Bool
     var agentSessionIndexEnabled: Bool
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
+    var restoreScrollbackOnLaunch: Bool
 
     private enum CodingKeys: String, CodingKey {
         case theme
@@ -112,10 +125,12 @@ struct TerminalSettings: Codable, Equatable {
         case scrollbackLines
         case colors
         case commandHistoryEnabled
+        case statusBarEnabled
         case confirmMultilinePaste
         case agentSessionIndexEnabled
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
+        case restoreScrollbackOnLaunch
     }
 
     init(
@@ -125,10 +140,12 @@ struct TerminalSettings: Codable, Equatable {
         scrollbackLines: Int,
         colors: TerminalColorSettings,
         commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled,
+        statusBarEnabled: Bool = SettingsDefaults.statusBarEnabled,
         confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
-        agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled
+        agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled,
+        restoreScrollbackOnLaunch: Bool = SettingsDefaults.restoreScrollbackOnLaunch
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -136,10 +153,12 @@ struct TerminalSettings: Codable, Equatable {
         self.scrollbackLines = scrollbackLines
         self.colors = colors
         self.commandHistoryEnabled = commandHistoryEnabled
+        self.statusBarEnabled = statusBarEnabled
         self.confirmMultilinePaste = confirmMultilinePaste
         self.agentSessionIndexEnabled = agentSessionIndexEnabled
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
+        self.restoreScrollbackOnLaunch = restoreScrollbackOnLaunch
     }
 
     init(from decoder: Decoder) throws {
@@ -151,6 +170,10 @@ struct TerminalSettings: Codable, Equatable {
         colors = try container.decode(TerminalColorSettings.self, forKey: .colors)
         commandHistoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .commandHistoryEnabled)
             ?? SettingsDefaults.commandHistoryEnabled
+        // Absent in schema versions below 15; those files fall back to the
+        // current default rather than failing to decode.
+        statusBarEnabled = try container.decodeIfPresent(Bool.self, forKey: .statusBarEnabled)
+            ?? SettingsDefaults.statusBarEnabled
         confirmMultilinePaste = try container.decodeIfPresent(Bool.self, forKey: .confirmMultilinePaste)
             ?? SettingsDefaults.confirmMultilinePaste
         // Absent in schema versions below 11; those files fall back to the
@@ -163,6 +186,10 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.hideMouseCursorWhileTyping
         agentStatusHooksEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentStatusHooksEnabled)
             ?? SettingsDefaults.agentStatusHooksEnabled
+        // Absent in schema versions below 14; those files fall back to the
+        // current default rather than failing to decode.
+        restoreScrollbackOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .restoreScrollbackOnLaunch)
+            ?? SettingsDefaults.restoreScrollbackOnLaunch
     }
 }
 
@@ -337,6 +364,10 @@ struct AppSettingsNormalizer {
         static let paneBehaviorSchemaVersion = 12
         /// Schema version that introduced `terminal.confirmMultilinePaste`.
         static let multilinePasteConfirmationSchemaVersion = 13
+        /// Schema version that introduced `terminal.restoreScrollbackOnLaunch`.
+        static let scrollbackRestoreSchemaVersion = 14
+        /// Schema version that introduced `terminal.statusBarEnabled`.
+        static let statusBarSchemaVersion = 15
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -369,6 +400,20 @@ struct AppSettingsNormalizer {
             // land on the current default; from schema 13 on, an explicit
             // choice in either direction is preserved.
             next.terminal.confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
+        }
+        if sourceSchemaVersion < Migration.scrollbackRestoreSchemaVersion {
+            // Settings written before schema 14 predate scrollback restore, so
+            // the key carries no user intent. Migrated files land on the current
+            // default; from schema 14 on, an explicit choice in either direction
+            // is preserved.
+            next.terminal.restoreScrollbackOnLaunch = SettingsDefaults.restoreScrollbackOnLaunch
+        }
+        if sourceSchemaVersion < Migration.statusBarSchemaVersion {
+            // Settings written before schema 15 predate the bottom status bar,
+            // so the key carries no user intent. Migrated files land on the
+            // current default; from schema 15 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.statusBarEnabled = SettingsDefaults.statusBarEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -507,8 +552,8 @@ final class AppSettingsStore {
     private enum Path {
         static let appDirectoryName = AppConstants.Settings.directoryName
         static let settingsFileName = AppConstants.Settings.fileName
-        static let libraryDirectoryName = "Library"
-        static let applicationSupportDirectoryName = "Application Support"
+        static let libraryDirectoryName = AppConstants.Storage.libraryDirectoryName
+        static let applicationSupportDirectoryName = AppConstants.Storage.systemApplicationSupportDirectoryName
     }
 
     init(fileManager: FileManager = .default, settingsURL: URL? = nil) {

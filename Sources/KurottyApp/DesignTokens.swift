@@ -3,99 +3,214 @@ import KurottyCore
 import simd
 
 enum DesignTokens {
+    /// Chrome theme = one full instance of the semantic color ramp.
+    ///
+    /// Every role below is theme-owned. Status colors in particular must not be
+    /// shared between themes: the dark `success` (`#4ADE80`) measures about
+    /// 1.6:1 on a white light-theme surface, so light needs its own darker
+    /// status hues. The legacy role names (`windowBackground`,
+    /// `activeTabBackground`, `textMuted`, ...) are kept as computed aliases
+    /// onto the ramp so existing chrome call sites read the same tokens.
     @MainActor
     struct ChromeTheme {
-        let windowBackground: NSColor
-        let topChromeBackground: NSColor
-        let activeTabBackground: NSColor
-        let inactiveTabBackground: NSColor
-        let inactiveTabHoverBackground: NSColor
-        let paneHeaderBackground: NSColor
-        let paneHeaderHoverBackground: NSColor
-        let borderHairline: NSColor
-        let divider: NSColor
+        // MARK: Surfaces, back to front
+        let surfaceCanvas: NSColor
+        let surfaceChrome: NSColor
+        let surfaceSidebar: NSColor
+        let surfaceRaised: NSColor
+
+        // MARK: Separation
+        let hairline: NSColor
+        let borderStrong: NSColor
+
+        // MARK: Text ranks
         let textPrimary: NSColor
         let textSecondary: NSColor
-        let textMuted: NSColor
-        let activeIndicator: NSColor
-        let activeStatusDot: NSColor
-        let inactiveStatusDot: NSColor
-        let activeBorder: NSColor
+        let textTertiary: NSColor
+
+        // MARK: Accent and status
+        let accent: NSColor
+        let success: NSColor
+        let warning: NSColor
+        let error: NSColor
+
+        // MARK: Interaction fills
+        /// Selected-row wash. Chromatic, derived from `accent`.
+        let selectionFill: NSColor
+        /// Hover wash. Deliberately achromatic so hover can never be confused
+        /// with selection.
+        let hoverFill: NSColor
+        /// Mouse-down wash, achromatic and one step stronger than hover.
+        let pressFill: NSColor
+        /// Keyboard-focus ring stroke for the focused list.
+        let focusRing: NSColor
+
         let windowAppearance: NSAppearance?
+
+        // MARK: Legacy role aliases
+
+        var windowBackground: NSColor { surfaceCanvas }
+        var topChromeBackground: NSColor { surfaceChrome }
+        var activeTabBackground: NSColor { surfaceRaised }
+        var inactiveTabBackground: NSColor { surfaceChrome }
+        var inactiveTabHoverBackground: NSColor { surfaceSidebar }
+        var paneHeaderBackground: NSColor { surfaceChrome }
+        var paneHeaderHoverBackground: NSColor { surfaceSidebar }
+        var borderHairline: NSColor { hairline }
+        var divider: NSColor { hairline }
+        var textMuted: NSColor { textTertiary }
+        var activeIndicator: NSColor { accent }
+        var activeStatusDot: NSColor { success }
+        /// Purple has been purged from chrome; an idle dot is simply quiet text.
+        var inactiveStatusDot: NSColor {
+            textTertiary.withAlphaComponent(Color.inactiveStatusDotAlphaRATIO)
+        }
+        var activeBorder: NSColor {
+            accent.withAlphaComponent(Color.activeBorderAlphaRATIO)
+        }
 
         static func theme(for settings: AppSettings) -> ChromeTheme {
             settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
         }
 
         static let dark = ChromeTheme(
-            windowBackground: Color.windowBackground,
-            topChromeBackground: Color.topChromeBackground,
-            activeTabBackground: Color.activeTabBackground,
-            inactiveTabBackground: Color.inactiveTabBackground,
-            inactiveTabHoverBackground: Color.inactiveTabHoverBackground,
-            paneHeaderBackground: Color.paneHeaderBackground,
-            paneHeaderHoverBackground: Color.paneHeaderHoverBackground,
-            borderHairline: Color.borderHairline,
-            divider: Color.divider,
-            textPrimary: Color.textPrimary,
-            textSecondary: Color.textSecondary,
-            textMuted: Color.textMuted,
-            activeIndicator: Color.accentBlue,
-            activeStatusDot: Color.successGreen,
-            inactiveStatusDot: Color.accentPurple.withAlphaComponent(0.45),
-            activeBorder: Color.accentPurple.withAlphaComponent(0.45),
+            surfaceCanvas: Color.Dark.surfaceCanvas,
+            surfaceChrome: Color.Dark.surfaceChrome,
+            surfaceSidebar: Color.Dark.surfaceSidebar,
+            surfaceRaised: Color.Dark.surfaceRaised,
+            hairline: Color.Dark.hairline,
+            borderStrong: Color.Dark.borderStrong,
+            textPrimary: Color.Dark.textPrimary,
+            textSecondary: Color.Dark.textSecondary,
+            textTertiary: Color.Dark.textTertiary,
+            accent: Color.Dark.accent,
+            success: Color.Dark.success,
+            warning: Color.Dark.warning,
+            error: Color.Dark.error,
+            selectionFill: Color.Dark.selectionFill,
+            hoverFill: Color.Dark.hoverFill,
+            pressFill: Color.Dark.pressFill,
+            focusRing: Color.Dark.focusRing,
             windowAppearance: NSAppearance(named: .darkAqua)
         )
 
         static let light = ChromeTheme(
-            windowBackground: NSColor(calibratedRed: 250.0 / 255.0, green: 250.0 / 255.0, blue: 250.0 / 255.0, alpha: 1),
-            topChromeBackground: NSColor(calibratedRed: 241.0 / 255.0, green: 241.0 / 255.0, blue: 241.0 / 255.0, alpha: 1),
-            activeTabBackground: NSColor.white,
-            inactiveTabBackground: NSColor(calibratedRed: 233.0 / 255.0, green: 233.0 / 255.0, blue: 233.0 / 255.0, alpha: 1),
-            inactiveTabHoverBackground: NSColor(calibratedRed: 245.0 / 255.0, green: 245.0 / 255.0, blue: 245.0 / 255.0, alpha: 1),
-            paneHeaderBackground: NSColor(calibratedRed: 246.0 / 255.0, green: 246.0 / 255.0, blue: 246.0 / 255.0, alpha: 1),
-            paneHeaderHoverBackground: NSColor(calibratedRed: 251.0 / 255.0, green: 251.0 / 255.0, blue: 251.0 / 255.0, alpha: 1),
-            borderHairline: NSColor(calibratedRed: 221.0 / 255.0, green: 221.0 / 255.0, blue: 221.0 / 255.0, alpha: 1),
-            divider: NSColor(calibratedRed: 224.0 / 255.0, green: 224.0 / 255.0, blue: 224.0 / 255.0, alpha: 1),
-            textPrimary: NSColor(calibratedRed: 36.0 / 255.0, green: 36.0 / 255.0, blue: 36.0 / 255.0, alpha: 1),
-            textSecondary: NSColor(calibratedRed: 119.0 / 255.0, green: 119.0 / 255.0, blue: 119.0 / 255.0, alpha: 1),
-            textMuted: NSColor(calibratedRed: 153.0 / 255.0, green: 153.0 / 255.0, blue: 153.0 / 255.0, alpha: 1),
-            activeIndicator: Color.accentBlue,
-            activeStatusDot: Color.successGreen,
-            inactiveStatusDot: Color.accentPurple.withAlphaComponent(0.45),
-            activeBorder: Color.accentPurple.withAlphaComponent(0.45),
+            surfaceCanvas: Color.Light.surfaceCanvas,
+            surfaceChrome: Color.Light.surfaceChrome,
+            surfaceSidebar: Color.Light.surfaceSidebar,
+            surfaceRaised: Color.Light.surfaceRaised,
+            hairline: Color.Light.hairline,
+            borderStrong: Color.Light.borderStrong,
+            textPrimary: Color.Light.textPrimary,
+            textSecondary: Color.Light.textSecondary,
+            textTertiary: Color.Light.textTertiary,
+            accent: Color.Light.accent,
+            success: Color.Light.success,
+            warning: Color.Light.warning,
+            error: Color.Light.error,
+            selectionFill: Color.Light.selectionFill,
+            hoverFill: Color.Light.hoverFill,
+            pressFill: Color.Light.pressFill,
+            focusRing: Color.Light.focusRing,
             windowAppearance: NSAppearance(named: .aqua)
         )
     }
 
     enum Color {
-        static let windowBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
-        static let topChromeBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
-        static let activeTabBackground = NSColor(calibratedRed: 37.0 / 255.0, green: 40.0 / 255.0, blue: 47.0 / 255.0, alpha: 1)
-        static let inactiveTabBackground = NSColor(calibratedRed: 27.0 / 255.0, green: 30.0 / 255.0, blue: 36.0 / 255.0, alpha: 1)
-        static let inactiveTabHoverBackground = NSColor(calibratedRed: 43.0 / 255.0, green: 46.0 / 255.0, blue: 54.0 / 255.0, alpha: 1)
-        static let paneHeaderBackground = NSColor(calibratedRed: 31.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
-        static let paneHeaderHoverBackground = NSColor(calibratedRed: 43.0 / 255.0, green: 46.0 / 255.0, blue: 54.0 / 255.0, alpha: 1)
-        static let paneDropTargetBorder = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.72)
-        static let paneDropTargetBackground = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.08)
-        static let inputStatusBackground = NSColor(calibratedRed: 37.0 / 255.0, green: 40.0 / 255.0, blue: 47.0 / 255.0, alpha: 1)
-        static let borderHairline = NSColor(calibratedRed: 76.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0, alpha: 1)
-        static let divider = NSColor(calibratedRed: 60.0 / 255.0, green: 64.0 / 255.0, blue: 72.0 / 255.0, alpha: 1)
-        static let textPrimary = NSColor(calibratedRed: 229.0 / 255.0, green: 231.0 / 255.0, blue: 235.0 / 255.0, alpha: 1)
-        static let textSecondary = NSColor(calibratedRed: 179.0 / 255.0, green: 183.0 / 255.0, blue: 192.0 / 255.0, alpha: 1)
-        static let textMuted = NSColor(calibratedRed: 125.0 / 255.0, green: 131.0 / 255.0, blue: 142.0 / 255.0, alpha: 1)
-        static let accentBlue = NSColor(calibratedRed: 91.0 / 255.0, green: 124.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
-        static let accentPurple = NSColor(calibratedRed: 139.0 / 255.0, green: 92.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
-        static let successGreen = NSColor(calibratedRed: 47.0 / 255.0, green: 191.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
-        static let warningOrange = NSColor(calibratedRed: 233.0 / 255.0, green: 148.0 / 255.0, blue: 26.0 / 255.0, alpha: 1)
-        static let errorRed = NSColor(calibratedRed: 255.0 / 255.0, green: 95.0 / 255.0, blue: 103.0 / 255.0, alpha: 1)
-        static let cyanTerminalAccent = NSColor(calibratedRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
-        static let scrollerThumb = NSColor(calibratedRed: 207.0 / 255.0, green: 207.0 / 255.0, blue: 207.0 / 255.0, alpha: 0.72)
-        static let scrollerThumbHover = NSColor(calibratedRed: 176.0 / 255.0, green: 176.0 / 255.0, blue: 176.0 / 255.0, alpha: 0.88)
-        static let scrollerThumbActive = NSColor(calibratedRed: 138.0 / 255.0, green: 138.0 / 255.0, blue: 138.0 / 255.0, alpha: 0.96)
+        /// Alpha applied to `textTertiary` for an idle status dot.
+        static let inactiveStatusDotAlphaRATIO: CGFloat = 0.55
+        /// Alpha applied to `accent` for an active-surface border.
+        static let activeBorderAlphaRATIO: CGFloat = 0.40
+        /// Alpha applied to `accent` for the keyboard-focus ring.
+        static let focusRingAlphaRATIO: CGFloat = 0.55
+
+        /// Dark ramp. Hex values are sRGB and are built with
+        /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
+        /// the specified hex on screen.
+        enum Dark {
+            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)
+            static let surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x1F_22_28)
+            static let surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)
+            static let hairline = NSColor.designTokenSRGB(0x2E_32_3A)
+            static let borderStrong = NSColor.designTokenSRGB(0x3A_3F_49)
+            static let textPrimary = NSColor.designTokenSRGB(0xE6_E8_EC)
+            static let textSecondary = NSColor.designTokenSRGB(0xA6_AD_BB)
+            static let textTertiary = NSColor.designTokenSRGB(0x7B_82_8F)
+            static let accent = NSColor.designTokenSRGB(0x5B_9D_FF)
+            static let success = NSColor.designTokenSRGB(0x4A_DE_80)
+            static let warning = NSColor.designTokenSRGB(0xF5_B8_40)
+            static let error = NSColor.designTokenSRGB(0xFF_7A_7A)
+
+            static let selectionFillAlphaRATIO: CGFloat = 0.24
+            static let hoverFillAlphaRATIO: CGFloat = 0.06
+            static let pressFillAlphaRATIO: CGFloat = 0.10
+
+            static let selectionFill = accent.withAlphaComponent(selectionFillAlphaRATIO)
+            static let hoverFill = NSColor.designTokenSRGB(0xFF_FF_FF, alpha: hoverFillAlphaRATIO)
+            static let pressFill = NSColor.designTokenSRGB(0xFF_FF_FF, alpha: pressFillAlphaRATIO)
+            static let focusRing = accent.withAlphaComponent(focusRingAlphaRATIO)
+        }
+
+        /// Light ramp. Status hues are darkened versions of the dark ramp so
+        /// they stay legible on white; sharing the dark values would drop
+        /// `success` to roughly 1.6:1 against `surfaceCanvas`.
+        enum Light {
+            static let surfaceCanvas = NSColor.designTokenSRGB(0xFF_FF_FF)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF1_F2_F4)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF7_F8_FA)
+            static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
+            static let hairline = NSColor.designTokenSRGB(0xDC_DF_E4)
+            static let borderStrong = NSColor.designTokenSRGB(0xC3_C7_CE)
+            static let textPrimary = NSColor.designTokenSRGB(0x1C_1E_22)
+            static let textSecondary = NSColor.designTokenSRGB(0x5A_61_6B)
+            static let textTertiary = NSColor.designTokenSRGB(0x7C_83_8E)
+            static let accent = NSColor.designTokenSRGB(0x0B_62_E4)
+            static let success = NSColor.designTokenSRGB(0x17_72_45)
+            static let warning = NSColor.designTokenSRGB(0x8A_53_00)
+            static let error = NSColor.designTokenSRGB(0xC0_27_1F)
+
+            static let selectionFillAlphaRATIO: CGFloat = 0.14
+            static let hoverFillAlphaRATIO: CGFloat = 0.05
+            static let pressFillAlphaRATIO: CGFloat = 0.09
+
+            static let selectionFill = accent.withAlphaComponent(selectionFillAlphaRATIO)
+            static let hoverFill = NSColor.designTokenSRGB(0x00_00_00, alpha: hoverFillAlphaRATIO)
+            static let pressFill = NSColor.designTokenSRGB(0x00_00_00, alpha: pressFillAlphaRATIO)
+            static let focusRing = accent.withAlphaComponent(focusRingAlphaRATIO)
+        }
+
+        // MARK: Theme-neutral chrome
+
+        static let paneDropTargetBorder = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.72)
+        static let paneDropTargetBackground = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.08)
+        static let inputStatusBackground = Dark.surfaceRaised
+        static let cyanTerminalAccent = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
+        static let scrollerThumb = NSColor(srgbRed: 207.0 / 255.0, green: 207.0 / 255.0, blue: 207.0 / 255.0, alpha: 0.72)
+        static let scrollerThumbHover = NSColor(srgbRed: 176.0 / 255.0, green: 176.0 / 255.0, blue: 176.0 / 255.0, alpha: 0.88)
+        static let scrollerThumbActive = NSColor(srgbRed: 138.0 / 255.0, green: 138.0 / 255.0, blue: 138.0 / 255.0, alpha: 0.96)
+
+        // MARK: Dark-ramp aliases for chrome that has no theme at the call site
+
+        static let windowBackground = Dark.surfaceCanvas
+        static let topChromeBackground = Dark.surfaceChrome
+        static let activeTabBackground = Dark.surfaceRaised
+        static let inactiveTabBackground = Dark.surfaceChrome
+        static let inactiveTabHoverBackground = Dark.surfaceSidebar
+        static let paneHeaderBackground = Dark.surfaceChrome
+        static let paneHeaderHoverBackground = Dark.surfaceSidebar
+        static let borderHairline = Dark.hairline
+        static let divider = Dark.hairline
+        static let textPrimary = Dark.textPrimary
+        static let textSecondary = Dark.textSecondary
+        static let textMuted = Dark.textTertiary
+        static let accentBlue = Dark.accent
+        static let successGreen = Dark.success
+        static let warningOrange = Dark.warning
+        static let errorRed = Dark.error
 
         static let terminalBackground = NSColor(
-            calibratedRed: 34.0 / 255.0,
+            srgbRed: 34.0 / 255.0,
             green: 37.0 / 255.0,
             blue: 43.0 / 255.0,
             alpha: 1
@@ -219,9 +334,6 @@ enum DesignTokens {
         static let commandHistoryStatusDotSizePX: CGFloat = 8
         static let commandHistoryRowInsetXPX: CGFloat = 8
         static let commandHistoryRowGapPX: CGFloat = 6
-        static let commandHistoryRowCornerRadiusPX: CGFloat = 5
-        static let commandHistoryRowHighlightInsetXPX: CGFloat = 4
-        static let commandHistoryRowHighlightInsetYPX: CGFloat = 1
         static let commandHistoryTimeLabelMinWidthPX: CGFloat = 28
         static let commandHistoryBadgeHeightPX: CGFloat = 16
         static let commandHistoryBadgeTextInsetXPX: CGFloat = 6
@@ -232,8 +344,6 @@ enum DesignTokens {
         static let commandHistoryOutlineIndentationPX: CGFloat = 6
         static let commandHistoryDefaultExpandedGroupCount = 3
         static let commandHistorySearchPillBackgroundAlphaRATIO: CGFloat = 0.08
-        static let commandHistoryHoverBackgroundAlphaRATIO: CGFloat = 0.07
-        static let commandHistorySelectionBackgroundAlphaRATIO: CGFloat = 0.24
         static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
         static let fileExplorerPanelDefaultWidthPX: CGFloat = 350
         static let fileExplorerPanelMinWidthPX: CGFloat = 210
@@ -248,12 +358,7 @@ enum DesignTokens {
         static let fileExplorerSearchPillCornerRadiusPX: CGFloat = 7
         static let fileExplorerSearchPillTextInsetXPX: CGFloat = 6
         static let fileExplorerRowHeightPX: CGFloat = 24
-        static let fileExplorerRowCornerRadiusPX: CGFloat = 5
-        static let fileExplorerRowHighlightInsetXPX: CGFloat = 4
-        static let fileExplorerRowHighlightInsetYPX: CGFloat = 1
         static let fileExplorerSearchPillBackgroundAlphaRATIO: CGFloat = 0.08
-        static let fileExplorerHoverBackgroundAlphaRATIO: CGFloat = 0.07
-        static let fileExplorerSelectionBackgroundAlphaRATIO: CGFloat = 0.24
         // Agent-session sidebar. Shared metrics (search pill, badges, row
         // highlight, indentation) intentionally reuse the commandHistory*
         // tokens so both left-panel sections stay pixel-identical.
@@ -262,6 +367,31 @@ enum DesignTokens {
         static let agentSessionAgentIconPointSizePT: CGFloat = 12
         static let agentSessionEmptyStateIconPointSizePT: CGFloat = 18
         static let agentSessionDefaultExpandedGroupCount = 3
+        // Read-only agent transcript viewer. Flat inline rows: a tool run is one
+        // line that expands in place, so detail rows are indented rather than
+        // boxed.
+        static let agentTranscriptRowInsetXPX: CGFloat = 14
+        static let agentTranscriptRowInsetYPX: CGFloat = 4
+        static let agentTranscriptDetailInsetXPX: CGFloat = 30
+        static let agentTranscriptHeaderTopPaddingPX: CGFloat = 10
+        static let agentTranscriptBodyFontSizePT: CGFloat = 12
+        static let agentTranscriptHeaderFontSizePT: CGFloat = 10
+        static let agentTranscriptMonospacedFontSizePT: CGFloat = 11
+        static let agentTranscriptDetailBackgroundAlphaRATIO: CGFloat = 0.06
+        static let agentTranscriptDiffBackgroundAlphaRATIO: CGFloat = 0.10
+        // Shared three-state row highlight. Command history, agent sessions,
+        // and the file explorer all paint through
+        // `TerminalSidebarRowHighlight`, so the geometry lives once here.
+        static let sidebarRowHighlightInsetXPX: CGFloat = 4
+        static let sidebarRowHighlightInsetYPX: CGFloat = 2
+        static let sidebarRowHighlightCornerRadiusPX: CGFloat = 6
+        static let sidebarRowSelectionRailWidthPX: CGFloat = 2
+        static let sidebarRowSelectionRailCornerRadiusPX: CGFloat = 1
+        static let sidebarRowFocusRingWidthPX: CGFloat = 2
+        static let sidebarRowFocusRingOutsetPX: CGFloat = 1
+        /// Selected row in a background window: achromatic, so an inactive
+        /// window never claims the accent.
+        static let sidebarRowInactiveSelectionAlphaRATIO: CGFloat = 0.07
         static let leftSidebarSegmentedControlHeightPX: CGFloat = 22
         static let leftSidebarSegmentedControlInsetXPX: CGFloat = 12
         static let leftSidebarSegmentedControlTopInsetPX: CGFloat = 10
@@ -293,6 +423,26 @@ enum DesignTokens {
         static let radiusMediumPX: CGFloat = 8
         static let hairlinePX: CGFloat = 1
         static let ptyOutputCoalescingDelaySeconds: TimeInterval = 0.006
+    }
+}
+
+extension NSColor {
+    /// Builds a ramp color from an sRGB hex triplet.
+    ///
+    /// The design ramp is specified in sRGB hex. The generic-RGB constructor
+    /// builds a color in a different space, which renders a visibly different
+    /// value, so every design token color goes through this sRGB constructor.
+    static func designTokenSRGB(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
+        let maxChannelValue: CGFloat = 255
+        let redShift: UInt32 = 16
+        let greenShift: UInt32 = 8
+        let channelMask: UInt32 = 0xFF
+        return NSColor(
+            srgbRed: CGFloat((hex >> redShift) & channelMask) / maxChannelValue,
+            green: CGFloat((hex >> greenShift) & channelMask) / maxChannelValue,
+            blue: CGFloat(hex & channelMask) / maxChannelValue,
+            alpha: alpha
+        )
     }
 }
 

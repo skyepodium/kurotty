@@ -149,9 +149,9 @@ final class AgentSessionTranscriptController {
             let batches = stride(
                 from: 0,
                 to: decoded.count,
-                by: AgentTranscriptReadLimits.appendBatchMessageCount
+                by: AppConstants.AgentTranscript.appendBatchMessageCount
             ).map { start in
-                Array(decoded[start..<min(start + AgentTranscriptReadLimits.appendBatchMessageCount, decoded.count)])
+                Array(decoded[start..<min(start + AppConstants.AgentTranscript.appendBatchMessageCount, decoded.count)])
             }
             let updatedReader = reader
             let oversizedRecordCount = reader.oversizedRecordCount

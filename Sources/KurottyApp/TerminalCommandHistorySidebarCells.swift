@@ -20,66 +20,11 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
     }
 }
 
-/// Sidebar row with a rounded accent-tinted selection highlight and a subtle
-/// hover highlight, drawn from chrome-theme colors so both light and dark
-/// presets stay correct.
+/// Command-history and agent-session sidebar row. All painting lives in the
+/// shared `TerminalSidebarRowView` so history, agent sessions, and the file
+/// explorer cannot drift apart.
 @MainActor
-final class TerminalCommandHistorySidebarRowView: NSTableRowView {
-    var hoverBackgroundColor: NSColor = .clear
-    var selectionBackgroundColor: NSColor = .clear
-    private var isMouseInside = false
-    private var hoverTrackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isMouseInside = true
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isMouseInside = false
-        needsDisplay = true
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        guard isMouseInside, !isSelected else {
-            return
-        }
-        fillHighlight(with: hoverBackgroundColor)
-    }
-
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else {
-            return
-        }
-        fillHighlight(with: selectionBackgroundColor)
-    }
-
-    private func fillHighlight(with color: NSColor) {
-        let highlightRect = bounds.insetBy(
-            dx: DesignTokens.Component.commandHistoryRowHighlightInsetXPX,
-            dy: DesignTokens.Component.commandHistoryRowHighlightInsetYPX
-        )
-        let radius = DesignTokens.Component.commandHistoryRowCornerRadiusPX
-        color.setFill()
-        NSBezierPath(roundedRect: highlightRect, xRadius: radius, yRadius: radius).fill()
-    }
-}
+final class TerminalCommandHistorySidebarRowView: TerminalSidebarRowView {}
 
 /// Expandable project node: folder icon, emphasized last path component,
 /// dimmed parent path, and a trailing rounded count badge.
@@ -89,7 +34,17 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         static let folder = "folder"
     }
 
+    private let titleLabel: NSTextField
+    private let titleStyler: TerminalSidebarRowTitleStyler
+
     init(group: TerminalCommandHistoryPanelGroup, chromeTheme: DesignTokens.ChromeTheme) {
+        titleLabel = NSTextField(labelWithString: group.display.lastComponent)
+        titleStyler = TerminalSidebarRowTitleStyler(
+            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
+            baseWeight: .semibold,
+            baseColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
         super.init(frame: .zero)
 
         let iconView = NSImageView()
@@ -102,9 +57,8 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
-        let nameLabel = NSTextField(labelWithString: group.display.lastComponent)
-        nameLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarGroupNameFontSizePT, weight: .semibold)
-        nameLabel.textColor = chromeTheme.textPrimary
+        let nameLabel = titleLabel
+        titleStyler.apply(.rest, to: nameLabel)
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.maximumNumberOfLines = 1
         nameLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -181,12 +135,29 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
     }
 }
 
+extension TerminalCommandHistoryGroupCellView: TerminalSidebarRowTitleStyling {
+    func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        titleStyler.apply(appearance, to: titleLabel)
+    }
+}
+
 /// Command leaf row: status dot, monospaced command text with middle
 /// truncation, and a trailing relative-time detail (failures append the exit
 /// code in dimmed text).
 @MainActor
 final class TerminalCommandHistoryCommandCellView: NSTableCellView {
+    private let commandLabel: NSTextField
+    private let titleStyler: TerminalSidebarRowTitleStyler
+
     init(entry: TerminalCommandHistoryEntry, chromeTheme: DesignTokens.ChromeTheme, now: Date) {
+        commandLabel = NSTextField(labelWithString: entry.commandText)
+        titleStyler = TerminalSidebarRowTitleStyler(
+            baseFontSizePT: DesignTokens.Typography.sidebarCommandFontSizePT,
+            baseWeight: .regular,
+            baseColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme,
+            isMonospaced: true
+        )
         super.init(frame: .zero)
 
         let didSucceed = (entry.exitCode ?? 0) == 0
@@ -194,17 +165,12 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
         dot.wantsLayer = true
         dot.layer?.cornerRadius = DesignTokens.Component.commandHistoryStatusDotSizePX / 2
         dot.layer?.backgroundColor = didSucceed
-            ? DesignTokens.Color.successGreen.cgColor
-            : DesignTokens.Color.errorRed.cgColor
+            ? chromeTheme.success.cgColor
+            : chromeTheme.error.cgColor
         dot.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dot)
 
-        let commandLabel = NSTextField(labelWithString: entry.commandText)
-        commandLabel.font = NSFont.monospacedSystemFont(
-            ofSize: DesignTokens.Typography.sidebarCommandFontSizePT,
-            weight: .regular
-        )
-        commandLabel.textColor = chromeTheme.textPrimary
+        titleStyler.apply(.rest, to: commandLabel)
         commandLabel.lineBreakMode = .byTruncatingMiddle
         commandLabel.maximumNumberOfLines = 1
         commandLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -246,5 +212,11 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+}
+
+extension TerminalCommandHistoryCommandCellView: TerminalSidebarRowTitleStyling {
+    func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        titleStyler.apply(appearance, to: commandLabel)
     }
 }

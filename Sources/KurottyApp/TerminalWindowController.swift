@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
+final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSWindowDelegate {
     private let dropTargetView = TerminalPaneDropTargetView()
     let paneDragCoordinator: TerminalPaneDragCoordinator
     private var rootView: NSView {
@@ -29,12 +29,21 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
     // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
     let fileExplorerPanel = TerminalFileExplorerPanelView()
+    /// Bottom status bar. It owns the bottom strip exactly as the chrome bar
+    /// owns the top one: the split view is pinned to its `topAnchor`, so a
+    /// collapsed bar gives every point back to the terminal content.
+    let statusBarView = TerminalStatusBarView(frame: .zero)
     private var tabBarHeightConstraint: NSLayoutConstraint?
     /// Sidebar width constraints stay active only while the panel is shown: a
     /// hidden view still participates in Auto Layout, so leaving them on keeps
     /// the split view reserving a sliver of width plus its divider.
     var commandHistoryWidthConstraints: [NSLayoutConstraint] = []
     var fileExplorerWidthConstraints: [NSLayoutConstraint] = []
+    /// Per-pane scrollback persistence for this window. `nil` when Application
+    /// Support is unavailable; every call site treats that as "no snapshots".
+    /// Settable so tests can point it at a temporary root instead of the user's
+    /// real Application Support directory.
+    var scrollbackSnapshotCoordinator: TerminalScrollbackSnapshotCoordinator?
     var chromeTheme: DesignTokens.ChromeTheme
     private var lastAppliedWindowSettings: WindowSettings
     private var tmuxCoordinators: [TmuxNativeSessionCoordinator] = []
@@ -54,6 +63,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         lastAppliedWindowSettings = settings.window
+        // Launch-only: the flag is read once here and gates both capture and
+        // restore for this window's lifetime.
+        scrollbackSnapshotCoordinator = TerminalScrollbackSnapshotCoordinator.makeDefault(
+            isEnabled: settings.terminal.restoreScrollbackOnLaunch
+        )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -68,11 +82,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         window.isMovableByWindowBackground = true
         window.center()
         super.init(window: window)
+        window.delegate = self
         configureTabs(initialPane: initialPane)
+        statusBarView.setEnabled(settings.terminal.statusBarEnabled)
         applyChromeTheme(chromeTheme)
         observeSettings()
         observeTerminalTitles()
         observeTmuxControlMode()
+        observePaneFocus()
     }
 
     required init?(coder: NSCoder) {
@@ -115,6 +132,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         tabView.selectTabViewItem(item)
         updateTabBar()
         currentSplitView()?.focusFirstPane()
+        refreshStatusBarPanes()
     }
 
     func splitVertically() {
@@ -128,6 +146,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     func split(direction: TerminalPaneSplitDirection) {
         if let coordinator = selectedTmuxCoordinator { coordinator.split(direction); return }
         currentSplitView()?.split(direction: direction)
+        refreshStatusBarPanes()
     }
 
     func focusPane(_ direction: TerminalPaneFocusDirection) {
@@ -193,14 +212,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
-        let windowID = window?.identifier?.rawValue ?? "window-main"
+        workspaceDescriptor(capturingScrollback: false)
+    }
+
+    /// Layout descriptor for this window. With `capturingScrollback` on, every
+    /// live pane's trailing rows are serialized and enqueued for writing, and
+    /// the resulting reference is recorded on that pane's descriptor.
+    func workspaceDescriptor(
+        capturingScrollback: Bool
+    ) -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
+        let windowID = window?.identifier?.rawValue ?? AppConstants.Workspace.defaultWindowIdentifier
         return WorkspaceSnapshotCoordinator.WorkspaceDescriptor(
             windows: [
                 WorkspaceSnapshotCoordinator.WindowDescriptor(
                     id: windowID,
                     title: nil,
                     frame: windowFrameSnapshot,
-                    tabs: layoutOnlyTabDescriptors(),
+                    tabs: layoutOnlyTabDescriptors(capturingScrollback: capturingScrollback),
                     activeTabID: selectedTabID
                 ),
             ],
@@ -230,6 +258,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             return
         }
         currentSplitView()?.focusFirstPane()
+        refreshStatusBarPanes()
     }
 
     func selectNextTab() {
@@ -351,6 +380,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
             tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
         ])
+        // Mounted before the split configuration because the split's bottom
+        // constraint is pinned to `statusBarView.topAnchor`: Auto Layout
+        // requires both views to already share `rootView` as an ancestor when
+        // that constraint is activated.
+        statusBarView.dataSource = self
+        statusBarView.attach(to: rootView)
+        statusBarView.applyChromeTheme(chromeTheme)
+
         configureCommandHistorySplit(in: rootView)
         configureFileExplorerPane()
         addTab(with: initialPane)
@@ -360,6 +397,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         window?.title = tabViewItem?.label ?? AppConstants.Bundle.displayName
         updateTabBar()
         refreshFileExplorerRootDirectory()
+        refreshStatusBarPanes()
         if suppressesTmuxSelectionCallbacks {
             return
         }
@@ -434,6 +472,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         }
         chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         applyChromeTheme(chromeTheme)
+        // Live-applied: the bar collapses or expands in place, and a collapsed
+        // bar tears its sampling timer down instead of idling.
+        statusBarView.setEnabled(settings.terminal.statusBarEnabled)
         applyWindowSettingsIfChanged(settings)
     }
 
@@ -460,6 +501,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
         leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
+        statusBarView.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
         updateTabBar()
     }
@@ -471,6 +513,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
                 splitView.applyChromeTheme(theme)
             } else if let editor = editorView(in: item) {
                 editor.applyChromeTheme(theme)
+            } else if let transcript = transcriptView(in: item) {
+                transcript.applyChromeTheme(theme)
             }
         }
     }
@@ -556,25 +600,41 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         return tabID(for: selectedItem, index: tabView.indexOfTabViewItem(selectedItem))
     }
 
-    private func layoutOnlyTabDescriptors() -> [WorkspaceSnapshotCoordinator.TabDescriptor] {
+    private func layoutOnlyTabDescriptors(
+        capturingScrollback: Bool
+    ) -> [WorkspaceSnapshotCoordinator.TabDescriptor] {
         (0..<tabView.numberOfTabViewItems).compactMap { index in
             let item = tabView.tabViewItem(at: index)
             guard let splitView = item.view as? SplitTerminalView else {
                 return nil
             }
+            let idPrefix = layoutIDPrefix(forTabIndex: index)
             return WorkspaceSnapshotCoordinator.TabDescriptor(
                 id: tabID(for: item, index: index),
                 title: nil,
-                root: splitView.layoutOnlyDescriptor(idPrefix: "tab-\(index)")
+                root: splitView.layoutOnlyDescriptor(idPrefix: idPrefix) { pane, paneID in
+                    guard capturingScrollback else {
+                        return nil
+                    }
+                    return captureScrollbackSnapshot(of: pane, tabID: idPrefix, paneID: paneID)
+                }
             )
         }
+    }
+
+    /// Positional tab identity used for pane identifiers and snapshot
+    /// references. Deliberately not the tab's `NSTabViewItem` identifier: that
+    /// is a fresh UUID per launch, while a restored layout has to line up with
+    /// the slot the pane occupied last time.
+    func layoutIDPrefix(forTabIndex index: Int) -> String {
+        "\(AppConstants.Workspace.tabIdentifierPrefix)\(index)"
     }
 
     private func tabID(for item: NSTabViewItem, index: Int) -> String {
         if let id = item.identifier as? String, !id.isEmpty {
             return id
         }
-        return "tab-\(index)"
+        return layoutIDPrefix(forTabIndex: index)
     }
 
     private func defaultTabLabel() -> String {
@@ -716,6 +776,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private func closeTab(_ item: NSTabViewItem) {
         tabView.removeTabViewItem(item)
         updateTabBar()
+        refreshStatusBarPanes()
     }
 
     fileprivate func tabItem(containing surface: TerminalSurfaceView) -> NSTabViewItem? {
@@ -956,7 +1017,7 @@ private final class TerminalTabItemView: NSView {
 
     private var tabBackgroundColor: NSColor {
         if selected {
-            return isHovered ? chromeTheme.activeTabBackground.blended(withFraction: 0.10, of: DesignTokens.Color.accentBlue) ?? chromeTheme.activeTabBackground : chromeTheme.activeTabBackground
+            return isHovered ? chromeTheme.activeTabBackground.blended(withFraction: 0.10, of: chromeTheme.accent) ?? chromeTheme.activeTabBackground : chromeTheme.activeTabBackground
         }
         return isHovered
             ? chromeTheme.inactiveTabHoverBackground

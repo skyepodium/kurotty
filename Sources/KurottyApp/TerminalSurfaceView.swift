@@ -2518,6 +2518,37 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         set { interpreter.isReplayingScrollback = newValue }
     }
 
+    /// Trailing rows to persist for this pane: the newest
+    /// `maximumRows` of scrollback plus the live screen, copied out on the main
+    /// actor so the snapshot writer never touches terminal state.
+    ///
+    /// Bounded here rather than after serialization: a million-row pane must not
+    /// be rendered into a multi-megabyte string only to have the store budget
+    /// throw almost all of it away.
+    func persistableScrollbackRows(
+        maximumRows: Int = AppConstants.TerminalScrollbackSnapshots.maximumCapturedRowCount
+    ) -> [[TerminalScreenCell]] {
+        guard maximumRows > 0 else {
+            return []
+        }
+        let start = max(0, contentRowCount - maximumRows)
+        return (start..<contentRowCount).compactMap { contentRow(at: $0) }
+    }
+
+    /// Default style the persisted rows were rendered against, so a replay can
+    /// tell a styled cell from an unstyled one.
+    var persistableDefaultStyle: TerminalTextStyle {
+        terminalDefaultStyle
+    }
+
+    /// `TerminalScrollbackReplayTarget` ingest point. Display only: restored
+    /// bytes go into the screen model through the private interpreter and
+    /// nothing is ever written back to the PTY. The conformance itself is
+    /// declared in `TerminalScrollbackReplay.swift`.
+    func consumeReplayedScrollback(_ text: String) {
+        interpreter.interpret(text)
+    }
+
     var colorSchemeUpdateModeEnabled: Bool {
         get { interpreter.colorSchemeUpdateModeEnabled }
         set { interpreter.colorSchemeUpdateModeEnabled = newValue }

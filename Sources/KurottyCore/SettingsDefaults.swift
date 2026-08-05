@@ -1,8 +1,16 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 13
+    public static let schemaVersion = 15
     public static let commandHistoryEnabled = true
+    /// Live-applied and on by default. The window's bottom status bar is passive
+    /// chrome; turning it off collapses the strip to zero height and stops the
+    /// resource sampler entirely, so no timer and no `libproc` call remains.
+    public static let statusBarEnabled = true
+    /// Launch-only and on by default. Restoring stored scrollback only repaints
+    /// the screen model; it never writes to a PTY and never runs a command, so
+    /// it stays separate from the command-replay opt-in.
+    public static let restoreScrollbackOnLaunch = true
     /// Live-applied and on by default. A paste that spans more than one line
     /// can execute every line it contains, so it asks for confirmation first.
     public static let confirmMultilinePaste = true

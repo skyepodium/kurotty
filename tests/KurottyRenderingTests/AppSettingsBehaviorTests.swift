@@ -548,9 +548,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 12 pane-behavior keys
 
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
-        // Re-pointed at schema 13 when `terminal.confirmMultilinePaste` was
-        // added; the schema-12 keys below keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 13)
+        // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
+        // the schema-12 keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertFalse(
@@ -672,6 +672,123 @@ final class AppSettingsBehaviorTests: XCTestCase {
                 gitRootLookup: { _ in nil }
             )
         )
+    }
+
+    // MARK: - Schema 14 scrollback restore
+
+    /// Restoring stored scrollback only repaints the screen model, so unlike
+    /// command replay it is safe to default on.
+    func testScrollbackRestoreDefaultsOn() {
+        // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
+        // the scrollback-restore default below is unchanged.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
+        XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
+        XCTAssertEqual(
+            TerminalScrollbackRestoreSetting.keyPath,
+            "terminal.restoreScrollbackOnLaunch"
+        )
+        XCTAssertEqual(
+            TerminalScrollbackRestoreSetting.defaultValue,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    func testSettingsWrittenBeforeSchemaFourteenNormalizeToTheCurrentDefault() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 13
+        settings.terminal.restoreScrollbackOnLaunch = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(
+            normalized.terminal.restoreScrollbackOnLaunch,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    func testCurrentSchemaPreservesAnExplicitScrollbackRestoreChoice() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.restoreScrollbackOnLaunch = false
+
+        XCTAssertFalse(AppSettingsNormalizer.normalized(settings).terminal.restoreScrollbackOnLaunch)
+    }
+
+    func testDecodingASettingsFileWithoutTheScrollbackRestoreKeyUsesTheDefault() throws {
+        let json = """
+        {
+          "schemaVersion": 13,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          },
+          "window": { "width": 1100, "height": 720 },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(
+            decoded.terminal.restoreScrollbackOnLaunch,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    // MARK: - Schema 15 status bar
+
+    /// The bar is passive chrome that samples resource counters, so it defaults
+    /// on but must always be switchable off; turning it off stops the sampler
+    /// rather than only hiding the view.
+    func testStatusBarDefaultsOn() {
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertTrue(SettingsDefaults.statusBarEnabled)
+        XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
+    }
+
+    func testSettingsWrittenBeforeSchemaFifteenNormalizeToTheCurrentDefault() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 14
+        settings.terminal.statusBarEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(normalized.terminal.statusBarEnabled, SettingsDefaults.statusBarEnabled)
+    }
+
+    func testCurrentSchemaPreservesAnExplicitStatusBarChoice() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.statusBarEnabled = false
+
+        XCTAssertFalse(AppSettingsNormalizer.normalized(settings).terminal.statusBarEnabled)
+    }
+
+    func testDecodingASettingsFileWithoutTheStatusBarKeyUsesTheDefault() throws {
+        let json = """
+        {
+          "schemaVersion": 14,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          },
+          "window": { "width": 1100, "height": 720 },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.terminal.statusBarEnabled, SettingsDefaults.statusBarEnabled)
     }
 
     private func customColorsJSON() -> String {

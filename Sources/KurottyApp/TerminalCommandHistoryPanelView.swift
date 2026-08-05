@@ -550,10 +550,7 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
 
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalCommandHistorySidebarRowView()
-        rowView.hoverBackgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistoryHoverBackgroundAlphaRATIO)
-        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
-            .withAlphaComponent(DesignTokens.Component.commandHistorySelectionBackgroundAlphaRATIO)
+        rowView.chromeTheme = chromeTheme
         return rowView
     }
 

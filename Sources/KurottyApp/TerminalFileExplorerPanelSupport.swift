@@ -83,69 +83,33 @@ enum FileExplorerIcon {
 
 // MARK: - Row cell
 
+/// File-explorer sidebar row. Painting lives in the shared
+/// `TerminalSidebarRowView` so the explorer and the history/agent lists share
+/// one three-state row system.
 @MainActor
-final class TerminalFileExplorerSidebarRowView: NSTableRowView {
-    var hoverBackgroundColor: NSColor = .clear
-    var selectionBackgroundColor: NSColor = .clear
-    private var isMouseInside = false
-    private var hoverTrackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
-            owner: self
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isMouseInside = true
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isMouseInside = false
-        needsDisplay = true
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        super.drawBackground(in: dirtyRect)
-        guard isMouseInside, !isSelected else { return }
-        fillHighlight(with: hoverBackgroundColor)
-    }
-
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        fillHighlight(with: selectionBackgroundColor)
-    }
-
-    private func fillHighlight(with color: NSColor) {
-        let rect = bounds.insetBy(
-            dx: DesignTokens.Component.fileExplorerRowHighlightInsetXPX,
-            dy: DesignTokens.Component.fileExplorerRowHighlightInsetYPX
-        )
-        color.setFill()
-        NSBezierPath(
-            roundedRect: rect,
-            xRadius: DesignTokens.Component.fileExplorerRowCornerRadiusPX,
-            yRadius: DesignTokens.Component.fileExplorerRowCornerRadiusPX
-        ).fill()
-    }
-}
+final class TerminalFileExplorerSidebarRowView: TerminalSidebarRowView {}
 
 @MainActor
 final class TerminalFileExplorerRowCellView: NSTableCellView {
+    private let nameLabel: NSTextField
+    private let titleStyler: TerminalSidebarRowTitleStyler
+
     init(
         item: TerminalFileExplorerOutlineItem,
         badge: FileExplorerGitBadge?,
         chromeTheme: DesignTokens.ChromeTheme
     ) {
-        super.init(frame: .zero)
         let isDimmed = item.node.isHiddenFile || badge == .ignored
+        nameLabel = NSTextField(labelWithString: item.filterDisplayPath ?? item.node.name)
+        titleStyler = TerminalSidebarRowTitleStyler(
+            baseFontSizePT: DesignTokens.Typography.labelFontSizePT,
+            baseWeight: .regular,
+            baseColor: isDimmed
+                ? chromeTheme.textMuted
+                : item.node.kind == .directory ? chromeTheme.textSecondary : chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
+        super.init(frame: .zero)
 
         let iconView = NSImageView()
         iconView.image = NSImage(
@@ -163,12 +127,7 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
-        let displayName = item.filterDisplayPath ?? item.node.name
-        let nameLabel = NSTextField(labelWithString: displayName)
-        nameLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
-        nameLabel.textColor = isDimmed
-            ? chromeTheme.textMuted
-            : item.node.kind == .directory ? chromeTheme.textSecondary : chromeTheme.textPrimary
+        titleStyler.apply(.rest, to: nameLabel)
         nameLabel.alphaValue = isDimmed ? FileExplorerMetrics.dimmedAlphaRATIO : 1
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.maximumNumberOfLines = 1
@@ -232,9 +191,15 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         chromeTheme: DesignTokens.ChromeTheme
     ) -> NSColor {
         switch badge {
-        case .modified: DesignTokens.Color.warningOrange
-        case .untracked: DesignTokens.Color.successGreen
+        case .modified: chromeTheme.warning
+        case .untracked: chromeTheme.success
         case .ignored, nil: chromeTheme.textMuted
         }
+    }
+}
+
+extension TerminalFileExplorerRowCellView: TerminalSidebarRowTitleStyling {
+    func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        titleStyler.apply(appearance, to: nameLabel)
     }
 }

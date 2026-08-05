@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentStatusHookCoordinator.shared.applyStoredSetting()
         MainMenu.install(target: self)
         openNewWindow()
+        restoreScrollbackFromWorkspaceSnapshot()
         if DebugOptions.showHistoryPanel {
             windowController?.setCommandHistoryPanelVisible(true)
         }
@@ -49,6 +50,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         notificationBridge.stop()
+        captureWorkspaceSnapshotOnTermination()
+    }
+
+    /// Last snapshot of the session. Failures are swallowed — a quit must not be
+    /// blocked by an unwritable snapshot — but the pending writes are flushed
+    /// so the debounced queue cannot lose the capture to process exit.
+    private func captureWorkspaceSnapshotOnTermination() {
+        guard let controller = activeTerminalWindowController else {
+            return
+        }
+        _ = try? writeWorkspaceSnapshot(from: controller, to: workspaceSnapshotURL())
+        controller.flushScrollbackSnapshotWrites()
     }
 
     @objc func openNewWindow() {
@@ -141,11 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let coordinator = WorkspaceSnapshotCoordinator()
         let snapshotURL = workspaceSnapshotURL()
         do {
-            let descriptor = terminalController.layoutOnlyWorkspaceDescriptor()
-            _ = try coordinator.saveLayoutOnlySnapshot(from: descriptor, to: snapshotURL)
+            _ = try writeWorkspaceSnapshot(from: terminalController, to: snapshotURL)
             showInformationalAlert(
                 title: "Workspace Saved",
                 message: "Saved layout-only workspace snapshot to \(snapshotURL.path)."
@@ -156,6 +167,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 message: error.localizedDescription
             )
         }
+    }
+
+    /// Writes the layout snapshot, capturing each pane's trailing scrollback as
+    /// part of the same pass so the snapshot and the referenced files describe
+    /// the same moment. Returns the snapshot that was written so callers can
+    /// prune against it.
+    @discardableResult
+    private func writeWorkspaceSnapshot(
+        from controller: TerminalWindowController,
+        to url: URL
+    ) throws -> WorkspaceSnapshot {
+        let coordinator = WorkspaceSnapshotCoordinator()
+        let descriptor = controller.workspaceDescriptor(capturingScrollback: true)
+        let snapshot = coordinator.makeLayoutOnlySnapshot(from: descriptor)
+        _ = try coordinator.saveLayoutOnlySnapshot(from: descriptor, to: url)
+        controller.pruneScrollbackSnapshots(retaining: snapshot)
+        return snapshot
+    }
+
+    /// Replays the stored scrollback of the previous session into the panes that
+    /// occupy the same layout slots, then prunes anything the restored workspace
+    /// no longer references.
+    ///
+    /// Display-only: nothing here consults or advances the command-replay
+    /// opt-in, and no byte reaches a PTY.
+    private func restoreScrollbackFromWorkspaceSnapshot() {
+        guard let controller = windowController else {
+            return
+        }
+        guard case let .success(snapshot) = WorkspaceSnapshotStore().load(from: workspaceSnapshotURL())
+        else {
+            return
+        }
+        controller.restoreScrollback(from: snapshot)
+        controller.pruneScrollbackSnapshots(retaining: snapshot)
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -252,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func workspaceSnapshotURL() -> URL {
         AppSettingsStore.shared.settingsURL
             .deletingLastPathComponent()
-            .appendingPathComponent("workspace.json")
+            .appendingPathComponent(AppConstants.Workspace.fileName)
     }
 
     private func showUpdateUnavailableNotice() {

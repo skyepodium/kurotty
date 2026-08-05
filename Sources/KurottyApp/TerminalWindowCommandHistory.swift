@@ -47,7 +47,10 @@ extension TerminalWindowController {
             // The window-wide chrome bar owns the top strip, so panels start
             // below it and never collide with the title bar's traffic lights.
             commandHistorySplitView.topAnchor.constraint(equalTo: chromeBarBottomAnchor),
-            commandHistorySplitView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            // The bottom status bar owns the bottom strip the same way the
+            // chrome bar owns the top one, so the split stops at its top edge
+            // instead of running under it.
+            commandHistorySplitView.bottomAnchor.constraint(equalTo: statusBarView.topAnchor),
         ])
 
         // The panel starts collapsed through the shared helper so the hidden
@@ -128,6 +131,11 @@ extension TerminalWindowController {
         }
         agentSessionPanel.onOpenDirectoryInExplorer = { [weak self] record in
             self?.openAgentSessionDirectoryInExplorer(record)
+        }
+        // Single-click opens the read-only viewer in a center tab; double-click
+        // stays on the insert-resume-command path.
+        agentSessionPanel.onOpenTranscript = { [weak self] record in
+            self?.openTranscriptTab(for: record)
         }
     }
 

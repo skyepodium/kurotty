@@ -15,22 +15,12 @@ final class TerminalAgentSessionPanelView: NSView {
         static let search = "magnifyingglass"
     }
 
-    /// Strings that belong in `AppLocalization` once this wave's file ownership
-    /// split ends. Listed in the handoff report for migration.
-    private enum Copy {
-        static let openTranscript = "Open Transcript"
-    }
-
     var onInsertResumeCommand: ((AgentSessionRecord) -> Void)?
     var onOpenDirectoryInExplorer: ((AgentSessionRecord) -> Void)?
-    /// Set by a host that wants the transcript somewhere other than its own
-    /// window, such as a center editor tab. When nil the panel presents the
-    /// read-only viewer itself.
+    /// Set by the host window controller, which opens the read-only viewer in a
+    /// center tab. The panel itself never presents a viewer: it has no window to
+    /// own one, so an unset handler simply means the action is unavailable.
     var onOpenTranscript: ((AgentSessionRecord) -> Void)?
-
-    /// Owned here so the viewer's lifetime matches the sidebar's rather than
-    /// living in a global.
-    private let transcriptPresenter = AgentSessionTranscriptPresenter()
 
     private let store: AgentSessionIndexStore
     private let homeDirectory: String
@@ -93,7 +83,6 @@ final class TerminalAgentSessionPanelView: NSView {
         emptyStateLabel.alphaValue = 0.72
         outlineView.reloadData()
         applyExpansionState()
-        transcriptPresenter.applyChromeTheme(theme)
     }
 
     func focusFilterField() {
@@ -423,11 +412,7 @@ final class TerminalAgentSessionPanelView: NSView {
         guard !record.filePath.isEmpty else {
             return
         }
-        guard let onOpenTranscript else {
-            transcriptPresenter.present(record: record)
-            return
-        }
-        onOpenTranscript(record)
+        onOpenTranscript?(record)
     }
 
     @objc private func rowClicked(_ sender: Any?) {
@@ -474,7 +459,7 @@ final class TerminalAgentSessionPanelView: NSView {
             (.openDirectoryInExplorer, #selector(openDirectoryFromContextMenu(_:))),
         ]
         let transcriptItem = NSMenuItem(
-            title: Copy.openTranscript,
+            title: AppLocalization.string(.openTranscript),
             action: #selector(openTranscriptFromContextMenu(_:)),
             keyEquivalent: ""
         )
@@ -577,10 +562,7 @@ extension TerminalAgentSessionPanelView: NSOutlineViewDataSource, NSOutlineViewD
 
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalCommandHistorySidebarRowView()
-        rowView.hoverBackgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistoryHoverBackgroundAlphaRATIO)
-        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
-            .withAlphaComponent(DesignTokens.Component.commandHistorySelectionBackgroundAlphaRATIO)
+        rowView.chromeTheme = chromeTheme
         return rowView
     }
 

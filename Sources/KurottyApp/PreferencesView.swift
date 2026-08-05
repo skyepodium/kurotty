@@ -70,6 +70,16 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(agentStatusHooksToggled(_:))
     )
+    private lazy var restoreScrollbackCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(restoreScrollbackToggled(_:))
+    )
+    private lazy var statusBarCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(statusBarToggled(_:))
+    )
     private lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
@@ -250,6 +260,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         textSection.addArrangedSubview(row(label: copy(.hideMouseCursor), control: hideMouseCursorCheckbox))
         confirmMultilinePasteCheckbox.title = copy(.confirmMultilinePasteCheckboxTitle)
         textSection.addArrangedSubview(row(label: copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox))
+        statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
+        textSection.addArrangedSubview(row(label: copy(.statusBar), control: statusBarCheckbox))
         detailStack.addArrangedSubview(textSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
@@ -259,6 +271,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         historySection.addArrangedSubview(row(label: copy(.commandHistory), control: commandHistoryCheckbox))
         agentSessionIndexCheckbox.title = copy(.agentSessionIndexCheckboxTitle)
         historySection.addArrangedSubview(row(label: copy(.agentSessionIndex), control: agentSessionIndexCheckbox))
+        restoreScrollbackCheckbox.title = copy(.restoreScrollbackCheckboxTitle)
+        historySection.addArrangedSubview(row(label: copy(.restoreScrollback), control: restoreScrollbackCheckbox))
         agentStatusHooksCheckbox.title = copy(.agentStatusHooksCheckboxTitle)
         historySection.addArrangedSubview(row(label: copy(.agentStatusHooks), control: agentStatusHooksCheckbox))
         detailStack.addArrangedSubview(historySection)
@@ -515,6 +529,22 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    /// Launch-only: the new value is stored now and read the next time a
+    /// workspace is restored. Nothing is replayed into open panes.
+    @objc private func restoreScrollbackToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.restoreScrollbackOnLaunch = sender.state == .on
+        scheduleAutosave()
+    }
+
+    /// Live-applied: open windows collapse or restore the bar as soon as the
+    /// settings change lands, and a collapsed bar stops sampling entirely.
+    @objc private func statusBarToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.statusBarEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func confirmMultilinePasteToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.confirmMultilinePaste = sender.state == .on
@@ -595,10 +625,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
         commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off
         confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
+        statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off
         agentStatusHooksCheckbox.state = settings.terminal.agentStatusHooksEnabled ? .on : .off
+        restoreScrollbackCheckbox.state = settings.terminal.restoreScrollbackOnLaunch ? .on : .off
         windowWidthField.doubleValue = settings.window.width
         windowWidthStepper.doubleValue = settings.window.width
         windowHeightField.doubleValue = settings.window.height

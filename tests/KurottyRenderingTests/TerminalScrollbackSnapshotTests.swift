@@ -463,6 +463,24 @@ final class TerminalScrollbackReplayTests: XCTestCase {
         XCTAssertTrue(target.consumed.isEmpty)
     }
 
+    /// Regression: the writer used to pass the prune result straight into
+    /// `completion?(...)`, so a caller that wanted no report skipped the prune
+    /// entirely — optional chaining does not evaluate the argument.
+    func testPruneRunsWithoutACompletionHandler() throws {
+        let store = TerminalScrollbackSnapshotStore(rootURL: rootURL)
+        let writer = TerminalScrollbackSnapshotWriter(store: store)
+        let keptRef = TerminalScrollbackSnapshotFormat.ref(tabID: "tab", paneID: "kept")
+        let orphanRef = TerminalScrollbackSnapshotFormat.ref(tabID: "tab", paneID: "orphan")
+        _ = try store.write(ref: keptRef, payload: Data("kept\r\n".utf8))
+        _ = try store.write(ref: orphanRef, payload: Data("orphan\r\n".utf8))
+
+        writer.prune(keepingRefs: [keptRef])
+        writer.waitForPendingWork()
+
+        XCTAssertNotNil(store.read(ref: keptRef))
+        XCTAssertNil(store.read(ref: orphanRef))
+    }
+
     func testCaptureWritesSnapshotAndReturnsRef() throws {
         let store = TerminalScrollbackSnapshotStore(rootURL: rootURL)
         let writer = TerminalScrollbackSnapshotWriter(store: store)

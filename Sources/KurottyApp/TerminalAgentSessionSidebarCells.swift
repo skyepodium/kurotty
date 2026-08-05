@@ -31,11 +31,21 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         static let folder = "folder"
     }
 
+    private let titleLabel: NSTextField
+    private let titleStyler: TerminalSidebarRowTitleStyler
+
     init(
         display: TerminalCommandHistoryDirectoryDisplay,
         sessionCount: Int,
         chromeTheme: DesignTokens.ChromeTheme
     ) {
+        titleLabel = NSTextField(labelWithString: display.lastComponent)
+        titleStyler = TerminalSidebarRowTitleStyler(
+            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
+            baseWeight: .semibold,
+            baseColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
         super.init(frame: .zero)
 
         let iconView = NSImageView()
@@ -48,12 +58,8 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
-        let nameLabel = NSTextField(labelWithString: display.lastComponent)
-        nameLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            weight: .semibold
-        )
-        nameLabel.textColor = chromeTheme.textPrimary
+        let nameLabel = titleLabel
+        titleStyler.apply(.rest, to: nameLabel)
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.maximumNumberOfLines = 1
         nameLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -103,16 +109,32 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
     }
 }
 
+extension TerminalAgentSessionGroupCellView: TerminalSidebarRowTitleStyling {
+    func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        titleStyler.apply(appearance, to: titleLabel)
+    }
+}
+
 /// Session leaf row: agent icon, semibold title, dimmed home-abbreviated
 /// working directory, trailing relative time, and a message-count badge.
 @MainActor
 final class TerminalAgentSessionRowCellView: NSTableCellView {
+    private let titleLabel: NSTextField
+    private let titleStyler: TerminalSidebarRowTitleStyler
+
     init(
         record: AgentSessionRecord,
         chromeTheme: DesignTokens.ChromeTheme,
         now: Date,
         homeDirectory: String
     ) {
+        titleLabel = NSTextField(labelWithString: record.title)
+        titleStyler = TerminalSidebarRowTitleStyler(
+            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
+            baseWeight: .semibold,
+            baseColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
         super.init(frame: .zero)
 
         let iconView = NSImageView()
@@ -125,12 +147,7 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
-        let titleLabel = NSTextField(labelWithString: record.title)
-        titleLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            weight: .semibold
-        )
-        titleLabel.textColor = chromeTheme.textPrimary
+        titleStyler.apply(.rest, to: titleLabel)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -200,6 +217,12 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+}
+
+extension TerminalAgentSessionRowCellView: TerminalSidebarRowTitleStyling {
+    func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        titleStyler.apply(appearance, to: titleLabel)
     }
 }
 

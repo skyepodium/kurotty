@@ -1411,7 +1411,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(sessionSource.contains("protocol TerminalSession: AnyObject"))
         XCTAssertFalse(shellSource.contains("protocol TerminalSession"))
-        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalSessionInputBackpressureReporting, @unchecked Sendable"))
+        XCTAssertTrue(shellSource.contains("final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfigurable, TerminalShellProcessIdentifying, TerminalSessionInputBackpressureReporting, @unchecked Sendable"))
+        // The status bar's right segment has no processes to sample unless the
+        // PTY session publishes its child pid through the optional seam.
+        XCTAssertTrue(shellSource.contains("var shellProcessIdentifier: pid_t { childPid }"))
         XCTAssertTrue(shellSource.contains("foregroundProcessGroup: tcgetpgrp(master)"))
         XCTAssertTrue(shellSource.contains("killpg(processGroup, SIGWINCH)"))
         XCTAssertTrue(shellSource.contains("#if os(macOS)"))
@@ -1522,7 +1525,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 13"))
+        // Re-pointed at schema 14 when `terminal.restoreScrollbackOnLaunch` was
+        // added.
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 15"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -1842,13 +1847,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private let topBarSeparatorView = NSView()"))
         XCTAssertTrue(windowSource.contains("topBarSeparatorView.heightAnchor.constraint"))
         XCTAssertTrue(designSource.contains("topChromeBackground"))
-        XCTAssertTrue(designSource.contains("31.0 / 255.0"))
-        XCTAssertTrue(designSource.contains("34.0 / 255.0"))
-        XCTAssertTrue(designSource.contains("43.0 / 255.0"))
+        // Chrome surfaces are the semantic ramp; hex values are sRGB, not
+        // generic-RGB `calibratedRed:` components.
+        XCTAssertTrue(designSource.contains("surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)"))
+        XCTAssertTrue(designSource.contains("surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)"))
+        XCTAssertTrue(designSource.contains("surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)"))
+        XCTAssertFalse(designSource.contains("calibratedRed"))
         XCTAssertTrue(designSource.contains("activeTabBackground"))
         XCTAssertTrue(designSource.contains("inactiveTabBackground"))
-        XCTAssertTrue(designSource.contains("accentBlue"))
-        XCTAssertTrue(designSource.contains("accentPurple"))
+        XCTAssertTrue(designSource.contains("accent: NSColor"))
+        // Purple is a syntax color only; it must not reappear as a chrome role.
+        XCTAssertFalse(designSource.contains("accentPurple"))
         XCTAssertTrue(designSource.contains("borderHairline"))
     }
 
@@ -1888,7 +1897,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let paneSource = try terminalPaneViewSource()
         let workspaceDescriptorSource = try XCTUnwrap(
             windowSource.range(
-                of: "private func layoutOnlyTabDescriptors()"
+                of: "private func layoutOnlyTabDescriptors("
             ).flatMap { start in
                 windowSource.range(of: "private func tabID", range: start.upperBound..<windowSource.endIndex).map { end in
                     String(windowSource[start.lowerBound..<end.lowerBound])

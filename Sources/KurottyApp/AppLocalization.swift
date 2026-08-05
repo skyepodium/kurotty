@@ -85,6 +85,9 @@ enum L10nKey: String, CaseIterable {
     case quickCommandChooseDirectory, quickCommandClearDirectory, quickCommandUntitled
     case quickCommandSeedGitStatus, quickCommandSeedGitDiffStat
     case quickCommandSeedGitLogGraph, quickCommandSeedClaudeResume
+    case openTranscript, transcriptEmpty, transcriptReadOnly, transcriptOlderRecordsHidden
+    case transcriptRoleUser, transcriptRoleAgent, transcriptRoleTool, transcriptRoleSystem
+    case collapseAllToolRuns
 }
 
 enum AppLocalization {
@@ -172,6 +175,10 @@ enum AppLocalization {
             .quickCommandChooseDirectory: "Choose…", .quickCommandClearDirectory: "All directories", .quickCommandUntitled: "Untitled Command",
             .quickCommandSeedGitStatus: "Git Status", .quickCommandSeedGitDiffStat: "Git Diff Stat",
             .quickCommandSeedGitLogGraph: "Git Log Graph", .quickCommandSeedClaudeResume: "Resume Claude Session",
+            .openTranscript: "Open Transcript", .transcriptEmpty: "This transcript has no readable records yet.",
+            .transcriptReadOnly: "Read-only", .transcriptOlderRecordsHidden: "Older records are not shown.",
+            .transcriptRoleUser: "You", .transcriptRoleAgent: "Agent", .transcriptRoleTool: "Tool", .transcriptRoleSystem: "System",
+            .collapseAllToolRuns: "Collapse All Tool Runs",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -220,6 +227,10 @@ enum AppLocalization {
             .quickCommandChooseDirectory: "선택…", .quickCommandClearDirectory: "모든 디렉터리", .quickCommandUntitled: "제목 없는 명령",
             .quickCommandSeedGitStatus: "Git 상태", .quickCommandSeedGitDiffStat: "Git 변경 요약",
             .quickCommandSeedGitLogGraph: "Git 로그 그래프", .quickCommandSeedClaudeResume: "Claude 세션 이어하기",
+            .openTranscript: "대화 기록 열기", .transcriptEmpty: "이 대화 기록에는 아직 읽을 수 있는 항목이 없습니다.",
+            .transcriptReadOnly: "읽기 전용", .transcriptOlderRecordsHidden: "이전 항목은 표시되지 않습니다.",
+            .transcriptRoleUser: "나", .transcriptRoleAgent: "에이전트", .transcriptRoleTool: "도구", .transcriptRoleSystem: "시스템",
+            .collapseAllToolRuns: "모든 도구 실행 접기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -268,6 +279,10 @@ enum AppLocalization {
             .quickCommandChooseDirectory: "選択…", .quickCommandClearDirectory: "すべてのディレクトリ", .quickCommandUntitled: "無題のコマンド",
             .quickCommandSeedGitStatus: "Git ステータス", .quickCommandSeedGitDiffStat: "Git 差分サマリ",
             .quickCommandSeedGitLogGraph: "Git ロググラフ", .quickCommandSeedClaudeResume: "Claude セッションを再開",
+            .openTranscript: "記録を開く", .transcriptEmpty: "この記録にはまだ読み取れるレコードがありません。",
+            .transcriptReadOnly: "読み取り専用", .transcriptOlderRecordsHidden: "古いレコードは表示されません。",
+            .transcriptRoleUser: "あなた", .transcriptRoleAgent: "エージェント", .transcriptRoleTool: "ツール", .transcriptRoleSystem: "システム",
+            .collapseAllToolRuns: "すべてのツール実行を折りたたむ",
         ],
     ]
 }
