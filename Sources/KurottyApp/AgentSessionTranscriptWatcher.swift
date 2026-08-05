@@ -31,6 +31,11 @@ final class AgentSessionTranscriptWatcher: @unchecked Sendable {
     private let onChange: @Sendable () -> Void
     private let queue: DispatchQueue
     private var directorySource: DispatchSourceFileSystemObject?
+    /// Identification only: the watched directory's descriptor number for
+    /// tests and diagnostics. The descriptor is owned by the dispatch source's
+    /// cancel handler and closed exactly once there; closing it anywhere else
+    /// double-closes a number the process may have already recycled for an
+    /// unrelated file.
     private var directoryDescriptor: Int32 = -1
     private var reconcileTimer: DispatchSourceTimer?
     private var isStopped = false
@@ -42,11 +47,11 @@ final class AgentSessionTranscriptWatcher: @unchecked Sendable {
     }
 
     deinit {
+        // `cancel()` is idempotent; the cancel handler is the only closer of
+        // the directory descriptor, so `stop()` followed by dealloc cannot
+        // close the same descriptor twice.
         directorySource?.cancel()
         reconcileTimer?.cancel()
-        if directoryDescriptor >= 0 {
-            close(directoryDescriptor)
-        }
     }
 
     /// True when the native accelerator bound. A false return is not a failure:
@@ -70,6 +75,12 @@ final class AgentSessionTranscriptWatcher: @unchecked Sendable {
 
     var isNativeWatchActive: Bool {
         directorySource != nil
+    }
+
+    /// The raw descriptor number of the active directory watch, or -1. Test
+    /// hook for the single-close ownership contract; never close this value.
+    var nativeWatchDescriptorForTesting: Int32 {
+        directoryDescriptor
     }
 
     private func bindDirectorySource() -> Bool {
