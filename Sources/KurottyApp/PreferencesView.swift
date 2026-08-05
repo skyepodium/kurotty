@@ -78,6 +78,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(confirmMultilinePasteToggled(_:))
     )
+    lazy var confirmCloseCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(confirmCloseToggled(_:))
+    )
     lazy var agentSessionIndexCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
@@ -114,6 +119,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         action: #selector(openQuickCommandsEditor(_:))
     )
     lazy var themePopup = NSPopUpButton()
+    lazy var importThemeButton = NSButton(
+        title: "",
+        target: self,
+        action: #selector(importThemePressed(_:))
+    )
     lazy var customColorsStack = NSStackView()
     lazy var previewView = PreferencesThemePreviewView()
     lazy var foregroundWell = NSColorWell()
@@ -410,6 +420,58 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    @objc private func confirmCloseToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.confirmCloseRunningProcess = sender.state == .on
+        scheduleAutosave()
+    }
+
+    @objc private func importThemePressed(_ sender: NSButton) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // Ghostty theme files carry no extension at all, so the panel cannot
+        // filter by type without hiding exactly the files this exists for.
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.importTheme(from: url)
+        }
+    }
+
+    private func importTheme(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            let colors = try TerminalThemeImporter.importTheme(from: data)
+            applyImportedThemeColors(colors)
+            setStatus(String(format: copy(.themeImported), url.deletingPathExtension().lastPathComponent))
+        } catch {
+            setStatus(String(format: copy(.themeImportFailed), themeImportFailureDescription(error)))
+        }
+    }
+
+    /// Imported palettes land as the `custom` theme so the normalizer keeps
+    /// every color instead of snapping the palette back to a preset.
+    func applyImportedThemeColors(_ colors: TerminalColorSettings) {
+        settings.terminal.theme = TerminalThemePreset.customName
+        settings.terminal.colors = colors
+        applyChromeTheme()
+        // The cards take their fill from the chrome theme, so an imported
+        // palette has to rebuild the pane, exactly like a preset switch.
+        selectCategory(selectedCategory)
+        scheduleAutosave()
+    }
+
+    private func themeImportFailureDescription(_ error: Error) -> String {
+        switch error {
+        case TerminalThemeImportError.unrecognizedFormat:
+            return copy(.themeImportUnrecognized)
+        case TerminalThemeImportError.incompletePalette:
+            return copy(.themeImportIncomplete)
+        default:
+            return error.localizedDescription
+        }
+    }
+
     @objc private func agentSessionIndexToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.agentSessionIndexEnabled = sender.state == .on
@@ -489,6 +551,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
         commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off
         confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
+        confirmCloseCheckbox.state = settings.terminal.confirmCloseRunningProcess ? .on : .off
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
@@ -577,6 +640,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     // MARK: Test hooks
 
     var selectedCategoryForTesting: PreferencesCategory { selectedCategory }
+
+    var settingsForTesting: AppSettings { settings }
+
+    /// Switches panes the way the sidebar buttons do, for tests that need to
+    /// inspect or render a pane other than the initial one.
+    func selectCategoryForTesting(_ category: PreferencesCategory) {
+        selectCategory(category)
+    }
 
     /// Types a query the way the sidebar field does, including the pane switch
     /// and the visibility pass it triggers.

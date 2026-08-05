@@ -32,6 +32,8 @@ extension PreferencesView {
         addRow(copy(.hideMouseCursor), control: hideMouseCursorCheckbox, to: textSection)
         confirmMultilinePasteCheckbox.title = copy(.confirmMultilinePasteCheckboxTitle)
         addRow(copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox, to: textSection)
+        confirmCloseCheckbox.title = copy(.confirmCloseCheckboxTitle)
+        addRow(copy(.confirmClose), control: confirmCloseCheckbox, to: textSection)
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
         addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
         detailStack.addArrangedSubview(textSection)
@@ -98,6 +100,15 @@ extension PreferencesView {
         previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
         previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         themeSection.addArrangedSubview(previewView)
+        // The Appearance pane's single primary action, mirroring the Quick
+        // Commands editor button on the Terminal pane: everything else in the
+        // card is a setting.
+        importThemeButton.title = copy(.importThemeButtonTitle)
+        stylePrimaryButton(importThemeButton)
+        themeSection.addArrangedSubview(trailingActionRow(importThemeButton))
+        // An action is not a hideable row, so its title is a keyword: the card
+        // is found by it and stays whole.
+        search.registerKeyword(importThemeButton.title, in: themeSection)
         detailStack.addArrangedSubview(themeSection)
 
         configureCustomColors()
