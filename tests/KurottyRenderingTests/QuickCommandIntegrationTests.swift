@@ -243,7 +243,10 @@ final class QuickCommandIntegrationTests: XCTestCase {
     }
 
     func testPreferencesOffersTheQuickCommandsEditorButton() throws {
+        // PreferencesView was split; the button title lives in the panes file
+        // and its action handler in the view file.
         let preferencesSource = try quickCommandSource("Sources/KurottyApp/PreferencesView.swift")
+            + quickCommandSource("Sources/KurottyApp/PreferencesViewPanes.swift")
         XCTAssertTrue(preferencesSource.contains("QuickCommandsEditorPresenter.presentQuickCommandsEditor()"))
         XCTAssertTrue(preferencesSource.contains("copy(.quickCommandsButtonTitle)"))
     }

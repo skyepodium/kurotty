@@ -1719,7 +1719,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(preferencesSource.contains("scheduleAutosave()"))
         XCTAssertTrue(preferencesSource.contains("themePopup.addItems"))
         XCTAssertTrue(preferencesSource.contains("settings.terminal.theme = TerminalThemePreset.customName"))
-        XCTAssertTrue(preferencesSource.contains("private lazy var previewView = PreferencesThemePreviewView()"))
+        XCTAssertTrue(preferencesSource.contains("lazy var previewView = PreferencesThemePreviewView()"))
         XCTAssertTrue(previewSource.contains("draw(\"$ git status\""))
         XCTAssertTrue(previewSource.contains("colors.ansi"))
         XCTAssertFalse(preferencesSource.contains("schemaVersion"))
@@ -3112,9 +3112,11 @@ private func preferencesWindowControllerSource() throws -> String {
 }
 
 private func preferencesViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/PreferencesView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
+    // PreferencesView was split into panes/controls files; the source-shape
+    // assertions cover the whole family.
+    try appSource("PreferencesView.swift")
+        + appSource("PreferencesViewPanes.swift")
+        + appSource("PreferencesViewControls.swift")
 }
 
 private func preferencesThemePreviewViewSource() throws -> String {

@@ -3,7 +3,7 @@ import KurottyCore
 
 @MainActor
 final class PreferencesView: NSView, NSTextFieldDelegate {
-    private enum Layout {
+    enum Layout {
         static let sidebarWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
         /// The window minus the category sidebar minus the outer inset on both
         /// sides. Cards fill this width exactly so their left edges line up with
@@ -36,15 +36,15 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private static let autosaveDelay: TimeInterval = 0.25
 
     private let store: AppSettingsStore
-    private var settings = AppSettings.default
+    var settings = AppSettings.default
     private var autosaveWorkItem: DispatchWorkItem?
     private var isUpdatingControls = false
     private var selectedCategory = PreferencesCategory.terminal
     /// Buttons whose size constraints are already installed. Pages are rebuilt
     /// on every category switch, but the controls themselves are long-lived.
-    private var sizedButtons = Set<ObjectIdentifier>()
+    var sizedButtons = Set<ObjectIdentifier>()
 
-    private lazy var search = PreferencesSearchController(
+    lazy var search = PreferencesSearchController(
         contentWidthPX: Layout.contentWidthPX,
         placeholder: { PreferencesCopy.string(.searchPlaceholder, language: AppLocalization.language) },
         noResultsFormat: { PreferencesCopy.string(.searchNoResults, language: AppLocalization.language) }
@@ -52,78 +52,78 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
     private lazy var categoryStack = NSStackView()
     private lazy var detailScrollView = NSScrollView()
-    private lazy var detailStack = NSStackView()
+    lazy var detailStack = NSStackView()
     private lazy var statusLabel = NSTextField(labelWithString: "")
 
-    private lazy var workingDirectoryField = NSTextField()
-    private lazy var fontPopup = NSPopUpButton()
-    private lazy var fontSizeField = NSTextField()
-    private lazy var fontSizeStepper = NSStepper()
-    private lazy var codeEditorFontSizeField = NSTextField()
-    private lazy var codeEditorFontSizeStepper = NSStepper()
-    private lazy var codeEditorWrapCheckbox = NSButton(
+    lazy var workingDirectoryField = NSTextField()
+    lazy var fontPopup = NSPopUpButton()
+    lazy var fontSizeField = NSTextField()
+    lazy var fontSizeStepper = NSStepper()
+    lazy var codeEditorFontSizeField = NSTextField()
+    lazy var codeEditorFontSizeStepper = NSStepper()
+    lazy var codeEditorWrapCheckbox = NSButton(
         checkboxWithTitle: "",
         target: nil,
         action: nil
     )
-    private lazy var scrollbackField = NSTextField()
-    private lazy var scrollbackStepper = NSStepper()
-    private lazy var commandHistoryCheckbox = NSButton(
+    lazy var scrollbackField = NSTextField()
+    lazy var scrollbackStepper = NSStepper()
+    lazy var commandHistoryCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(commandHistoryToggled(_:))
     )
-    private lazy var confirmMultilinePasteCheckbox = NSButton(
+    lazy var confirmMultilinePasteCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(confirmMultilinePasteToggled(_:))
     )
-    private lazy var agentSessionIndexCheckbox = NSButton(
+    lazy var agentSessionIndexCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(agentSessionIndexToggled(_:))
     )
-    private lazy var hideMouseCursorCheckbox = NSButton(
+    lazy var hideMouseCursorCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(hideMouseCursorToggled(_:))
     )
-    private lazy var perProjectHistoryCheckbox = NSButton(
+    lazy var perProjectHistoryCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(perProjectHistoryToggled(_:))
     )
-    private lazy var agentStatusHooksCheckbox = NSButton(
+    lazy var agentStatusHooksCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(agentStatusHooksToggled(_:))
     )
-    private lazy var restoreScrollbackCheckbox = NSButton(
+    lazy var restoreScrollbackCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(restoreScrollbackToggled(_:))
     )
-    private lazy var statusBarCheckbox = NSButton(
+    lazy var statusBarCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
         action: #selector(statusBarToggled(_:))
     )
-    private lazy var quickCommandsButton = NSButton(
+    lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
         action: #selector(openQuickCommandsEditor(_:))
     )
-    private lazy var themePopup = NSPopUpButton()
-    private lazy var customColorsStack = NSStackView()
-    private lazy var previewView = PreferencesThemePreviewView()
-    private lazy var foregroundWell = NSColorWell()
-    private lazy var backgroundWell = NSColorWell()
-    private lazy var cursorWell = NSColorWell()
-    private var ansiWells: [NSColorWell] = []
-    private lazy var windowWidthField = NSTextField()
-    private lazy var windowWidthStepper = NSStepper()
-    private lazy var windowHeightField = NSTextField()
-    private lazy var windowHeightStepper = NSStepper()
+    lazy var themePopup = NSPopUpButton()
+    lazy var customColorsStack = NSStackView()
+    lazy var previewView = PreferencesThemePreviewView()
+    lazy var foregroundWell = NSColorWell()
+    lazy var backgroundWell = NSColorWell()
+    lazy var cursorWell = NSColorWell()
+    var ansiWells: [NSColorWell] = []
+    lazy var windowWidthField = NSTextField()
+    lazy var windowWidthStepper = NSStepper()
+    lazy var windowHeightField = NSTextField()
+    lazy var windowHeightStepper = NSStepper()
 
     init(frame frameRect: NSRect, store: AppSettingsStore = .shared) {
         self.store = store
@@ -159,7 +159,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     /// its cards with the generic system control background regardless of the
     /// terminal theme, which is why it was the one surface that never matched
     /// the rest of the app.
-    private var chromeTheme: DesignTokens.ChromeTheme {
+    var chromeTheme: DesignTokens.ChromeTheme {
         DesignTokens.ChromeTheme.theme(for: settings)
     }
 
@@ -347,396 +347,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
     }
 
-    private func buildTerminalPage() {
-        addPageHeader(copy(.terminalTitle), subtitle: copy(.terminalSubtitle))
-
-        let shellSection = section(title: copy(.shellSection), subtitle: copy(.shellSectionHelp))
-        addRow(copy(.workingDirectory), control: workingDirectoryField, to: shellSection)
-        configureTextField(workingDirectoryField, action: #selector(textFieldChanged(_:)))
-        perProjectHistoryCheckbox.title = copy(.perProjectHistoryCheckboxTitle)
-        addRow(copy(.perProjectHistory), control: perProjectHistoryCheckbox, to: shellSection)
-        detailStack.addArrangedSubview(shellSection)
-
-        let textSection = section(title: copy(.textSection), subtitle: copy(.textSectionHelp))
-        fontPopup.removeAllItems()
-        fontPopup.addItems(withTitles: availableMonospacedFonts())
-        fontPopup.target = self
-        fontPopup.action = #selector(fontChanged(_:))
-        addRow(copy(.font), control: fontPopup, to: textSection)
-        configureNumericField(fontSizeField, stepper: fontSizeStepper, minimum: SettingsDefaults.minimumTerminalFontSizePT, maximum: SettingsDefaults.maximumTerminalFontSizePT, increment: 1)
-        addRow(
-            copy(.fontSize),
-            control: numericControl(field: fontSizeField, stepper: fontSizeStepper, suffix: "pt"),
-            to: textSection
-        )
-        hideMouseCursorCheckbox.title = copy(.hideMouseCursorCheckboxTitle)
-        addRow(copy(.hideMouseCursor), control: hideMouseCursorCheckbox, to: textSection)
-        confirmMultilinePasteCheckbox.title = copy(.confirmMultilinePasteCheckboxTitle)
-        addRow(copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox, to: textSection)
-        statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
-        addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
-        detailStack.addArrangedSubview(textSection)
-
-        let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
-        configureNumericField(
-            codeEditorFontSizeField,
-            stepper: codeEditorFontSizeStepper,
-            minimum: SettingsDefaults.minimumCodeEditorFontSizePT,
-            maximum: SettingsDefaults.maximumCodeEditorFontSizePT,
-            increment: 1
-        )
-        addRow(
-            copy(.editorFontSize),
-            control: numericControl(field: codeEditorFontSizeField, stepper: codeEditorFontSizeStepper, suffix: "pt"),
-            to: editorSection
-        )
-        codeEditorWrapCheckbox.title = copy(.editorWrapCheckboxTitle)
-        addRow(copy(.editorWrap), control: codeEditorWrapCheckbox, to: editorSection)
-        detailStack.addArrangedSubview(editorSection)
-
-        let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
-        configureNumericField(scrollbackField, stepper: scrollbackStepper, minimum: Double(SettingsDefaults.minimumScrollbackRows), maximum: Double(SettingsDefaults.maximumScrollbackRows), increment: 1_000)
-        addRow(
-            copy(.scrollback),
-            control: numericControl(field: scrollbackField, stepper: scrollbackStepper, suffix: copy(.lines)),
-            to: historySection
-        )
-        commandHistoryCheckbox.title = copy(.commandHistoryCheckboxTitle)
-        addRow(copy(.commandHistory), control: commandHistoryCheckbox, to: historySection)
-        agentSessionIndexCheckbox.title = copy(.agentSessionIndexCheckboxTitle)
-        addRow(copy(.agentSessionIndex), control: agentSessionIndexCheckbox, to: historySection)
-        restoreScrollbackCheckbox.title = copy(.restoreScrollbackCheckboxTitle)
-        addRow(copy(.restoreScrollback), control: restoreScrollbackCheckbox, to: historySection)
-        agentStatusHooksCheckbox.title = copy(.agentStatusHooksCheckboxTitle)
-        addRow(copy(.agentStatusHooks), control: agentStatusHooksCheckbox, to: historySection)
-        detailStack.addArrangedSubview(historySection)
-
-        let quickCommandsSection = section(
-            title: copy(.quickCommandsSection),
-            subtitle: copy(.quickCommandsSectionHelp)
-        )
-        quickCommandsButton.title = copy(.quickCommandsButtonTitle)
-        stylePrimaryButton(quickCommandsButton)
-        // One primary action per pane, bottom-right of the last card. Every
-        // other control in Preferences is a setting, not an action.
-        quickCommandsSection.addArrangedSubview(trailingActionRow(quickCommandsButton))
-        // An action is not a hideable row, so its title is a keyword: the card
-        // is found by it and stays whole.
-        search.registerKeyword(quickCommandsButton.title, in: quickCommandsSection)
-        detailStack.addArrangedSubview(quickCommandsSection)
-    }
-
-    private func buildAppearancePage() {
-        addPageHeader(copy(.appearanceTitle), subtitle: copy(.appearanceSubtitle))
-
-        let themeSection = section(title: copy(.themeSection), subtitle: copy(.themeSectionHelp))
-        themePopup.removeAllItems()
-        themePopup.addItems(withTitles: [copy(.themeKurotty), copy(.themeLightty), copy(.themeCustom)])
-        themePopup.target = self
-        themePopup.action = #selector(themeChanged(_:))
-        addRow(copy(.theme), control: themePopup, to: themeSection)
-        previewView.translatesAutoresizingMaskIntoConstraints = false
-        previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
-        previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
-        themeSection.addArrangedSubview(previewView)
-        detailStack.addArrangedSubview(themeSection)
-
-        configureCustomColors()
-        detailStack.addArrangedSubview(customColorsStack)
-    }
-
-    private func buildWindowPage() {
-        addPageHeader(copy(.windowTitle), subtitle: copy(.windowSubtitle))
-
-        let sizeSection = section(title: copy(.windowSizeSection), subtitle: copy(.windowSizeHelp))
-        configureNumericField(windowWidthField, stepper: windowWidthStepper, minimum: SettingsDefaults.minimumWindowWidthPX, maximum: SettingsDefaults.maximumWindowWidthPX, increment: 20)
-        configureNumericField(windowHeightField, stepper: windowHeightStepper, minimum: SettingsDefaults.minimumWindowHeightPX, maximum: SettingsDefaults.maximumWindowHeightPX, increment: 20)
-        addRow(
-            copy(.width),
-            control: numericControl(field: windowWidthField, stepper: windowWidthStepper, suffix: "px"),
-            to: sizeSection
-        )
-        addRow(
-            copy(.height),
-            control: numericControl(field: windowHeightField, stepper: windowHeightStepper, suffix: "px"),
-            to: sizeSection
-        )
-        detailStack.addArrangedSubview(sizeSection)
-    }
-
-    private func configureCustomColors() {
-        customColorsStack.arrangedSubviews.forEach {
-            customColorsStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
-        customColorsStack.orientation = .vertical
-        customColorsStack.alignment = .leading
-        customColorsStack.spacing = Layout.rowSpacingPX
-        customColorsStack.edgeInsets = NSEdgeInsets(
-            top: Layout.cardPaddingPX,
-            left: Layout.cardPaddingPX,
-            bottom: Layout.cardPaddingPX,
-            right: Layout.cardPaddingPX
-        )
-        styleAsCard(customColorsStack)
-        customColorsStack.translatesAutoresizingMaskIntoConstraints = false
-        customColorsStack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
-        // The palette is a grid of wells, not a row list, so every color name is
-        // a keyword: searching "cursor" or "red" opens the card whole rather
-        // than tearing one well out of the grid.
-        search.registerCard(
-            customColorsStack,
-            title: copy(.customColors),
-            isAvailable: { [weak self] in self?.isCustomPaletteAvailable ?? false }
-        )
-
-        let heading = sectionHeading(copy(.customColors), subtitle: copy(.customColorsHelp))
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
-        customColorsStack.addArrangedSubview(heading)
-
-        configureColorWell(foregroundWell, tag: 0)
-        configureColorWell(backgroundWell, tag: 1)
-        configureColorWell(cursorWell, tag: 2)
-        let primaryColors = NSStackView(views: [
-            labeledColorWell(copy(.foreground), well: foregroundWell),
-            labeledColorWell(copy(.background), well: backgroundWell),
-            labeledColorWell(copy(.cursor), well: cursorWell),
-        ])
-        for name in [copy(.foreground), copy(.background), copy(.cursor), copy(.ansiPalette)] {
-            search.registerKeyword(name, in: customColorsStack)
-        }
-        primaryColors.orientation = .horizontal
-        primaryColors.spacing = DesignTokens.Space.x6PX
-        customColorsStack.addArrangedSubview(primaryColors)
-
-        let ansiTitle = NSTextField(labelWithString: copy(.ansiPalette))
-        ansiTitle.font = DesignTokens.Typography.prefsSection.font
-        ansiTitle.textColor = chromeTheme.textPrimary
-        customColorsStack.addArrangedSubview(ansiTitle)
-
-        ansiWells = (0..<TerminalColorSettings.requiredAnsiColorCount).map { index in
-            let well = NSColorWell()
-            configureColorWell(well, tag: 100 + index)
-            return well
-        }
-        let ansiControls = ansiWells.enumerated().map { index, well in
-            let name = PreferencesCopy.ansiColorName(index, language: AppLocalization.language)
-            search.registerKeyword(name, in: customColorsStack)
-            return labeledColorWell(name, well: well)
-        }
-        let ansiGrid = NSGridView(views: stride(from: 0, to: ansiControls.count, by: Layout.ansiColumnCount).map { start in
-            Array(ansiControls[start..<min(start + Layout.ansiColumnCount, ansiControls.count)])
-        })
-        ansiGrid.rowSpacing = DesignTokens.Space.x3PX
-        ansiGrid.columnSpacing = DesignTokens.Space.x3PX
-        customColorsStack.addArrangedSubview(ansiGrid)
-    }
-
-    private func addPageHeader(_ title: String, subtitle: String) {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = DesignTokens.Space.x1PX
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = DesignTokens.Typography.prefsTitle.font
-        titleLabel.textColor = chromeTheme.textPrimary
-        let subtitleLabel = wrappingLabel(subtitle)
-        subtitleLabel.font = DesignTokens.Typography.prefsBody.font
-        subtitleLabel.textColor = chromeTheme.textSecondary
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
-        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
-        detailStack.addArrangedSubview(stack)
-    }
-
-    /// A settings card: raised fill, hairline border, `md` radius, `x5` padding.
-    /// The fill and border come from the chrome theme, so the card belongs to
-    /// the same surface family as the sidebar and the tab bar.
-    private func section(title: String, subtitle: String) -> NSStackView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = Layout.rowSpacingPX
-        stack.edgeInsets = NSEdgeInsets(
-            top: Layout.cardPaddingPX,
-            left: Layout.cardPaddingPX,
-            bottom: Layout.cardPaddingPX,
-            right: Layout.cardPaddingPX
-        )
-        styleAsCard(stack)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
-        let heading = sectionHeading(title, subtitle: subtitle)
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
-        stack.addArrangedSubview(heading)
-        search.registerCard(stack, title: title)
-        return stack
-    }
-
-    /// The one place a labeled setting is added to a card, and therefore the one
-    /// place search learns that the setting exists. A row added any other way is
-    /// a row no query can find.
-    private func addRow(_ label: String, control: NSView, to card: NSStackView) {
-        let rowView = row(label: label, control: control)
-        card.addArrangedSubview(rowView)
-        search.registerRow(rowView, label: label, in: card)
-    }
-
-    private func styleAsCard(_ view: NSView) {
-        let theme = chromeTheme
-        view.wantsLayer = true
-        view.layer?.cornerRadius = DesignTokens.Radius.mdPX
-        view.layer?.backgroundColor = theme.surfaceRaised.cgColor
-        view.layer?.borderWidth = DesignTokens.Component.hairlinePX
-        view.layer?.borderColor = theme.hairline.cgColor
-        // Switching preferences panes is not a transition; cards must appear at
-        // their final color.
-        view.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-    }
-
-    private func sectionHeading(_ title: String, subtitle: String) -> NSStackView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = DesignTokens.Component.preferencesHeadingLineGapPX
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = DesignTokens.Typography.prefsSection.font
-        titleLabel.textColor = chromeTheme.textPrimary
-        let subtitleLabel = wrappingLabel(subtitle)
-        subtitleLabel.font = DesignTokens.Typography.prefsCaption.font
-        subtitleLabel.textColor = chromeTheme.textTertiary
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
-        return stack
-    }
-
-    private func row(label title: String, control: NSView) -> NSStackView {
-        let label = NSTextField(labelWithString: title)
-        label.font = DesignTokens.Typography.prefsBody.font
-        label.textColor = chromeTheme.textSecondary
-        label.alignment = .right
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.widthAnchor.constraint(equalToConstant: Layout.labelWidthPX).isActive = true
-        control.translatesAutoresizingMaskIntoConstraints = false
-        if control is NSPopUpButton {
-            control.widthAnchor.constraint(equalToConstant: Layout.fieldWidthPX).isActive = true
-        }
-        // Checkbox titles are full sentences and are the widest thing in a card.
-        // At 720pt they no longer fit on one line, so they wrap instead of
-        // truncating: a setting whose explanation ends in an ellipsis is worse
-        // than a setting that takes two lines.
-        if let checkbox = control as? NSButton, checkbox.cell is NSButtonCell {
-            checkbox.font = DesignTokens.Typography.prefsBody.font
-            checkbox.cell?.wraps = true
-            checkbox.cell?.lineBreakMode = .byWordWrapping
-            checkbox.widthAnchor.constraint(
-                lessThanOrEqualToConstant: Layout.controlColumnWidthPX
-            ).isActive = true
-        }
-        let stack = NSStackView(views: [label, control])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = Layout.labelControlGapPX
-        return stack
-    }
-
-    /// Right-aligns a pane's single primary action inside its card.
-    private func trailingActionRow(_ control: NSView) -> NSStackView {
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let stack = NSStackView(views: [spacer, control])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.distribution = .fill
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(
-            equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2
-        ).isActive = true
-        return stack
-    }
-
-    /// The AppKit spelling of `.borderedProminent`: an accent-filled rounded
-    /// push button at the regular control height.
-    private func stylePrimaryButton(_ button: NSButton) {
-        styleButtonMetrics(button)
-        button.bezelColor = chromeTheme.accent
-    }
-
-    /// Every other button in Preferences is the recessed category list, which is
-    /// a selection control rather than an action, so there is no second bezel
-    /// style to define here yet.
-    private func styleButtonMetrics(_ button: NSButton) {
-        button.bezelStyle = .rounded
-        button.controlSize = .regular
-        button.translatesAutoresizingMaskIntoConstraints = false
-        guard sizedButtons.insert(ObjectIdentifier(button)).inserted else { return }
-        button.heightAnchor.constraint(
-            equalToConstant: DesignTokens.Component.preferencesButtonHeightPX
-        ).isActive = true
-        button.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: DesignTokens.Component.preferencesButtonWidthPX
-        ).isActive = true
-    }
-
-    private func numericControl(field: NSTextField, stepper: NSStepper, suffix: String) -> NSStackView {
-        let suffixLabel = NSTextField(labelWithString: suffix)
-        suffixLabel.font = DesignTokens.Typography.prefsCaption.font
-        suffixLabel.textColor = chromeTheme.textTertiary
-        let stack = NSStackView(views: [field, stepper, suffixLabel])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = DesignTokens.Space.x2PX
-        return stack
-    }
-
-    private func labeledColorWell(_ title: String, well: NSColorWell) -> NSStackView {
-        well.toolTip = title
-        well.setAccessibilityLabel(title)
-        let label = NSTextField(labelWithString: title)
-        label.font = DesignTokens.Typography.prefsCaption.font
-        label.textColor = chromeTheme.textTertiary
-        label.alignment = .center
-        let stack = NSStackView(views: [well, label])
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = DesignTokens.Space.x1PX
-        return stack
-    }
-
-    private func configureTextField(_ field: NSTextField, action: Selector) {
-        field.delegate = self
-        field.target = self
-        field.action = action
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: Layout.fieldWidthPX).isActive = true
-    }
-
-    private func configureNumericField(_ field: NSTextField, stepper: NSStepper, minimum: Double, maximum: Double, increment: Double) {
-        field.delegate = self
-        field.target = self
-        field.action = #selector(textFieldChanged(_:))
-        field.alignment = .right
-        field.formatter = NumberFormatter.integerOrDecimal
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: DesignTokens.Component.preferencesNumericFieldWidthPX).isActive = true
-        stepper.minValue = minimum
-        stepper.maxValue = maximum
-        stepper.increment = increment
-        stepper.target = self
-        stepper.action = #selector(stepperChanged(_:))
-    }
-
-    private func configureColorWell(_ well: NSColorWell, tag: Int) {
-        well.tag = tag
-        well.target = self
-        well.action = #selector(colorChanged(_:))
-        well.translatesAutoresizingMaskIntoConstraints = false
-        well.widthAnchor.constraint(equalToConstant: Layout.colorWellSizePX).isActive = true
-        well.heightAnchor.constraint(equalToConstant: Layout.colorWellSizePX).isActive = true
-    }
-
-    @objc private func themeChanged(_ sender: NSPopUpButton) {
+    @objc func themeChanged(_ sender: NSPopUpButton) {
         guard !isUpdatingControls else { return }
         let themeName: String
         switch sender.indexOfSelectedItem {
@@ -755,7 +366,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
-    @objc private func colorChanged(_ sender: NSColorWell) {
+    @objc func colorChanged(_ sender: NSColorWell) {
         guard !isUpdatingControls else { return }
         let hex = sender.color.hexRGB
         switch sender.tag {
@@ -770,7 +381,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
-    @objc private func fontChanged(_ sender: NSPopUpButton) {
+    @objc func fontChanged(_ sender: NSPopUpButton) {
         guard !isUpdatingControls, let title = sender.titleOfSelectedItem else { return }
         settings.terminal.fontName = title
         scheduleAutosave()
@@ -828,18 +439,18 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
-    @objc private func openQuickCommandsEditor(_ sender: NSButton) {
+    @objc func openQuickCommandsEditor(_ sender: NSButton) {
         QuickCommandsEditorPresenter.presentQuickCommandsEditor()
     }
 
-    @objc private func textFieldChanged(_ sender: NSTextField) {
+    @objc func textFieldChanged(_ sender: NSTextField) {
         guard !isUpdatingControls else { return }
         applyTextFieldsToSettings()
         syncControlsFromSettings()
         scheduleAutosave()
     }
 
-    @objc private func stepperChanged(_ sender: NSStepper) {
+    @objc func stepperChanged(_ sender: NSStepper) {
         switch sender {
         case fontSizeStepper: fontSizeField.doubleValue = sender.doubleValue
         case scrollbackStepper: scrollbackField.integerValue = sender.integerValue
@@ -913,7 +524,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     /// The custom palette is editable only while the custom theme is selected.
-    private var isCustomPaletteAvailable: Bool {
+    var isCustomPaletteAvailable: Bool {
         settings.terminal.theme == TerminalThemePreset.customName
     }
 
@@ -964,18 +575,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         }
     }
 
-    private func availableMonospacedFonts() -> [String] {
-        let candidates = [settings.terminal.fontName, "Menlo", "Monaco", "SF Mono", "Courier", "Courier New"]
-        return Array(Set(candidates.filter { NSFont(name: $0, size: 13) != nil })).sorted()
-    }
-
-    private func wrappingLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.maximumNumberOfLines = 0
-        return label
-    }
-
-    private func copy(_ key: PreferencesCopy.Key) -> String {
+    func copy(_ key: PreferencesCopy.Key) -> String {
         PreferencesCopy.string(key, language: AppLocalization.language)
     }
 
@@ -1004,17 +604,6 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
 private final class FlippedPreferencesDocumentView: NSView {
     override var isFlipped: Bool { true }
-}
-
-private extension NumberFormatter {
-    static var integerOrDecimal: NumberFormatter {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 1
-        formatter.minimumFractionDigits = 0
-        formatter.usesGroupingSeparator = false
-        return formatter
-    }
 }
 
 private extension NSColor {
