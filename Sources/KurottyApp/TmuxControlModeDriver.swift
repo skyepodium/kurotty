@@ -84,10 +84,10 @@ final class TmuxControlModeDriver {
     private var activeRequestGeneration: UInt64?
     private var discardActiveResponseForSessionTransition = false
     private var nextRequestGeneration: UInt64 = 0
-    private var requestTimeoutTask: Task<Void, Never>?
-    private var fatalAbortTask: Task<Void, Never>?
-    private var fatalWaitExitTask: Task<Void, Never>?
-    private var windowOrderDebounceTask: Task<Void, Never>?
+    private var requestTimeoutTask: TmuxScheduledWork?
+    private var fatalAbortTask: TmuxScheduledWork?
+    private var fatalWaitExitTask: TmuxScheduledWork?
+    private var windowOrderDebounceTask: TmuxScheduledWork?
     private var fatalRecoveryReason: String?
     private var hasFinishedExit = false
     private var didObserveExternalExit = false
@@ -102,7 +102,10 @@ final class TmuxControlModeDriver {
     private var snapshotAssemblies: [String: PaneSnapshotAssembly] = [:]
     private var bufferedLiveOutput: [String: TmuxBoundedOutputHistory] = [:]
     private var suspendedPaneIDs = Set<String>()
-    private var suspensionLeaseTasks: [String: Task<Void, Never>] = [:]
+    private var suspensionLeaseTasks: [String: TmuxScheduledWork] = [:]
+    /// Where every delayed callback goes. Injected so a test can fire the
+    /// driver's timers by hand instead of sleeping on real ones.
+    private let scheduler: any TmuxDelayScheduling
     private let maximumSnapshotConsistencyRetries = 2
     private let responseByteLimit: Int
     private let responseLineLimit: Int
@@ -122,8 +125,10 @@ final class TmuxControlModeDriver {
         fatalWaitExitDelay: TimeInterval = 1,
         windowOrderDebounce: TimeInterval = 0.12,
         mutationQueueLimits: TmuxMutationQueue.Limits = .default,
+        scheduler: any TmuxDelayScheduling = TmuxTaskDelayScheduler(),
         write: @escaping (String) -> Void
     ) {
+        self.scheduler = scheduler
         mutationQueue = .init(limits: mutationQueueLimits)
         self.responseByteLimit = max(0, responseByteLimit)
         self.responseLineLimit = max(1, responseLineLimit)
@@ -615,13 +620,8 @@ final class TmuxControlModeDriver {
 
     private func scheduleRequestTimeout(generation: UInt64) {
         requestTimeoutTask?.cancel()
-        let delay = requestTimeoutNanoseconds
-        requestTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
+        requestTimeoutTask = scheduler.schedule(afterNanoseconds: requestTimeoutNanoseconds) {
+            [weak self] in
             self?.requestTimedOut(generation: generation)
         }
     }
@@ -668,12 +668,7 @@ final class TmuxControlModeDriver {
         let (combinedAbortDelay, overflow) = fatalWaitExitDelayNanoseconds
             .addingReportingOverflow(fatalAbortDelayNanoseconds)
         let abortDelay = overflow ? UInt64.max : combinedAbortDelay
-        fatalAbortTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: abortDelay)
-            } catch {
-                return
-            }
+        fatalAbortTask = scheduler.schedule(afterNanoseconds: abortDelay) { [weak self] in
             guard let self, !self.hasFinishedExit else { return }
             if self.fatalWaitExitTask != nil, !self.didObserveExternalExit {
                 self.fatalWaitExitTask?.cancel()
@@ -683,13 +678,8 @@ final class TmuxControlModeDriver {
             self.finishExit(reason: reason, observedExternalExit: false)
         }
 
-        let waitExitDelay = fatalWaitExitDelayNanoseconds
-        fatalWaitExitTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: waitExitDelay)
-            } catch {
-                return
-            }
+        fatalWaitExitTask = scheduler.schedule(afterNanoseconds: fatalWaitExitDelayNanoseconds) {
+            [weak self] in
             guard let self, !self.didObserveExternalExit else { return }
             self.write("\n")
             self.fatalWaitExitTask = nil
@@ -887,12 +877,7 @@ final class TmuxControlModeDriver {
         if hasPendingWindowRefresh { return }
         guard windowOrderDebounceTask == nil else { return }
         let delay = windowOrderDebounceNanoseconds
-        windowOrderDebounceTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
+        windowOrderDebounceTask = scheduler.schedule(afterNanoseconds: delay) { [weak self] in
             guard let self else { return }
             self.windowOrderDebounceTask = nil
             self.beginWindowOrderRefresh()
@@ -1439,12 +1424,7 @@ final class TmuxControlModeDriver {
     private func scheduleSuspensionLease(for paneID: String) {
         cancelSuspensionLease(for: paneID)
         let delay = suspensionLeaseNanoseconds
-        suspensionLeaseTasks[paneID] = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
+        suspensionLeaseTasks[paneID] = scheduler.schedule(afterNanoseconds: delay) { [weak self] in
             self?.suspensionLeaseExpired(for: paneID)
         }
     }
