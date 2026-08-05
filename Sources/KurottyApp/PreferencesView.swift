@@ -59,6 +59,13 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private lazy var fontPopup = NSPopUpButton()
     private lazy var fontSizeField = NSTextField()
     private lazy var fontSizeStepper = NSStepper()
+    private lazy var codeEditorFontSizeField = NSTextField()
+    private lazy var codeEditorFontSizeStepper = NSStepper()
+    private lazy var codeEditorWrapCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: nil,
+        action: nil
+    )
     private lazy var scrollbackField = NSTextField()
     private lazy var scrollbackStepper = NSStepper()
     private lazy var commandHistoryCheckbox = NSButton(
@@ -312,6 +319,22 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
         textSection.addArrangedSubview(row(label: copy(.statusBar), control: statusBarCheckbox))
         detailStack.addArrangedSubview(textSection)
+
+        let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
+        configureNumericField(
+            codeEditorFontSizeField,
+            stepper: codeEditorFontSizeStepper,
+            minimum: SettingsDefaults.minimumCodeEditorFontSizePT,
+            maximum: SettingsDefaults.maximumCodeEditorFontSizePT,
+            increment: 1
+        )
+        editorSection.addArrangedSubview(row(
+            label: copy(.editorFontSize),
+            control: numericControl(field: codeEditorFontSizeField, stepper: codeEditorFontSizeStepper, suffix: "pt")
+        ))
+        codeEditorWrapCheckbox.title = copy(.editorWrapCheckboxTitle)
+        editorSection.addArrangedSubview(row(label: copy(.editorWrap), control: codeEditorWrapCheckbox))
+        detailStack.addArrangedSubview(editorSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
         configureNumericField(scrollbackField, stepper: scrollbackStepper, minimum: Double(SettingsDefaults.minimumScrollbackRows), maximum: Double(SettingsDefaults.maximumScrollbackRows), increment: 1_000)
@@ -739,6 +762,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private func applyTextFieldsToSettings() {
         settings.shell.workingDirectory = workingDirectoryField.stringValue
         settings.terminal.fontSize = fontSizeField.doubleValue
+        settings.terminal.codeEditorFontSize = codeEditorFontSizeField.doubleValue
+        settings.terminal.codeEditorWrapsLines = codeEditorWrapCheckbox.state == .on
         settings.terminal.scrollbackLines = scrollbackField.integerValue
         settings.window.width = windowWidthField.doubleValue
         settings.window.height = windowHeightField.doubleValue
@@ -755,6 +780,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         }
         fontSizeField.doubleValue = settings.terminal.fontSize
         fontSizeStepper.doubleValue = settings.terminal.fontSize
+        codeEditorFontSizeField.doubleValue = settings.terminal.codeEditorFontSize
+        codeEditorFontSizeStepper.doubleValue = settings.terminal.codeEditorFontSize
+        codeEditorWrapCheckbox.state = settings.terminal.codeEditorWrapsLines ? .on : .off
         scrollbackField.integerValue = settings.terminal.scrollbackLines
         scrollbackStepper.integerValue = settings.terminal.scrollbackLines
         commandHistoryCheckbox.state = settings.terminal.commandHistoryEnabled ? .on : .off

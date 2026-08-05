@@ -117,6 +117,13 @@ struct TerminalSettings: Codable, Equatable {
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
     var restoreScrollbackOnLaunch: Bool
+    /// Point size for the code editor tabs. Separate from `fontSize`: the
+    /// terminal is sized for a cell grid and the editor for prose-length lines,
+    /// so one number cannot serve both.
+    var codeEditorFontSize: Double
+    /// Soft-wraps editor lines to the pane width. Off means long lines scroll
+    /// horizontally, which is what code with wide tables or long strings wants.
+    var codeEditorWrapsLines: Bool
 
     private enum CodingKeys: String, CodingKey {
         case theme
@@ -131,6 +138,8 @@ struct TerminalSettings: Codable, Equatable {
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
         case restoreScrollbackOnLaunch
+        case codeEditorFontSize
+        case codeEditorWrapsLines
     }
 
     init(
@@ -145,7 +154,9 @@ struct TerminalSettings: Codable, Equatable {
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
         agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled,
-        restoreScrollbackOnLaunch: Bool = SettingsDefaults.restoreScrollbackOnLaunch
+        restoreScrollbackOnLaunch: Bool = SettingsDefaults.restoreScrollbackOnLaunch,
+        codeEditorFontSize: Double = SettingsDefaults.codeEditorFontSizePT,
+        codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -159,6 +170,8 @@ struct TerminalSettings: Codable, Equatable {
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
         self.restoreScrollbackOnLaunch = restoreScrollbackOnLaunch
+        self.codeEditorFontSize = codeEditorFontSize
+        self.codeEditorWrapsLines = codeEditorWrapsLines
     }
 
     init(from decoder: Decoder) throws {
@@ -190,6 +203,12 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         restoreScrollbackOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .restoreScrollbackOnLaunch)
             ?? SettingsDefaults.restoreScrollbackOnLaunch
+        // Absent in schema versions below 16; those files fall back to the
+        // current defaults rather than failing to decode.
+        codeEditorFontSize = try container.decodeIfPresent(Double.self, forKey: .codeEditorFontSize)
+            ?? SettingsDefaults.codeEditorFontSizePT
+        codeEditorWrapsLines = try container.decodeIfPresent(Bool.self, forKey: .codeEditorWrapsLines)
+            ?? SettingsDefaults.codeEditorWrapsLines
     }
 }
 
