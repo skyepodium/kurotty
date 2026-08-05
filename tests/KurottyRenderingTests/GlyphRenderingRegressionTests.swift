@@ -1719,7 +1719,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(preferencesSource.contains("scheduleAutosave()"))
         XCTAssertTrue(preferencesSource.contains("themePopup.addItems"))
         XCTAssertTrue(preferencesSource.contains("settings.terminal.theme = TerminalThemePreset.customName"))
-        XCTAssertTrue(preferencesSource.contains("private lazy var previewView = PreferencesThemePreviewView()"))
+        XCTAssertTrue(preferencesSource.contains("lazy var previewView = PreferencesThemePreviewView()"))
         XCTAssertTrue(previewSource.contains("draw(\"$ git status\""))
         XCTAssertTrue(previewSource.contains("colors.ansi"))
         XCTAssertFalse(preferencesSource.contains("schemaVersion"))
@@ -1801,7 +1801,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
-        XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
+        XCTAssertTrue(windowSource.contains("final class TerminalTabItemView: NSView"))
         // Re-pointed 2026-08: the tab add/close affordances were text glyphs
         // ("+" / "×") typed into a button title. They are now SF Symbols from
         // the shared `IconSymbol` registry, so they scale with the icon ramp
@@ -2055,10 +2055,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("let overlapPenalty: CGFloat = overlapsPerpendicularAxis ? 0 : 10_000"))
         XCTAssertTrue(splitSource.contains("guard candidateCenter.y < activeCenter.y else { return nil }"))
         XCTAssertTrue(splitSource.contains("guard candidateCenter.y > activeCenter.y else { return nil }"))
-        XCTAssertTrue(splitSource.contains("private func configurePane(_ pane: TerminalPaneView)"))
+        XCTAssertTrue(splitSource.contains("func configurePane(_ pane: TerminalPaneView)"))
         XCTAssertTrue(splitSource.contains("pane.closeRequested = { [weak self] pane in"))
         XCTAssertTrue(splitSource.contains("pane.focusChanged = { [weak self] _ in"))
-        XCTAssertTrue(splitSource.contains("private func refreshPaneChrome()"))
+        XCTAssertTrue(splitSource.contains("func refreshPaneChrome()"))
         XCTAssertTrue(splitSource.contains("pane.setChromeVisible(isVisible)"))
         XCTAssertTrue(splitSource.contains("pane.setChromeActive(pane.ownsFirstResponder)"))
         XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
@@ -2142,7 +2142,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testNestedSplitRebalancesAfterItReceivesBounds() throws {
         let splitSource = try splitTerminalViewSource()
 
-        XCTAssertTrue(splitSource.contains("private var needsInitialRebalance = false"))
+        XCTAssertTrue(splitSource.contains("var needsInitialRebalance = false"))
         XCTAssertTrue(splitSource.contains("override func layout()"))
         XCTAssertTrue(splitSource.contains("if needsInitialRebalance"))
         XCTAssertTrue(splitSource.contains("needsInitialRebalance = false"))
@@ -3112,9 +3112,11 @@ private func preferencesWindowControllerSource() throws -> String {
 }
 
 private func preferencesViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/PreferencesView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
+    // PreferencesView was split into panes/controls files; the source-shape
+    // assertions cover the whole family.
+    try appSource("PreferencesView.swift")
+        + appSource("PreferencesViewPanes.swift")
+        + appSource("PreferencesViewControls.swift")
 }
 
 private func preferencesThemePreviewViewSource() throws -> String {
@@ -3124,8 +3126,16 @@ private func preferencesThemePreviewViewSource() throws -> String {
 }
 
 private func terminalWindowControllerSource() throws -> String {
+    // The drop-target and tab-item views were split into their own files; the
+    // source-shape assertions cover the whole family.
+    try appSource("TerminalWindowController.swift")
+        + appSource("TerminalTabItemView.swift")
+        + appSource("TerminalPaneDropTargetView.swift")
+}
+
+private func appSource(_ fileName: String) throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalWindowController.swift")
+        .appendingPathComponent("Sources/KurottyApp/").appendingPathComponent(fileName)
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -3242,9 +3252,11 @@ private func terminalCommandRegistrySource() throws -> String {
 }
 
 private func splitTerminalViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/SplitTerminalView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
+    // The tmux projection and focus navigation were split into their own
+    // files; the source-shape assertions cover the whole family.
+    try appSource("SplitTerminalView.swift")
+        + appSource("SplitTerminalViewTmuxLayout.swift")
+        + appSource("SplitTerminalViewFocus.swift")
 }
 
 private func coreBridgeSource() throws -> String {

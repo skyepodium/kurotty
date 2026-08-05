@@ -278,13 +278,24 @@ final class ChromeDesignSystemTests: XCTestCase {
     }
 
     private func preferencesSource() throws -> String {
+        // PreferencesView was split into panes/controls files; the card
+        // styling this test asserts lives in the controls file.
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<3 {
             root.deleteLastPathComponent()
         }
-        return try String(
-            contentsOf: root.appendingPathComponent("Sources/KurottyApp/PreferencesView.swift"),
-            encoding: .utf8
-        )
+        let fileNames = [
+            "PreferencesView.swift",
+            "PreferencesViewPanes.swift",
+            "PreferencesViewControls.swift",
+        ]
+        return try fileNames.map { fileName in
+            try String(
+                contentsOf: root
+                    .appendingPathComponent("Sources/KurottyApp")
+                    .appendingPathComponent(fileName),
+                encoding: .utf8
+            )
+        }.joined()
     }
 }

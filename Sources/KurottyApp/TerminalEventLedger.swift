@@ -217,7 +217,14 @@ struct TerminalEventLedger: CustomStringConvertible {
     private(set) var events: [Event] = []
     private var nextSequence = 0
     private var droppedEventCount = 0
+    /// Per-trace dropped counts, bounded by the retained window: an entry
+    /// lives only while the trace still has retained events, so this map can
+    /// never hold more keys than `capacity` distinct traces. Trace IDs are
+    /// unique per PTY read, so an unpruned map would grow for the lifetime of
+    /// the owning surface. Once a trace leaves the window its per-trace count
+    /// is forgotten; the total survives in `droppedEventCount`.
     private var droppedEventCountsByTraceID: [TerminalEventTraceID: Int] = [:]
+    private var retainedEventCountsByTraceID: [TerminalEventTraceID: Int] = [:]
 
     init(capacity: Int) {
         self.capacity = max(0, capacity)
@@ -375,12 +382,14 @@ struct TerminalEventLedger: CustomStringConvertible {
         nextSequence += 1
 
         guard capacity > 0 else {
+            // A zero-capacity ledger retains no window at all, so it keeps
+            // only the total; per-trace counts would be unbounded.
             droppedEventCount += 1
-            droppedEventCountsByTraceID[traceID, default: 0] += 1
             return event
         }
 
         events.append(event)
+        retainedEventCountsByTraceID[traceID, default: 0] += 1
 
         if events.count > capacity {
             let overflowCount = events.count - capacity
@@ -394,8 +403,22 @@ struct TerminalEventLedger: CustomStringConvertible {
 
     private mutating func recordDroppedEvents(_ droppedEvents: ArraySlice<Event>) {
         for event in droppedEvents {
+            let remainingRetainedCount = retainedEventCountsByTraceID[event.traceID, default: 0] - 1
+            guard remainingRetainedCount > 0 else {
+                // The trace has fully left the retained window: forget its
+                // per-trace detail so the maps stay bounded by `capacity`.
+                retainedEventCountsByTraceID[event.traceID] = nil
+                droppedEventCountsByTraceID[event.traceID] = nil
+                continue
+            }
+            retainedEventCountsByTraceID[event.traceID] = remainingRetainedCount
             droppedEventCountsByTraceID[event.traceID, default: 0] += 1
         }
+    }
+
+    /// Test hook for the boundedness contract on the per-trace maps.
+    var droppedTraceTrackingCountForTesting: Int {
+        droppedEventCountsByTraceID.count + retainedEventCountsByTraceID.count
     }
 }
 
