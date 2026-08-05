@@ -1,0 +1,57 @@
+name: Flake Hunt
+
+# Manual only. Loops the XCTest bundle on a CI runner to measure how often the
+# intermittent SIGABRT reproduces and to capture a stack for it. The abort has
+# never reproduced on a developer machine, so the runner is the only place the
+# measurement can be taken.
+#
+# `workflow_dispatch` only becomes selectable once this file is on the default
+# branch, so the branch push trigger below exists to gather data before then.
+# Drop it once the hunt is over.
+on:
+  push:
+    branches:
+      - chore/flake-hunt
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'How many times to run the test bundle'
+        required: false
+        default: '20'
+      mode:
+        description: 'plain (measures the rate) or lldb (captures a backtrace)'
+        required: false
+        default: 'plain'
+        type: choice
+        options:
+          - plain
+          - lldb
+
+jobs:
+  hunt:
+    runs-on: macos-latest
+    # A single run is roughly a minute, and the whole point is to gather many.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        run: brew install zig
+
+      - name: Build the Zig library the tests link against
+        run: zig build
+
+      - name: Hunt
+        env:
+          ITERATIONS: ${{ github.event.inputs.iterations || '20' }}
+          MODE: ${{ github.event.inputs.mode || 'plain' }}
+        run: ./scripts/flake-hunt.sh
+
+      - name: Upload failing run logs and crash reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-hunt-${{ github.event.inputs.mode || 'plain' }}-${{ github.run_number }}
+          path: .build/flake-hunt
+          if-no-files-found: ignore
+          retention-days: 14
