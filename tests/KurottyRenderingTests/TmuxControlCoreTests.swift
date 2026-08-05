@@ -934,7 +934,15 @@ final class TmuxControlCoreTests: XCTestCase {
     }
 
     @MainActor
-    func testFatalRecoveryWritesBlankBeforeGracePeriodSynthesizesExit() async {
+    // Kept non-async deliberately. XCTest runs an async test method through
+    // XCTSwiftErrorObservation._observeErrors(in:), which allocates on the test
+    // task and frees that allocation when the method returns. These two tests
+    // drive the driver's fatal-recovery timers, which run on the main actor
+    // while the method is suspended, and the free then lands out of order:
+    // "freed pointer was not the last allocation", SIGABRT. A CI loop put that
+    // at 45% of runs, always in one of these two. `wait(for:timeout:)` pumps
+    // the same run loop without the async invocation path.
+    func testFatalRecoveryWritesBlankBeforeGracePeriodSynthesizesExit() {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
@@ -965,7 +973,7 @@ final class TmuxControlCoreTests: XCTestCase {
         completeInitialSnapshot(driver)
 
         driver.sendKeys(to: "%0", text: "x")
-        await fulfillment(of: [blankWritten, exited], timeout: 1)
+        wait(for: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
@@ -977,7 +985,15 @@ final class TmuxControlCoreTests: XCTestCase {
     }
 
     @MainActor
-    func testParserLocalAbortWaitsForFatalFallbackBeforeRestoringLocalUI() async {
+    // Kept non-async deliberately. XCTest runs an async test method through
+    // XCTSwiftErrorObservation._observeErrors(in:), which allocates on the test
+    // task and frees that allocation when the method returns. These two tests
+    // drive the driver's fatal-recovery timers, which run on the main actor
+    // while the method is suspended, and the free then lands out of order:
+    // "freed pointer was not the last allocation", SIGABRT. A CI loop put that
+    // at 45% of runs, always in one of these two. `wait(for:timeout:)` pumps
+    // the same run loop without the async invocation path.
+    func testParserLocalAbortWaitsForFatalFallbackBeforeRestoringLocalUI() {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
@@ -1006,7 +1022,7 @@ final class TmuxControlCoreTests: XCTestCase {
         XCTAssertEqual(exitCount, 0)
         XCTAssertTrue(driver.state.isAttached)
         XCTAssertEqual(commands.last, "detach-client\n")
-        await fulfillment(of: [blankWritten, exited], timeout: 1)
+        wait(for: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
         let blankIndex = commands.firstIndex(of: "\n")
