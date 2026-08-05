@@ -449,3 +449,100 @@ private func sourceRoot() -> URL {
     }
     return url
 }
+
+/// Both sidebars are removed from the split view while hidden, which destroys
+/// any constraint tying them to it. Revealing them has to restore the height
+/// pin, or each panel measures its own header-to-list chain and stops partway
+/// down the window instead of reaching the status bar.
+@MainActor
+final class TerminalWindowSidebarPanelHeightTests: XCTestCase {
+    private static let contentSize = NSSize(width: 1400, height: 900)
+
+    func testRevealedSidebarPanelsFillTheSplitViewHeight() {
+        let controller = makeLaidOutController()
+        let splitHeight = controller.commandHistorySplitView.frame.height
+        XCTAssertGreaterThan(splitHeight, 0)
+        XCTAssertEqual(controller.leftSidebarPanel.frame.height, splitHeight, accuracy: 0.5)
+        XCTAssertEqual(controller.fileExplorerPanel.frame.height, splitHeight, accuracy: 0.5)
+        XCTAssertEqual(controller.terminalContentHostView.frame.height, splitHeight, accuracy: 0.5)
+    }
+
+    func testHidingAndRevealingAPanelKeepsItFullHeight() {
+        let controller = makeLaidOutController()
+        for _ in 0..<3 {
+            controller.setFileExplorerPanelVisible(false)
+            controller.setCommandHistoryPanelVisible(false)
+            layOut(controller)
+            controller.setFileExplorerPanelVisible(true)
+            controller.setCommandHistoryPanelVisible(true)
+            layOut(controller)
+        }
+        let splitHeight = controller.commandHistorySplitView.frame.height
+        XCTAssertEqual(controller.leftSidebarPanel.frame.height, splitHeight, accuracy: 0.5)
+        XCTAssertEqual(controller.fileExplorerPanel.frame.height, splitHeight, accuracy: 0.5)
+    }
+
+    private func makeLaidOutController() -> TerminalWindowController {
+        let session = TmuxPaneSession(
+            writeHandler: { _ in },
+            resizeHandler: { _, _ in },
+            stopHandler: {}
+        )
+        let controller = TerminalWindowController(
+            detachedPane: TerminalPaneView(frame: .zero, session: session),
+            paneDragCoordinator: TerminalPaneDragCoordinator()
+        )
+        controller.window?.setContentSize(Self.contentSize)
+        controller.setCommandHistoryPanelVisible(true)
+        controller.setFileExplorerPanelVisible(true)
+        layOut(controller)
+        return controller
+    }
+
+    private func layOut(_ controller: TerminalWindowController) {
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+    }
+}
+
+/// The settings window opens at the height the Terminal pane needs, but never
+/// taller than the screen, and never below the designed content minimum.
+@MainActor
+final class PreferencesWindowSizingTests: XCTestCase {
+    func testInitialHeightUsesTheDesignedHeightOnATallScreen() {
+        let height = PreferencesWindowController.initialContentHeight(
+            visibleScreenHeight: 1600,
+            titleBarHeightPX: 28
+        )
+        XCTAssertEqual(height, DesignTokens.Component.preferencesHeightPX)
+    }
+
+    func testInitialHeightShrinksToFitAShortScreen() {
+        let height = PreferencesWindowController.initialContentHeight(
+            visibleScreenHeight: 700,
+            titleBarHeightPX: 28
+        )
+        XCTAssertEqual(height, 672)
+        XCTAssertLessThan(height, DesignTokens.Component.preferencesHeightPX)
+    }
+
+    func testInitialHeightNeverDropsBelowTheContentMinimum() {
+        let height = PreferencesWindowController.initialContentHeight(
+            visibleScreenHeight: 200,
+            titleBarHeightPX: 28
+        )
+        XCTAssertEqual(height, DesignTokens.Component.preferencesMinHeightPX)
+    }
+
+    func testDesignedHeightClearsTheTallestPane() {
+        // The Terminal pane measures 816pt of cards; the window also owns the
+        // status line and its gaps beneath the scroll view.
+        let tallestPaneHeightPX: CGFloat = 816
+        let statusStripPX = DesignTokens.Space.x3PX
+            + DesignTokens.Component.preferencesStatusHeightPX
+            + DesignTokens.Space.x4PX
+        XCTAssertGreaterThanOrEqual(
+            DesignTokens.Component.preferencesHeightPX,
+            tallestPaneHeightPX + statusStripPX
+        )
+    }
+}
