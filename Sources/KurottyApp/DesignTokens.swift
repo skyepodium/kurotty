@@ -632,6 +632,14 @@ enum DesignTokens {
         static let fileExplorerGitConflictPointSizePT: CGFloat = 10
         static let fileExplorerFolderIconAlphaRATIO: CGFloat = 0.85
         static let fileExplorerDimmedTextAlphaRATIO: CGFloat = 0.50
+        /// Agent-provenance column, sitting immediately before the git column.
+        /// A hollow ring rather than a second filled dot: git already owns the
+        /// filled-dot vocabulary, and shape separates the two states faster
+        /// than a fourth dot color would.
+        static let fileExplorerAgentSlotSizePX: CGFloat = 12
+        static let fileExplorerAgentRingDiameterPX: CGFloat = 6
+        static let fileExplorerAgentRingLineWidthPX: CGFloat = 1.5
+        static let fileExplorerAgentRingAlphaRATIO: CGFloat = 0.90
 
         // MARK: Shared sidebar search pill
 

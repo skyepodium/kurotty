@@ -171,6 +171,21 @@ enum AppConstants {
         static let maximumPromptCharacters = 400
     }
 
+    /// Attribution of working-tree files to the agent session and prompt that
+    /// wrote them, derived from the same transcripts `AgentSessions` indexes.
+    enum AgentProvenance {
+        /// Newest touches kept across every indexed session. A developer's
+        /// transcript history reaches tens of thousands of file writes, and the
+        /// index exists to answer "who changed this recently", not to be an
+        /// archive.
+        static let maximumTouchCount = 20_000
+        /// History depth kept per file, newest first.
+        static let maximumTouchesPerFile = 20
+        /// How recently an agent must have written a file for the explorer to
+        /// mark it.
+        static let recentTouchWindowSeconds: TimeInterval = 24 * 60 * 60
+    }
+
     /// Bounded reads for the JSONL transcript viewer. The reader never loads a
     /// transcript whole: it walks backwards in `tailChunkBytes` steps and drops
     /// any single record above `maximumRecordBytes`.

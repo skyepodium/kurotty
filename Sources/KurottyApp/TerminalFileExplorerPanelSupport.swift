@@ -26,6 +26,39 @@ enum FileExplorerRemoteCopy {
     }
 }
 
+// MARK: - Agent provenance copy
+
+/// Tooltip copy for a file an agent wrote. Pure so the wording is testable
+/// without building a row.
+enum FileExplorerAgentTouchCopy {
+    private static let lineSeparator = "\n"
+
+    /// `Changed by Claude Code · 2h` plus the prompt line when the transcript
+    /// recorded one.
+    static func tooltip(
+        for touch: AgentFileTouch,
+        now: Date,
+        language: AppLanguage = AppLocalization.language
+    ) -> String {
+        let locale = Locale(identifier: language.rawValue)
+        let title = String(
+            format: AppLocalization.string(.fileExplorerAgentTouchTitle, language: language),
+            locale: locale,
+            touch.agent.displayName,
+            TerminalCommandHistoryRowBuilder.relativeTimeLabel(from: touch.changedAt, to: now)
+        )
+        guard let prompt = touch.promptExcerpt else {
+            return title
+        }
+        let promptLine = String(
+            format: AppLocalization.string(.fileExplorerAgentTouchPrompt, language: language),
+            locale: locale,
+            prompt
+        )
+        return title + lineSeparator + promptLine
+    }
+}
+
 // MARK: - Icons
 
 enum FileExplorerIcon {
@@ -97,6 +130,8 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
     init(
         item: TerminalFileExplorerOutlineItem,
         badge: FileExplorerGitBadge?,
+        agentMarker: FileExplorerAgentMarker = .none,
+        now: Date = Date(),
         chromeTheme: DesignTokens.ChromeTheme
     ) {
         let isDirectory = item.node.kind == .directory
@@ -140,8 +175,18 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(nameLabel)
 
+        let agentSlotView = TerminalFileExplorerAgentSlotView(
+            marker: agentMarker,
+            chromeTheme: chromeTheme
+        )
+        addSubview(agentSlotView)
+
         let gitSlotView = TerminalFileExplorerGitSlotView(badge: badge, chromeTheme: chromeTheme)
         addSubview(gitSlotView)
+
+        // The tooltip is the reveal path for provenance: the marker says an
+        // agent wrote this, hovering says which agent and from which prompt.
+        toolTip = agentMarker.touch.map { FileExplorerAgentTouchCopy.tooltip(for: $0, now: now) }
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(
@@ -156,10 +201,13 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
             ),
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            gitSlotView.leadingAnchor.constraint(
+            agentSlotView.leadingAnchor.constraint(
                 greaterThanOrEqualTo: nameLabel.trailingAnchor,
                 constant: DesignTokens.Component.fileExplorerRowGapPX
             ),
+            agentSlotView.trailingAnchor.constraint(equalTo: gitSlotView.leadingAnchor),
+            agentSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
             gitSlotView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
                 constant: -DesignTokens.Component.fileExplorerRowInsetXPX
@@ -273,6 +321,69 @@ final class TerminalFileExplorerGitSlotView: NSView {
         case .conflicted, .ignored, nil:
             return nil
         }
+    }
+}
+
+/// Fixed-width agent-provenance column, immediately before the git column.
+///
+/// Draws a hollow ring rather than a fourth dot color. Git already owns the
+/// filled-dot vocabulary in this row, and at 6 px a difference in shape is
+/// legible where a difference in hue is not — especially since "an agent wrote
+/// this" and "this differs from HEAD" are frequently true at the same time.
+/// Like the git slot, the column is reserved whether or not it draws, so the
+/// name beside it never shifts.
+@MainActor
+final class TerminalFileExplorerAgentSlotView: NSView {
+    private let marker: FileExplorerAgentMarker
+    private let chromeTheme: DesignTokens.ChromeTheme
+
+    init(marker: FileExplorerAgentMarker, chromeTheme: DesignTokens.ChromeTheme) {
+        self.marker = marker
+        self.chromeTheme = chromeTheme
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerAgentSlotSizePX
+            ),
+            heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerAgentSlotSizePX
+            ),
+        ])
+        guard marker.hasRecentChange else {
+            return
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel(AppLocalization.string(.fileExplorerAgentTouchAccessibility))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard marker.hasRecentChange else {
+            return
+        }
+        let diameter = DesignTokens.Component.fileExplorerAgentRingDiameterPX
+        let lineWidth = DesignTokens.Component.fileExplorerAgentRingLineWidthPX
+        // Inset by half the stroke: NSBezierPath centers the line on the path,
+        // so an uninset oval would paint outside the reserved slot.
+        let ringRect = NSRect(
+            x: bounds.midX - diameter / 2,
+            y: bounds.midY - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        .insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+        let path = NSBezierPath(ovalIn: ringRect)
+        path.lineWidth = lineWidth
+        chromeTheme.accent
+            .withAlphaComponent(DesignTokens.Component.fileExplorerAgentRingAlphaRATIO)
+            .setStroke()
+        path.stroke()
     }
 }
 

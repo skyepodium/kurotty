@@ -109,6 +109,8 @@ enum L10nKey: String, CaseIterable {
     case statusBarWorktreeChangeDirectory, statusBarNoWorktrees
     // Agent token usage strip.
     case agentUsageToday, agentUsageInput, agentUsageOutput, agentUsageCache, agentUsageAccessibility
+    // Agent change provenance in the file explorer.
+    case fileExplorerAgentTouchTitle, fileExplorerAgentTouchPrompt, fileExplorerAgentTouchAccessibility
     // Agent context-window forecast.
     case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
     case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
@@ -225,6 +227,8 @@ enum AppLocalization {
             .statusBarWorktreeChangeDirectory: "Insert cd",
             .statusBarNoWorktrees: "This directory is not in a git worktree.",
             .agentUsageToday: "TODAY", .agentUsageInput: "in", .agentUsageOutput: "out", .agentUsageCache: "cache", .agentUsageAccessibility: "%1$@ tokens today across %2$d sessions",
+            .fileExplorerAgentTouchTitle: "Changed by %1$@ · %2$@", .fileExplorerAgentTouchPrompt: "Prompt: %@",
+            .fileExplorerAgentTouchAccessibility: "Changed by an agent",
             .agentContextLabel: "Context",
             .agentContextOfLimit: "%1$d%% of %2$@",
             .agentContextTurnsLeft: "~%d turns left",
@@ -305,6 +309,8 @@ enum AppLocalization {
             .statusBarWorktreeChangeDirectory: "cd 입력",
             .statusBarNoWorktrees: "이 디렉터리는 git 워크트리 안에 있지 않습니다.",
             .agentUsageToday: "오늘", .agentUsageInput: "입력", .agentUsageOutput: "출력", .agentUsageCache: "캐시", .agentUsageAccessibility: "오늘 %2$d개 세션에서 %1$@ 토큰",
+            .fileExplorerAgentTouchTitle: "%1$@이(가) 변경 · %2$@", .fileExplorerAgentTouchPrompt: "프롬프트: %@",
+            .fileExplorerAgentTouchAccessibility: "에이전트가 변경함",
             .agentContextLabel: "컨텍스트",
             .agentContextOfLimit: "%2$@ 중 %1$d%%",
             .agentContextTurnsLeft: "약 %d턴 남음",
@@ -385,6 +391,8 @@ enum AppLocalization {
             .statusBarWorktreeChangeDirectory: "cd を入力",
             .statusBarNoWorktrees: "このディレクトリは git ワークツリー内にありません。",
             .agentUsageToday: "今日", .agentUsageInput: "入力", .agentUsageOutput: "出力", .agentUsageCache: "キャッシュ", .agentUsageAccessibility: "本日 %2$d セッションで %1$@ トークン",
+            .fileExplorerAgentTouchTitle: "%1$@ が変更 · %2$@", .fileExplorerAgentTouchPrompt: "プロンプト: %@",
+            .fileExplorerAgentTouchAccessibility: "エージェントが変更しました",
             .agentContextLabel: "コンテキスト",
             .agentContextOfLimit: "%2$@ 中 %1$d%%",
             .agentContextTurnsLeft: "残り約 %d ターン",
