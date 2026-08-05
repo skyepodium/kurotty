@@ -602,6 +602,17 @@ final class TmuxControlModeDriver {
         return .init(kind: .mutation, command: command)
     }
 
+    deinit {
+        // Every scheduled task sleeps on a timer and holds only a weak reference, so a
+        // dropped driver leaves them sleeping for their full delay (the request timeout
+        // is five seconds) with nothing left to cancel them.
+        requestTimeoutTask?.cancel()
+        fatalAbortTask?.cancel()
+        fatalWaitExitTask?.cancel()
+        windowOrderDebounceTask?.cancel()
+        for task in suspensionLeaseTasks.values { task.cancel() }
+    }
+
     private func scheduleRequestTimeout(generation: UInt64) {
         requestTimeoutTask?.cancel()
         let delay = requestTimeoutNanoseconds
