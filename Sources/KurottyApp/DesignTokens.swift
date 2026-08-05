@@ -491,7 +491,12 @@ enum DesignTokens {
         /// as an empty gutter); every button is the macOS regular control
         /// height of 28.
         static let preferencesWidthPX: CGFloat = 720
-        static let preferencesHeightPX: CGFloat = 560
+        /// Tall enough that the Terminal pane — the longest of the three, at
+        /// 816pt of cards — opens fully instead of cutting its last card in
+        /// half. The window still clamps itself to the screen when this does
+        /// not fit, and stays resizable down to `preferencesMinHeightPX`.
+        static let preferencesHeightPX: CGFloat = 852
+        static let preferencesMinHeightPX: CGFloat = 420
         static let preferencesSidebarWidthPX: CGFloat = 184
         static let preferencesControlWidthPX: CGFloat = 220
         static let preferencesStatusHeightPX: CGFloat = 16
