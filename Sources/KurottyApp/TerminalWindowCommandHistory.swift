@@ -51,6 +51,15 @@ extension TerminalWindowController {
             // chrome bar owns the top one, so the split stops at its top edge
             // instead of running under it.
             commandHistorySplitView.bottomAnchor.constraint(equalTo: statusBarView.topAnchor),
+
+            // The terminal column takes its height from the split view. The two
+            // sidebar panels get the same pin, but in `setSidebarPanelHidden`,
+            // because hiding removes them from the split view and takes any
+            // constraint declared here with them.
+            terminalContentHostView.topAnchor.constraint(equalTo: commandHistorySplitView.topAnchor),
+            terminalContentHostView.bottomAnchor.constraint(
+                equalTo: commandHistorySplitView.bottomAnchor
+            ),
         ])
 
         // The panel starts collapsed through the shared helper so the hidden

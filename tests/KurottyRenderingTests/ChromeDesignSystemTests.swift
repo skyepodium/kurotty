@@ -237,7 +237,11 @@ final class ChromeDesignSystemTests: XCTestCase {
 
     func testPreferencesWindowAndControlMetricsShrinkToTheDesignSpec() {
         XCTAssertEqual(DesignTokens.Component.preferencesWidthPX, 720)
-        XCTAssertEqual(DesignTokens.Component.preferencesHeightPX, 560)
+        // Taller than the 560 the width shrink originally paired with: at 560
+        // the Terminal pane cut its third card in half and hid the fourth
+        // outright. `PreferencesWindowSizingTests` covers the height itself.
+        XCTAssertEqual(DesignTokens.Component.preferencesHeightPX, 852)
+        XCTAssertEqual(DesignTokens.Component.preferencesMinHeightPX, 420)
         XCTAssertEqual(DesignTokens.Component.preferencesControlWidthPX, 220)
         XCTAssertEqual(DesignTokens.Component.preferencesButtonWidthPX, 84)
         XCTAssertEqual(DesignTokens.Component.preferencesButtonHeightPX, 28)

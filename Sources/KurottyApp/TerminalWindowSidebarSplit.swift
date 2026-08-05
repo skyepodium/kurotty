@@ -107,6 +107,15 @@ extension TerminalWindowController: NSSplitViewDelegate {
             } else {
                 splitView.addArrangedSubview(panel)
             }
+            // Hiding takes the panel out of the split view, which destroys the
+            // constraints tying it to the split view's edges, so the height pin
+            // has to be rebuilt on every reveal. Without it the panel measures
+            // its own header-to-list chain and stops partway down the window
+            // instead of reaching the status bar.
+            NSLayoutConstraint.activate([
+                panel.topAnchor.constraint(equalTo: splitView.topAnchor),
+                panel.bottomAnchor.constraint(equalTo: splitView.bottomAnchor),
+            ])
             NSLayoutConstraint.activate(widthConstraints)
         }
         applySidebarHoldingPriorities()

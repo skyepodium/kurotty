@@ -89,14 +89,16 @@ final class PreferencesWindowController: NSWindowController {
         )
         let initialContentSize = NSSize(
             width: DesignTokens.Component.preferencesWidthPX,
-            height: DesignTokens.Component.preferencesHeightPX
+            height: Self.initialContentHeight()
         )
         window.title = AppLocalization.format(.settingsWindow, AppConstants.Bundle.displayName)
         window.contentView = view
         window.setContentSize(initialContentSize)
-        window.minSize = NSSize(
+        // `minSize` is the frame minimum, so using it here let the content area
+        // shrink a title bar below the designed minimum and clip the last card.
+        window.contentMinSize = NSSize(
             width: DesignTokens.Component.preferencesWidthPX,
-            height: DesignTokens.Component.preferencesHeightPX
+            height: DesignTokens.Component.preferencesMinHeightPX
         )
         window.center()
         super.init(window: window)
@@ -104,6 +106,19 @@ final class PreferencesWindowController: NSWindowController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    /// The designed height, shortened to whatever the screen can actually show
+    /// so the window never opens taller than the display and pushes its own
+    /// footer off-screen.
+    static func initialContentHeight(
+        visibleScreenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
+        titleBarHeightPX: CGFloat = 28
+    ) -> CGFloat {
+        let designed = DesignTokens.Component.preferencesHeightPX
+        guard let visibleScreenHeight else { return designed }
+        let available = visibleScreenHeight - titleBarHeightPX
+        return max(DesignTokens.Component.preferencesMinHeightPX, min(designed, available))
     }
 
     func refreshLocalization() {
