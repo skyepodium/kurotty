@@ -1,8 +1,33 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 10
+    public static let schemaVersion = 15
     public static let commandHistoryEnabled = true
+    /// Live-applied and on by default. The window's bottom status bar is passive
+    /// chrome; turning it off collapses the strip to zero height and stops the
+    /// resource sampler entirely, so no timer and no `libproc` call remains.
+    public static let statusBarEnabled = true
+    /// Launch-only and on by default. Restoring stored scrollback only repaints
+    /// the screen model; it never writes to a PTY and never runs a command, so
+    /// it stays separate from the command-replay opt-in.
+    public static let restoreScrollbackOnLaunch = true
+    /// Live-applied and on by default. A paste that spans more than one line
+    /// can execute every line it contains, so it asks for confirmation first.
+    public static let confirmMultilinePaste = true
+    /// On by default. Indexing reads the user's AI agent transcripts, so the
+    /// Settings checkbox must always be able to turn it off; when disabled no
+    /// scan runs at all and no index is retained.
+    public static let agentSessionIndexEnabled = true
+    /// Live-applied. Hides the mouse pointer while the user types into a
+    /// terminal surface; the pointer returns on the next mouse move.
+    public static let hideMouseCursorWhileTyping = true
+    /// Next-session. Derives a per-project `HISTFILE` for new shells. An
+    /// inherited `HISTFILE` always wins regardless of this setting.
+    public static let perProjectHistoryEnabled = true
+    /// Off by default. Turning it on starts a loopback listener and writes
+    /// Kurotty-marked entries into the user's agent hook configuration, so it
+    /// must be an explicit opt-in.
+    public static let agentStatusHooksEnabled = false
     public static let terminalFontName = "Menlo"
     public static let terminalFontSizePT = 15.0
     public static let maximumScrollbackRows = 1_000_000

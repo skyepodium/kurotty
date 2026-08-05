@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
+final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSWindowDelegate {
     private let dropTargetView = TerminalPaneDropTargetView()
     let paneDragCoordinator: TerminalPaneDragCoordinator
     private var rootView: NSView {
@@ -9,19 +9,51 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
     private let tabBarView = NSView()
     private let topBarSeparatorView = NSView()
-    private let historyToggleButton = ChromeIconButton(frame: .zero)
-    private let explorerToggleButton = ChromeIconButton(frame: .zero)
+    private let historyToggleButton = ChromeIconButton(
+        symbolName: IconSymbol.sidebarLeading,
+        accessibilityLabel: AppLocalization.string(.commandHistory),
+        target: nil,
+        action: nil
+    )
+    private let explorerToggleButton = ChromeIconButton(
+        symbolName: IconSymbol.sidebarTrailing,
+        accessibilityLabel: AppLocalization.string(.fileExplorer),
+        target: nil,
+        action: nil
+    )
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
-    // Command-history split chrome; layout and handlers live in
-    // TerminalWindowCommandHistory.swift to keep this controller thin.
+    // Left sidebar split chrome; layout and handlers live in
+    // TerminalWindowCommandHistory.swift to keep this controller thin. The
+    // pane hosts one container that switches between the command-history and
+    // agent-session sections.
     let commandHistorySplitView = NSSplitView()
-    let commandHistoryPanel = TerminalCommandHistoryPanelView()
+    let leftSidebarPanel = TerminalLeftSidebarPanelView()
+    var commandHistoryPanel: TerminalCommandHistoryPanelView {
+        leftSidebarPanel.historyPanel
+    }
+    var agentSessionPanel: TerminalAgentSessionPanelView {
+        leftSidebarPanel.agentSessionPanel
+    }
     let terminalContentHostView = NSView()
     // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
     // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
     let fileExplorerPanel = TerminalFileExplorerPanelView()
+    /// Bottom status bar. It owns the bottom strip exactly as the chrome bar
+    /// owns the top one: the split view is pinned to its `topAnchor`, so a
+    /// collapsed bar gives every point back to the terminal content.
+    let statusBarView = TerminalStatusBarView(frame: .zero)
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    /// Sidebar width constraints stay active only while the panel is shown: a
+    /// hidden view still participates in Auto Layout, so leaving them on keeps
+    /// the split view reserving a sliver of width plus its divider.
+    var commandHistoryWidthConstraints: [NSLayoutConstraint] = []
+    var fileExplorerWidthConstraints: [NSLayoutConstraint] = []
+    /// Per-pane scrollback persistence for this window. `nil` when Application
+    /// Support is unavailable; every call site treats that as "no snapshots".
+    /// Settable so tests can point it at a temporary root instead of the user's
+    /// real Application Support directory.
+    var scrollbackSnapshotCoordinator: TerminalScrollbackSnapshotCoordinator?
     var chromeTheme: DesignTokens.ChromeTheme
     private var lastAppliedWindowSettings: WindowSettings
     private var tmuxCoordinators: [TmuxNativeSessionCoordinator] = []
@@ -41,6 +73,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         lastAppliedWindowSettings = settings.window
+        // Launch-only: the flag is read once here and gates both capture and
+        // restore for this window's lifetime.
+        scrollbackSnapshotCoordinator = TerminalScrollbackSnapshotCoordinator.makeDefault(
+            isEnabled: settings.terminal.restoreScrollbackOnLaunch
+        )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -55,11 +92,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         window.isMovableByWindowBackground = true
         window.center()
         super.init(window: window)
+        window.delegate = self
         configureTabs(initialPane: initialPane)
+        statusBarView.setEnabled(settings.terminal.statusBarEnabled)
         applyChromeTheme(chromeTheme)
         observeSettings()
         observeTerminalTitles()
         observeTmuxControlMode()
+        observePaneFocus()
     }
 
     required init?(coder: NSCoder) {
@@ -102,6 +142,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         tabView.selectTabViewItem(item)
         updateTabBar()
         currentSplitView()?.focusFirstPane()
+        refreshStatusBarPanes()
     }
 
     func splitVertically() {
@@ -115,6 +156,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     func split(direction: TerminalPaneSplitDirection) {
         if let coordinator = selectedTmuxCoordinator { coordinator.split(direction); return }
         currentSplitView()?.split(direction: direction)
+        refreshStatusBarPanes()
     }
 
     func focusPane(_ direction: TerminalPaneFocusDirection) {
@@ -133,8 +175,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         currentSplitView()?.executeCommandSpanPaletteCommand(command) ?? false
     }
 
+    /// The palette registry for the selected tab, carrying the quick commands
+    /// visible in the active pane's working directory. Directory-scoped
+    /// commands outside that directory are never registered, so they cannot
+    /// appear in the palette at all.
     func commandPaletteRegistry() -> TerminalCommandRegistry {
-        selectedTmuxCoordinator == nil ? .localized : .localizedTmuxControl
+        let registry = selectedTmuxCoordinator == nil ? TerminalCommandRegistry.localized : .localizedTmuxControl
+        let workingDirectory = quickCommandWorkingDirectory
+        return registry.registering(
+            quickCommands: QuickCommandStore.shared.commands(forWorkingDirectory: workingDirectory),
+            workingDirectory: workingDirectory,
+            language: AppLocalization.language
+        )
     }
 
     func swapTmuxPane(_ direction: TmuxPaneSwapDirection) {
@@ -170,14 +222,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
-        let windowID = window?.identifier?.rawValue ?? "window-main"
+        workspaceDescriptor(capturingScrollback: false)
+    }
+
+    /// Layout descriptor for this window. With `capturingScrollback` on, every
+    /// live pane's trailing rows are serialized and enqueued for writing, and
+    /// the resulting reference is recorded on that pane's descriptor.
+    func workspaceDescriptor(
+        capturingScrollback: Bool
+    ) -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
+        let windowID = window?.identifier?.rawValue ?? AppConstants.Workspace.defaultWindowIdentifier
         return WorkspaceSnapshotCoordinator.WorkspaceDescriptor(
             windows: [
                 WorkspaceSnapshotCoordinator.WindowDescriptor(
                     id: windowID,
                     title: nil,
                     frame: windowFrameSnapshot,
-                    tabs: layoutOnlyTabDescriptors(),
+                    tabs: layoutOnlyTabDescriptors(capturingScrollback: capturingScrollback),
                     activeTabID: selectedTabID
                 ),
             ],
@@ -207,6 +268,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             return
         }
         currentSplitView()?.focusFirstPane()
+        refreshStatusBarPanes()
     }
 
     func selectNextTab() {
@@ -230,6 +292,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private func configureTabs(initialPane: TerminalPaneView?) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
         rootView.wantsLayer = true
+        rootView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         window?.contentView = rootView
         dropTargetView.onPaneDrop = { [weak self] in
@@ -247,12 +310,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
         tabBarView.wantsLayer = true
+        tabBarView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderWidth = 0
         tabBarView.layer?.cornerRadius = DesignTokens.Component.terminalTopBarCornerRadiusPX
         tabBarView.layer?.masksToBounds = true
 
         topBarSeparatorView.wantsLayer = true
+        topBarSeparatorView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
         topBarSeparatorView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -328,6 +393,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
             tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
         ])
+        // Mounted before the split configuration because the split's bottom
+        // constraint is pinned to `statusBarView.topAnchor`: Auto Layout
+        // requires both views to already share `rootView` as an ancestor when
+        // that constraint is activated.
+        statusBarView.dataSource = self
+        statusBarView.attach(to: rootView)
+        statusBarView.applyChromeTheme(chromeTheme)
+
         configureCommandHistorySplit(in: rootView)
         configureFileExplorerPane()
         addTab(with: initialPane)
@@ -337,6 +410,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         window?.title = tabViewItem?.label ?? AppConstants.Bundle.displayName
         updateTabBar()
         refreshFileExplorerRootDirectory()
+        refreshStatusBarPanes()
         if suppressesTmuxSelectionCallbacks {
             return
         }
@@ -411,6 +485,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         }
         chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         applyChromeTheme(chromeTheme)
+        // Live-applied: the bar collapses or expands in place, and a collapsed
+        // bar tears its sampling timer down instead of idling.
+        statusBarView.setEnabled(settings.terminal.statusBarEnabled)
         applyWindowSettingsIfChanged(settings)
     }
 
@@ -435,9 +512,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
-        commandHistoryPanel.applyChromeTheme(chromeTheme)
+        leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
+        statusBarView.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
+        // Both toggles take their full ramp from the theme, so a light theme
+        // has to reach them here too — not only their on/off tint.
+        updateSidebarToggleButtonStates()
         updateTabBar()
     }
 
@@ -448,6 +529,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
                 splitView.applyChromeTheme(theme)
             } else if let editor = editorView(in: item) {
                 editor.applyChromeTheme(theme)
+            } else if let transcript = transcriptView(in: item) {
+                transcript.applyChromeTheme(theme)
             }
         }
     }
@@ -533,25 +616,41 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
         return tabID(for: selectedItem, index: tabView.indexOfTabViewItem(selectedItem))
     }
 
-    private func layoutOnlyTabDescriptors() -> [WorkspaceSnapshotCoordinator.TabDescriptor] {
+    private func layoutOnlyTabDescriptors(
+        capturingScrollback: Bool
+    ) -> [WorkspaceSnapshotCoordinator.TabDescriptor] {
         (0..<tabView.numberOfTabViewItems).compactMap { index in
             let item = tabView.tabViewItem(at: index)
             guard let splitView = item.view as? SplitTerminalView else {
                 return nil
             }
+            let idPrefix = layoutIDPrefix(forTabIndex: index)
             return WorkspaceSnapshotCoordinator.TabDescriptor(
                 id: tabID(for: item, index: index),
                 title: nil,
-                root: splitView.layoutOnlyDescriptor(idPrefix: "tab-\(index)")
+                root: splitView.layoutOnlyDescriptor(idPrefix: idPrefix) { pane, paneID in
+                    guard capturingScrollback else {
+                        return nil
+                    }
+                    return captureScrollbackSnapshot(of: pane, tabID: idPrefix, paneID: paneID)
+                }
             )
         }
+    }
+
+    /// Positional tab identity used for pane identifiers and snapshot
+    /// references. Deliberately not the tab's `NSTabViewItem` identifier: that
+    /// is a fresh UUID per launch, while a restored layout has to line up with
+    /// the slot the pane occupied last time.
+    func layoutIDPrefix(forTabIndex index: Int) -> String {
+        "\(AppConstants.Workspace.tabIdentifierPrefix)\(index)"
     }
 
     private func tabID(for item: NSTabViewItem, index: Int) -> String {
         if let id = item.identifier as? String, !id.isEmpty {
             return id
         }
-        return "tab-\(index)"
+        return layoutIDPrefix(forTabIndex: index)
     }
 
     private func defaultTabLabel() -> String {
@@ -576,11 +675,20 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
             tabStackView.addArrangedSubview(tabItemView)
         }
 
-        let addButton = ChromeIconButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
-        addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
+        let addButton = ChromeIconButton(
+            symbolName: IconSymbol.add,
+            accessibilityLabel: AppLocalization.string(.newTab),
+            size: .small,
+            target: self,
+            action: #selector(newTabButtonPressed(_:))
+        )
+        addButton.applyChromeTheme(chromeTheme)
+        // Deliberate deviation from the theme's achromatic hover: the tab bar
+        // tints its own hover with the accent so add/close read as tab actions.
         addButton.normalTintColor = chromeTheme.textSecondary
-        addButton.hoverTintColor = chromeTheme.textPrimary
-        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+            DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
+        )
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
@@ -593,28 +701,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     private func configureSidebarToggleButtons() {
-        let configuration = NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.sidebarToggleSymbolPointSizePT,
-            weight: .regular
-        )
-        historyToggleButton.image = NSImage(
-            systemSymbolName: "sidebar.leading",
-            accessibilityDescription: AppLocalization.string(.commandHistory)
-        )?.withSymbolConfiguration(configuration)
         historyToggleButton.toolTip = AppLocalization.string(.commandHistory)
         historyToggleButton.target = self
         historyToggleButton.action = #selector(historyToggleButtonPressed(_:))
 
-        explorerToggleButton.image = NSImage(
-            systemSymbolName: "sidebar.trailing",
-            accessibilityDescription: AppLocalization.string(.fileExplorer)
-        )?.withSymbolConfiguration(configuration)
         explorerToggleButton.toolTip = AppLocalization.string(.fileExplorer)
         explorerToggleButton.target = self
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
         for button in [historyToggleButton, explorerToggleButton] {
-            button.imagePosition = .imageOnly
             button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
             button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
         }
@@ -624,22 +719,27 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     /// An open panel keeps its toggle tinted like a selected control so the bar
     /// reads as on/off state, not just as two buttons.
     func updateSidebarToggleButtonStates() {
-        historyToggleButton.normalTintColor = isCommandHistoryPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.82)
-            : chromeTheme.textSecondary
-        historyToggleButton.normalBackgroundColor = isCommandHistoryPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.10)
-            : .clear
-        historyToggleButton.hoverTintColor = chromeTheme.textPrimary
-        historyToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
-        explorerToggleButton.normalTintColor = isFileExplorerPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.82)
-            : chromeTheme.textSecondary
-        explorerToggleButton.normalBackgroundColor = isFileExplorerPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.10)
-            : .clear
-        explorerToggleButton.hoverTintColor = chromeTheme.textPrimary
-        explorerToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        for (button, isOpen) in [
+            (historyToggleButton, isCommandHistoryPanelVisible),
+            (explorerToggleButton, isFileExplorerPanelVisible),
+        ] {
+            // Everything but the "panel is open" state comes from the theme, so
+            // press and focus follow the light ramp under a light theme.
+            button.applyChromeTheme(chromeTheme)
+            button.normalTintColor = isOpen
+                ? chromeTheme.activeIndicator.withAlphaComponent(
+                    DesignTokens.Component.sidebarToggleActiveTintAlphaRATIO
+                )
+                : chromeTheme.textSecondary
+            button.normalBackgroundColor = isOpen
+                ? chromeTheme.activeIndicator.withAlphaComponent(
+                    DesignTokens.Component.sidebarToggleActiveFillAlphaRATIO
+                )
+                : .clear
+            button.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+                DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
+            )
+        }
     }
 
     @objc private func historyToggleButtonPressed(_ sender: NSButton) {
@@ -693,6 +793,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate {
     private func closeTab(_ item: NSTabViewItem) {
         tabView.removeTabViewItem(item)
         updateTabBar()
+        refreshStatusBarPanes()
     }
 
     fileprivate func tabItem(containing surface: TerminalSurfaceView) -> NSTabViewItem? {
@@ -818,7 +919,20 @@ final class TerminalPaneDropTargetView: NSView {
 @MainActor
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
-    private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
+    private let closeButton = ChromeIconButton(
+        symbolName: IconSymbol.close,
+        accessibilityLabel: AppLocalization.string(.closePaneOrTab),
+        size: .small,
+        target: nil,
+        action: nil
+    )
+    /// Achromatic hover wash painted over whatever the tab's base fill is, so
+    /// hover reads the same on the selected and unselected tab and can never be
+    /// mistaken for the accent.
+    private let hoverOverlayView = NSView()
+    /// Selection marker: a 2pt accent rail across the tab's top edge, clipped to
+    /// the tab's corner radius.
+    private let selectionRailView = NSView()
     private let selected: Bool
     private let chromeTheme: DesignTokens.ChromeTheme
     private var isHovered = false
@@ -882,18 +996,29 @@ private final class TerminalTabItemView: NSView {
     private func configure(title: String) {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX
-        layer?.borderWidth = selected ? DesignTokens.Component.terminalTabBorderWidthPX : 0
-        layer?.borderColor = chromeTheme.borderHairline.cgColor
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOffset = NSSize(width: 0, height: DesignTokens.Component.terminalTabShadowOffsetYPX)
-        layer?.shadowRadius = selected ? DesignTokens.Component.terminalTabShadowRadiusPX : 0
-        layer?.shadowOpacity = selected ? DesignTokens.Component.terminalTabShadowOpacity : 0
+        // A tab's fill, hover wash, and selection rail all change on the same
+        // click that moves it; none of them may fade.
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        layer?.cornerRadius = DesignTokens.Radius.mdPX
+        // Clipping is what lets the top rail stop at the rounded corners instead
+        // of overhanging them.
+        layer?.masksToBounds = true
+
+        hoverOverlayView.wantsLayer = true
+        hoverOverlayView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        hoverOverlayView.isHidden = true
+        hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor
+        hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hoverOverlayView)
+
+        selectionRailView.wantsLayer = true
+        selectionRailView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        selectionRailView.isHidden = !selected
+        selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor
+        selectionRailView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(selectionRailView)
 
         titleField.stringValue = title
-        titleField.font = selected
-            ? NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
-            : NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .regular)
         titleField.lineBreakMode = .byTruncatingMiddle
         titleField.maximumNumberOfLines = 1
         titleField.translatesAutoresizingMaskIntoConstraints = false
@@ -901,16 +1026,29 @@ private final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
-        closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        closeButton.normalTintColor = selected ? chromeTheme.textSecondary : chromeTheme.textMuted
-        closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        closeButton.applyChromeTheme(chromeTheme)
+        // Same deliberate accent hover as the add button.
+        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+            DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
+        )
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX),
             widthAnchor.constraint(greaterThanOrEqualToConstant: DesignTokens.Component.terminalTabMinWidthPX),
             widthAnchor.constraint(lessThanOrEqualToConstant: DesignTokens.Component.terminalTabMaxWidthPX),
+
+            hoverOverlayView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hoverOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hoverOverlayView.topAnchor.constraint(equalTo: topAnchor),
+            hoverOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            selectionRailView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            selectionRailView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            selectionRailView.topAnchor.constraint(equalTo: topAnchor),
+            selectionRailView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.terminalTabTopRailHeightPX
+            ),
 
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabTitleLeadingPX),
             titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -DesignTokens.Component.terminalTabTitleCloseGapPX),
@@ -926,17 +1064,19 @@ private final class TerminalTabItemView: NSView {
 
     private func updateAppearance() {
         layer?.backgroundColor = tabBackgroundColor.cgColor
-        titleField.textColor = selected || isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
-        closeButton.normalTintColor = selected || isHovered ? chromeTheme.textSecondary : chromeTheme.textMuted
+        hoverOverlayView.isHidden = !isHovered
+        let titleRole = selected ? DesignTokens.Typography.tabLabelSel : DesignTokens.Typography.tabLabel
+        titleRole.apply(
+            to: titleField,
+            color: selected || isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
+        )
+        closeButton.normalTintColor = selected || isHovered ? chromeTheme.textSecondary : chromeTheme.textTertiary
         closeButton.alphaValue = selected || isHovered ? 1 : 0
     }
 
+    /// The unselected tab has no fill of its own: it sits directly on
+    /// `surfaceChrome`, so only the selected tab is raised out of the bar.
     private var tabBackgroundColor: NSColor {
-        if selected {
-            return isHovered ? chromeTheme.activeTabBackground.blended(withFraction: 0.10, of: DesignTokens.Color.accentBlue) ?? chromeTheme.activeTabBackground : chromeTheme.activeTabBackground
-        }
-        return isHovered
-            ? chromeTheme.inactiveTabHoverBackground
-            : chromeTheme.inactiveTabBackground
+        selected ? chromeTheme.surfaceRaised : .clear
     }
 }

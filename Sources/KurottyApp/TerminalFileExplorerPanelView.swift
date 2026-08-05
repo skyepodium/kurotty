@@ -21,17 +21,6 @@ struct TerminalFileExplorerCallbacks {
         self.insertPath = insertPath
     }
 }
-// MARK: - Design metrics
-
-enum FileExplorerMetrics {
-    static let rowIconSizePX: CGFloat = 14
-    static let rowGapPX: CGFloat = 6
-    static let rowInsetXPX: CGFloat = 8
-    static let badgeMinWidthPX: CGFloat = 14
-    static let outlineIndentPX: CGFloat = 12
-    static let dimmedAlphaRATIO: CGFloat = 0.55
-    static let watcherDebounceMS = 300
-}
 
 // MARK: - Outline item
 
@@ -142,7 +131,7 @@ final class TerminalFileExplorerRootWatcher {
         }
         pendingChange = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(FileExplorerMetrics.watcherDebounceMS),
+            deadline: .now() + .milliseconds(AppConstants.FileExplorer.watcherDebounceMS),
             execute: workItem
         )
     }
@@ -155,6 +144,10 @@ final class TerminalFileExplorerPanelView: NSView {
     var callbacks = TerminalFileExplorerCallbacks()
 
     private(set) var rootDirectory: URL?
+    /// Set while the active pane's working directory lives on another machine.
+    /// The explorer browses local files only, so in this state it lists
+    /// nothing, watches nothing, and runs no `git`.
+    private(set) var remoteLocation: TerminalWorkingDirectoryLocation?
     private var rootItem: TerminalFileExplorerOutlineItem?
     private var filterMatchItems: [TerminalFileExplorerOutlineItem]?
     private var gitOverlay = FileExplorerGitOverlay.empty
@@ -165,15 +158,21 @@ final class TerminalFileExplorerPanelView: NSView {
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
     private let directoryNameLabel = NSTextField(labelWithString: "")
-    private let refreshButton = ChromeIconButton(frame: .zero)
-    private let searchPillView = NSView()
-    // Own magnifier + plain text field: an unbezeled NSSearchField stops
-    // insetting its text, so the placeholder overlapped the cell's built-in
-    // search icon whenever the field was not being edited.
-    private let searchIconView = NSImageView()
-    private let searchField = NSTextField()
+    private let refreshButton = ChromeIconButton(
+        symbolName: FileExplorerIcon.refreshSymbolName,
+        accessibilityLabel: AppLocalization.string(.refresh),
+        target: nil,
+        action: nil
+    )
+    /// Shared sidebar control; see `TerminalSidebarSearchPillView`.
+    private let searchPillView = TerminalSidebarSearchPillView(
+        placeholder: { AppLocalization.string(.fileExplorerSearchPlaceholder) }
+    )
+    private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
+    private let emptyStateIconView = NSImageView()
+    private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
     init() {
         super.init(frame: .zero)
@@ -186,8 +185,24 @@ final class TerminalFileExplorerPanelView: NSView {
 
     // MARK: Public API
 
+    /// Primary entry point: points the panel at the active pane's working
+    /// directory, local or remote. Remote sessions short-circuit before any
+    /// filesystem, watcher, or `git` work.
+    func update(location: TerminalWorkingDirectoryLocation) {
+        guard location.isRemote else {
+            update(rootDirectory: URL(fileURLWithPath: location.path, isDirectory: true))
+            return
+        }
+        showRemoteLocation(location)
+    }
+
     func update(rootDirectory: URL) {
         let standardized = rootDirectory.standardizedFileURL
+        if remoteLocation != nil {
+            remoteLocation = nil
+            self.rootDirectory = nil
+            updateRemoteEmptyState()
+        }
         if self.rootDirectory != standardized {
             self.rootDirectory = standardized
             directoryNameLabel.stringValue = standardized.lastPathComponent
@@ -204,7 +219,32 @@ final class TerminalFileExplorerPanelView: NSView {
         refresh()
     }
 
+    /// Switches the panel into the remote empty state. Idempotent: repeating
+    /// the same remote location does nothing, so a pane that keeps emitting
+    /// OSC 7 for the same SSH directory cannot flicker the tree.
+    private func showRemoteLocation(_ location: TerminalWorkingDirectoryLocation) {
+        guard remoteLocation != location else {
+            return
+        }
+        remoteLocation = location
+        rootDirectory = nil
+        rootItem = nil
+        filterMatchItems = nil
+        // Invalidate any in-flight filter scan started for the previous local
+        // root so its result cannot repopulate the tree after the switch.
+        filterGeneration += 1
+        gitOverlay = .empty
+        watcher?.stop()
+        watcher = nil
+        outlineView.reloadData()
+        updateRemoteEmptyState()
+    }
+
     func refresh() {
+        // A remote session has nothing local to list, watch, or `git` on.
+        guard remoteLocation == nil else {
+            return
+        }
         guard let rootDirectory, let rootItem else {
             return
         }
@@ -220,99 +260,141 @@ final class TerminalFileExplorerPanelView: NSView {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
-        directoryNameLabel.textColor = theme.textPrimary
-        panelTitleLabel.textColor = theme.textMuted
-        searchPillView.layer?.backgroundColor = theme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.fileExplorerSearchPillBackgroundAlphaRATIO)
-            .cgColor
-        searchField.textColor = theme.textPrimary
-        searchIconView.contentTintColor = theme.textMuted
-        applySearchPlaceholder()
+        DesignTokens.Typography.rowTitleSel.apply(to: directoryNameLabel, color: theme.textPrimary)
+        DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
+        searchPillView.applyChromeTheme(theme)
+        refreshButton.applyChromeTheme(theme)
+        applyEmptyStateIcon(tint: theme.textMuted)
+        emptyStateLabel.textColor = theme.textMuted
+        updateRemoteEmptyState()
         outlineView.reloadData()
     }
 
     func focusSearchField() {
-        window?.makeFirstResponder(searchField)
+        searchPillView.focus()
+    }
+
+    // MARK: Testing accessors
+
+    var visibleRowCountForTesting: Int {
+        outlineView.numberOfRows
+    }
+
+    var isRemoteEmptyStateHiddenForTesting: Bool {
+        emptyStateLabel.isHidden && emptyStateIconView.isHidden
+    }
+
+    var remoteEmptyStateTextForTesting: String {
+        emptyStateLabel.stringValue
+    }
+
+    var isSearchEnabledForTesting: Bool {
+        searchPillView.isEnabled
     }
 
     // MARK: Setup
 
     private func configureSubviews() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
         panelTitleLabel.stringValue = AppLocalization.string(.fileExplorer).localizedUppercase
-        panelTitleLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarSectionHeaderFontSizePT,
-            weight: .semibold
+        DesignTokens.Typography.sectionHeader.apply(
+            to: panelTitleLabel,
+            color: chromeTheme.textTertiary
         )
-        panelTitleLabel.textColor = chromeTheme.textMuted
         panelTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(panelTitleLabel)
 
-        directoryNameLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            weight: .semibold
+        DesignTokens.Typography.rowTitleSel.apply(
+            to: directoryNameLabel,
+            color: chromeTheme.textPrimary
         )
-        directoryNameLabel.textColor = chromeTheme.textPrimary
         directoryNameLabel.lineBreakMode = .byTruncatingMiddle
         directoryNameLabel.maximumNumberOfLines = 1
         directoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(directoryNameLabel)
 
-        refreshButton.image = NSImage(
-            systemSymbolName: FileExplorerIcon.refreshSymbolName,
-            accessibilityDescription: AppLocalization.string(.refresh)
-        )
+        refreshButton.applyChromeTheme(chromeTheme)
         refreshButton.toolTip = AppLocalization.string(.refresh)
         refreshButton.target = self
         refreshButton.action = #selector(refreshClicked(_:))
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(refreshButton)
 
-        searchPillView.wantsLayer = true
-        searchPillView.layer?.cornerRadius = DesignTokens.Component.fileExplorerSearchPillCornerRadiusPX
-        searchPillView.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.fileExplorerSearchPillBackgroundAlphaRATIO)
-            .cgColor
+        searchPillView.onQueryChanged = { [weak self] in
+            self?.reapplyFilterIfNeeded()
+        }
+        searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
 
-        searchIconView.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Typography.sidebarSearchFontSizePT,
-                weight: .regular
-            )
-        )
-        searchIconView.contentTintColor = chromeTheme.textMuted
-        searchIconView.imageScaling = .scaleNone
-        searchIconView.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(searchIconView)
-
-        searchField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
-        searchField.isBezeled = false
-        searchField.isBordered = false
-        searchField.drawsBackground = false
-        searchField.focusRingType = .none
-        searchField.lineBreakMode = .byTruncatingTail
-        searchField.cell?.usesSingleLineMode = true
-        searchField.delegate = self
-        searchField.target = self
-        searchField.action = #selector(searchChanged(_:))
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(searchField)
-        applySearchPlaceholder()
+        listContainerView.wantsLayer = true
+        listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        listContainerView.clipsToBounds = true
+        listContainerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listContainerView)
 
         configureOutlineView()
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        listContainerView.addSubview(scrollView)
+        configureRemoteEmptyState()
         activateLayoutConstraints()
+        updateRemoteEmptyState()
+    }
+
+    /// Palette-tinted symbols bake their color into the image, so a theme
+    /// change has to rebuild these rather than reassign `contentTintColor`.
+    private func applyEmptyStateIcon(tint: NSColor) {
+        emptyStateIconView.image = Icon.symbol(
+            FileExplorerIcon.remoteSymbolName,
+            pointSizePT: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
+            weight: .regular,
+            tint: tint
+        )
+    }
+
+    /// Empty state for remote sessions. Lives inside the list container, so it
+    /// occupies the tree region only and can never overlap the header or the
+    /// search pill.
+    private func configureRemoteEmptyState() {
+        applyEmptyStateIcon(tint: chromeTheme.textMuted)
+        emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
+        listContainerView.addSubview(emptyStateIconView)
+
+        DesignTokens.Typography.rowTitle.apply(to: emptyStateLabel, color: chromeTheme.textMuted)
+        emptyStateLabel.alignment = .center
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        listContainerView.addSubview(emptyStateLabel)
+    }
+
+    /// Shows or hides the remote message and keeps the local-only controls
+    /// (search, refresh) disabled while there is nothing local to act on.
+    private func updateRemoteEmptyState() {
+        let isRemote = remoteLocation != nil
+        emptyStateIconView.isHidden = !isRemote
+        emptyStateLabel.isHidden = !isRemote
+        scrollView.isHidden = isRemote
+        searchPillView.isEnabled = !isRemote
+        refreshButton.isEnabled = !isRemote
+        emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = DesignTokens.Component.sidebarEmptyStateLabelAlphaRATIO
+        guard let remoteLocation else {
+            emptyStateLabel.stringValue = ""
+            return
+        }
+        searchPillView.stringValue = ""
+        directoryNameLabel.stringValue = FileExplorerRemoteCopy.title()
+        emptyStateLabel.stringValue = FileExplorerRemoteCopy.explanation(
+            hostPath: TerminalCommandHistoryRowBuilder.hostPrefixed(
+                remoteLocation.path,
+                host: remoteLocation.remoteHost
+            )
+        )
     }
 
     private func configureOutlineView() {
@@ -325,7 +407,7 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.style = .plain
         outlineView.rowSizeStyle = .custom
         outlineView.intercellSpacing = .zero
-        outlineView.indentationPerLevel = FileExplorerMetrics.outlineIndentPX
+        outlineView.indentationPerLevel = DesignTokens.Component.fileExplorerOutlineIndentationPX
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = false
         outlineView.dataSource = self
@@ -340,7 +422,6 @@ final class TerminalFileExplorerPanelView: NSView {
         let insetX = DesignTokens.Component.fileExplorerPanelInsetXPX
         let insetY = DesignTokens.Component.fileExplorerPanelInsetYPX
         let controlGap = DesignTokens.Component.fileExplorerControlGapPX
-        let searchTextInset = DesignTokens.Component.fileExplorerSearchPillTextInsetXPX
         NSLayoutConstraint.activate([
             panelTitleLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
             panelTitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
@@ -374,28 +455,26 @@ final class TerminalFileExplorerPanelView: NSView {
             ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
-            searchPillView.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.fileExplorerSearchPillHeightPX
-            ),
 
-            searchIconView.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: searchTextInset),
-            searchIconView.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
-
-            searchField.leadingAnchor.constraint(
-                equalTo: searchIconView.trailingAnchor,
-                constant: DesignTokens.Component.commandHistorySearchIconGapPX
-            ),
-            searchField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -searchTextInset),
-            searchField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
-
-            scrollView.topAnchor.constraint(
+            listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
                 constant: controlGap
             ),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+            listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            scrollView.topAnchor.constraint(equalTo: listContainerView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: listContainerView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: listContainerView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: listContainerView.bottomAnchor),
+        ] + TerminalSidebarEmptyStateLayout.constraints(
+            iconView: emptyStateIconView,
+            label: emptyStateLabel,
+            in: listContainerView,
+            insetX: insetX,
+            insetY: insetY
+        ))
     }
 
     // MARK: Git status
@@ -415,25 +494,14 @@ final class TerminalFileExplorerPanelView: NSView {
 
     // MARK: Filtering
 
-    /// Explicit muted placeholder color so it reads correctly against the
-    /// pill in both chrome themes.
-    private func applySearchPlaceholder() {
-        searchField.placeholderAttributedString = NSAttributedString(
-            string: AppLocalization.string(.fileExplorerSearchPlaceholder),
-            attributes: [
-                .foregroundColor: chromeTheme.textMuted,
-                .font: NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT),
-            ]
-        )
-    }
-
-    @objc private func searchChanged(_ sender: NSTextField) {
-        reapplyFilterIfNeeded()
-    }
-
     private func reapplyFilterIfNeeded() {
         filterGeneration += 1
-        let query = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        // No local tree to scan while the session is remote.
+        guard remoteLocation == nil else {
+            filterMatchItems = nil
+            return
+        }
+        let query = searchPillView.stringValue.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
             filterMatchItems = nil
             outlineView.reloadData()
@@ -600,10 +668,7 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
 
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalFileExplorerSidebarRowView()
-        rowView.hoverBackgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.fileExplorerHoverBackgroundAlphaRATIO)
-        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
-            .withAlphaComponent(DesignTokens.Component.fileExplorerSelectionBackgroundAlphaRATIO)
+        rowView.chromeTheme = chromeTheme
         return rowView
     }
 
@@ -617,14 +682,6 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
             badge: badge,
             chromeTheme: chromeTheme
         )
-    }
-}
-
-extension TerminalFileExplorerPanelView: NSTextFieldDelegate {
-    /// Filter as the user types, matching the previous search field's
-    /// immediate-send behavior.
-    func controlTextDidChange(_ notification: Notification) {
-        reapplyFilterIfNeeded()
     }
 }
 

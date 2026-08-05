@@ -2,7 +2,7 @@ import AppKit
 import KurottyCore
 
 @MainActor
-final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
+final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, TerminalPasteWriting {
     static let titleDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.titleDidChange")
     static let focusDidChangeNotification = Notification.Name("dev.kurotty.terminalSurface.focusDidChange")
     static let tmuxControlModeDidActivateNotification = Notification.Name("dev.kurotty.terminalSurface.tmuxControlModeDidActivate")
@@ -21,7 +21,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
-    private let interpreter: TerminalOutputInterpreter
+    /// Internal rather than private so sibling seams that must drive the parser
+    /// directly — scrollback replay, which raises `isReplayingScrollback`
+    /// around the feed — can reach it without a second parser entry point.
+    let interpreter: TerminalOutputInterpreter
     private var viewportBackground: SIMD4<Float>?
     private var scrollWheelAccumulator = TerminalScrollWheelAccumulator()
     private var cursorBlinkOn = true
@@ -37,6 +40,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var isSearchPresentationActive = false
     private var terminalTrackingArea: NSTrackingArea?
     private var hoveredLinkRange: TerminalLinkRange?
+    /// Bounded existence answers for `path:line:col` link candidates. Hit-testing
+    /// runs on every mouse move, so it only ever reads this cache; misses are
+    /// stat'd by `filePathExistsProbe` off the main actor.
+    private let filePathExistsCache = TerminalPathExistsCache()
+    private let filePathExistsProbe = TerminalPathExistsProbe()
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
@@ -61,6 +69,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var outputFlushTraceSequence: UInt64 = 0
     private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
     private var outputInterceptor: ((String) -> String)?
+    /// Stable identity shared by this surface, its PTY (`KUROTTY_PANE_ID`), and
+    /// the agent activity registry.
+    let agentPaneIdentifier: String
+    /// Strips OSC 9999 agent-status sequences out of the PTY stream before any
+    /// of it can reach the screen model.
+    private let agentStatusChannel: AgentStatusOutputChannel
+    /// Live mirror of `terminal.hideMouseCursorWhileTyping`; read on every
+    /// `keyDown`, so it must never touch the filesystem.
+    private var hideMouseCursorWhileTypingEnabled: Bool
+    /// Live mirror of `terminal.confirmMultilinePaste`; read on every paste, so
+    /// it must never touch the filesystem.
+    private var confirmMultilinePasteEnabled: Bool
+    private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
     var closeSearchRequested: (() -> Void)?
@@ -80,9 +101,21 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         self.init(frame: frameRect, session: TerminalSessionFactory.makeDefaultSession())
     }
 
-    init(frame frameRect: NSRect, session: any TerminalSession) {
+    /// `paneIdentifier` is supplied by the owning `TerminalPaneView` so the
+    /// pane, its PTY environment, and the activity registry agree on one id.
+    /// The default keeps every other call site (and every test double) working
+    /// with a private identity of its own.
+    init(
+        frame frameRect: NSRect,
+        session: any TerminalSession,
+        paneIdentifier: String = UUID().uuidString
+    ) {
         shell = session
+        agentPaneIdentifier = paneIdentifier
+        agentStatusChannel = AgentStatusOutputChannel(paneIdentifier: paneIdentifier)
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
+        confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         let configuredFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
@@ -133,7 +166,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             maxScrollbackOffset: { [weak self] visibleRows in
                 self?.maxScrollbackOffset(visibleRows: visibleRows) ?? 0
             },
-            reportTerminalFocusIfNeeded: { [weak self] in self?.reportTerminalFocusIfNeeded() }
+            reportTerminalFocusIfNeeded: { [weak self] in self?.reportTerminalFocusIfNeeded() },
+            terminalCapabilityMetrics: { [weak self] in self?.terminalCapabilityMetrics() },
+            terminalColorSchemeMode: { [weak self] in
+                self?.terminalColorSchemeMode ?? TerminalColorSchemeMode(isLightBackground: false)
+            }
         )
         installOutputInterceptor { [weak self] text in
             guard let self else { return text }
@@ -151,7 +188,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         shell.onOutput = { [weak self] text in
             DispatchQueue.main.async {
                 guard let self else { return }
-                let visibleText = self.outputInterceptor?(text) ?? text
+                // OSC 9999 is an out-of-band status channel: it is recorded and
+                // stripped here so the sequence can never reach the screen model.
+                let visibleText = self.agentStatusChannel.filter(self.outputInterceptor?(text) ?? text)
                 self.enqueueOutput(visibleText)
             }
         }
@@ -186,6 +225,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
         observeTerminalFocusChanges()
         observeInputSourceChanges()
+        // Resolved here, on the main actor, and handed to the session before the
+        // child is spawned. The hook environment is empty unless
+        // `terminal.agentStatusHooksEnabled` is on and the listener is bound.
+        if let launchConfigurableShell = shell as? TerminalShellLaunchConfigurable {
+            launchConfigurableShell.agentStatusHookEnvironment =
+                AgentStatusHookCoordinator.shared.shellEnvironment(paneIdentifier: paneIdentifier)
+            launchConfigurableShell.perProjectHistoryEnabled = settings.shell.perProjectHistoryEnabled
+        }
         shell.start(workingDirectory: settings.shell.workingDirectory)
     }
 
@@ -427,7 +474,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
-            presentOpenLinkDialog(for: link)
+            if let fileTarget = link.fileTarget {
+                openFileLinkInEditorTab(fileTarget)
+            } else {
+                presentOpenLinkDialog(for: link)
+            }
             return
         }
         if event.clickCount >= 2 {
@@ -577,6 +628,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         if handleCommandKey(event) {
             return
         }
+        hideMouseCursorWhileTypingIfNeeded(event)
         // Modified ordinary keys must be encoded before NSTextInputContext;
         // otherwise AppKit commits text and discards the protocol modifiers.
         if modifyOtherKeysMode > 0, handleTerminalControlKey(event) {
@@ -593,6 +645,22 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         performTextInputTransaction {
             interpretKeyEvents([event])
         }
+    }
+
+    /// Ordinary typing hides the pointer until the next mouse move; AppKit
+    /// restores it on its own, so there is no paired "show" call to leak.
+    private func hideMouseCursorWhileTypingIfNeeded(_ event: NSEvent) {
+        guard TerminalTypingCursorHiding.shouldHideCursor(
+            characters: event.characters,
+            modifierFlags: event.modifierFlags,
+            isModalPresentationActive: isModalPresentationActive,
+            isEnabled: hideMouseCursorWhileTypingEnabled
+        ) else { return }
+        NSCursor.setHiddenUntilMouseMoves(true)
+    }
+
+    private var isModalPresentationActive: Bool {
+        NSApp.modalWindow != nil || window?.attachedSheet != nil
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -614,13 +682,99 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         guard !text.isEmpty else { return }
-        if bracketedPasteEnabled {
-            pendingMarkedTextAnchor = nil
-            send("\u{1b}[200~\(text)\u{1b}[201~")
-        } else {
-            pendingMarkedTextAnchor = nil
-            send(text)
+        let plan = TerminalPastePlanner.plan(
+            text: text,
+            bracketedPasteEnabled: bracketedPasteEnabled,
+            confirmMultilinePaste: confirmMultilinePasteEnabled,
+            limits: pasteLimits
+        )
+        logPastePlan(plan)
+        guard plan.isExecutable else {
+            presentPasteRejection(plan)
+            return
         }
+        guard plan.requiresConfirmation else {
+            executePaste(plan: plan, text: text)
+            return
+        }
+        presentMultilinePasteConfirmation(plan) { [weak self] confirmed in
+            guard let self, confirmed else { return }
+            executePaste(plan: plan, text: text)
+        }
+    }
+
+    private func executePaste(plan: TerminalPastePlan, text: String) {
+        pendingMarkedTextAnchor = nil
+        clearSelection()
+        followLiveOutputForUserInput()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await TerminalPasteExecutor.execute(
+                plan: plan,
+                text: text,
+                limits: pasteLimits,
+                writer: self
+            )
+            logPasteResult(result)
+        }
+    }
+
+    private func presentMultilinePasteConfirmation(
+        _ plan: TerminalPastePlan,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = AppLocalization.format(.pasteLinesQuestion, plan.lineCount)
+        // Deliberately omits the pasted text: a confirmation dialog is not a
+        // place to mirror clipboard content back onto the screen.
+        alert.informativeText = AppLocalization.string(.pasteLinesExplanation)
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: AppLocalization.string(.pasteConfirm))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
+        if let window {
+            alert.beginSheetModal(for: window) { response in
+                completion(response == .alertFirstButtonReturn)
+            }
+        } else {
+            completion(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func presentPasteRejection(_ plan: TerminalPastePlan) {
+        guard plan.rejectionReason == .payloadTooLarge else { return }
+        let alert = NSAlert()
+        alert.messageText = AppLocalization.string(.pasteTooLargeTitle)
+        alert.informativeText = AppLocalization.format(
+            .pasteTooLargeExplanation,
+            plan.byteCount,
+            pasteLimits.maxBytes
+        )
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: AppLocalization.string(.ok))
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func logPastePlan(_ plan: TerminalPastePlan) {
+        guard DebugOptions.vtParser else { return }
+        NSLog("%@ plan: %@", AppConstants.Diagnostics.pasteLogPrefix, plan.redactedDiagnostic)
+    }
+
+    private func logPasteResult(_ result: TerminalPasteExecutionResult) {
+        guard DebugOptions.vtParser else { return }
+        NSLog(
+            "%@ result: status=%@ chunks=%d bytes=%d %@",
+            AppConstants.Diagnostics.pasteLogPrefix,
+            result.status.rawValue,
+            result.chunksWritten,
+            result.bytesWritten,
+            result.redactedDiagnostic
+        )
     }
 
     @objc func copy(_ sender: Any?) {
@@ -729,8 +883,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             hasSelection: normalizedSelectionRange() != nil,
             hasPasteboardText: !(NSPasteboard.general.string(forType: .string)?.isEmpty ?? true)
         )
+        let workingDirectory = workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let layout = TerminalContextMenuBuilder.layout(
+            for: state,
+            quickCommands: QuickCommandStore.shared.commands(
+                forWorkingDirectory: workingDirectory.isEmpty ? nil : workingDirectory
+            ),
+            workingDirectory: workingDirectory.isEmpty ? nil : workingDirectory,
+            language: AppLocalization.language
+        )
         let menu = NSMenu()
-        for entry in TerminalContextMenuBuilder.entries(for: state, language: AppLocalization.language) {
+        for entry in layout.entries {
             guard let title = entry.title, let action = entry.action else {
                 menu.addItem(.separator())
                 continue
@@ -744,7 +907,33 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
             }
             menu.addItem(item)
         }
+        // Quick commands are data-driven and identified by string id, so they
+        // are a submenu rather than a case in the fixed action enum above.
+        guard let quickCommandSubmenu = layout.quickCommandSubmenu else {
+            return menu
+        }
+        menu.addItem(.separator())
+        let submenuItem = NSMenuItem(title: quickCommandSubmenu.title, action: nil, keyEquivalent: "")
+        submenuItem.submenu = QuickCommandContextMenuBuilder.makeMenu(
+            for: quickCommandSubmenu,
+            target: self,
+            action: #selector(runQuickCommandFromContextMenu(_:))
+        )
+        menu.addItem(submenuItem)
         return menu
+    }
+
+    /// `representedObject` carries the quick command's id; the window
+    /// controller resolves it and routes it through `QuickCommandInvoker`, the
+    /// only path that may write a quick command to a pane.
+    @objc private func runQuickCommandFromContextMenu(_ sender: NSMenuItem) {
+        guard let quickCommandID = sender.representedObject as? String else {
+            return
+        }
+        guard let controller = window?.windowController as? TerminalWindowController else {
+            return
+        }
+        controller.invokeQuickCommand(withID: quickCommandID)
     }
 
     private func selector(for action: TerminalContextMenuAction) -> Selector {
@@ -1491,6 +1680,18 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         shell.write(text)
     }
 
+    /// Paste chunks go straight to the session. Selection clearing, viewport
+    /// follow, and marked-text teardown already ran once in `executePaste`;
+    /// repeating them per chunk would fight the user mid-paste.
+    func writePasteChunk(_ text: String) {
+        recordSubmittedInputText(text)
+        shell.write(text)
+    }
+
+    var queuedPasteByteCount: Int? {
+        (shell as? any TerminalSessionInputBackpressureReporting)?.queuedInputByteCount
+    }
+
     private func followLiveOutputForUserInput() {
         guard scrollbackOffset != 0 else { return }
         scrollbackOffset = 0
@@ -1500,6 +1701,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func sendTerminalResponse(_ text: String) {
+        // Replayed scrollback must never produce a reply on the live shell's
+        // stdin; see `TerminalOutputInterpreter.isReplayingScrollback`.
+        guard !isReplayingScrollback else {
+            return
+        }
         guard shell.canReceiveTerminalResponseWithoutEcho() else {
             return
         }
@@ -2023,8 +2229,36 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         let rows = (contextStartRow..<contextEndRow).compactMap(contentRow(at:))
         return TerminalLinkRange.findAll(
             in: rows,
-            startingRow: contextStartRow - visibleStartRow
+            startingRow: contextStartRow - visibleStartRow,
+            fileLinkContext: fileLinkContext()
         )
+    }
+
+    /// Main-actor-safe view of the path-exists cache. Misses schedule a probe
+    /// and repaint once the answer lands, so no `stat` ever runs inline.
+    private func fileLinkContext() -> TerminalFileLinkContext {
+        TerminalFileLinkContext(
+            workingDirectory: workingDirectoryPath,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            cachedExists: { [weak self] path in self?.filePathExistsCache.exists(path) },
+            requestExistsProbe: { [weak self] path in
+                guard let self else { return }
+                self.filePathExistsProbe.probe(path: path) { [weak self] probedPath, exists in
+                    guard let self else { return }
+                    self.filePathExistsCache.record(path: probedPath, exists: exists)
+                    guard exists else { return }
+                    self.markFullDamage()
+                    self.updateRendererFrame()
+                }
+            }
+        )
+    }
+
+    /// Opens a `path:line:col` link in a center editor tab, scrolling to the
+    /// reported line when the link carried one.
+    private func openFileLinkInEditorTab(_ target: TerminalFileLinkTarget) {
+        guard let controller = window?.windowController as? TerminalWindowController else { return }
+        controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
@@ -2258,6 +2492,123 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         )
     }
 
+    /// Capability replies read the renderer's own metrics path so `CSI 14t`,
+    /// `CSI 16t`, and `CSI 18t` can never disagree with the grid the PTY and
+    /// the renderer were sized with.
+    private func terminalCapabilityMetrics() -> TerminalCapabilityMetrics? {
+        let metrics = terminalMetrics()
+        guard metrics.cellSize.width > 0, metrics.cellSize.height > 0 else { return nil }
+        return TerminalCapabilityMetrics(
+            columns: metrics.size.columns,
+            rows: metrics.size.rows,
+            cellWidthPX: metrics.cellSize.width,
+            cellHeightPX: metrics.cellSize.height
+        )
+    }
+
+    var terminalColorSchemeMode: TerminalColorSchemeMode {
+        TerminalColorSchemeMode(isLightBackground: terminalDefaultStyle.isLightBackground)
+    }
+
+    /// Mirrors `TerminalOutputInterpreter.isReplayingScrollback`. The scrollback
+    /// replay path sets this around a replay so no restored capability query
+    /// can be answered into the live shell.
+    var isReplayingScrollback: Bool {
+        get { interpreter.isReplayingScrollback }
+        set { interpreter.isReplayingScrollback = newValue }
+    }
+
+    /// Trailing rows to persist for this pane: the newest
+    /// `maximumRows` of scrollback plus the live screen, copied out on the main
+    /// actor so the snapshot writer never touches terminal state.
+    ///
+    /// Bounded here rather than after serialization: a million-row pane must not
+    /// be rendered into a multi-megabyte string only to have the store budget
+    /// throw almost all of it away.
+    func persistableScrollbackRows(
+        maximumRows: Int = AppConstants.TerminalScrollbackSnapshots.maximumCapturedRowCount
+    ) -> [[TerminalScreenCell]] {
+        guard maximumRows > 0 else {
+            return []
+        }
+        let start = max(0, contentRowCount - maximumRows)
+        return (start..<contentRowCount).compactMap { contentRow(at: $0) }
+    }
+
+    /// Default style the persisted rows were rendered against, so a replay can
+    /// tell a styled cell from an unstyled one.
+    var persistableDefaultStyle: TerminalTextStyle {
+        terminalDefaultStyle
+    }
+
+    /// `TerminalScrollbackReplayTarget` ingest point. Display only: restored
+    /// bytes go into the screen model through the private interpreter and
+    /// nothing is ever written back to the PTY. The conformance itself is
+    /// declared in `TerminalScrollbackReplay.swift`.
+    func consumeReplayedScrollback(_ text: String) {
+        interpreter.interpret(text)
+    }
+
+    var colorSchemeUpdateModeEnabled: Bool {
+        get { interpreter.colorSchemeUpdateModeEnabled }
+        set { interpreter.colorSchemeUpdateModeEnabled = newValue }
+    }
+
+    /// Pushes `CSI ? 997 ; Ps n` when the terminal's color scheme actually
+    /// flips and a TUI is still subscribed via DEC mode 2031. Font, opacity,
+    /// and scrollback changes also reach `apply(settings:)`, so only a real
+    /// dark/light flip is reported.
+    private func reportColorSchemeChangeIfNeeded(previousMode: TerminalColorSchemeMode) {
+        let nextMode = terminalColorSchemeMode
+        guard nextMode != previousMode else { return }
+        guard colorSchemeUpdateModeEnabled else { return }
+        sendTerminalResponse(TerminalCapabilityReplies.colorSchemeNotification(nextMode))
+    }
+
+    /// This pane's contribution to the one-shot diagnostics report. Every value
+    /// here is a count, a mode, or a geometry; terminal content, command text,
+    /// and full paths never leave the surface.
+    func diagnosticsReportPane() -> TerminalDiagnosticsReportInput.Pane {
+        let metrics = terminalMetrics()
+        return TerminalDiagnosticsReportInput.Pane(
+            paneIdentifier: agentPaneIdentifier,
+            columns: metrics.size.columns,
+            rows: metrics.size.rows,
+            cellWidthPX: metrics.cellSize.width,
+            cellHeightPX: metrics.cellSize.height,
+            isUsingAlternateScreen: isUsingAlternateScreen,
+            isBracketedPasteEnabled: bracketedPasteEnabled,
+            isColorSchemeUpdateModeEnabled: colorSchemeUpdateModeEnabled,
+            isReplayingScrollback: isReplayingScrollback,
+            workingDirectoryName: TerminalDiagnosticsReportBuilder.workingDirectoryName(
+                fromPath: currentWorkingDirectory
+            ),
+            isRemoteWorkingDirectory: workingDirectoryLocation.remoteHost != nil,
+            eventLedger: runtimeEventLedger.diagnostics,
+            latestTrace: latestRuntimeTraceSummary(),
+            resizeSourceOfTruth: nil,
+            scrollback: TerminalScrollbackDiagnosticsSummary(scrollbackRows.diagnostics),
+            renderDamage: renderDamageSummary(),
+            recentEvents: runtimeEventLedger.events
+        )
+    }
+
+    private func latestRuntimeTraceSummary() -> TerminalTraceTimelineSummary? {
+        guard let traceID = runtimeEventLedger.events.last?.traceID else { return nil }
+        return runtimeEventLedger.timelineSummary(for: traceID)
+    }
+
+    private func renderDamageSummary() -> String {
+        let damage = renderer.damageDiagnostics
+        return [
+            "decision=\(damage.redrawDecision)",
+            "policy=\(damage.schedulingPolicy)",
+            "dirtyRects=\(damage.dirtyRectCount)",
+            "scissorRects=\(damage.scissorRectCount)",
+            "scissorPlanReady=\(damage.scissorPlanIsReady)",
+        ].joined(separator: " ")
+    }
+
     private var effectiveBackingScale: CGFloat {
         window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     }
@@ -2267,11 +2618,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     private func apply(settings: AppSettings) {
+        hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
+        confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         let nextFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
         ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
         let previousDefaultStyle = terminalDefaultStyle
+        let previousColorSchemeMode = terminalColorSchemeMode
         let previousAnsiColors = terminalAnsiColors
         let nextAnsiColors = Self.ansiColors(from: settings)
         font = nextFont
@@ -2306,6 +2660,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient {
         markFullDamage()
         syncSizeWithView()
         updateRendererFrame()
+        reportColorSchemeChangeIfNeeded(previousMode: previousColorSchemeMode)
     }
 
     private static func ansiColors(from settings: AppSettings) -> [SIMD4<Float>] {
@@ -2746,6 +3101,13 @@ extension TerminalSurfaceView {
     /// home directory until the shell reports a directory change.
     var workingDirectoryPath: String {
         interpreter.currentWorkingDirectory
+    }
+
+    /// The OSC 7 working directory together with its host, so panels that only
+    /// work on local files (file explorer, git status) can tell an SSH session
+    /// apart from a local one instead of listing a same-named local path.
+    var workingDirectoryLocation: TerminalWorkingDirectoryLocation {
+        interpreter.currentWorkingDirectoryLocation
     }
 
     private var shellIntegration: TerminalShellIntegration {

@@ -1,8 +1,94 @@
+import Darwin
 import Foundation
+
+/// Where a shell-reported working directory lives.
+///
+/// OSC 7 carries a `file://<host>/<path>` URL. Kurotty only browses local
+/// files, so the host is not decoration: it decides whether the path can be
+/// listed, watched, and `git`-inspected at all. Remote paths keep their host
+/// so history never merges an SSH directory with a same-named local one.
+struct TerminalWorkingDirectoryLocation: Equatable, Sendable {
+    /// Absolute, percent-decoded directory path as the shell reported it.
+    let path: String
+    /// `user@host` (or a bare `host`) when the directory lives on another
+    /// machine; `nil` for this Mac.
+    let remoteHost: String?
+
+    var isRemote: Bool {
+        remoteHost != nil
+    }
+
+    init(path: String, remoteHost: String? = nil) {
+        self.path = path
+        self.remoteHost = remoteHost
+    }
+
+    static func local(_ path: String) -> TerminalWorkingDirectoryLocation {
+        TerminalWorkingDirectoryLocation(path: path, remoteHost: nil)
+    }
+}
+
+/// Decides whether a URL host component names this Mac.
+///
+/// The local name is read once through `gethostname(3)`, a kernel string read
+/// with no name resolution, so classification never blocks. `ProcessInfo`'s
+/// `hostName` is deliberately avoided: it can perform reverse DNS.
+enum TerminalHostIdentity {
+    /// Host spellings that always mean "this machine" regardless of its name.
+    private static let loopbackHostNames: Set<String> = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "[::1]",
+    ]
+
+    private static let hostNameBufferBYTES = Int(NI_MAXHOST)
+    private static let domainSeparator: Character = "."
+
+    /// Cached because the machine name cannot change inside a process run in a
+    /// way the terminal needs to observe; `static let` makes this lazy and
+    /// thread-safe without a mutable global.
+    static let localHostName: String = readLocalHostName()
+
+    static func isLocal(host: String?, localHostName: String = TerminalHostIdentity.localHostName) -> Bool {
+        guard let host, !host.isEmpty else {
+            return true
+        }
+        let normalizedHost = host.lowercased()
+        if loopbackHostNames.contains(normalizedHost) {
+            return true
+        }
+        let normalizedLocal = localHostName.lowercased()
+        guard !normalizedLocal.isEmpty else {
+            return false
+        }
+        if normalizedHost == normalizedLocal {
+            return true
+        }
+        // `mba.local` and `mba` name the same machine; compare first labels.
+        return firstLabel(of: normalizedHost) == firstLabel(of: normalizedLocal)
+    }
+
+    private static func firstLabel(of host: String) -> Substring {
+        host.prefix { $0 != domainSeparator }
+    }
+
+    private static func readLocalHostName() -> String {
+        var buffer = [CChar](repeating: 0, count: hostNameBufferBYTES)
+        guard gethostname(&buffer, buffer.count) == 0 else {
+            return ""
+        }
+        return String(cString: buffer)
+    }
+}
 
 struct TerminalCommandSpan: Equatable, Identifiable {
     let id: Int
     let cwd: String?
+    /// `user@host` when the command ran on a remote machine over SSH; `nil`
+    /// for local commands, which is also what pre-host history entries decode
+    /// to.
+    var cwdHost: String? = nil
     let startBoundarySequence: Int
     var endBoundarySequence: Int?
     var exitCode: Int?
@@ -48,6 +134,11 @@ struct TerminalCommandCompletionContext: Equatable {
 
     var cwd: String? {
         span.cwd?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    /// `user@host` when the command ran on a remote machine; `nil` for local.
+    var cwdHost: String? {
+        span.cwdHost?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 }
 
@@ -296,7 +387,7 @@ struct TerminalShellIntegration: Equatable {
     }
 
     enum Event: Equatable {
-        case workingDirectoryChanged(String)
+        case workingDirectoryChanged(TerminalWorkingDirectoryLocation)
         case promptStart
         case commandStart
         case outputStart
@@ -304,6 +395,9 @@ struct TerminalShellIntegration: Equatable {
     }
 
     var currentWorkingDirectoryCandidate: String?
+    /// `user@host` for the current directory when the session is on a remote
+    /// machine. Set only by OSC 7; `nil` means this Mac.
+    private(set) var currentWorkingDirectoryRemoteHost: String?
     private(set) var currentBoundary: Boundary?
     private(set) var isCommandActive: Bool
     private(set) var lastExitCode: Int?
@@ -511,24 +605,39 @@ struct TerminalShellIntegration: Equatable {
         TerminalCommandHistoryNavigator(spans: recentCommandSpans)
     }
 
+    /// Parses the OSC 7 `file://<host>/<path>` URL, keeping the host component
+    /// instead of dropping it. A remote host is reported, not discarded: the
+    /// previous behavior returned `nil` for an SSH session, which silently
+    /// froze the panels on the last local directory.
     private mutating func consumeOsc7(_ payload: String) -> Event? {
-        guard let url = URL(string: payload),
-              url.isFileURL,
-              Self.isLocalFileURLHost(url.host)
-        else {
+        guard let url = URL(string: payload), url.isFileURL else {
+            return nil
+        }
+        let path = url.path
+        guard !path.isEmpty else {
             return nil
         }
 
-        currentWorkingDirectoryCandidate = url.path
+        let location = TerminalWorkingDirectoryLocation(
+            path: path,
+            remoteHost: Self.remoteHostLabel(for: url)
+        )
+        currentWorkingDirectoryCandidate = location.path
+        currentWorkingDirectoryRemoteHost = location.remoteHost
         sessionEvidence.recordObservedPassiveOSCSequence(.osc7)
-        return .workingDirectoryChanged(url.path)
+        return .workingDirectoryChanged(location)
     }
 
-    private static func isLocalFileURLHost(_ host: String?) -> Bool {
-        guard let host, !host.isEmpty else {
-            return true
+    /// `user@host` when the URL names another machine, `nil` when it names
+    /// this one (missing host, loopback spelling, or the local host name).
+    private static func remoteHostLabel(for url: URL) -> String? {
+        guard let host = url.host, !TerminalHostIdentity.isLocal(host: host) else {
+            return nil
         }
-        return host == "localhost"
+        guard let user = url.user, !user.isEmpty else {
+            return host
+        }
+        return user + "@" + host
     }
 
     private mutating func consumeOsc133(_ payload: String) -> Event? {
@@ -556,6 +665,7 @@ struct TerminalShellIntegration: Equatable {
             activeCommandSpan = TerminalCommandSpan(
                 id: nextCommandSpanID,
                 cwd: currentWorkingDirectoryCandidate,
+                cwdHost: currentWorkingDirectoryRemoteHost,
                 startBoundarySequence: boundarySequence,
                 promptBoundarySequence: lastPromptBoundarySequence
             )

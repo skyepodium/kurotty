@@ -29,22 +29,21 @@ final class TerminalCommandHistoryCommandOutlineItem: NSObject {
 /// replay-approval flow owned by the window controller.
 @MainActor
 final class TerminalCommandHistoryPanelView: NSView {
-    private enum Symbol {
-        static let emptyState = "clock.arrow.circlepath"
-    }
-
     var onInsertCommand: ((TerminalCommandHistoryEntry) -> Void)?
     var onRunCommand: ((TerminalCommandHistoryEntry) -> Void)?
 
     private let store: TerminalCommandHistoryStore
-    private let searchPillView = NSView()
-    // A plain text field with our own leading magnifier: NSSearchField draws
-    // its search button from its cell, and with the bezel disabled for the
-    // pill styling the cell stops insetting the text, so the placeholder was
-    // drawn on top of the icon whenever the field was not being edited.
-    private let searchIconView = NSImageView()
-    private let filterField = NSTextField()
+    /// Shared sidebar control; the three sections had three near-identical
+    /// copies of this pill before it was extracted.
+    private let searchPillView = TerminalSidebarSearchPillView(
+        placeholder: { AppLocalization.string(.commandHistoryFilterPlaceholder) }
+    )
     private let sectionHeaderLabel = NSTextField(labelWithString: "")
+    /// Clipping container for everything below the search pill. The scroll
+    /// view and the empty state are both children of this view, so the empty
+    /// state is centered in the list region instead of the whole panel and can
+    /// never be drawn over the section header or the search pill.
+    private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
     private let emptyStateIconView = NSImageView()
@@ -75,27 +74,54 @@ final class TerminalCommandHistoryPanelView: NSView {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
-        searchPillView.layer?.backgroundColor = theme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistorySearchPillBackgroundAlphaRATIO)
-            .cgColor
-        filterField.textColor = theme.textPrimary
-        searchIconView.contentTintColor = theme.textMuted
-        applyFilterPlaceholder()
-        sectionHeaderLabel.textColor = theme.textMuted
-        emptyStateIconView.contentTintColor = theme.textMuted
+        searchPillView.applyChromeTheme(theme)
+        DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
+        applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
-        emptyStateIconView.alphaValue = 0.66
-        emptyStateLabel.alphaValue = 0.72
+        emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = DesignTokens.Component.sidebarEmptyStateLabelAlphaRATIO
         outlineView.reloadData()
         applyExpansionState()
     }
 
     func focusFilterField() {
-        window?.makeFirstResponder(filterField)
+        searchPillView.focus()
     }
 
     var visibleGroupsForTesting: [TerminalCommandHistoryPanelGroup] {
         groupItems.map(\.group)
+    }
+
+    /// Panel-relative union of the empty-state icon and label, so layout
+    /// regression tests can compare it against the header, pill, and list
+    /// frames without depending on the view hierarchy's nesting.
+    var emptyStateFrameForTesting: NSRect {
+        convert(emptyStateIconView.bounds, from: emptyStateIconView)
+            .union(convert(emptyStateLabel.bounds, from: emptyStateLabel))
+    }
+
+    var emptyStateIsHiddenForTesting: Bool {
+        emptyStateLabel.isHidden && emptyStateIconView.isHidden
+    }
+
+    var searchPillFrameForTesting: NSRect {
+        convert(searchPillView.bounds, from: searchPillView)
+    }
+
+    var sectionHeaderFrameForTesting: NSRect {
+        convert(sectionHeaderLabel.bounds, from: sectionHeaderLabel)
+    }
+
+    var listRegionFrameForTesting: NSRect {
+        convert(listContainerView.bounds, from: listContainerView)
+    }
+
+    var emptyStateLabelFrameForTesting: NSRect {
+        convert(emptyStateLabel.bounds, from: emptyStateLabel)
+    }
+
+    var emptyStateTextOverflowsFrameForTesting: Bool {
+        TerminalSidebarEmptyStateLayout.textOverflowsFrame(label: emptyStateLabel)
     }
 
     func isGroupExpandedForTesting(path: String) -> Bool {
@@ -109,71 +135,42 @@ final class TerminalCommandHistoryPanelView: NSView {
 
     private func configure() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
         configureSectionHeader()
+        configureListContainer()
         configureOutline()
         configureEmptyState()
         activateLayoutConstraints()
     }
 
-    private func configureSearchPill() {
-        searchPillView.wantsLayer = true
-        searchPillView.layer?.cornerRadius = DesignTokens.Component.commandHistorySearchPillCornerRadiusPX
-        searchPillView.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistorySearchPillBackgroundAlphaRATIO)
-            .cgColor
-        searchPillView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(searchPillView)
-
-        searchIconView.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Typography.sidebarSearchFontSizePT,
-                weight: .regular
-            )
-        )
-        searchIconView.contentTintColor = chromeTheme.textMuted
-        searchIconView.imageScaling = .scaleNone
-        searchIconView.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(searchIconView)
-
-        filterField.delegate = self
-        filterField.target = self
-        filterField.action = #selector(filterChanged(_:))
-        filterField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
-        filterField.isBezeled = false
-        filterField.isBordered = false
-        filterField.drawsBackground = false
-        filterField.focusRingType = .none
-        filterField.lineBreakMode = .byTruncatingTail
-        filterField.cell?.usesSingleLineMode = true
-        filterField.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(filterField)
-        applyFilterPlaceholder()
+    /// The container is added before the pill and header are populated with
+    /// content but after them in the subview order only for the outline; it
+    /// clips so no descendant can paint into the header/pill band.
+    private func configureListContainer() {
+        listContainerView.wantsLayer = true
+        listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        listContainerView.clipsToBounds = true
+        listContainerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listContainerView)
     }
 
-    /// The placeholder needs an explicit muted color so it reads correctly
-    /// against the pill in both the light and dark chrome themes.
-    private func applyFilterPlaceholder() {
-        filterField.placeholderAttributedString = NSAttributedString(
-            string: AppLocalization.string(.commandHistoryFilterPlaceholder),
-            attributes: [
-                .foregroundColor: chromeTheme.textMuted,
-                .font: NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT),
-            ]
-        )
+    private func configureSearchPill() {
+        searchPillView.onQueryChanged = { [weak self] in
+            self?.reloadGroups()
+        }
+        searchPillView.applyChromeTheme(chromeTheme)
+        searchPillView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(searchPillView)
     }
 
     private func configureSectionHeader() {
         sectionHeaderLabel.stringValue = AppLocalization.string(.commandHistorySectionTitle).localizedUppercase
-        sectionHeaderLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarSectionHeaderFontSizePT,
-            weight: .semibold
+        DesignTokens.Typography.sectionHeader.apply(
+            to: sectionHeaderLabel,
+            color: chromeTheme.textTertiary
         )
-        sectionHeaderLabel.textColor = chromeTheme.textMuted
         sectionHeaderLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(sectionHeaderLabel)
     }
@@ -209,30 +206,34 @@ final class TerminalCommandHistoryPanelView: NSView {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        listContainerView.addSubview(scrollView)
+    }
+
+    /// Palette-tinted symbols bake their color into the image, so a theme
+    /// change has to rebuild the icon rather than reassign `contentTintColor`.
+    private func applyEmptyStateIcon(tint: NSColor) {
+        emptyStateIconView.image = Icon.symbol(
+            IconSymbol.commandHistoryEmptyState,
+            pointSizePT: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
+            weight: .regular,
+            tint: tint
+        )
     }
 
     private func configureEmptyState() {
-        emptyStateIconView.image = NSImage(systemSymbolName: Symbol.emptyState, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
-                weight: .regular
-            ))
-        emptyStateIconView.contentTintColor = chromeTheme.textMuted
+        applyEmptyStateIcon(tint: chromeTheme.textMuted)
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(emptyStateIconView)
+        listContainerView.addSubview(emptyStateIconView)
 
-        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
-        emptyStateLabel.textColor = chromeTheme.textMuted
+        DesignTokens.Typography.rowTitle.apply(to: emptyStateLabel, color: chromeTheme.textMuted)
         emptyStateLabel.alignment = .center
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(emptyStateLabel)
+        listContainerView.addSubview(emptyStateLabel)
     }
 
     private func activateLayoutConstraints() {
         let insetX = DesignTokens.Component.commandHistoryPanelInsetXPX
         let insetY = DesignTokens.Component.commandHistoryPanelInsetYPX
-        let pillTextInset = DesignTokens.Component.commandHistorySearchPillTextInsetXPX
         NSLayoutConstraint.activate([
             sectionHeaderLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
             sectionHeaderLabel.leadingAnchor.constraint(
@@ -250,38 +251,26 @@ final class TerminalCommandHistoryPanelView: NSView {
             ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
-            searchPillView.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.commandHistorySearchPillHeightPX
-            ),
 
-            searchIconView.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: pillTextInset),
-            searchIconView.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
-
-            filterField.leadingAnchor.constraint(
-                equalTo: searchIconView.trailingAnchor,
-                constant: DesignTokens.Component.commandHistorySearchIconGapPX
-            ),
-            filterField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -pillTextInset),
-            filterField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
-
-            scrollView.topAnchor.constraint(
+            listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
                 constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
             ),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyStateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyStateIconView.bottomAnchor.constraint(
-                equalTo: emptyStateLabel.topAnchor,
-                constant: -DesignTokens.Component.commandHistoryEmptyStateGapPX
-            ),
-            emptyStateLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insetX),
-            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -insetX),
-        ])
+            scrollView.topAnchor.constraint(equalTo: listContainerView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: listContainerView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: listContainerView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: listContainerView.bottomAnchor),
+        ] + TerminalSidebarEmptyStateLayout.constraints(
+            iconView: emptyStateIconView,
+            label: emptyStateLabel,
+            in: listContainerView,
+            insetX: insetX,
+            insetY: insetY
+        ))
     }
 
     // MARK: - Data
@@ -299,14 +288,10 @@ final class TerminalCommandHistoryPanelView: NSView {
         reloadGroups()
     }
 
-    @objc private func filterChanged(_ sender: NSTextField) {
-        reloadGroups()
-    }
-
     private func reloadGroups() {
         let groups = TerminalCommandHistoryRowBuilder.groups(
             entriesNewestFirst: store.entriesNewestFirst,
-            filter: filterField.stringValue
+            filter: searchPillView.stringValue
         )
         groupItems = groups.map(TerminalCommandHistoryGroupOutlineItem.init)
         updateEmptyState()
@@ -322,7 +307,7 @@ final class TerminalCommandHistoryPanelView: NSView {
     private func applyExpansionState() {
         isApplyingExpansionState = true
         defer { isApplyingExpansionState = false }
-        let isFiltering = !filterField.stringValue.isEmpty
+        let isFiltering = !searchPillView.stringValue.isEmpty
         for (index, item) in groupItems.enumerated() {
             let expandedByDefault = index < DesignTokens.Component.commandHistoryDefaultExpandedGroupCount
             let isExpanded = isFiltering
@@ -443,8 +428,13 @@ final class TerminalCommandHistoryPanelView: NSView {
         copyToPasteboard("cd \(shellQuotedPath(cwd))")
     }
 
+    /// Finder can only reveal local directories, so a remote entry's path is
+    /// never handed to the local filesystem.
     @objc private func revealDirectoryFromContextMenu(_ sender: Any?) {
-        guard let cwd = clickedOrSelectedEntry()?.cwd, !cwd.isEmpty else {
+        guard let entry = clickedOrSelectedEntry(), !entry.isRemote else {
+            return
+        }
+        guard let cwd = entry.cwd, !cwd.isEmpty else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
@@ -496,10 +486,7 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
 
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalCommandHistorySidebarRowView()
-        rowView.hoverBackgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistoryHoverBackgroundAlphaRATIO)
-        rowView.selectionBackgroundColor = chromeTheme.activeIndicator
-            .withAlphaComponent(DesignTokens.Component.commandHistorySelectionBackgroundAlphaRATIO)
+        rowView.chromeTheme = chromeTheme
         return rowView
     }
 
@@ -527,7 +514,7 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
 
     private func recordUserDisclosureToggle(_ notification: Notification, isExpanded: Bool) {
         guard !isApplyingExpansionState,
-              filterField.stringValue.isEmpty,
+              searchPillView.stringValue.isEmpty,
               let groupItem = notification.userInfo?["NSObject"] as? TerminalCommandHistoryGroupOutlineItem
         else {
             return
@@ -536,23 +523,21 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
     }
 }
 
-extension TerminalCommandHistoryPanelView: NSTextFieldDelegate {
-    /// Filter as the user types, matching the previous search field's
-    /// immediate-send behavior.
-    func controlTextDidChange(_ notification: Notification) {
-        reloadGroups()
-    }
-}
-
 extension TerminalCommandHistoryPanelView: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         let entry = clickedOrSelectedEntry()
         let hasEntry = entry != nil
         let hasDirectory = !(entry?.cwd ?? "").isEmpty
+        // `cd` stays available for remote entries (it is valid once the user
+        // is back on that host); Finder reveal does not, because the path has
+        // no local meaning.
+        let hasLocalDirectory = hasDirectory && !(entry?.isRemote ?? false)
         for item in menu.items {
             switch item.action {
-            case #selector(copyChangeDirectoryFromContextMenu(_:)), #selector(revealDirectoryFromContextMenu(_:)):
+            case #selector(copyChangeDirectoryFromContextMenu(_:)):
                 item.isEnabled = hasDirectory
+            case #selector(revealDirectoryFromContextMenu(_:)):
+                item.isEnabled = hasLocalDirectory
             default:
                 item.isEnabled = hasEntry
             }

@@ -84,6 +84,39 @@ enum TerminalEscapeSequence {
     }
 }
 
+/// A resolved local file reference behind a terminal link, carrying the parsed
+/// `:line:col` so the editor tab can scroll to the reported position.
+struct TerminalFileLinkTarget: Equatable {
+    let absolutePath: String
+    let line: Int?
+    let column: Int?
+
+    var fileURL: URL { URL(fileURLWithPath: absolutePath) }
+}
+
+/// Everything `TerminalLinkRange` needs to turn `path:line:col` text into a
+/// file link without touching the filesystem on the main actor. The surface
+/// supplies cached existence answers and receives probe requests for misses.
+struct TerminalFileLinkContext {
+    let workingDirectory: String?
+    let homeDirectory: String
+    /// `nil` means the path has never been probed.
+    let cachedExists: (String) -> Bool?
+    let requestExistsProbe: (String) -> Void
+
+    init(
+        workingDirectory: String?,
+        homeDirectory: String,
+        cachedExists: @escaping (String) -> Bool?,
+        requestExistsProbe: @escaping (String) -> Void
+    ) {
+        self.workingDirectory = workingDirectory
+        self.homeDirectory = homeDirectory
+        self.cachedExists = cachedExists
+        self.requestExistsProbe = requestExistsProbe
+    }
+}
+
 struct TerminalLinkRange: Equatable {
     static let hoverColor = SIMD4<Float>(0.22, 0.48, 0.90, 1)
 
@@ -97,6 +130,22 @@ struct TerminalLinkRange: Equatable {
     let startColumn: Int
     let endColumn: Int
     let urlString: String
+    /// Non-nil for `path:line:col` links that open in a Kurotty editor tab.
+    let fileTarget: TerminalFileLinkTarget?
+
+    init(
+        row: Int,
+        startColumn: Int,
+        endColumn: Int,
+        urlString: String,
+        fileTarget: TerminalFileLinkTarget? = nil
+    ) {
+        self.row = row
+        self.startColumn = startColumn
+        self.endColumn = endColumn
+        self.urlString = urlString
+        self.fileTarget = fileTarget
+    }
 
     func contains(row: Int, column: Int) -> Bool {
         self.row == row && column >= startColumn && column < endColumn
@@ -106,7 +155,11 @@ struct TerminalLinkRange: Equatable {
         findAll(in: [cells], startingRow: row)
     }
 
-    static func findAll(in rows: [[TerminalScreenCell]], startingRow: Int) -> [TerminalLinkRange] {
+    static func findAll(
+        in rows: [[TerminalScreenCell]],
+        startingRow: Int,
+        fileLinkContext: TerminalFileLinkContext? = nil
+    ) -> [TerminalLinkRange] {
         var ranges: [TerminalLinkRange] = []
         var logicalLineStart = 0
 
@@ -118,7 +171,8 @@ struct TerminalLinkRange: Equatable {
             }
             ranges.append(contentsOf: findAll(
                 in: rows[logicalLineStart..<logicalLineEnd],
-                startingRow: startingRow + logicalLineStart
+                startingRow: startingRow + logicalLineStart,
+                fileLinkContext: fileLinkContext
             ))
             logicalLineStart = logicalLineEnd
         }
@@ -127,7 +181,8 @@ struct TerminalLinkRange: Equatable {
 
     private static func findAll(
         in rows: ArraySlice<[TerminalScreenCell]>,
-        startingRow: Int
+        startingRow: Int,
+        fileLinkContext: TerminalFileLinkContext? = nil
     ) -> [TerminalLinkRange] {
         var text = ""
         var positionsByCharacterOffset: [(row: Int, column: Int)] = []
@@ -181,6 +236,86 @@ struct TerminalLinkRange: Equatable {
             }) else { continue }
             ranges.append(contentsOf: automaticRanges)
         }
+        if let fileLinkContext {
+            ranges.append(contentsOf: fileLinkRanges(
+                text: text,
+                positionsByCharacterOffset: positionsByCharacterOffset,
+                cellsByRow: cellsByRow,
+                existingRanges: ranges,
+                context: fileLinkContext
+            ))
+        }
+        return ranges
+    }
+
+    /// Extracts `path:line:col` candidates from the joined logical line, keeps
+    /// only the ones whose resolution is already known to exist, and maps them
+    /// back onto screen-cell ranges. Unknown paths are handed to the caller's
+    /// probe and picked up on a later frame.
+    private static func fileLinkRanges(
+        text: String,
+        positionsByCharacterOffset: [(row: Int, column: Int)],
+        cellsByRow: [Int: [TerminalScreenCell]],
+        existingRanges: [TerminalLinkRange],
+        context: TerminalFileLinkContext
+    ) -> [TerminalLinkRange] {
+        var resolutions: [TerminalFilePathResolution] = []
+        for candidate in TerminalFilePathLinkDetector.candidates(in: text) {
+            let paths = TerminalFilePathLinkDetector.resolutionPaths(
+                for: candidate,
+                workingDirectory: context.workingDirectory,
+                homeDirectory: context.homeDirectory
+            )
+            var resolved: TerminalFilePathResolution?
+            for path in paths {
+                let exists = context.cachedExists(path)
+                if exists == nil {
+                    context.requestExistsProbe(path)
+                }
+                if exists == true {
+                    resolved = TerminalFilePathResolution(
+                        candidate: candidate,
+                        absolutePath: path,
+                        exists: true
+                    )
+                    break
+                }
+                if resolved == nil {
+                    resolved = TerminalFilePathResolution(
+                        candidate: candidate,
+                        absolutePath: path,
+                        exists: exists
+                    )
+                }
+            }
+            if let resolved { resolutions.append(resolved) }
+        }
+
+        var ranges: [TerminalLinkRange] = []
+        for resolution in TerminalFilePathLinkDetector.acceptedNonOverlapping(resolutions) {
+            let startOffset = resolution.candidate.startIndex
+            let endOffset = resolution.candidate.endIndex
+            guard startOffset >= 0,
+                  endOffset > startOffset,
+                  endOffset <= positionsByCharacterOffset.count else { continue }
+            let target = TerminalFileLinkTarget(
+                absolutePath: resolution.absolutePath,
+                line: resolution.candidate.line,
+                column: resolution.candidate.column
+            )
+            let candidateRanges = linkRanges(
+                positions: positionsByCharacterOffset,
+                cellsByRow: cellsByRow,
+                offsets: startOffset..<endOffset,
+                urlString: URL(fileURLWithPath: resolution.absolutePath).absoluteString,
+                fileTarget: target
+            )
+            guard !candidateRanges.contains(where: { candidateRange in
+                existingRanges.contains(where: { $0.overlaps(candidateRange) })
+                    || ranges.contains(where: { $0.overlaps(candidateRange) })
+            }) else { continue }
+            ranges.append(contentsOf: candidateRanges)
+        }
         return ranges
     }
 
@@ -223,7 +358,8 @@ struct TerminalLinkRange: Equatable {
         positions: [(row: Int, column: Int)],
         cellsByRow: [Int: [TerminalScreenCell]],
         offsets: Range<Int>,
-        urlString: String
+        urlString: String,
+        fileTarget: TerminalFileLinkTarget? = nil
     ) -> [TerminalLinkRange] {
         var ranges: [TerminalLinkRange] = []
         var segmentStart = offsets.lowerBound
@@ -242,7 +378,8 @@ struct TerminalLinkRange: Equatable {
                 row: row,
                 startColumn: positions[segmentStart].column,
                 endColumn: endLeadColumn + endWidth,
-                urlString: urlString
+                urlString: urlString,
+                fileTarget: fileTarget
             ))
             segmentStart = segmentEnd
         }

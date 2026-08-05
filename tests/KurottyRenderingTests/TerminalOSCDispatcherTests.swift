@@ -62,7 +62,7 @@ final class TerminalOSCDispatcherTests: XCTestCase {
 
         let event = dispatcher.dispatch("7;file://localhost/Users/skye/Project%20One", origin: .local)
 
-        XCTAssertEqual(event, .shellIntegration(.workingDirectoryChanged("/Users/skye/Project One")))
+        XCTAssertEqual(event, .shellIntegration(.workingDirectoryChanged(.local("/Users/skye/Project One"))))
         XCTAssertEqual(dispatcher.shellIntegration.currentWorkingDirectoryCandidate, "/Users/skye/Project One")
     }
 

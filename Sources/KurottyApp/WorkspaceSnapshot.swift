@@ -26,8 +26,15 @@ struct WorkspaceSnapshot: Codable, Equatable {
         return WorkspaceRestorePlan(
             layoutPaneIDs: panes.map(\.id),
             processRestorePaneIDs: [],
-            commandReplayCandidates: panes.compactMap(WorkspaceCommandReplayCandidate.init(pane:))
+            commandReplayCandidates: panes.compactMap(WorkspaceCommandReplayCandidate.init(pane:)),
+            scrollbackReplayCandidates: panes.compactMap(WorkspaceScrollbackReplayCandidate.init(pane:))
         )
+    }
+
+    /// Every snapshot reference the workspace still points at. Anything on disk
+    /// outside this set belongs to a pane that no longer exists and is pruned.
+    var scrollbackSnapshotRefs: Set<String> {
+        Set(windows.flatMap(\.panes).compactMap(\.scrollbackRef))
     }
 }
 
@@ -203,6 +210,21 @@ struct WorkspaceRestorePlan: Equatable {
     var layoutPaneIDs: [WorkspacePaneSnapshot.ID]
     var processRestorePaneIDs: [WorkspacePaneSnapshot.ID]
     var commandReplayCandidates: [WorkspaceCommandReplayCandidate]
+    /// Display-only scrollback restores. Always safe, always separate from
+    /// `commandReplayCandidates`.
+    var scrollbackReplayCandidates: [WorkspaceScrollbackReplayCandidate]
+
+    init(
+        layoutPaneIDs: [WorkspacePaneSnapshot.ID],
+        processRestorePaneIDs: [WorkspacePaneSnapshot.ID],
+        commandReplayCandidates: [WorkspaceCommandReplayCandidate],
+        scrollbackReplayCandidates: [WorkspaceScrollbackReplayCandidate] = []
+    ) {
+        self.layoutPaneIDs = layoutPaneIDs
+        self.processRestorePaneIDs = processRestorePaneIDs
+        self.commandReplayCandidates = commandReplayCandidates
+        self.scrollbackReplayCandidates = scrollbackReplayCandidates
+    }
 
     var canAutomaticallyRestoreProcesses: Bool {
         processRestorePaneIDs.isEmpty == false
@@ -298,19 +320,44 @@ struct WorkspacePaneSnapshot: Codable, Equatable {
     var workingDirectory: String?
     var profileName: String?
     var restoreSafety: TerminalRestoreSafetyMetadata
+    /// Content address of this pane's scrollback snapshot, or `nil` when the
+    /// pane had nothing worth persisting.
+    ///
+    /// This is deliberately independent of `restoreSafety`: restoring
+    /// scrollback bytes only repaints the screen model, while restoring a
+    /// command line would run a program. The two must never share a switch.
+    var scrollbackRef: String?
 
     init(
         id: ID,
         title: String? = nil,
         workingDirectory: String? = nil,
         profileName: String? = nil,
-        restoreSafety: TerminalRestoreSafetyMetadata = .layoutOnly
+        restoreSafety: TerminalRestoreSafetyMetadata = .layoutOnly,
+        scrollbackRef: String? = nil
     ) {
         self.id = id
         self.title = title
         self.workingDirectory = workingDirectory
         self.profileName = profileName
         self.restoreSafety = restoreSafety
+        self.scrollbackRef = scrollbackRef
+    }
+}
+
+/// One pane's display-only scrollback restore instruction.
+struct WorkspaceScrollbackReplayCandidate: Equatable {
+    var paneID: WorkspacePaneSnapshot.ID
+    var scrollbackRef: String
+
+    init?(pane: WorkspacePaneSnapshot) {
+        guard let ref = pane.scrollbackRef,
+              TerminalScrollbackSnapshotFormat.isValidRef(ref)
+        else {
+            return nil
+        }
+        paneID = pane.id
+        scrollbackRef = ref
     }
 }
 

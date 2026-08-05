@@ -94,7 +94,10 @@ final class PreferencesWindowController: NSWindowController {
         window.title = AppLocalization.format(.settingsWindow, AppConstants.Bundle.displayName)
         window.contentView = view
         window.setContentSize(initialContentSize)
-        window.minSize = NSSize(width: 720, height: 520)
+        window.minSize = NSSize(
+            width: DesignTokens.Component.preferencesWidthPX,
+            height: DesignTokens.Component.preferencesHeightPX
+        )
         window.center()
         super.init(window: window)
     }
