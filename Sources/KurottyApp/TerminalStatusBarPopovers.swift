@@ -34,12 +34,12 @@ final class TerminalStatusBarProcessUsageView: NSView {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = TerminalStatusBarTokens.popoverRowGapPX
+        stackView.spacing = DesignTokens.Component.StatusBar.popoverRowGapPX
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
         stackView.addArrangedSubview(TerminalStatusBarPopoverText.header(
-            TerminalStatusBarStrings.string(.processUsageTitle),
+            AppLocalization.string(.statusBarProcessUsageTitle),
             theme: theme
         ))
         stackView.addArrangedSubview(TerminalStatusBarPopoverText.secondary(
@@ -50,10 +50,10 @@ final class TerminalStatusBarProcessUsageView: NSView {
             theme: theme
         ))
 
-        let rows = usage.panes.prefix(TerminalStatusBarTokens.popoverMaximumRowCount)
+        let rows = usage.panes.prefix(DesignTokens.Component.StatusBar.popoverMaximumRowCount)
         if rows.isEmpty {
             stackView.addArrangedSubview(TerminalStatusBarPopoverText.secondary(
-                TerminalStatusBarStrings.string(.noProcesses),
+                AppLocalization.string(.statusBarNoProcesses),
                 theme: theme
             ))
         }
@@ -62,22 +62,22 @@ final class TerminalStatusBarProcessUsageView: NSView {
         }
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.popoverWidthPX),
+            widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.popoverWidthPX),
             stackView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: TerminalStatusBarTokens.popoverInsetPX
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -TerminalStatusBarTokens.popoverInsetPX
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.topAnchor.constraint(
                 equalTo: topAnchor,
-                constant: TerminalStatusBarTokens.popoverInsetPX
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.bottomAnchor.constraint(
                 equalTo: bottomAnchor,
-                constant: -TerminalStatusBarTokens.popoverInsetPX
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
             ),
         ])
     }
@@ -86,19 +86,19 @@ final class TerminalStatusBarProcessUsageView: NSView {
         let rowStackView = NSStackView()
         rowStackView.orientation = .horizontal
         rowStackView.alignment = .centerY
-        rowStackView.spacing = TerminalStatusBarTokens.metricGapPX
+        rowStackView.spacing = DesignTokens.Component.StatusBar.metricGapPX
 
         let titleField = TerminalStatusBarPopoverText.primary(paneUsage.title, theme: theme)
         titleField.lineBreakMode = .byTruncatingTail
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let metricsText = "\(TerminalResourceUsageFormatter.memoryText(bytes: paneUsage.residentBytes))"
-            + " \(TerminalStatusBarStrings.summarySeparator) "
+            + " \(AppConstants.StatusBar.summarySeparator) "
             + TerminalResourceUsageFormatter.cpuText(percent: paneUsage.cpuPercent)
         let metricsField = TerminalStatusBarPopoverText.monospacedValue(metricsText, theme: theme)
 
         let quitButton = NSButton(
-            title: TerminalStatusBarStrings.string(.quitProcess),
+            title: AppLocalization.string(.statusBarQuitProcess),
             target: self,
             action: #selector(quitButtonPressed(_:))
         )
@@ -114,7 +114,7 @@ final class TerminalStatusBarProcessUsageView: NSView {
         rowStackView.addArrangedSubview(quitButton)
         rowStackView.translatesAutoresizingMaskIntoConstraints = false
         rowStackView.heightAnchor.constraint(
-            equalToConstant: TerminalStatusBarTokens.popoverRowHeightPX
+            equalToConstant: DesignTokens.Component.StatusBar.popoverRowHeightPX
         ).isActive = true
         return rowStackView
     }
@@ -158,19 +158,19 @@ final class TerminalStatusBarAgentHistoryView: NSView {
         let stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = TerminalStatusBarTokens.popoverRowGapPX
+        stackView.spacing = DesignTokens.Component.StatusBar.popoverRowGapPX
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
         stackView.addArrangedSubview(TerminalStatusBarPopoverText.header(
-            TerminalStatusBarStrings.string(.statusHistoryTitle),
+            AppLocalization.string(.statusBarHistoryTitle),
             theme: theme
         ))
 
-        let rows = history.reversed().prefix(TerminalStatusBarTokens.popoverMaximumRowCount)
+        let rows = history.reversed().prefix(DesignTokens.Component.StatusBar.popoverMaximumRowCount)
         if rows.isEmpty {
             stackView.addArrangedSubview(TerminalStatusBarPopoverText.secondary(
-                TerminalStatusBarStrings.string(.noAgent),
+                AppLocalization.string(.statusBarNoAgent),
                 theme: theme
             ))
         }
@@ -180,7 +180,7 @@ final class TerminalStatusBarAgentHistoryView: NSView {
 
         if resumeRecord != nil {
             let resumeButton = NSButton(
-                title: TerminalStatusBarStrings.string(.resumeLastSession),
+                title: AppLocalization.string(.statusBarResumeLastSession),
                 target: self,
                 action: #selector(resumeButtonPressed(_:))
             )
@@ -190,22 +190,22 @@ final class TerminalStatusBarAgentHistoryView: NSView {
         }
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.popoverWidthPX),
+            widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.popoverWidthPX),
             stackView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: TerminalStatusBarTokens.popoverInsetPX
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -TerminalStatusBarTokens.popoverInsetPX
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.topAnchor.constraint(
                 equalTo: topAnchor,
-                constant: TerminalStatusBarTokens.popoverInsetPX
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
             ),
             stackView.bottomAnchor.constraint(
                 equalTo: bottomAnchor,
-                constant: -TerminalStatusBarTokens.popoverInsetPX
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
             ),
         ])
     }
@@ -214,7 +214,7 @@ final class TerminalStatusBarAgentHistoryView: NSView {
         let rowStackView = NSStackView()
         rowStackView.orientation = .horizontal
         rowStackView.alignment = .centerY
-        rowStackView.spacing = TerminalStatusBarTokens.labelDetailGapPX
+        rowStackView.spacing = DesignTokens.Component.StatusBar.labelDetailGapPX
 
         let timeField = TerminalStatusBarPopoverText.monospacedValue(
             Self.timeFormatter.string(from: status.updatedAt),
@@ -233,7 +233,7 @@ final class TerminalStatusBarAgentHistoryView: NSView {
         }
         rowStackView.translatesAutoresizingMaskIntoConstraints = false
         rowStackView.heightAnchor.constraint(
-            equalToConstant: TerminalStatusBarTokens.popoverRowHeightPX
+            equalToConstant: DesignTokens.Component.StatusBar.popoverRowHeightPX
         ).isActive = true
         return rowStackView
     }

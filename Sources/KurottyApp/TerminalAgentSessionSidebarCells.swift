@@ -27,10 +27,6 @@ final class TerminalAgentSessionOutlineItem: NSObject {
 /// path component, dimmed parent path, and a trailing rounded count badge.
 @MainActor
 final class TerminalAgentSessionGroupCellView: NSTableCellView {
-    private enum Symbol {
-        static let folder = "folder.fill"
-    }
-
     private let titleLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
     private let badgeView: TerminalSidebarCountBadgeView
@@ -53,12 +49,12 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         super.init(frame: .zero)
 
         let iconView = NSImageView()
-        iconView.image = NSImage(systemSymbolName: Symbol.folder, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
-                weight: .regular
-            ))
-        iconView.contentTintColor = chromeTheme.textTertiary
+        iconView.image = Icon.symbol(
+            IconSymbol.folder,
+            pointSizePT: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
+            weight: .regular,
+            tint: chromeTheme.textTertiary
+        )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -143,12 +139,13 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
         super.init(frame: .zero)
 
         let iconView = NSImageView()
-        iconView.image = NSImage(systemSymbolName: record.agent.symbolName, accessibilityDescription: record.agent.displayName)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.agentSessionAgentIconPointSizePT,
-                weight: .medium
-            ))
-        iconView.contentTintColor = chromeTheme.textTertiary
+        iconView.image = Icon.symbol(
+            record.agent.symbolName,
+            pointSizePT: DesignTokens.Component.agentSessionAgentIconPointSizePT,
+            weight: .medium,
+            tint: chromeTheme.textTertiary,
+            accessibilityDescription: record.agent.displayName
+        )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -245,6 +242,7 @@ final class TerminalSidebarCountBadgeView: NSView {
         self.chromeTheme = chromeTheme
         super.init(frame: .zero)
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.cornerRadius = DesignTokens.Radius.xsPX
         layer?.backgroundColor = chromeTheme.textPrimary
             .withAlphaComponent(DesignTokens.Component.commandHistoryBadgeBackgroundAlphaRATIO)

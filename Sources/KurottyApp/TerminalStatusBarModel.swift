@@ -119,7 +119,7 @@ enum TerminalProcessCPUUsage {
         guard percent.isFinite else {
             return 0
         }
-        return min(max(percent, 0), TerminalStatusBarTokens.maximumCPUPercentRATIO)
+        return min(max(percent, 0), AppConstants.StatusBar.maximumCPUPercentRATIO)
     }
 }
 
@@ -213,26 +213,26 @@ enum TerminalStatusBarSeverity: Equatable, Sendable {
 /// shape: a short column label (`RSS`) for popover columns and a summed
 /// description for the tooltip.
 enum TerminalResourceUsageFormatter {
-    static let memoryColumnLabel = TerminalStatusBarStrings.memoryColumnLabel
-    static let memorySummaryLabel = TerminalStatusBarStrings.memorySummaryLabel
-    static let memoryDescription = TerminalStatusBarStrings.memoryDescription
-    static let unavailableValueText = TerminalStatusBarStrings.unavailableValue
+    static let memoryColumnLabel = AppConstants.StatusBar.memoryColumnLabel
+    static let memorySummaryLabel = AppConstants.StatusBar.memorySummaryLabel
+    static let memoryDescription = AppLocalization.string(.statusBarMemoryDescription)
+    static let unavailableValueText = AppConstants.StatusBar.unavailableValue
 
     /// `412 MB`, `1.2 GB`, `768 KB`. Binary units throughout (1 MB = 1024 KB),
     /// whole numbers below the gigabyte boundary and one decimal above it, so
     /// the string width stays stable while the value moves.
     static func memoryText(bytes: UInt64) -> String {
-        let kilobytes = Double(bytes) / TerminalStatusBarTokens.bytesPerKilobyteRATIO
-        guard kilobytes >= TerminalStatusBarTokens.bytesPerKilobyteRATIO else {
-            return "\(Int(kilobytes.rounded())) \(TerminalStatusBarStrings.kilobyteUnit)"
+        let kilobytes = Double(bytes) / AppConstants.StatusBar.bytesPerKilobyteRATIO
+        guard kilobytes >= AppConstants.StatusBar.bytesPerKilobyteRATIO else {
+            return "\(Int(kilobytes.rounded())) \(AppConstants.StatusBar.kilobyteUnit)"
         }
-        let megabytes = kilobytes / TerminalStatusBarTokens.bytesPerKilobyteRATIO
-        guard megabytes >= TerminalStatusBarTokens.bytesPerKilobyteRATIO else {
-            return "\(Int(megabytes.rounded())) \(TerminalStatusBarStrings.megabyteUnit)"
+        let megabytes = kilobytes / AppConstants.StatusBar.bytesPerKilobyteRATIO
+        guard megabytes >= AppConstants.StatusBar.bytesPerKilobyteRATIO else {
+            return "\(Int(megabytes.rounded())) \(AppConstants.StatusBar.megabyteUnit)"
         }
-        let gigabytes = megabytes / TerminalStatusBarTokens.bytesPerKilobyteRATIO
+        let gigabytes = megabytes / AppConstants.StatusBar.bytesPerKilobyteRATIO
         let rounded = (gigabytes * 10).rounded() / 10
-        return String(format: "%.1f \(TerminalStatusBarStrings.gigabyteUnit)", rounded)
+        return String(format: "%.1f \(AppConstants.StatusBar.gigabyteUnit)", rounded)
     }
 
     /// `3%`. Rounded to a whole percent and clamped into 0...100.
@@ -241,15 +241,15 @@ enum TerminalResourceUsageFormatter {
             return unavailableValueText
         }
         let clamped = TerminalProcessCPUUsage.clampedPercent(percent)
-        return "\(Int(clamped.rounded()))\(TerminalStatusBarStrings.percentUnit)"
+        return "\(Int(clamped.rounded()))\(AppConstants.StatusBar.percentUnit)"
     }
 
     /// Compact one-line summary used for tooltips and accessibility:
     /// `RAM 412 MB · CPU 3%`.
     static func summaryText(bytes: UInt64, cpuPercent: Double?) -> String {
-        let memory = "\(TerminalStatusBarStrings.memoryPrefix) \(memoryText(bytes: bytes))"
-        let cpu = "\(TerminalStatusBarStrings.cpuPrefix) \(cpuText(percent: cpuPercent))"
-        return "\(memory) \(TerminalStatusBarStrings.summarySeparator) \(cpu)"
+        let memory = "\(AppConstants.StatusBar.memoryPrefix) \(memoryText(bytes: bytes))"
+        let cpu = "\(AppConstants.StatusBar.cpuPrefix) \(cpuText(percent: cpuPercent))"
+        return "\(memory) \(AppConstants.StatusBar.summarySeparator) \(cpu)"
     }
 
     static func severity(cpuPercent: Double?) -> TerminalStatusBarSeverity {
@@ -269,10 +269,10 @@ enum TerminalResourceUsageFormatter {
         guard let percent, percent.isFinite else {
             return .normal
         }
-        if percent >= TerminalStatusBarTokens.errorPercentRATIO {
+        if percent >= AppConstants.StatusBar.errorPercentRATIO {
             return .error
         }
-        if percent >= TerminalStatusBarTokens.warningPercentRATIO {
+        if percent >= AppConstants.StatusBar.warningPercentRATIO {
             return .warning
         }
         return .normal
@@ -333,7 +333,7 @@ enum TerminalProcessKillDecision: Equatable, Sendable {
 
 /// Pure guard in front of the destructive row action.
 enum TerminalProcessKillPolicy {
-    static let gracePeriodSeconds: TimeInterval = TerminalStatusBarTokens.killGracePeriodSeconds
+    static let gracePeriodSeconds: TimeInterval = AppConstants.StatusBar.killGracePeriodSeconds
 
     static func decision(
         processIdentifier: pid_t,
@@ -376,7 +376,7 @@ struct TerminalStatusBarVisibility: Equatable, Sendable {
 /// window narrows.
 enum TerminalStatusBarLayoutPolicy {
     static func visibility(barWidthPX: CGFloat) -> TerminalStatusBarVisibility {
-        guard barWidthPX >= TerminalStatusBarTokens.iconOnlyBreakpointPX else {
+        guard barWidthPX >= DesignTokens.Component.StatusBar.iconOnlyBreakpointPX else {
             return TerminalStatusBarVisibility(
                 showsAgentLabel: false,
                 showsAgentDetail: false,
@@ -384,7 +384,7 @@ enum TerminalStatusBarLayoutPolicy {
                 showsMemoryValue: false
             )
         }
-        guard barWidthPX >= TerminalStatusBarTokens.agentLabelBreakpointPX else {
+        guard barWidthPX >= DesignTokens.Component.StatusBar.agentLabelBreakpointPX else {
             return TerminalStatusBarVisibility(
                 showsAgentLabel: false,
                 showsAgentDetail: false,
@@ -392,7 +392,7 @@ enum TerminalStatusBarLayoutPolicy {
                 showsMemoryValue: true
             )
         }
-        guard barWidthPX >= TerminalStatusBarTokens.cpuMetricBreakpointPX else {
+        guard barWidthPX >= DesignTokens.Component.StatusBar.cpuMetricBreakpointPX else {
             return TerminalStatusBarVisibility(
                 showsAgentLabel: true,
                 showsAgentDetail: false,
@@ -400,7 +400,7 @@ enum TerminalStatusBarLayoutPolicy {
                 showsMemoryValue: true
             )
         }
-        guard barWidthPX >= TerminalStatusBarTokens.agentDetailBreakpointPX else {
+        guard barWidthPX >= DesignTokens.Component.StatusBar.agentDetailBreakpointPX else {
             return TerminalStatusBarVisibility(
                 showsAgentLabel: true,
                 showsAgentDetail: false,
@@ -502,9 +502,9 @@ enum TerminalStatusBarAgentComposer {
         }
         let stateLabel = TerminalStatusBarStrings.stateLabel(for: dominant.state, language: language)
         let label = dominant.agentName.map {
-            "\($0) \(TerminalStatusBarStrings.labelSeparator) \(stateLabel)"
+            "\($0) \(AppConstants.StatusBar.labelSeparator) \(stateLabel)"
         } ?? stateLabel
-        let tooltip = dominant.detail.map { "\(label) \(TerminalStatusBarStrings.detailSeparator) \($0)" } ?? label
+        let tooltip = dominant.detail.map { "\(label) \(AppConstants.StatusBar.detailSeparator) \($0)" } ?? label
         return TerminalStatusBarAgentSummary(
             dot: .filled(role(for: dominant.state)),
             label: label,
@@ -524,7 +524,7 @@ enum TerminalStatusBarAgentComposer {
         language: AppLanguage
     ) -> TerminalStatusBarAgentSummary {
         guard areStatusHooksInstalled || hasEverReported else {
-            let label = TerminalStatusBarStrings.string(.connectAnAgent, language: language)
+            let label = AppLocalization.string(.statusBarConnectAnAgent, language: language)
             return TerminalStatusBarAgentSummary(
                 dot: .none,
                 label: label,
@@ -534,10 +534,10 @@ enum TerminalStatusBarAgentComposer {
                 agentCount: 0,
                 isCallToAction: true,
                 action: .offerToEnableStatusHooks,
-                tooltip: TerminalStatusBarStrings.string(.connectAnAgentTooltip, language: language)
+                tooltip: AppLocalization.string(.statusBarConnectAnAgentTooltip, language: language)
             )
         }
-        let label = TerminalStatusBarStrings.string(.noAgent, language: language)
+        let label = AppLocalization.string(.statusBarNoAgent, language: language)
         return TerminalStatusBarAgentSummary(
             dot: .hollowRing,
             label: label,

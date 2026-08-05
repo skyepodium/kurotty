@@ -30,7 +30,7 @@ enum FileExplorerRemoteCopy {
 
 enum FileExplorerIcon {
     static let folderSymbolName = "folder"
-    static let refreshSymbolName = "arrow.clockwise"
+    static let refreshSymbolName = IconSymbol.refresh
     /// Empty-state glyph for a working directory that lives on another machine.
     static let remoteSymbolName = "network"
     /// Conflict is the only git state that still earns a glyph: it is the one
@@ -119,19 +119,16 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         super.init(frame: .zero)
 
         let iconView = NSImageView()
-        iconView.image = NSImage(
-            systemSymbolName: FileExplorerIcon.symbolName(for: item.node),
-            accessibilityDescription: nil
-        )
-        iconView.contentTintColor = Self.iconColor(
-            isDimmed: isDimmed,
-            isDirectory: isDirectory,
-            dimmedColor: dimmedColor,
-            chromeTheme: chromeTheme
-        )
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.fileExplorerRowIconPointSizePT,
-            weight: .regular
+        iconView.image = Icon.symbol(
+            FileExplorerIcon.symbolName(for: item.node),
+            pointSizePT: DesignTokens.Component.fileExplorerRowIconPointSizePT,
+            weight: .regular,
+            tint: Self.iconColor(
+                isDimmed: isDimmed,
+                isDirectory: isDirectory,
+                dimmedColor: dimmedColor,
+                chromeTheme: chromeTheme
+            )
         )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
@@ -149,23 +146,23 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: FileExplorerMetrics.rowInsetXPX
+                constant: DesignTokens.Component.fileExplorerRowInsetXPX
             ),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             nameLabel.leadingAnchor.constraint(
                 equalTo: iconView.trailingAnchor,
-                constant: FileExplorerMetrics.rowGapPX
+                constant: DesignTokens.Component.fileExplorerRowGapPX
             ),
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             gitSlotView.leadingAnchor.constraint(
                 greaterThanOrEqualTo: nameLabel.trailingAnchor,
-                constant: FileExplorerMetrics.rowGapPX
+                constant: DesignTokens.Component.fileExplorerRowGapPX
             ),
             gitSlotView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -FileExplorerMetrics.rowInsetXPX
+                constant: -DesignTokens.Component.fileExplorerRowInsetXPX
             ),
             gitSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -248,14 +245,12 @@ final class TerminalFileExplorerGitSlotView: NSView {
             return
         }
         let glyphView = NSImageView()
-        glyphView.image = NSImage(
-            systemSymbolName: FileExplorerIcon.conflictSymbolName,
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.fileExplorerGitConflictPointSizePT,
-            weight: .regular
-        ))
-        glyphView.contentTintColor = chromeTheme.error
+        glyphView.image = Icon.symbol(
+            FileExplorerIcon.conflictSymbolName,
+            pointSizePT: DesignTokens.Component.fileExplorerGitConflictPointSizePT,
+            weight: .regular,
+            tint: chromeTheme.error
+        )
         glyphView.imageScaling = .scaleNone
         glyphView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glyphView)

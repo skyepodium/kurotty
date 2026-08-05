@@ -14,11 +14,6 @@ final class QuickCommandsEditorView: NSView {
         static let action = NSUserInterfaceItemIdentifier("quickCommands.column.action")
     }
 
-    private enum Symbol {
-        static let add = "plus"
-        static let remove = "minus"
-    }
-
     private let store: QuickCommandStore
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
@@ -111,8 +106,8 @@ final class QuickCommandsEditorView: NSView {
     }
 
     private func configureToolbarButtons() {
-        configureToolbarButton(addButton, symbol: Symbol.add, fallbackTitle: AppLocalization.string(.quickCommandAdd), action: #selector(addCommand))
-        configureToolbarButton(removeButton, symbol: Symbol.remove, fallbackTitle: AppLocalization.string(.quickCommandRemove), action: #selector(removeSelectedCommand))
+        configureToolbarButton(addButton, symbol: IconSymbol.add, fallbackTitle: AppLocalization.string(.quickCommandAdd), action: #selector(addCommand))
+        configureToolbarButton(removeButton, symbol: IconSymbol.remove, fallbackTitle: AppLocalization.string(.quickCommandRemove), action: #selector(removeSelectedCommand))
     }
 
     private func configureToolbarButton(

@@ -30,8 +30,8 @@ final class ChromeDesignSystemTests: XCTestCase {
 
     @MainActor
     func testFloatingElevationDiffersBetweenLightAndDarkChrome() {
-        let dark = Elevation.floating(for: .dark)
-        let light = Elevation.floating(for: .light)
+        let dark = DesignTokens.Elevation.floating(for: .dark)
+        let light = DesignTokens.Elevation.floating(for: .light)
 
         XCTAssertEqual(dark.opacity, 0.28)
         XCTAssertEqual(dark.radiusPX, 16)
@@ -44,7 +44,7 @@ final class ChromeDesignSystemTests: XCTestCase {
     @MainActor
     func testFloatingElevationPushesTheShadowDownwardInLayerGeometry() {
         let layer = CALayer()
-        Elevation.floating(for: .dark).apply(to: layer)
+        DesignTokens.Elevation.floating(for: .dark).apply(to: layer)
 
         // AppKit's unflipped layer space needs a negative height for a shadow
         // that falls below the surface.
@@ -56,11 +56,11 @@ final class ChromeDesignSystemTests: XCTestCase {
 
     @MainActor
     func testOnlyTheThreeAllowedMotionDurationsExist() {
-        XCTAssertEqual(ChromeMotion.sectionSwitchDurationMS, 160)
-        XCTAssertEqual(ChromeMotion.sectionListFadeDurationMS, 80)
-        XCTAssertEqual(ChromeMotion.disclosureRotationDurationMS, 150)
-        XCTAssertEqual(ChromeMotion.statusValueCrossfadeDurationMS, 120)
-        XCTAssertEqual(ChromeMotion.seconds(fromMS: 160), 0.16, accuracy: 0.0001)
+        XCTAssertEqual(DesignTokens.Motion.sectionSwitchDurationMS, 160)
+        XCTAssertEqual(DesignTokens.Motion.sectionListFadeDurationMS, 80)
+        XCTAssertEqual(DesignTokens.Motion.disclosureRotationDurationMS, 150)
+        XCTAssertEqual(DesignTokens.Motion.statusValueCrossfadeDurationMS, 120)
+        XCTAssertEqual(DesignTokens.Motion.seconds(fromMS: 160), 0.16, accuracy: 0.0001)
     }
 
     @MainActor
@@ -154,8 +154,8 @@ final class ChromeDesignSystemTests: XCTestCase {
         searchBar.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(searchBar.layer?.cornerRadius, DesignTokens.Radius.lgPX)
-        XCTAssertEqual(searchBar.layer?.shadowRadius, Elevation.floatingDark.radiusPX)
-        XCTAssertEqual(searchBar.layer?.shadowOpacity, Elevation.floatingDark.opacity)
+        XCTAssertEqual(searchBar.layer?.shadowRadius, DesignTokens.Elevation.floatingDark.radiusPX)
+        XCTAssertEqual(searchBar.layer?.shadowOpacity, DesignTokens.Elevation.floatingDark.opacity)
         XCTAssertEqual(searchBar.fittingSize.height, 40)
     }
 
@@ -236,14 +236,14 @@ final class ChromeDesignSystemTests: XCTestCase {
     // MARK: - Preferences
 
     func testPreferencesWindowAndControlMetricsShrinkToTheDesignSpec() {
-        XCTAssertEqual(PreferencesMetrics.windowWidthPX, 720)
-        XCTAssertEqual(PreferencesMetrics.windowHeightPX, 560)
-        XCTAssertEqual(PreferencesMetrics.controlWidthPX, 220)
-        XCTAssertEqual(PreferencesMetrics.buttonWidthPX, 84)
-        XCTAssertEqual(PreferencesMetrics.buttonHeightPX, 28)
-        XCTAssertEqual(PreferencesMetrics.statusHeightPX, 16)
-        XCTAssertEqual(PreferencesMetrics.textFieldWidthPX, 160)
-        XCTAssertEqual(PreferencesMetrics.numericFieldWidthPX, 96)
+        XCTAssertEqual(DesignTokens.Component.preferencesWidthPX, 720)
+        XCTAssertEqual(DesignTokens.Component.preferencesHeightPX, 560)
+        XCTAssertEqual(DesignTokens.Component.preferencesControlWidthPX, 220)
+        XCTAssertEqual(DesignTokens.Component.preferencesButtonWidthPX, 84)
+        XCTAssertEqual(DesignTokens.Component.preferencesButtonHeightPX, 28)
+        XCTAssertEqual(DesignTokens.Component.preferencesStatusHeightPX, 16)
+        XCTAssertEqual(DesignTokens.Component.preferencesTextFieldWidthPX, 160)
+        XCTAssertEqual(DesignTokens.Component.preferencesNumericFieldWidthPX, 96)
     }
 
     func testPreferencesNoLongerPaintsSystemControlBackgroundCards() throws {

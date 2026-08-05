@@ -1802,10 +1802,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
         XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
-        XCTAssertTrue(windowSource.contains("ChromeIconButton(title: \"+\""))
-        XCTAssertTrue(windowSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
-        XCTAssertTrue(windowSource.contains("addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
-        XCTAssertTrue(windowSource.contains("closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)"))
+        // Re-pointed 2026-08: the tab add/close affordances were text glyphs
+        // ("+" / "×") typed into a button title. They are now SF Symbols from
+        // the shared `IconSymbol` registry, so they scale with the icon ramp
+        // and carry a real accessibility label instead of punctuation. The
+        // assertions are kept (rather than deleted) so a silent regression back
+        // to a typed glyph still fails. The accent hover wash they deliberately
+        // keep is now a named token rather than an inline 0.18.
+        XCTAssertTrue(windowSource.contains("symbolName: IconSymbol.add"))
+        XCTAssertTrue(windowSource.contains("symbolName: IconSymbol.close"))
+        XCTAssertFalse(windowSource.contains("ChromeIconButton(title:"))
+        XCTAssertTrue(windowSource.contains("addButton.applyChromeTheme(chromeTheme)"))
+        XCTAssertTrue(windowSource.contains("closeButton.applyChromeTheme(chromeTheme)"))
+        XCTAssertTrue(windowSource.contains("DesignTokens.Component.terminalTabButtonHoverAlphaRATIO"))
+        XCTAssertEqual(DesignTokens.Component.terminalTabButtonHoverAlphaRATIO, 0.18)
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
         // Re-pointed 2026-08: chrome icon buttons use the arrow cursor. The
         // pointing hand is the macOS convention for a web link, so it marked
@@ -2079,7 +2089,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private let activeIndicatorView = NSView()"))
         XCTAssertTrue(paneSource.contains("private let statusDotView = NSView()"))
         XCTAssertTrue(paneSource.contains("private let titleField = NSTextField(labelWithString: \"~ (-zsh)\")"))
-        XCTAssertTrue(paneSource.contains("private let closeButton = ChromeIconButton(title: \"×\""))
+        // Re-pointed 2026-08 alongside the tab close button: the pane header's
+        // "×" text glyph became the shared `IconSymbol.close` SF Symbol, and
+        // the button now takes its whole color ramp from the active theme so
+        // press and focus follow a light theme instead of the dark ramp. Kept
+        // rather than deleted so a revert to a typed glyph still fails.
+        XCTAssertTrue(paneSource.contains("symbolName: IconSymbol.close"))
+        XCTAssertFalse(paneSource.contains("ChromeIconButton(title:"))
+        XCTAssertTrue(paneSource.contains("closeButton.applyChromeTheme(chromeTheme)"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func updateTrackingAreas()"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func mouseExited(with event: NSEvent)"))

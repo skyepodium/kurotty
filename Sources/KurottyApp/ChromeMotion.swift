@@ -10,28 +10,10 @@ import QuartzCore
 /// laggy, and animated chrome competes with the terminal for attention. Only a
 /// state change the user cannot otherwise follow gets animated.
 ///
-/// MIGRATION: these durations belong next to the rest of the design tokens once
-/// `DesignTokens.swift` is free; they live here because that file is owned by
-/// another agent during this pass.
+/// The durations themselves are design tokens and live in
+/// `DesignTokens.Motion`; this enum is the behaviour that reads them.
 @MainActor
 enum ChromeMotion {
-    /// Sidebar section switch. Long enough to read the underline travelling,
-    /// short enough that a fast click never queues.
-    static let sectionSwitchDurationMS = 160
-    /// Each half of the sidebar list crossfade.
-    static let sectionListFadeDurationMS = 80
-    /// Disclosure chevron rotation.
-    static let disclosureRotationDurationMS = 150
-    /// Full status-bar value crossfade (out + in).
-    static let statusValueCrossfadeDurationMS = 120
-
-    static let disclosureCollapsedRotationDegrees: CGFloat = 0
-    static let disclosureExpandedRotationDegrees: CGFloat = 90
-
-    static func seconds(fromMS milliseconds: Int) -> TimeInterval {
-        TimeInterval(milliseconds) / 1000
-    }
-
     /// Rotates a disclosure chevron between collapsed (0°) and expanded (90°).
     ///
     /// The rotation happens around the view's own center, so the caller does not
@@ -41,7 +23,7 @@ enum ChromeMotion {
         view.wantsLayer = true
         guard let layer = view.layer else { return }
         centerAnchorPoint(of: layer, in: view)
-        let radians = (expanded ? disclosureExpandedRotationDegrees : disclosureCollapsedRotationDegrees)
+        let radians = (expanded ? DesignTokens.Motion.disclosureExpandedRotationDegrees : DesignTokens.Motion.disclosureCollapsedRotationDegrees)
             * .pi / 180
         let transform = CATransform3DMakeRotation(radians, 0, 0, 1)
         guard animated else {
@@ -54,7 +36,7 @@ enum ChromeMotion {
         let animation = CABasicAnimation(keyPath: "transform")
         animation.fromValue = layer.presentation()?.transform ?? layer.transform
         animation.toValue = transform
-        animation.duration = seconds(fromMS: disclosureRotationDurationMS)
+        animation.duration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.disclosureRotationDurationMS)
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer.transform = transform
         layer.add(animation, forKey: "chromeDisclosureRotation")
@@ -64,7 +46,7 @@ enum ChromeMotion {
     /// caller's `apply` swaps the text while the view is invisible, and the new
     /// value fades in. Linear, because a value readout is not a gesture.
     static func crossfadeValueChange(_ view: NSView, apply: @escaping () -> Void) {
-        let halfDuration = seconds(fromMS: statusValueCrossfadeDurationMS) / 2
+        let halfDuration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.statusValueCrossfadeDurationMS) / 2
         NSAnimationContext.runAnimationGroup { context in
             context.duration = halfDuration
             context.timingFunction = CAMediaTimingFunction(name: .linear)
@@ -107,9 +89,7 @@ enum ChromeMotion {
 /// slide: sliding would claim a spatial relationship that does not exist. The
 /// underline travels, and the lists trade places through opacity only.
 ///
-/// MIGRATION: `TerminalLeftSidebarPanelView` should call
-/// `SidebarMotion.animateSectionChange(...)` from its segment action instead of
-/// setting the underline frame and `isHidden` directly.
+/// `TerminalLeftSidebarPanelView` drives this from its section-strip action.
 @MainActor
 enum SidebarMotion {
     /// Animates a section switch.
@@ -129,8 +109,8 @@ enum SidebarMotion {
         incoming: NSView?,
         completion: (() -> Void)? = nil
     ) {
-        let totalDuration = ChromeMotion.seconds(fromMS: ChromeMotion.sectionSwitchDurationMS)
-        let fadeDuration = ChromeMotion.seconds(fromMS: ChromeMotion.sectionListFadeDurationMS)
+        let totalDuration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.sectionSwitchDurationMS)
+        let fadeDuration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.sectionListFadeDurationMS)
 
         if let underline {
             NSAnimationContext.runAnimationGroup { context in

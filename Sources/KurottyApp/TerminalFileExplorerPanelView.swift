@@ -21,16 +21,6 @@ struct TerminalFileExplorerCallbacks {
         self.insertPath = insertPath
     }
 }
-// MARK: - Design metrics
-
-enum FileExplorerMetrics {
-    static let rowGapPX = DesignTokens.Space.x2PX
-    static let rowInsetXPX = DesignTokens.Space.x3PX
-    static let outlineIndentPX = DesignTokens.Space.x4PX
-    static let emptyStateIconAlphaRATIO: CGFloat = 0.66
-    static let emptyStateLabelAlphaRATIO: CGFloat = 0.72
-    static let watcherDebounceMS = 300
-}
 
 // MARK: - Outline item
 
@@ -141,7 +131,7 @@ final class TerminalFileExplorerRootWatcher {
         }
         pendingChange = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(FileExplorerMetrics.watcherDebounceMS),
+            deadline: .now() + .milliseconds(AppConstants.FileExplorer.watcherDebounceMS),
             execute: workItem
         )
     }
@@ -168,7 +158,12 @@ final class TerminalFileExplorerPanelView: NSView {
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
     private let directoryNameLabel = NSTextField(labelWithString: "")
-    private let refreshButton = ChromeIconButton(frame: .zero)
+    private let refreshButton = ChromeIconButton(
+        symbolName: FileExplorerIcon.refreshSymbolName,
+        accessibilityLabel: AppLocalization.string(.refresh),
+        target: nil,
+        action: nil
+    )
     /// Shared sidebar control; see `TerminalSidebarSearchPillView`.
     private let searchPillView = TerminalSidebarSearchPillView(
         placeholder: { AppLocalization.string(.fileExplorerSearchPlaceholder) }
@@ -268,7 +263,8 @@ final class TerminalFileExplorerPanelView: NSView {
         DesignTokens.Typography.rowTitleSel.apply(to: directoryNameLabel, color: theme.textPrimary)
         DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
         searchPillView.applyChromeTheme(theme)
-        emptyStateIconView.contentTintColor = theme.textMuted
+        refreshButton.applyChromeTheme(theme)
+        applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
         updateRemoteEmptyState()
         outlineView.reloadData()
@@ -300,6 +296,7 @@ final class TerminalFileExplorerPanelView: NSView {
 
     private func configureSubviews() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
         panelTitleLabel.stringValue = AppLocalization.string(.fileExplorer).localizedUppercase
@@ -319,10 +316,7 @@ final class TerminalFileExplorerPanelView: NSView {
         directoryNameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(directoryNameLabel)
 
-        refreshButton.image = NSImage(
-            systemSymbolName: FileExplorerIcon.refreshSymbolName,
-            accessibilityDescription: AppLocalization.string(.refresh)
-        )
+        refreshButton.applyChromeTheme(chromeTheme)
         refreshButton.toolTip = AppLocalization.string(.refresh)
         refreshButton.target = self
         refreshButton.action = #selector(refreshClicked(_:))
@@ -337,6 +331,7 @@ final class TerminalFileExplorerPanelView: NSView {
         addSubview(searchPillView)
 
         listContainerView.wantsLayer = true
+        listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         listContainerView.clipsToBounds = true
         listContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(listContainerView)
@@ -352,18 +347,22 @@ final class TerminalFileExplorerPanelView: NSView {
         updateRemoteEmptyState()
     }
 
+    /// Palette-tinted symbols bake their color into the image, so a theme
+    /// change has to rebuild these rather than reassign `contentTintColor`.
+    private func applyEmptyStateIcon(tint: NSColor) {
+        emptyStateIconView.image = Icon.symbol(
+            FileExplorerIcon.remoteSymbolName,
+            pointSizePT: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
+            weight: .regular,
+            tint: tint
+        )
+    }
+
     /// Empty state for remote sessions. Lives inside the list container, so it
     /// occupies the tree region only and can never overlap the header or the
     /// search pill.
     private func configureRemoteEmptyState() {
-        emptyStateIconView.image = NSImage(
-            systemSymbolName: FileExplorerIcon.remoteSymbolName,
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
-            weight: .regular
-        ))
-        emptyStateIconView.contentTintColor = chromeTheme.textMuted
+        applyEmptyStateIcon(tint: chromeTheme.textMuted)
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(emptyStateIconView)
 
@@ -382,8 +381,8 @@ final class TerminalFileExplorerPanelView: NSView {
         scrollView.isHidden = isRemote
         searchPillView.isEnabled = !isRemote
         refreshButton.isEnabled = !isRemote
-        emptyStateIconView.alphaValue = FileExplorerMetrics.emptyStateIconAlphaRATIO
-        emptyStateLabel.alphaValue = FileExplorerMetrics.emptyStateLabelAlphaRATIO
+        emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = DesignTokens.Component.sidebarEmptyStateLabelAlphaRATIO
         guard let remoteLocation else {
             emptyStateLabel.stringValue = ""
             return
@@ -408,7 +407,7 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.style = .plain
         outlineView.rowSizeStyle = .custom
         outlineView.intercellSpacing = .zero
-        outlineView.indentationPerLevel = FileExplorerMetrics.outlineIndentPX
+        outlineView.indentationPerLevel = DesignTokens.Component.fileExplorerOutlineIndentationPX
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = false
         outlineView.dataSource = self

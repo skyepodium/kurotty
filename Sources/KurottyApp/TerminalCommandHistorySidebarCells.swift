@@ -9,11 +9,6 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
         static let keypadEnterKey: UInt16 = 76
     }
 
-    private enum Symbol {
-        static let collapsed = "chevron.right"
-        static let expanded = "chevron.down"
-    }
-
     var onReturnKey: (() -> Void)?
 
     /// Tint for the disclosure chevron. The outline view builds that button
@@ -44,14 +39,19 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
         else {
             return view
         }
-        let configuration = NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.commandHistoryDisclosurePointSizePT,
-            weight: .semibold
+        let pointSizePT = DesignTokens.Component.commandHistoryDisclosurePointSizePT
+        button.image = Icon.symbol(
+            IconSymbol.disclosureCollapsed,
+            pointSizePT: pointSizePT,
+            weight: .semibold,
+            tint: disclosureTintColor
         )
-        button.image = NSImage(systemSymbolName: Symbol.collapsed, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
-        button.alternateImage = NSImage(systemSymbolName: Symbol.expanded, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
+        button.alternateImage = Icon.symbol(
+            IconSymbol.disclosureExpanded,
+            pointSizePT: pointSizePT,
+            weight: .semibold,
+            tint: disclosureTintColor
+        )
         button.imagePosition = .imageOnly
         button.isBordered = false
         button.contentTintColor = disclosureTintColor
@@ -76,12 +76,6 @@ final class TerminalCommandHistorySidebarRowView: TerminalSidebarRowView {}
 /// dimmed parent path, and a trailing rounded count badge.
 @MainActor
 final class TerminalCommandHistoryGroupCellView: NSTableCellView {
-    private enum Symbol {
-        /// Filled, because the icon is what carries the level: the group name
-        /// itself is now the same rank as the rows under it.
-        static let folder = "folder.fill"
-    }
-
     private let titleLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
     private let badgeView: TerminalSidebarCountBadgeView
@@ -100,12 +94,12 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         super.init(frame: .zero)
 
         let iconView = NSImageView()
-        iconView.image = NSImage(systemSymbolName: Symbol.folder, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
-                weight: .regular
-            ))
-        iconView.contentTintColor = chromeTheme.textTertiary
+        iconView.image = Icon.symbol(
+            IconSymbol.folder,
+            pointSizePT: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
+            weight: .regular,
+            tint: chromeTheme.textTertiary
+        )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -186,6 +180,7 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
         let didSucceed = (entry.exitCode ?? 0) == 0
         let dot = NSView()
         dot.wantsLayer = true
+        dot.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         dot.layer?.cornerRadius = DesignTokens.Component.commandHistoryStatusDotSizePX / 2
         dot.layer?.backgroundColor = didSucceed
             ? chromeTheme.success.cgColor

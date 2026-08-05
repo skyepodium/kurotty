@@ -10,10 +10,6 @@ import AppKit
 /// Every other action is copy/reveal only.
 @MainActor
 final class TerminalAgentSessionPanelView: NSView {
-    private enum Symbol {
-        static let emptyState = "bubble.left.and.text.bubble.right"
-    }
-
     var onInsertResumeCommand: ((AgentSessionRecord) -> Void)?
     var onOpenDirectoryInExplorer: ((AgentSessionRecord) -> Void)?
     /// Set by the host window controller, which opens the read-only viewer in a
@@ -69,10 +65,10 @@ final class TerminalAgentSessionPanelView: NSView {
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         searchPillView.applyChromeTheme(theme)
         DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
-        emptyStateIconView.contentTintColor = theme.textMuted
+        applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
-        emptyStateIconView.alphaValue = 0.66
-        emptyStateLabel.alphaValue = 0.72
+        emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = DesignTokens.Component.sidebarEmptyStateLabelAlphaRATIO
         outlineView.reloadData()
         applyExpansionState()
     }
@@ -131,6 +127,7 @@ final class TerminalAgentSessionPanelView: NSView {
 
     private func configure() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
         configureSectionHeader()
@@ -142,6 +139,7 @@ final class TerminalAgentSessionPanelView: NSView {
 
     private func configureListContainer() {
         listContainerView.wantsLayer = true
+        listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         listContainerView.clipsToBounds = true
         listContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(listContainerView)
@@ -201,13 +199,19 @@ final class TerminalAgentSessionPanelView: NSView {
         listContainerView.addSubview(scrollView)
     }
 
+    /// Palette-tinted symbols bake their color into the image, so a theme
+    /// change has to rebuild the icon rather than reassign `contentTintColor`.
+    private func applyEmptyStateIcon(tint: NSColor) {
+        emptyStateIconView.image = Icon.symbol(
+            IconSymbol.agentSessionEmptyState,
+            pointSizePT: DesignTokens.Component.agentSessionEmptyStateIconPointSizePT,
+            weight: .regular,
+            tint: tint
+        )
+    }
+
     private func configureEmptyState() {
-        emptyStateIconView.image = NSImage(systemSymbolName: Symbol.emptyState, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.agentSessionEmptyStateIconPointSizePT,
-                weight: .regular
-            ))
-        emptyStateIconView.contentTintColor = chromeTheme.textMuted
+        applyEmptyStateIcon(tint: chromeTheme.textMuted)
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(emptyStateIconView)
 

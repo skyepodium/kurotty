@@ -72,8 +72,8 @@ final class DesignTokenScaleTests: XCTestCase {
             "sectionStripBottomGap": DesignTokens.Component.leftSidebarSectionStripBottomGapPX,
             "explorerControlGap": DesignTokens.Component.fileExplorerControlGapPX,
             "paneChromeDotInset": DesignTokens.Component.terminalPaneChromeDotInsetXPX,
-            "statusBarHorizontalInset": TerminalStatusBarTokens.horizontalInsetPX,
-            "statusBarSegmentPadding": TerminalStatusBarTokens.segmentPaddingXPX,
+            "statusBarHorizontalInset": DesignTokens.Component.StatusBar.horizontalInsetPX,
+            "statusBarSegmentPadding": DesignTokens.Component.StatusBar.segmentPaddingXPX,
         ]
         for (name, value) in metrics {
             XCTAssertTrue(steps.contains(value), "\(name) = \(value) is off the spacing scale")
@@ -95,8 +95,13 @@ final class DesignTokenScaleTests: XCTestCase {
             DesignTokens.Component.sidebarRowHighlightCornerRadiusPX,
             DesignTokens.Radius.smPX
         )
-        XCTAssertEqual(TerminalStatusBarTokens.segmentCornerRadiusPX, DesignTokens.Radius.xsPX)
-        XCTAssertEqual(DesignTokens.Component.radiusSmallPX, DesignTokens.Radius.smPX)
+        XCTAssertEqual(DesignTokens.Component.StatusBar.segmentCornerRadiusPX, DesignTokens.Radius.xsPX)
+        // Re-pointed 2026-08: `Component.radiusSmallPX` was a temporary alias
+        // onto `Radius.smPX` kept only while `ChromeIconButton` and the search
+        // bar were owned by another change. Both now read `Radius` directly, so
+        // the assertion follows them there rather than being deleted.
+        XCTAssertEqual(DesignTokens.Component.sidebarSearchPillFocusRingWidthPX, 2)
+        XCTAssertEqual(DesignTokens.Radius.lgPX, 12)
     }
 
     // MARK: - Type ramp

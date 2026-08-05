@@ -9,7 +9,13 @@ final class TerminalPaneView: NSView {
     private let statusDotView = NSView()
     private let agentActivityIndicatorView = AgentActivityIndicatorView(frame: .zero)
     private let titleField = NSTextField(labelWithString: "~ (-zsh)")
-    private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
+    private let closeButton = ChromeIconButton(
+        symbolName: IconSymbol.close,
+        accessibilityLabel: AppLocalization.string(.closePane),
+        size: .small,
+        target: nil,
+        action: nil
+    )
     private let terminalSurfaceView: TerminalSurfaceView
     /// Retained so pane-level chrome (the window status bar) can ask the
     /// session for optional capabilities such as its shell pid. The surface
@@ -85,6 +91,7 @@ final class TerminalPaneView: NSView {
         )
         super.init(frame: frameRect)
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         configureLayout()
         observeTerminalTitle()
@@ -126,16 +133,19 @@ final class TerminalPaneView: NSView {
 
         activeIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         activeIndicatorView.wantsLayer = true
+        activeIndicatorView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         activeIndicatorView.layer?.backgroundColor = chromeTheme.activeIndicator.cgColor
         chromeView.addSubview(activeIndicatorView)
 
         chromeBottomEdgeView.translatesAutoresizingMaskIntoConstraints = false
         chromeBottomEdgeView.wantsLayer = true
+        chromeBottomEdgeView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         chromeBottomEdgeView.layer?.backgroundColor = chromeTheme.hairline.cgColor
         chromeView.addSubview(chromeBottomEdgeView)
 
         statusDotView.translatesAutoresizingMaskIntoConstraints = false
         statusDotView.wantsLayer = true
+        statusDotView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         statusDotView.layer?.cornerRadius = DesignTokens.Component.terminalPaneChromeDotSizePX / 2
         chromeView.addSubview(statusDotView)
 
@@ -149,13 +159,7 @@ final class TerminalPaneView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closeButtonPressed(_:))
-        closeButton.font = NSFont.systemFont(
-            ofSize: DesignTokens.Component.terminalPaneChromeCloseGlyphPointSizePT,
-            weight: .medium
-        )
-        closeButton.normalTintColor = chromeTheme.textTertiary
-        closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.inactiveTabHoverBackground
+        closeButton.applyChromeTheme(chromeTheme)
         chromeView.addSubview(closeButton)
 
         terminalSurfaceView.translatesAutoresizingMaskIntoConstraints = false
@@ -356,11 +360,12 @@ final class TerminalPaneView: NSView {
             to: titleField,
             color: isChromeActive || isChromeHovered ? chromeTheme.textSecondary : chromeTheme.textTertiary
         )
+        closeButton.applyChromeTheme(chromeTheme)
+        // The rest tint tracks the header's own active/hover state, so a quiet
+        // pane's close glyph stays quiet; everything else comes from the theme.
         closeButton.normalTintColor = isChromeActive || isChromeHovered
             ? chromeTheme.textSecondary
             : chromeTheme.textTertiary
-        closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.hoverFill
     }
 
     /// Hover wash for the header, painted by `PaneChromeView` behind its

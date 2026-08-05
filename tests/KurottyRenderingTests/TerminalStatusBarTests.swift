@@ -686,9 +686,9 @@ final class TerminalStatusBarTests: XCTestCase {
         let heightConstraint = statusBarView.attach(to: containerView)
         containerView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(heightConstraint.constant, TerminalStatusBarTokens.heightPX)
+        XCTAssertEqual(heightConstraint.constant, DesignTokens.Component.StatusBar.heightPX)
         XCTAssertFalse(statusBarView.isHidden)
-        XCTAssertEqual(statusBarView.frame.height, TerminalStatusBarTokens.heightPX)
+        XCTAssertEqual(statusBarView.frame.height, DesignTokens.Component.StatusBar.heightPX)
         XCTAssertEqual(statusBarView.frame.width, containerView.frame.width)
         XCTAssertEqual(statusBarView.frame.minY, 0)
     }
@@ -708,12 +708,12 @@ final class TerminalStatusBarTests: XCTestCase {
         let trailing = try XCTUnwrap(segments.max { $0.frame.maxX < $1.frame.maxX })
         XCTAssertEqual(
             leading.frame.minX,
-            TerminalStatusBarTokens.horizontalInsetPX - TerminalStatusBarTokens.segmentPaddingXPX
+            DesignTokens.Component.StatusBar.horizontalInsetPX - DesignTokens.Component.StatusBar.segmentPaddingXPX
         )
         XCTAssertEqual(
             trailing.frame.maxX,
             statusBarView.frame.width
-                - (TerminalStatusBarTokens.horizontalInsetPX - TerminalStatusBarTokens.segmentPaddingXPX)
+                - (DesignTokens.Component.StatusBar.horizontalInsetPX - DesignTokens.Component.StatusBar.segmentPaddingXPX)
         )
     }
 
@@ -769,7 +769,7 @@ final class TerminalStatusBarTests: XCTestCase {
         statusBarView.setEnabled(true)
         containerView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(heightConstraint.constant, TerminalStatusBarTokens.heightPX)
+        XCTAssertEqual(heightConstraint.constant, DesignTokens.Component.StatusBar.heightPX)
         XCTAssertFalse(statusBarView.isHidden)
         statusBarView.stopSampling()
     }

@@ -29,11 +29,6 @@ final class TerminalSidebarSearchPillView: NSView {
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isFieldFocused = false
 
-    private enum Symbol {
-        static let search = "magnifyingglass"
-        static let clear = "xmark.circle.fill"
-    }
-
     init(placeholder: @escaping () -> String) {
         placeholderProvider = placeholder
         super.init(frame: .zero)
@@ -80,6 +75,8 @@ final class TerminalSidebarSearchPillView: NSView {
 
     private func configure() {
         wantsLayer = true
+        // Focus flips the border to the accent; it must not fade in.
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.masksToBounds = false
         layer?.cornerRadius = DesignTokens.Radius.smPX
         layer?.borderWidth = DesignTokens.Component.sidebarSearchPillBorderWidthPX
@@ -90,11 +87,6 @@ final class TerminalSidebarSearchPillView: NSView {
         focusRingLayer.actions = ["path": NSNull(), "strokeColor": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(focusRingLayer)
 
-        iconView.image = NSImage(systemSymbolName: Symbol.search, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.sidebarSearchIconPointSizePT,
-                weight: .medium
-            ))
         iconView.imageScaling = .scaleNone
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
@@ -110,11 +102,6 @@ final class TerminalSidebarSearchPillView: NSView {
         textField.translatesAutoresizingMaskIntoConstraints = false
         addSubview(textField)
 
-        clearButton.image = NSImage(systemSymbolName: Symbol.clear, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.sidebarSearchClearGlyphPointSizePT,
-                weight: .regular
-            ))
         clearButton.isBordered = false
         clearButton.bezelStyle = .inline
         clearButton.imagePosition = .imageOnly
@@ -179,8 +166,20 @@ final class TerminalSidebarSearchPillView: NSView {
         layer?.borderColor = (isFieldFocused ? chromeTheme.accent : chromeTheme.hairline).cgColor
         focusRingLayer.strokeColor = chromeTheme.focusRing.cgColor
         focusRingLayer.isHidden = !isFieldFocused
-        iconView.contentTintColor = isFieldFocused ? chromeTheme.accent : chromeTheme.textTertiary
-        clearButton.contentTintColor = chromeTheme.textTertiary
+        // Palette-tinted symbols carry their color in the image, so focus and
+        // theme changes rebuild the glyphs instead of retinting a template.
+        iconView.image = Icon.symbol(
+            IconSymbol.search,
+            pointSizePT: DesignTokens.Component.sidebarSearchIconPointSizePT,
+            weight: .medium,
+            tint: isFieldFocused ? chromeTheme.accent : chromeTheme.textTertiary
+        )
+        clearButton.image = Icon.symbol(
+            IconSymbol.clearSearch,
+            pointSizePT: DesignTokens.Component.sidebarSearchClearGlyphPointSizePT,
+            weight: .regular,
+            tint: chromeTheme.textTertiary
+        )
         textField.textColor = chromeTheme.textPrimary
         textField.placeholderAttributedString = NSAttributedString(
             string: placeholderProvider(),

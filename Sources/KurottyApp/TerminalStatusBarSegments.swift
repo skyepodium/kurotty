@@ -31,7 +31,10 @@ class TerminalStatusBarSegmentView: NSView {
 
     private func configure() {
         wantsLayer = true
-        layer?.cornerRadius = TerminalStatusBarTokens.segmentCornerRadiusPX
+        // The segment's hover/press wash must land with the pointer; only the
+        // value text inside it is allowed to crossfade.
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        layer?.cornerRadius = DesignTokens.Component.StatusBar.segmentCornerRadiusPX
         layer?.backgroundColor = NSColor.clear.cgColor
         contentStackView.orientation = .horizontal
         contentStackView.alignment = .centerY
@@ -41,14 +44,14 @@ class TerminalStatusBarSegmentView: NSView {
         NSLayoutConstraint.activate([
             contentStackView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: TerminalStatusBarTokens.segmentPaddingXPX
+                constant: DesignTokens.Component.StatusBar.segmentPaddingXPX
             ),
             contentStackView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -TerminalStatusBarTokens.segmentPaddingXPX
+                constant: -DesignTokens.Component.StatusBar.segmentPaddingXPX
             ),
             contentStackView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.heightPX),
+            heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.heightPX),
         ])
     }
 
@@ -110,9 +113,9 @@ class TerminalStatusBarSegmentView: NSView {
     private func updateBackground() {
         let alpha: CGFloat
         if isPressed {
-            alpha = TerminalStatusBarTokens.pressFillAlphaRATIO
+            alpha = DesignTokens.Component.StatusBar.pressFillAlphaRATIO
         } else if isHovered {
-            alpha = TerminalStatusBarTokens.hoverFillAlphaRATIO
+            alpha = DesignTokens.Component.StatusBar.hoverFillAlphaRATIO
         } else {
             alpha = 0
         }
@@ -142,14 +145,14 @@ final class TerminalStatusBarDotView: NSView {
 
     override var intrinsicContentSize: NSSize {
         NSSize(
-            width: TerminalStatusBarTokens.dotSizePX,
-            height: TerminalStatusBarTokens.dotSizePX
+            width: DesignTokens.Component.StatusBar.dotSizePX,
+            height: DesignTokens.Component.StatusBar.dotSizePX
         )
     }
 
     override func layout() {
         super.layout()
-        let inset = TerminalStatusBarTokens.hollowRingLineWidthPX / 2
+        let inset = DesignTokens.Component.StatusBar.hollowRingLineWidthPX / 2
         let rect = bounds.insetBy(dx: inset, dy: inset)
         shapeLayer.frame = bounds
         shapeLayer.path = CGPath(ellipseIn: rect, transform: nil)
@@ -168,9 +171,9 @@ final class TerminalStatusBarDotView: NSView {
         case .hollowRing:
             isHidden = false
             shapeLayer.fillColor = NSColor.clear.cgColor
-            shapeLayer.lineWidth = TerminalStatusBarTokens.hollowRingLineWidthPX
+            shapeLayer.lineWidth = DesignTokens.Component.StatusBar.hollowRingLineWidthPX
             shapeLayer.strokeColor = chromeTheme.textMuted
-                .withAlphaComponent(TerminalStatusBarTokens.hollowRingAlphaRATIO)
+                .withAlphaComponent(DesignTokens.Component.StatusBar.hollowRingAlphaRATIO)
                 .cgColor
         case let .filled(role):
             isHidden = false
@@ -239,18 +242,10 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         spinnerView.translatesAutoresizingMaskIntoConstraints = false
         badgeContainer.translatesAutoresizingMaskIntoConstraints = false
         badgeContainer.wantsLayer = true
-        badgeContainer.layer?.cornerRadius = TerminalStatusBarTokens.badgeCornerRadiusPX
+        badgeContainer.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        badgeContainer.layer?.cornerRadius = DesignTokens.Component.StatusBar.badgeCornerRadiusPX
 
         glyphView.imageScaling = .scaleProportionallyDown
-        glyphView.image = NSImage(
-            systemSymbolName: TerminalStatusBarSymbols.agent,
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(
-                pointSize: TerminalStatusBarTokens.iconPointSizePT,
-                weight: .medium
-            )
-        )
 
         labelField.font = DesignTokens.Typography.statusBar.font
         labelField.lineBreakMode = .byTruncatingTail
@@ -266,7 +261,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         detailField.cell?.truncatesLastVisibleLine = true
 
         badgeField.font = NSFont.monospacedDigitSystemFont(
-            ofSize: TerminalStatusBarTokens.badgeFontSizePT,
+            ofSize: DesignTokens.Component.StatusBar.badgeFontSizePT,
             weight: DesignTokens.Typography.badge.weight
         )
         badgeField.isSelectable = false
@@ -279,33 +274,33 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         contentStackView.addArrangedSubview(labelField)
         contentStackView.addArrangedSubview(badgeContainer)
         contentStackView.addArrangedSubview(detailField)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.dotGlyphGapPX, after: dotView)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.glyphLabelGapPX, after: glyphView)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.glyphLabelGapPX, after: spinnerView)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.labelDetailGapPX, after: labelField)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.labelDetailGapPX, after: badgeContainer)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.dotGlyphGapPX, after: dotView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.glyphLabelGapPX, after: glyphView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.glyphLabelGapPX, after: spinnerView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.labelDetailGapPX, after: labelField)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.labelDetailGapPX, after: badgeContainer)
 
         NSLayoutConstraint.activate([
-            dotView.widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.dotSizePX),
-            dotView.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.dotSizePX),
-            glyphView.widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
-            glyphView.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
-            spinnerView.widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.spinnerSizePX),
-            spinnerView.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.spinnerSizePX),
+            dotView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.dotSizePX),
+            dotView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.dotSizePX),
+            glyphView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            glyphView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            spinnerView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.spinnerSizePX),
+            spinnerView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.spinnerSizePX),
             labelField.widthAnchor.constraint(
-                lessThanOrEqualToConstant: TerminalStatusBarTokens.agentLabelMaxWidthPX
+                lessThanOrEqualToConstant: DesignTokens.Component.StatusBar.agentLabelMaxWidthPX
             ),
             detailField.widthAnchor.constraint(
-                lessThanOrEqualToConstant: TerminalStatusBarTokens.agentDetailMaxWidthPX
+                lessThanOrEqualToConstant: DesignTokens.Component.StatusBar.agentDetailMaxWidthPX
             ),
-            badgeContainer.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.badgeHeightPX),
+            badgeContainer.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.badgeHeightPX),
             badgeField.leadingAnchor.constraint(
                 equalTo: badgeContainer.leadingAnchor,
-                constant: TerminalStatusBarTokens.badgeTextInsetXPX
+                constant: DesignTokens.Component.StatusBar.badgeTextInsetXPX
             ),
             badgeField.trailingAnchor.constraint(
                 equalTo: badgeContainer.trailingAnchor,
-                constant: -TerminalStatusBarTokens.badgeTextInsetXPX
+                constant: -DesignTokens.Component.StatusBar.badgeTextInsetXPX
             ),
             badgeField.centerYAnchor.constraint(equalTo: badgeContainer.centerYAnchor),
         ])
@@ -334,7 +329,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         labelField.attributedStringValue = Self.callToActionText(
             summary.label,
             color: isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary,
-            font: labelField.font ?? NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT),
+            font: labelField.font ?? NSFont.systemFont(ofSize: DesignTokens.Component.StatusBar.fontSizePT),
             isUnderlined: isHovered
         )
     }
@@ -345,7 +340,14 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         let showsSpinner = summary.showsSpinner
         spinnerView.isHidden = !showsSpinner
         glyphView.isHidden = showsSpinner || !summary.showsAgentGlyph
-        glyphView.contentTintColor = chromeTheme.textMuted
+        // Palette-tinted: the glyph is rebuilt on theme change rather than
+        // retinted, because the color lives in the image.
+        glyphView.image = Icon.symbol(
+            IconSymbol.agent,
+            pointSizePT: DesignTokens.Component.StatusBar.iconPointSizePT,
+            weight: .medium,
+            tint: chromeTheme.textMuted
+        )
         if showsSpinner {
             spinnerView.update(status: AgentActivityStatus(state: .working))
         } else {
@@ -375,7 +377,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         badgeField.stringValue = showsBadge ? "\(summary.agentCount)" : ""
         badgeField.textColor = chromeTheme.textMuted
         badgeContainer.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(TerminalStatusBarTokens.hoverFillAlphaRATIO)
+            .withAlphaComponent(DesignTokens.Component.StatusBar.hoverFillAlphaRATIO)
             .cgColor
 
         // Anything truncation removed still has to be reachable.
@@ -423,21 +425,9 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
     }
 
     private func configureContent() {
-        for (iconView, symbolName) in [
-            (memoryIconView, TerminalStatusBarSymbols.memory),
-            (cpuIconView, TerminalStatusBarSymbols.cpu),
-        ] {
+        for iconView in [memoryIconView, cpuIconView] {
             iconView.translatesAutoresizingMaskIntoConstraints = false
             iconView.imageScaling = .scaleProportionallyDown
-            iconView.image = NSImage(
-                systemSymbolName: symbolName,
-                accessibilityDescription: nil
-            )?.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(
-                    pointSize: TerminalStatusBarTokens.iconPointSizePT,
-                    weight: .medium
-                )
-            )
         }
 
         for valueField in [memoryValueField, cpuValueField] {
@@ -451,22 +441,22 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
         contentStackView.addArrangedSubview(memoryValueField)
         contentStackView.addArrangedSubview(cpuIconView)
         contentStackView.addArrangedSubview(cpuValueField)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.iconValueGapPX, after: memoryIconView)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.metricGapPX, after: memoryValueField)
-        contentStackView.setCustomSpacing(TerminalStatusBarTokens.iconValueGapPX, after: cpuIconView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.iconValueGapPX, after: memoryIconView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.metricGapPX, after: memoryValueField)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.iconValueGapPX, after: cpuIconView)
 
         NSLayoutConstraint.activate([
-            memoryIconView.widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
-            memoryIconView.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
-            cpuIconView.widthAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
-            cpuIconView.heightAnchor.constraint(equalToConstant: TerminalStatusBarTokens.iconPointSizePT),
+            memoryIconView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            memoryIconView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            cpuIconView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            cpuIconView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
             // Reserved widths: the digits change every two seconds and must not
             // move anything around them.
             memoryValueField.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: TerminalStatusBarTokens.memoryValueMinWidthPX
+                greaterThanOrEqualToConstant: DesignTokens.Component.StatusBar.memoryValueMinWidthPX
             ),
             cpuValueField.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: TerminalStatusBarTokens.cpuValueMinWidthPX
+                greaterThanOrEqualToConstant: DesignTokens.Component.StatusBar.cpuValueMinWidthPX
             ),
         ])
     }
@@ -501,8 +491,17 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
     }
 
     private func applyContent(animatesValues: Bool) {
-        memoryIconView.contentTintColor = chromeTheme.textMuted
-        cpuIconView.contentTintColor = chromeTheme.textMuted
+        for (iconView, symbolName) in [
+            (memoryIconView, IconSymbol.memory),
+            (cpuIconView, IconSymbol.cpu),
+        ] {
+            iconView.image = Icon.symbol(
+                symbolName,
+                pointSizePT: DesignTokens.Component.StatusBar.iconPointSizePT,
+                weight: .medium,
+                tint: chromeTheme.textMuted
+            )
+        }
 
         let memoryText = TerminalResourceUsageFormatter.memoryText(bytes: usage.residentBytes)
         let cpuText = TerminalResourceUsageFormatter.cpuText(percent: usage.cpuPercent)
@@ -533,7 +532,7 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
         if animated, let layer = field.layer {
             let transition = CATransition()
             transition.type = .fade
-            transition.duration = TerminalStatusBarTokens.valueCrossfadeSeconds
+            transition.duration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.statusValueCrossfadeDurationMS)
             layer.add(transition, forKey: nil)
         }
         field.stringValue = text

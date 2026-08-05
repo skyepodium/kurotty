@@ -51,6 +51,7 @@ final class SplitTerminalView: NSSplitView {
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         if let pane {
             configurePane(pane)

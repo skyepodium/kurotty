@@ -9,8 +9,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
     private let tabBarView = NSView()
     private let topBarSeparatorView = NSView()
-    private let historyToggleButton = ChromeIconButton(frame: .zero)
-    private let explorerToggleButton = ChromeIconButton(frame: .zero)
+    private let historyToggleButton = ChromeIconButton(
+        symbolName: IconSymbol.sidebarLeading,
+        accessibilityLabel: AppLocalization.string(.commandHistory),
+        target: nil,
+        action: nil
+    )
+    private let explorerToggleButton = ChromeIconButton(
+        symbolName: IconSymbol.sidebarTrailing,
+        accessibilityLabel: AppLocalization.string(.fileExplorer),
+        target: nil,
+        action: nil
+    )
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
     // Left sidebar split chrome; layout and handlers live in
@@ -282,6 +292,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     private func configureTabs(initialPane: TerminalPaneView?) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
         rootView.wantsLayer = true
+        rootView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         window?.contentView = rootView
         dropTargetView.onPaneDrop = { [weak self] in
@@ -299,12 +310,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
 
         tabBarView.translatesAutoresizingMaskIntoConstraints = false
         tabBarView.wantsLayer = true
+        tabBarView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         tabBarView.layer?.borderWidth = 0
         tabBarView.layer?.cornerRadius = DesignTokens.Component.terminalTopBarCornerRadiusPX
         tabBarView.layer?.masksToBounds = true
 
         topBarSeparatorView.wantsLayer = true
+        topBarSeparatorView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
         topBarSeparatorView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -503,6 +516,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         statusBarView.applyChromeTheme(chromeTheme)
         applyChromeThemeToTabSplits(chromeTheme)
+        // Both toggles take their full ramp from the theme, so a light theme
+        // has to reach them here too — not only their on/off tint.
+        updateSidebarToggleButtonStates()
         updateTabBar()
     }
 
@@ -659,11 +675,20 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             tabStackView.addArrangedSubview(tabItemView)
         }
 
-        let addButton = ChromeIconButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
-        addButton.font = DesignTokens.Typography.tabLabelSel.font
+        let addButton = ChromeIconButton(
+            symbolName: IconSymbol.add,
+            accessibilityLabel: AppLocalization.string(.newTab),
+            size: .small,
+            target: self,
+            action: #selector(newTabButtonPressed(_:))
+        )
+        addButton.applyChromeTheme(chromeTheme)
+        // Deliberate deviation from the theme's achromatic hover: the tab bar
+        // tints its own hover with the accent so add/close read as tab actions.
         addButton.normalTintColor = chromeTheme.textSecondary
-        addButton.hoverTintColor = chromeTheme.textPrimary
-        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+            DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
+        )
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
@@ -676,28 +701,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func configureSidebarToggleButtons() {
-        let configuration = NSImage.SymbolConfiguration(
-            pointSize: DesignTokens.Component.sidebarToggleSymbolPointSizePT,
-            weight: .regular
-        )
-        historyToggleButton.image = NSImage(
-            systemSymbolName: "sidebar.leading",
-            accessibilityDescription: AppLocalization.string(.commandHistory)
-        )?.withSymbolConfiguration(configuration)
         historyToggleButton.toolTip = AppLocalization.string(.commandHistory)
         historyToggleButton.target = self
         historyToggleButton.action = #selector(historyToggleButtonPressed(_:))
 
-        explorerToggleButton.image = NSImage(
-            systemSymbolName: "sidebar.trailing",
-            accessibilityDescription: AppLocalization.string(.fileExplorer)
-        )?.withSymbolConfiguration(configuration)
         explorerToggleButton.toolTip = AppLocalization.string(.fileExplorer)
         explorerToggleButton.target = self
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
         for button in [historyToggleButton, explorerToggleButton] {
-            button.imagePosition = .imageOnly
             button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
             button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
         }
@@ -707,22 +719,27 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// An open panel keeps its toggle tinted like a selected control so the bar
     /// reads as on/off state, not just as two buttons.
     func updateSidebarToggleButtonStates() {
-        historyToggleButton.normalTintColor = isCommandHistoryPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.82)
-            : chromeTheme.textSecondary
-        historyToggleButton.normalBackgroundColor = isCommandHistoryPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.10)
-            : .clear
-        historyToggleButton.hoverTintColor = chromeTheme.textPrimary
-        historyToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
-        explorerToggleButton.normalTintColor = isFileExplorerPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.82)
-            : chromeTheme.textSecondary
-        explorerToggleButton.normalBackgroundColor = isFileExplorerPanelVisible
-            ? chromeTheme.activeIndicator.withAlphaComponent(0.10)
-            : .clear
-        explorerToggleButton.hoverTintColor = chromeTheme.textPrimary
-        explorerToggleButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
+        for (button, isOpen) in [
+            (historyToggleButton, isCommandHistoryPanelVisible),
+            (explorerToggleButton, isFileExplorerPanelVisible),
+        ] {
+            // Everything but the "panel is open" state comes from the theme, so
+            // press and focus follow the light ramp under a light theme.
+            button.applyChromeTheme(chromeTheme)
+            button.normalTintColor = isOpen
+                ? chromeTheme.activeIndicator.withAlphaComponent(
+                    DesignTokens.Component.sidebarToggleActiveTintAlphaRATIO
+                )
+                : chromeTheme.textSecondary
+            button.normalBackgroundColor = isOpen
+                ? chromeTheme.activeIndicator.withAlphaComponent(
+                    DesignTokens.Component.sidebarToggleActiveFillAlphaRATIO
+                )
+                : .clear
+            button.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+                DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
+            )
+        }
     }
 
     @objc private func historyToggleButtonPressed(_ sender: NSButton) {
@@ -902,7 +919,13 @@ final class TerminalPaneDropTargetView: NSView {
 @MainActor
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
-    private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
+    private let closeButton = ChromeIconButton(
+        symbolName: IconSymbol.close,
+        accessibilityLabel: AppLocalization.string(.closePaneOrTab),
+        size: .small,
+        target: nil,
+        action: nil
+    )
     /// Achromatic hover wash painted over whatever the tab's base fill is, so
     /// hover reads the same on the selected and unselected tab and can never be
     /// mistaken for the accent.
@@ -973,18 +996,23 @@ private final class TerminalTabItemView: NSView {
     private func configure(title: String) {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
+        // A tab's fill, hover wash, and selection rail all change on the same
+        // click that moves it; none of them may fade.
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.cornerRadius = DesignTokens.Radius.mdPX
         // Clipping is what lets the top rail stop at the rounded corners instead
         // of overhanging them.
         layer?.masksToBounds = true
 
         hoverOverlayView.wantsLayer = true
+        hoverOverlayView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         hoverOverlayView.isHidden = true
         hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor
         hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hoverOverlayView)
 
         selectionRailView.wantsLayer = true
+        selectionRailView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         selectionRailView.isHidden = !selected
         selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor
         selectionRailView.translatesAutoresizingMaskIntoConstraints = false
@@ -998,12 +1026,11 @@ private final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
-        closeButton.font = NSFont.systemFont(
-            ofSize: DesignTokens.Component.terminalTabCloseGlyphPointSizePT,
-            weight: .medium
+        closeButton.applyChromeTheme(chromeTheme)
+        // Same deliberate accent hover as the add button.
+        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+            DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
         )
-        closeButton.hoverTintColor = chromeTheme.textPrimary
-        closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addSubview(closeButton)
 
         NSLayoutConstraint.activate([

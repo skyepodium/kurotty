@@ -42,7 +42,7 @@ enum TerminalProcessTreeReader {
 
         var frontier: [(processIdentifier: pid_t, depth: Int)] = [(rootProcessIdentifier, 0)]
         while let entry = frontier.popLast() {
-            guard visitedCount < TerminalStatusBarTokens.processTreeMaximumProcessCOUNT else {
+            guard visitedCount < AppConstants.StatusBar.processTreeMaximumProcessCOUNT else {
                 break
             }
             visitedCount += 1
@@ -53,7 +53,7 @@ enum TerminalProcessTreeReader {
                     .partialValue
                 cpuTimeSeconds += counters.cpuTimeSeconds
             }
-            guard entry.depth < TerminalStatusBarTokens.processTreeMaximumDepthCOUNT else {
+            guard entry.depth < AppConstants.StatusBar.processTreeMaximumDepthCOUNT else {
                 continue
             }
             for child in childProcessIdentifiers(of: entry.processIdentifier) {
@@ -74,7 +74,7 @@ enum TerminalProcessTreeReader {
     nonisolated static func childProcessIdentifiers(of processIdentifier: pid_t) -> [pid_t] {
         var buffer = [pid_t](
             repeating: 0,
-            count: TerminalStatusBarTokens.processTreeMaximumProcessCOUNT
+            count: AppConstants.StatusBar.processTreeMaximumProcessCOUNT
         )
         let byteCapacity = Int32(buffer.count * MemoryLayout<pid_t>.size)
         let writtenCount = proc_listchildpids(processIdentifier, &buffer, byteCapacity)
@@ -148,7 +148,7 @@ final class TerminalResourceUsageSampler {
     private var isSampleInFlight = false
 
     init(
-        intervalSeconds: TimeInterval = TerminalStatusBarTokens.samplingIntervalSeconds,
+        intervalSeconds: TimeInterval = AppConstants.StatusBar.samplingIntervalSeconds,
         processorCount: Int = ProcessInfo.processInfo.activeProcessorCount
     ) {
         self.intervalSeconds = intervalSeconds

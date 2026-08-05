@@ -45,13 +45,40 @@ final class TerminalLeftSidebarPanelView: NSView {
     /// agent-session section is the only thing that ever asks the index to
     /// scan; the setting still decides whether a scan actually happens.
     func showSection(_ section: TerminalLeftSidebarSection) {
+        let previousSection = selectedSection
         selectedSection = section
         sectionStrip.selectedSection = section
-        applySectionVisibility()
+        // Off-screen (tests, a panel built but never installed) there is nothing
+        // to animate, and a queued completion handler would leave both lists
+        // visible. On screen the underline travels and the lists crossfade.
+        guard window != nil, previousSection != section else {
+            applySectionVisibility()
+            refreshIndexIfNeeded(for: section)
+            return
+        }
+        SidebarMotion.animateSectionChange(
+            underline: sectionStrip.underlineView,
+            toFrame: sectionStrip.underlineFrame(for: section),
+            outgoing: panelView(for: previousSection),
+            incoming: panelView(for: section)
+        )
+        refreshIndexIfNeeded(for: section)
+    }
+
+    private func refreshIndexIfNeeded(for section: TerminalLeftSidebarSection) {
         guard section == .agentSessions else {
             return
         }
         agentSessionPanel.refreshIndex()
+    }
+
+    private func panelView(for section: TerminalLeftSidebarSection) -> NSView {
+        switch section {
+        case .commandHistory:
+            return historyPanel
+        case .agentSessions:
+            return agentSessionPanel
+        }
     }
 
     var sectionControlFrameForTesting: NSRect {
@@ -69,6 +96,7 @@ final class TerminalLeftSidebarPanelView: NSView {
 
     private func configure() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
         sectionStrip.selectedSection = selectedSection
@@ -133,6 +161,11 @@ final class TerminalLeftSidebarSectionStripView: NSView {
         didSet { applySelection() }
     }
 
+    /// Selection underline. A real view rather than a per-item `draw` so it can
+    /// travel across the strip when the section changes; `SidebarMotion` owns
+    /// that animation.
+    let underlineView = NSView()
+
     private var itemViews: [TerminalLeftSidebarSectionItemView] = []
     private var chromeTheme = DesignTokens.ChromeTheme.dark
 
@@ -147,9 +180,33 @@ final class TerminalLeftSidebarSectionStripView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        underlineView.layer?.backgroundColor = theme.accent.cgColor
         for itemView in itemViews {
             itemView.applyChromeTheme(theme)
         }
+    }
+
+    /// Where the underline sits for a section, in strip coordinates. Inset from
+    /// the item's own width so two adjacent selections could never read as one
+    /// continuous rule.
+    func underlineFrame(for section: TerminalLeftSidebarSection) -> NSRect {
+        guard let itemView = itemViews.first(where: { $0.section == section }) else {
+            return .zero
+        }
+        let inset = DesignTokens.Component.leftSidebarSectionUnderlineInsetXPX
+        return NSRect(
+            x: itemView.frame.minX + inset,
+            y: bounds.minY,
+            width: max(itemView.frame.width - 2 * inset, 0),
+            height: DesignTokens.Component.leftSidebarSectionUnderlineHeightPX
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        // A resize repositions the underline outright; only a section change
+        // animates it.
+        underlineView.frame = underlineFrame(for: selectedSection)
     }
 
     private func configure() {
@@ -176,6 +233,13 @@ final class TerminalLeftSidebarSectionStripView: NSView {
             stackView.addArrangedSubview(itemView)
         }
 
+        // Deliberately not `disableImplicitAnimations`: this is the one chrome
+        // layer that is supposed to move.
+        underlineView.wantsLayer = true
+        underlineView.layer?.cornerRadius = DesignTokens.Radius.xsPX
+        underlineView.layer?.backgroundColor = chromeTheme.accent.cgColor
+        addSubview(underlineView)
+
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -201,6 +265,7 @@ final class TerminalLeftSidebarSectionStripView: NSView {
         for itemView in itemViews {
             itemView.isSelectedSection = itemView.section == selectedSection
         }
+        needsLayout = true
     }
 
     private static func title(for section: TerminalLeftSidebarSection) -> String {
@@ -335,14 +400,6 @@ final class TerminalLeftSidebarSectionItemView: NSView {
                 yRadius: DesignTokens.Radius.smPX
             ).fill()
         }
-        if isSelectedSection {
-            chromeTheme.accent.setFill()
-            NSBezierPath(
-                roundedRect: underlineRect,
-                xRadius: DesignTokens.Radius.xsPX,
-                yRadius: DesignTokens.Radius.xsPX
-            ).fill()
-        }
         guard window?.firstResponder === self else {
             return
         }
@@ -357,18 +414,6 @@ final class TerminalLeftSidebarSectionItemView: NSView {
         )
         ringPath.lineWidth = DesignTokens.Component.leftSidebarSectionFocusRingWidthPX
         ringPath.stroke()
-    }
-
-    /// Accent underline at the strip's bottom edge, item width minus 8.
-    private var underlineRect: NSRect {
-        let inset = DesignTokens.Component.leftSidebarSectionUnderlineInsetXPX
-        let height = DesignTokens.Component.leftSidebarSectionUnderlineHeightPX
-        return NSRect(
-            x: bounds.minX + inset,
-            y: bounds.minY,
-            width: max(bounds.width - 2 * inset, 0),
-            height: height
-        )
     }
 
     private func applyAppearance() {

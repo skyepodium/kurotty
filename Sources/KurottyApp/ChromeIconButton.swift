@@ -48,15 +48,11 @@ final class ChromeIconButton: NSButton {
         focusRingColor = theme.focusRing
     }
 
-    convenience init(title: String, target: AnyObject?, action: Selector?) {
-        self.init(frame: .zero)
-        self.title = title
-        self.target = target
-        self.action = action
-    }
-
-    /// Preferred initializer for icon buttons: an SF Symbol rather than a text
-    /// glyph, so the icon inherits system metrics and accessibility.
+    /// The only initializer that takes content: an SF Symbol rather than a text
+    /// glyph, so the icon inherits system metrics and accessibility. The old
+    /// `init(title:)` is gone deliberately — `"+"` and `"×"` typed as text do
+    /// not scale, do not match the rest of the icon ramp, and read to
+    /// VoiceOver as punctuation.
     convenience init(
         symbolName: String,
         accessibilityLabel: String,
@@ -171,7 +167,6 @@ final class ChromeIconButton: NSButton {
         isBordered = false
         setButtonType(.momentaryPushIn)
         focusRingType = .none
-        font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
         translatesAutoresizingMaskIntoConstraints = false
 
         focusRingLayer.borderWidth = DesignTokens.Component.sidebarRowFocusRingWidthPX

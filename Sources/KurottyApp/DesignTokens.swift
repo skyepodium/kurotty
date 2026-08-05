@@ -328,17 +328,113 @@ enum DesignTokens {
             design: .monospacedDigit
         )
         static let monoBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16, design: .monospaced)
+        /// Editor line-number gutter. Monospaced digits so a jump from line 9 to
+        /// line 10 cannot shift the column.
+        static let monoGutter = Role(
+            sizePT: 11,
+            weight: .regular,
+            lineHeightPX: 15,
+            design: .monospacedDigit
+        )
         static let paneHeader = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
+        /// Text inside a chrome control that is not a list row: the search
+        /// query field and the editor's empty-state placeholder. One rung above
+        /// `rowTitle` because an input surface is not dense data.
+        static let controlLabel = Role(sizePT: 13, weight: .regular, lineHeightPX: 18)
+
+        // MARK: Preferences rungs
+        //
+        // The chrome ramp stops at `windowTitle` (13pt) because chrome is
+        // dense. A settings window is a document surface and needs a larger
+        // title and body rung, so those four rungs live here rather than being
+        // borrowed from the dense end of the scale.
+        static let prefsTitle = Role(sizePT: 20, weight: .semibold, lineHeightPX: 26)
+        static let prefsSection = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
+        static let prefsBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
+        static let prefsCaption = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
 
         static let terminalFontSizePT: CGFloat = 15
-        /// Not part of the ramp: still referenced by chrome outside this scale
-        /// (`ChromeIconButton`, `TerminalSearchBarView`, `TerminalCodeEditorView`,
-        /// `TerminalPaneDragCoordinator`).
-        static let labelFontSizePT: CGFloat = 13
-        static let paneHeaderFontSizePT: CGFloat = 12
-        static let statusFontSizePT: CGFloat = 12
         static let codeEditorFontSizePT: CGFloat = 13
         static let codeEditorGutterFontSizePT: CGFloat = 11
+    }
+
+    /// Shadow ramp for chrome that floats above another surface.
+    ///
+    /// Every floating surface used to hand-roll its own shadow (the terminal
+    /// search bar carried `black @ 0.22 / r10 / y-2`), so two overlays at the
+    /// same conceptual height rendered at different heights. There is exactly
+    /// one elevation in the app today — a surface that floats over the terminal
+    /// — so there is exactly one level here.
+    enum Elevation {
+        /// A surface that floats over the terminal: the search bar today, and
+        /// any future popover/HUD that is not a real `NSPanel`.
+        ///
+        /// Dark chrome needs a deeper, softer shadow than light chrome: on a
+        /// dark canvas a shallow shadow is invisible, while on a light canvas
+        /// the same shadow reads as smudge.
+        struct Shadow {
+            let color: NSColor
+            let opacity: Float
+            let radiusPX: CGFloat
+            /// Downward distance in design terms. AppKit's unflipped layer
+            /// geometry wants a negative `shadowOffset.height` to push a shadow
+            /// *down*, so `apply(to:)` negates this; the token stays positive so
+            /// the value matches the spec as written.
+            let downwardOffsetPX: CGFloat
+
+            func apply(to layer: CALayer) {
+                layer.shadowColor = color.cgColor
+                layer.shadowOpacity = opacity
+                layer.shadowRadius = radiusPX
+                layer.shadowOffset = NSSize(width: 0, height: -downwardOffsetPX)
+            }
+        }
+
+        static let floatingDark = Shadow(
+            color: .black,
+            opacity: 0.28,
+            radiusPX: 16,
+            downwardOffsetPX: 4
+        )
+
+        static let floatingLight = Shadow(
+            color: .black,
+            opacity: 0.14,
+            radiusPX: 12,
+            downwardOffsetPX: 3
+        )
+
+        /// Picks the floating shadow that matches the active chrome ramp.
+        @MainActor
+        static func floating(for theme: DesignTokens.ChromeTheme) -> Shadow {
+            theme.windowAppearance?.name == .aqua ? floatingLight : floatingDark
+        }
+    }
+
+    /// Durations for the only chrome state changes that are allowed to move.
+    ///
+    /// Motion here is deliberately scarce. Row hover, press, and selection
+    /// fills, tab add/remove/reorder, text content updates, terminal rendering,
+    /// search bar appearance, focus rings, theme switches, badge counts, and
+    /// preferences pane switching must all be instant. `ChromeMotion` and
+    /// `SidebarMotion` are the behaviour helpers that read these tokens.
+    enum Motion {
+        /// Sidebar section switch. Long enough to read the underline
+        /// travelling, short enough that a fast click never queues.
+        static let sectionSwitchDurationMS = 160
+        /// Each half of the sidebar list crossfade.
+        static let sectionListFadeDurationMS = 80
+        /// Disclosure chevron rotation.
+        static let disclosureRotationDurationMS = 150
+        /// Full status-bar value crossfade (out + in).
+        static let statusValueCrossfadeDurationMS = 120
+
+        static let disclosureCollapsedRotationDegrees: CGFloat = 0
+        static let disclosureExpandedRotationDegrees: CGFloat = 90
+
+        static func seconds(fromMS milliseconds: Int) -> TimeInterval {
+            TimeInterval(milliseconds) / 1000
+        }
     }
 
     /// Layout rhythm. Every chrome gap, inset, and pad in the window shell picks
@@ -390,13 +486,23 @@ enum DesignTokens {
 
         static let commandPaletteWidthPX: CGFloat = 680
         static let commandPaletteHeightPX: CGFloat = 500
-        static let preferencesWidthPX: CGFloat = 820
-        static let preferencesHeightPX: CGFloat = 640
-        static let preferencesControlWidthPX: CGFloat = 240
-        static let preferencesStatusHeightPX: CGFloat = 18
+        /// Preferences window geometry. The window is 720x560 rather than the
+        /// old 820x640 (the content never filled 820, so the extra width read
+        /// as an empty gutter); every button is the macOS regular control
+        /// height of 28.
+        static let preferencesWidthPX: CGFloat = 720
+        static let preferencesHeightPX: CGFloat = 560
+        static let preferencesSidebarWidthPX: CGFloat = 184
+        static let preferencesControlWidthPX: CGFloat = 220
+        static let preferencesStatusHeightPX: CGFloat = 16
         static let preferencesButtonWidthPX: CGFloat = 84
-        static let preferencesButtonHeightPX: CGFloat = 30
+        static let preferencesButtonHeightPX: CGFloat = 28
         static let preferencesTextFieldWidthPX: CGFloat = 160
+        static let preferencesNumericFieldWidthPX: CGFloat = 96
+        /// Title-to-subtitle gap inside one settings heading. Below `Space.x1PX`
+        /// on purpose: these two lines are one label pair, not two rows, and a
+        /// full step would break them apart.
+        static let preferencesHeadingLineGapPX: CGFloat = 2
         static let settingsEditorFontSizePT: CGFloat = 12
         static let glyphAtlasSizePX = 4096
         static let glyphSlotWidthPX = 128
@@ -411,9 +517,22 @@ enum DesignTokens {
         static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
         static let terminalDiscreteScrollRowsPerTick = 2
         static let terminalSearchWidthPX: CGFloat = 340
-        static let terminalSearchHeightPX: CGFloat = 44
-        static let terminalSearchCornerRadiusPX: CGFloat = 10
+        /// 40, down from 44: a 28pt query field with `x2` of vertical air is a
+        /// floating bar, not a toolbar. The corner radius is `Radius.lgPX`
+        /// rather than a one-off 10.
+        static let terminalSearchHeightPX: CGFloat = 40
         static let terminalSearchInsetPX: CGFloat = 12
+        static let terminalSearchStackLeadingInsetPX = Space.x3PX
+        static let terminalSearchStackTrailingInsetPX = Space.x2PX
+        static let terminalSearchStackSpacingPX = Space.x1PX
+        static let terminalSearchStackVerticalInsetPX = Space.x2PX
+        static let terminalSearchQueryHeightPX: CGFloat = 28
+        static let terminalSearchMinimumQueryWidthPX: CGFloat = 120
+        static let terminalSearchMinimumResultCountWidthPX: CGFloat = 44
+        static let terminalSearchButtonSidePX: CGFloat = 24
+        /// The query field is slightly translucent so the bar reads as one
+        /// floating surface rather than a field pasted onto a card.
+        static let terminalSearchFieldFillAlphaRATIO: CGFloat = 0.9
         static let terminalTabBarHeightPX: CGFloat = 38
         static let terminalTopBarCornerRadiusPX: CGFloat = 0
         static let terminalTabBarHorizontalInsetPX: CGFloat = 0
@@ -423,14 +542,19 @@ enum DesignTokens {
         static let sidebarToggleSizePX: CGFloat = 26
         static let sidebarDividerGrabPaddingPX = Space.x1PX
         static let sidebarToggleEdgeInsetPX = Space.x3PX
-        static let sidebarToggleSymbolPointSizePT: CGFloat = 13
+        /// An open panel keeps its toggle tinted like a selected control, so
+        /// the bar reads as on/off state rather than as two plain buttons.
+        static let sidebarToggleActiveTintAlphaRATIO: CGFloat = 0.82
+        static let sidebarToggleActiveFillAlphaRATIO: CGFloat = 0.10
         static let terminalTabMinWidthPX: CGFloat = 120
         static let terminalTabMaxWidthPX: CGFloat = 240
         static let terminalTabPlusWidthPX: CGFloat = 26
         /// Close affordance: a 20x20 hit target carrying a 10pt glyph. 18x18 was
         /// below the comfortable pointer target for a control this small.
         static let terminalTabCloseWidthPX: CGFloat = 20
-        static let terminalTabCloseGlyphPointSizePT: CGFloat = 10
+        /// Tab add/close hover is the one chrome hover allowed to be chromatic:
+        /// it marks a tab action rather than a row.
+        static let terminalTabButtonHoverAlphaRATIO: CGFloat = 0.18
         static let terminalTabStackGapPX = Space.x1PX
         static let terminalTabStackInsetTopPX = Space.x1PX
         static let terminalTabStackInsetLeftPX = Space.x3PX
@@ -466,6 +590,11 @@ enum DesignTokens {
         static let commandHistoryDisclosureBoxSizePX: CGFloat = 16
         static let commandHistoryEmptyStateIconPointSizePT: CGFloat = 18
         static let commandHistoryEmptyStateGapPX = Space.x3PX
+        /// Empty-state art and copy sit one step quieter than the text ramp
+        /// alone would make them, so an empty list never competes with a full
+        /// one. Shared by all three sidebar sections.
+        static let sidebarEmptyStateIconAlphaRATIO: CGFloat = 0.66
+        static let sidebarEmptyStateLabelAlphaRATIO: CGFloat = 0.72
         /// One outline level has to read as one level; 6pt did not.
         static let commandHistoryOutlineIndentationPX = Space.x4PX
         static let commandHistoryDefaultExpandedGroupCount = 3
@@ -480,6 +609,9 @@ enum DesignTokens {
         static let fileExplorerControlGapPX = Space.x3PX
         static let fileExplorerRefreshButtonSizePX: CGFloat = 24
         static let fileExplorerRowHeightPX: CGFloat = 26
+        static let fileExplorerRowInsetXPX = Space.x3PX
+        static let fileExplorerRowGapPX = Space.x2PX
+        static let fileExplorerOutlineIndentationPX = Space.x4PX
         static let fileExplorerRowIconPointSizePT: CGFloat = 13
         /// Fixed-width git column: a dot in a reserved slot cannot shift the row
         /// beside it, which the old `M`/`U`/`⊘` letters did every repaint.
@@ -556,16 +688,21 @@ enum DesignTokens {
         static let leftSidebarSectionFocusRingWidthPX: CGFloat = 2
         static let leftSidebarSectionFocusRingOutsetPX: CGFloat = 1
         static let imagePreviewInsetPX = Space.x6PX
-        static let codeEditorGutterWidthPX: CGFloat = 44
-        static let codeEditorGutterLabelTrailingPX: CGFloat = 8
+        /// 40, down from 44: four digits fit at 11pt with `x3` of trailing air.
+        static let codeEditorGutterWidthPX: CGFloat = 40
+        static let codeEditorGutterLabelTrailingPX = Space.x3PX
         static let codeEditorTextInsetXPX: CGFloat = 6
         static let codeEditorTextInsetYPX: CGFloat = 8
-        static let codeEditorPathBarInsetXPX: CGFloat = 12
-        static let codeEditorPathBarInsetYPX: CGFloat = 8
+        /// The path bar is a real 28pt bar with a hairline bottom edge, not a
+        /// label floating in a vertical inset.
+        static let codeEditorPathBarHeightPX: CGFloat = 28
+        static let codeEditorPathBarInsetXPX = Space.x4PX
+        /// Off the icon ramp on purpose: the breadcrumb chevron has to sit
+        /// inside 11pt type without becoming the loudest thing in the bar.
+        static let codeEditorBreadcrumbSeparatorPointSizePT: CGFloat = 8
         static let paneDropTargetBorderWidthPX: CGFloat = 2
         static let terminalPaneChromeHeightPX: CGFloat = 28
         static let terminalPaneChromeCloseWidthPX: CGFloat = 24
-        static let terminalPaneChromeCloseGlyphPointSizePT: CGFloat = 10
         static let terminalPaneChromeDotSizePX: CGFloat = 6
         static let terminalPaneChromeDotInsetXPX = Space.x4PX
         /// The active pane is marked on its header's leading edge. A full-width
@@ -584,11 +721,54 @@ enum DesignTokens {
         static let terminalPaneDragPreviewTextInsetYPX = Space.x3PX
         static let terminalSplitDividerHitAreaPX = Space.x3PX
         static let terminalSplitDividerLinePX: CGFloat = 1
-        /// Retained: `ChromeIconButton` and `TerminalSearchBarView` still read it
-        /// and are owned by another change. New chrome uses `Radius`.
-        static let radiusSmallPX = Radius.smPX
         static let hairlinePX: CGFloat = 1
         static let ptyOutputCoalescingDelaySeconds: TimeInterval = 0.006
+
+        /// Bottom status bar. Nested rather than flattened with a `statusBar`
+        /// prefix because the bar owns a full sub-layout (segments, badges,
+        /// popovers, responsive breakpoints) and prefixing every member would
+        /// make the call sites unreadable. Domain values that the bar happens
+        /// to use — percent thresholds, byte scale, process-walk bounds,
+        /// sampling and kill timing — are not design tokens and live in
+        /// `AppConstants.StatusBar`.
+        enum StatusBar {
+            static let heightPX: CGFloat = 24
+            static let horizontalInsetPX = Space.x4PX
+            static let segmentGroupGapPX = Space.x4PX
+            static let segmentPaddingXPX = Space.x2PX
+            static let segmentCornerRadiusPX = Radius.xsPX
+            static let fontSizePT = Typography.statusBar.sizePT
+            static let iconPointSizePT: CGFloat = 11
+            static let dotSizePX: CGFloat = 6
+            static let hollowRingLineWidthPX: CGFloat = 1.5
+            static let hollowRingAlphaRATIO: CGFloat = 0.55
+            static let dotGlyphGapPX = Space.x1PX
+            static let glyphLabelGapPX = Space.x2PX
+            static let labelDetailGapPX = Space.x2PX
+            static let iconValueGapPX = Space.x1PX
+            static let metricGapPX = Space.x4PX
+            static let agentLabelMaxWidthPX: CGFloat = 160
+            static let agentDetailMaxWidthPX: CGFloat = 96
+            static let memoryValueMinWidthPX: CGFloat = 48
+            static let cpuValueMinWidthPX: CGFloat = 40
+            static let spinnerSizePX: CGFloat = 12
+            static let badgeHeightPX: CGFloat = 14
+            static let badgeTextInsetXPX = Space.x1PX
+            static let badgeCornerRadiusPX: CGFloat = 3
+            static let badgeFontSizePT: CGFloat = 9
+            static let hoverFillAlphaRATIO: CGFloat = 0.07
+            static let pressFillAlphaRATIO: CGFloat = 0.14
+            static let popoverWidthPX: CGFloat = 320
+            static let popoverInsetPX = Space.x4PX
+            static let popoverRowHeightPX: CGFloat = 22
+            static let popoverRowGapPX = Space.x1PX
+            static let popoverMaximumRowCount = 12
+            /// Responsive-truncation breakpoints, widest first.
+            static let agentDetailBreakpointPX: CGFloat = 560
+            static let cpuMetricBreakpointPX: CGFloat = 440
+            static let agentLabelBreakpointPX: CGFloat = 340
+            static let iconOnlyBreakpointPX: CGFloat = 240
+        }
     }
 }
 

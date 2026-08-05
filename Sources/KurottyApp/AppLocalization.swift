@@ -88,6 +88,15 @@ enum L10nKey: String, CaseIterable {
     case openTranscript, transcriptEmpty, transcriptReadOnly, transcriptOlderRecordsHidden
     case transcriptRoleUser, transcriptRoleAgent, transcriptRoleTool, transcriptRoleSystem
     case collapseAllToolRuns
+    // Bottom status bar. `cancel` is deliberately absent: the bar reuses the
+    // existing `.cancel` key rather than shipping a second "Cancel".
+    case statusBarAgentIdle, statusBarAgentWorking, statusBarAgentNeedsInput, statusBarAgentBlocked
+    case statusBarNoAgent, statusBarConnectAnAgent, statusBarConnectAnAgentTooltip
+    case statusBarEnableStatusHooksTitle, statusBarEnableStatusHooksMessage, statusBarOpenPreferences
+    case statusBarHistoryTitle, statusBarResumeLastSession
+    case statusBarProcessUsageTitle, statusBarMemoryDescription
+    case statusBarQuitProcess, statusBarQuitProcessTitle, statusBarQuitProcessMessage
+    case statusBarQuitProcessConfirm, statusBarNoProcesses
 }
 
 enum AppLocalization {
@@ -179,6 +188,18 @@ enum AppLocalization {
             .transcriptReadOnly: "Read-only", .transcriptOlderRecordsHidden: "Older records are not shown.",
             .transcriptRoleUser: "You", .transcriptRoleAgent: "Agent", .transcriptRoleTool: "Tool", .transcriptRoleSystem: "System",
             .collapseAllToolRuns: "Collapse All Tool Runs",
+            .statusBarAgentIdle: "Idle", .statusBarAgentWorking: "Working", .statusBarAgentNeedsInput: "Needs input", .statusBarAgentBlocked: "Blocked",
+            .statusBarNoAgent: "No agent", .statusBarConnectAnAgent: "Connect an agent",
+            .statusBarConnectAnAgentTooltip: "Agent status hooks are off. Open Preferences to enable them.",
+            .statusBarEnableStatusHooksTitle: "Enable agent status hooks?",
+            .statusBarEnableStatusHooksMessage: "Agent status reporting is opt-in. Enable it in Preferences to see live agent state here.",
+            .statusBarOpenPreferences: "Open Preferences",
+            .statusBarHistoryTitle: "Recent agent status", .statusBarResumeLastSession: "Resume last session",
+            .statusBarProcessUsageTitle: "Process usage",
+            .statusBarMemoryDescription: "Summed resident set size (RSS). Shared or aliased pages can appear in more than one process.",
+            .statusBarQuitProcess: "Quit process", .statusBarQuitProcessTitle: "Quit this process?",
+            .statusBarQuitProcessMessage: "The pane's shell process tree is asked to terminate, then force-quit if it does not exit. Unsaved work in that pane is lost.",
+            .statusBarQuitProcessConfirm: "Quit", .statusBarNoProcesses: "No pane processes are being sampled.",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -231,6 +252,18 @@ enum AppLocalization {
             .transcriptReadOnly: "읽기 전용", .transcriptOlderRecordsHidden: "이전 항목은 표시되지 않습니다.",
             .transcriptRoleUser: "나", .transcriptRoleAgent: "에이전트", .transcriptRoleTool: "도구", .transcriptRoleSystem: "시스템",
             .collapseAllToolRuns: "모든 도구 실행 접기",
+            .statusBarAgentIdle: "대기", .statusBarAgentWorking: "작업 중", .statusBarAgentNeedsInput: "입력 필요", .statusBarAgentBlocked: "차단됨",
+            .statusBarNoAgent: "에이전트 없음", .statusBarConnectAnAgent: "에이전트 연결",
+            .statusBarConnectAnAgentTooltip: "에이전트 상태 후크가 꺼져 있습니다. 환경설정에서 켜세요.",
+            .statusBarEnableStatusHooksTitle: "에이전트 상태 후크를 켤까요?",
+            .statusBarEnableStatusHooksMessage: "에이전트 상태 보고는 선택 기능입니다. 환경설정에서 켜면 여기에 상태가 표시됩니다.",
+            .statusBarOpenPreferences: "환경설정 열기",
+            .statusBarHistoryTitle: "최근 에이전트 상태", .statusBarResumeLastSession: "마지막 세션 이어하기",
+            .statusBarProcessUsageTitle: "프로세스 사용량",
+            .statusBarMemoryDescription: "실제 메모리 사용량(RSS)의 합계입니다. 공유되거나 중복 매핑된 페이지는 여러 프로세스에 함께 계산될 수 있습니다.",
+            .statusBarQuitProcess: "프로세스 종료", .statusBarQuitProcessTitle: "이 프로세스를 종료할까요?",
+            .statusBarQuitProcessMessage: "패널의 셸 프로세스 트리에 종료를 요청하고, 응답이 없으면 강제 종료합니다. 저장하지 않은 작업은 사라집니다.",
+            .statusBarQuitProcessConfirm: "종료", .statusBarNoProcesses: "샘플링 중인 패널 프로세스가 없습니다.",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -283,6 +316,18 @@ enum AppLocalization {
             .transcriptReadOnly: "読み取り専用", .transcriptOlderRecordsHidden: "古いレコードは表示されません。",
             .transcriptRoleUser: "あなた", .transcriptRoleAgent: "エージェント", .transcriptRoleTool: "ツール", .transcriptRoleSystem: "システム",
             .collapseAllToolRuns: "すべてのツール実行を折りたたむ",
+            .statusBarAgentIdle: "待機", .statusBarAgentWorking: "作業中", .statusBarAgentNeedsInput: "入力待ち", .statusBarAgentBlocked: "ブロック",
+            .statusBarNoAgent: "エージェントなし", .statusBarConnectAnAgent: "エージェントを接続",
+            .statusBarConnectAnAgentTooltip: "エージェント状態フックがオフです。環境設定で有効にしてください。",
+            .statusBarEnableStatusHooksTitle: "エージェント状態フックを有効にしますか？",
+            .statusBarEnableStatusHooksMessage: "エージェント状態の報告はオプトインです。環境設定で有効にすると状態がここに表示されます。",
+            .statusBarOpenPreferences: "環境設定を開く",
+            .statusBarHistoryTitle: "最近のエージェント状態", .statusBarResumeLastSession: "前回のセッションを再開",
+            .statusBarProcessUsageTitle: "プロセス使用量",
+            .statusBarMemoryDescription: "常駐メモリ(RSS)の合計です。共有またはエイリアスされたページは複数のプロセスに重複して計上されることがあります。",
+            .statusBarQuitProcess: "プロセスを終了", .statusBarQuitProcessTitle: "このプロセスを終了しますか？",
+            .statusBarQuitProcessMessage: "ペインのシェルプロセスツリーに終了を要求し、応答がなければ強制終了します。保存していない作業は失われます。",
+            .statusBarQuitProcessConfirm: "終了", .statusBarNoProcesses: "サンプリング中のペインプロセスはありません。",
         ],
     ]
 }

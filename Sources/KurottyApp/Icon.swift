@@ -82,5 +82,24 @@ enum IconSymbol {
     static let breadcrumbSeparator = "chevron.right"
     static let previousMatch = "chevron.up"
     static let nextMatch = "chevron.down"
-    static let disclosure = "chevron.right"
+    static let disclosureCollapsed = "chevron.right"
+    static let disclosureExpanded = "chevron.down"
+    static let sidebarLeading = "sidebar.leading"
+    static let sidebarTrailing = "sidebar.trailing"
+    static let refresh = "arrow.clockwise"
+    static let search = "magnifyingglass"
+    static let clearSearch = "xmark.circle.fill"
+    /// Filled, because the icon is what carries the outline level: a group name
+    /// is the same type rank as the rows under it.
+    static let folder = "folder.fill"
+    static let remove = "minus"
+
+    // MARK: Empty states
+    static let commandHistoryEmptyState = "clock.arrow.circlepath"
+    static let agentSessionEmptyState = "bubble.left.and.text.bubble.right"
+
+    // MARK: Status bar
+    static let memory = "memorychip"
+    static let cpu = "cpu"
+    static let agent = "sparkles"
 }

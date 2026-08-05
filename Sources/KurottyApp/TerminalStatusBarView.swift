@@ -141,7 +141,7 @@ final class TerminalStatusBarView: NSView {
     func refreshPanes() {
         let descriptors = dataSource?.statusBarPaneDescriptors() ?? []
         let isCollapsed = !isEnabled || descriptors.isEmpty
-        heightConstraint?.constant = isCollapsed ? 0 : TerminalStatusBarTokens.heightPX
+        heightConstraint?.constant = isCollapsed ? 0 : DesignTokens.Component.StatusBar.heightPX
         isHidden = isCollapsed
         sampler.resetDeltaState()
         refreshAgentSegment()
@@ -180,9 +180,11 @@ final class TerminalStatusBarView: NSView {
 
     private func configureLayout() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
         topBorderView.wantsLayer = true
+        topBorderView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         topBorderView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
         topBorderView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBorderView)
@@ -207,20 +209,20 @@ final class TerminalStatusBarView: NSView {
 
             agentSegmentView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: TerminalStatusBarTokens.horizontalInsetPX
-                    - TerminalStatusBarTokens.segmentPaddingXPX
+                constant: DesignTokens.Component.StatusBar.horizontalInsetPX
+                    - DesignTokens.Component.StatusBar.segmentPaddingXPX
             ),
             agentSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             resourceSegmentView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -(TerminalStatusBarTokens.horizontalInsetPX
-                    - TerminalStatusBarTokens.segmentPaddingXPX)
+                constant: -(DesignTokens.Component.StatusBar.horizontalInsetPX
+                    - DesignTokens.Component.StatusBar.segmentPaddingXPX)
             ),
             resourceSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             resourceSegmentView.leadingAnchor.constraint(
                 greaterThanOrEqualTo: agentSegmentView.trailingAnchor,
-                constant: TerminalStatusBarTokens.segmentGroupGapPX
+                constant: DesignTokens.Component.StatusBar.segmentGroupGapPX
             ),
         ])
     }
@@ -314,10 +316,10 @@ final class TerminalStatusBarView: NSView {
 
     private func presentEnableStatusHooksAlert() {
         let alert = NSAlert()
-        alert.messageText = TerminalStatusBarStrings.string(.enableStatusHooksTitle)
-        alert.informativeText = TerminalStatusBarStrings.string(.enableStatusHooksMessage)
-        alert.addButton(withTitle: TerminalStatusBarStrings.string(.openPreferences))
-        alert.addButton(withTitle: TerminalStatusBarStrings.string(.cancel))
+        alert.messageText = AppLocalization.string(.statusBarEnableStatusHooksTitle)
+        alert.informativeText = AppLocalization.string(.statusBarEnableStatusHooksMessage)
+        alert.addButton(withTitle: AppLocalization.string(.statusBarOpenPreferences))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
         guard alert.runModal() == .alertFirstButtonReturn else {
             return
         }
@@ -397,10 +399,10 @@ final class TerminalStatusBarView: NSView {
         }
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = TerminalStatusBarStrings.string(.quitProcessTitle)
-        alert.informativeText = TerminalStatusBarStrings.string(.quitProcessMessage)
-        alert.addButton(withTitle: TerminalStatusBarStrings.string(.quitProcessConfirm))
-        alert.addButton(withTitle: TerminalStatusBarStrings.string(.cancel))
+        alert.messageText = AppLocalization.string(.statusBarQuitProcessTitle)
+        alert.informativeText = AppLocalization.string(.statusBarQuitProcessMessage)
+        alert.addButton(withTitle: AppLocalization.string(.statusBarQuitProcessConfirm))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
         let isConfirmed = alert.runModal() == .alertFirstButtonReturn
         let decision = TerminalProcessKillPolicy.decision(
             processIdentifier: processIdentifier,

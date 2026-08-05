@@ -29,10 +29,6 @@ final class TerminalCommandHistoryCommandOutlineItem: NSObject {
 /// replay-approval flow owned by the window controller.
 @MainActor
 final class TerminalCommandHistoryPanelView: NSView {
-    private enum Symbol {
-        static let emptyState = "clock.arrow.circlepath"
-    }
-
     var onInsertCommand: ((TerminalCommandHistoryEntry) -> Void)?
     var onRunCommand: ((TerminalCommandHistoryEntry) -> Void)?
 
@@ -80,10 +76,10 @@ final class TerminalCommandHistoryPanelView: NSView {
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         searchPillView.applyChromeTheme(theme)
         DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
-        emptyStateIconView.contentTintColor = theme.textMuted
+        applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
-        emptyStateIconView.alphaValue = 0.66
-        emptyStateLabel.alphaValue = 0.72
+        emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
+        emptyStateLabel.alphaValue = DesignTokens.Component.sidebarEmptyStateLabelAlphaRATIO
         outlineView.reloadData()
         applyExpansionState()
     }
@@ -139,6 +135,7 @@ final class TerminalCommandHistoryPanelView: NSView {
 
     private func configure() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
         configureSectionHeader()
@@ -153,6 +150,7 @@ final class TerminalCommandHistoryPanelView: NSView {
     /// clips so no descendant can paint into the header/pill band.
     private func configureListContainer() {
         listContainerView.wantsLayer = true
+        listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         listContainerView.clipsToBounds = true
         listContainerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(listContainerView)
@@ -211,13 +209,19 @@ final class TerminalCommandHistoryPanelView: NSView {
         listContainerView.addSubview(scrollView)
     }
 
+    /// Palette-tinted symbols bake their color into the image, so a theme
+    /// change has to rebuild the icon rather than reassign `contentTintColor`.
+    private func applyEmptyStateIcon(tint: NSColor) {
+        emptyStateIconView.image = Icon.symbol(
+            IconSymbol.commandHistoryEmptyState,
+            pointSizePT: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
+            weight: .regular,
+            tint: tint
+        )
+    }
+
     private func configureEmptyState() {
-        emptyStateIconView.image = NSImage(systemSymbolName: Symbol.emptyState, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Component.commandHistoryEmptyStateIconPointSizePT,
-                weight: .regular
-            ))
-        emptyStateIconView.contentTintColor = chromeTheme.textMuted
+        applyEmptyStateIcon(tint: chromeTheme.textMuted)
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(emptyStateIconView)
 

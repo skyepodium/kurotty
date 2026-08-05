@@ -10,12 +10,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     private enum Layout {
-        static let sidebarWidthPX = PreferencesMetrics.sidebarWidthPX
+        static let sidebarWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
         /// The window minus the category sidebar minus the outer inset on both
         /// sides. Cards fill this width exactly so their left edges line up with
         /// the pane heading above them.
-        static let contentWidthPX = PreferencesMetrics.windowWidthPX
-            - PreferencesMetrics.sidebarWidthPX
+        static let contentWidthPX = DesignTokens.Component.preferencesWidthPX
+            - DesignTokens.Component.preferencesSidebarWidthPX
             - DesignTokens.Space.x6PX * 2
         static let outerInsetPX = DesignTokens.Space.x6PX
         static let categoryListLeadingPX = DesignTokens.Space.x4PX
@@ -31,7 +31,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             - cardPaddingPX * 2
             - labelWidthPX
             - labelControlGapPX
-        static let fieldWidthPX = PreferencesMetrics.controlWidthPX
+        static let fieldWidthPX = DesignTokens.Component.preferencesControlWidthPX
         static let previewHeightPX: CGFloat = 176
         static let colorWellSizePX: CGFloat = 34
         static let categoryButtonHeightPX: CGFloat = 32
@@ -180,7 +180,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             statusLabel.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: Layout.outerInsetPX),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInsetPX),
             statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Space.x4PX),
-            statusLabel.heightAnchor.constraint(equalToConstant: PreferencesMetrics.statusHeightPX),
+            statusLabel.heightAnchor.constraint(equalToConstant: DesignTokens.Component.preferencesStatusHeightPX),
         ])
         applyChromeTheme()
     }
@@ -479,7 +479,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 2
+        stack.spacing = DesignTokens.Component.preferencesHeadingLineGapPX
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = DesignTokens.Typography.prefsSection.font
         titleLabel.textColor = chromeTheme.textPrimary
@@ -553,10 +553,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         button.translatesAutoresizingMaskIntoConstraints = false
         guard sizedButtons.insert(ObjectIdentifier(button)).inserted else { return }
         button.heightAnchor.constraint(
-            equalToConstant: PreferencesMetrics.buttonHeightPX
+            equalToConstant: DesignTokens.Component.preferencesButtonHeightPX
         ).isActive = true
         button.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: PreferencesMetrics.buttonWidthPX
+            greaterThanOrEqualToConstant: DesignTokens.Component.preferencesButtonWidthPX
         ).isActive = true
     }
 
@@ -600,7 +600,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         field.alignment = .right
         field.formatter = NumberFormatter.integerOrDecimal
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: PreferencesMetrics.numericFieldWidthPX).isActive = true
+        field.widthAnchor.constraint(equalToConstant: DesignTokens.Component.preferencesNumericFieldWidthPX).isActive = true
         stepper.minValue = minimum
         stepper.maxValue = maximum
         stepper.increment = increment
@@ -884,34 +884,4 @@ private extension NSColor {
             Int(round(rgb.blueComponent * 255))
         )
     }
-}
-
-/// Preferences window geometry.
-///
-/// MIGRATION: these replace `DesignTokens.Component.preferences*`. The window
-/// drops from 820x640 to 720x560 (the content never filled 820, so the extra
-/// width read as an empty gutter), the control width from 240 to 220, and every
-/// button to the macOS regular control height of 28. `textFieldWidthPX` is
-/// unchanged at 160 and is kept here so the whole set migrates together.
-enum PreferencesMetrics {
-    static let windowWidthPX: CGFloat = 720
-    static let windowHeightPX: CGFloat = 560
-    static let sidebarWidthPX: CGFloat = 184
-    static let controlWidthPX: CGFloat = 220
-    static let statusHeightPX: CGFloat = 16
-    static let buttonWidthPX: CGFloat = 84
-    static let buttonHeightPX: CGFloat = 28
-    static let textFieldWidthPX: CGFloat = 160
-    static let numericFieldWidthPX: CGFloat = 96
-}
-
-/// MIGRATION: preferences type roles. The shared ramp stops at `windowTitle`
-/// (13pt) because chrome is dense; a settings window is a document surface and
-/// needs a larger title and body rung. These four belong in
-/// `DesignTokens.Typography` once that file is free.
-private extension DesignTokens.Typography {
-    static let prefsTitle = Role(sizePT: 20, weight: .semibold, lineHeightPX: 26)
-    static let prefsSection = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
-    static let prefsBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
-    static let prefsCaption = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
 }

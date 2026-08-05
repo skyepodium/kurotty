@@ -54,34 +54,21 @@ private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
 
 @MainActor
 final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
-    /// MIGRATION: `barHeightPX` (40) and `cornerRadiusPX` (`Radius.lgPX`)
-    /// replace `DesignTokens.Component.terminalSearchHeightPX` (44) and
-    /// `terminalSearchCornerRadiusPX` (10). The insets are now steps on the
-    /// space scale rather than one-off numbers.
-    private enum Metrics {
-        static let barHeightPX: CGFloat = 40
-        static let cornerRadiusPX = DesignTokens.Radius.lgPX
-        static let stackLeadingInset = DesignTokens.Space.x3PX
-        static let stackTrailingInset = DesignTokens.Space.x2PX
-        static let stackSpacing = DesignTokens.Space.x1PX
-        static let stackVerticalInset: CGFloat = 6
-        static let queryHeight: CGFloat = 28
-        static let minimumQueryWidth: CGFloat = 120
-        static let minimumResultCountWidth: CGFloat = 44
-        static let buttonSide: CGFloat = 24
-
-        static func minimumWidth(
-            resultCountWidth: CGFloat,
-            navigationButtonCount: Int
-        ) -> CGFloat {
-            let arrangedViewCount = 3 + navigationButtonCount
-            return stackLeadingInset
-                + stackTrailingInset
-                + minimumQueryWidth
-                + resultCountWidth
-                + buttonSide * CGFloat(1 + navigationButtonCount)
-                + stackSpacing * CGFloat(arrangedViewCount - 1)
-        }
+    /// Width the bar needs before a given set of controls still fits. This is
+    /// layout arithmetic over the shared `Component.terminalSearch*` tokens, not
+    /// a token table of its own.
+    private static func minimumWidth(
+        resultCountWidth: CGFloat,
+        navigationButtonCount: Int
+    ) -> CGFloat {
+        let component = DesignTokens.Component.self
+        let arrangedViewCount = 3 + navigationButtonCount
+        return component.terminalSearchStackLeadingInsetPX
+            + component.terminalSearchStackTrailingInsetPX
+            + component.terminalSearchMinimumQueryWidthPX
+            + resultCountWidth
+            + component.terminalSearchButtonSidePX * CGFloat(1 + navigationButtonCount)
+            + component.terminalSearchStackSpacingPX * CGFloat(arrangedViewCount - 1)
     }
 
     var onQueryChanged: ((String) -> Void)?
@@ -147,9 +134,11 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.activeTabBackground.cgColor
-        layer.map(Elevation.floating(for: theme).apply(to:))
+        layer.map(DesignTokens.Elevation.floating(for: theme).apply(to:))
         queryField.textColor = theme.textPrimary
-        queryField.layer?.backgroundColor = theme.windowBackground.withAlphaComponent(0.9).cgColor
+        queryField.layer?.backgroundColor = theme.windowBackground
+            .withAlphaComponent(DesignTokens.Component.terminalSearchFieldFillAlphaRATIO)
+            .cgColor
         refreshLocalization()
         applyResultCountColor()
         applyBorderColor()
@@ -238,14 +227,14 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
 
     override func layout() {
         let resultCountWidth = max(
-            Metrics.minimumResultCountWidth,
+            DesignTokens.Component.terminalSearchMinimumResultCountWidthPX,
             resultCountLabel.intrinsicContentSize.width
         )
-        let showsNavigation = bounds.width >= Metrics.minimumWidth(
+        let showsNavigation = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
             navigationButtonCount: 2
         )
-        let showsResultCount = bounds.width >= Metrics.minimumWidth(
+        let showsResultCount = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
             navigationButtonCount: 0
         )
@@ -258,7 +247,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     private func configureLayout() {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = Metrics.cornerRadiusPX
+        layer?.cornerRadius = DesignTokens.Radius.lgPX
         layer?.borderWidth = DesignTokens.Component.hairlinePX
         // The bar's own appearance never animates: it either is on screen or is
         // not, and a fade would make Cmd+F feel slow.
@@ -269,7 +258,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         queryField.isEditable = true
         queryField.isSelectable = true
         queryField.usesSingleLineMode = true
-        queryField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        queryField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.controlLabel.sizePT)
         queryField.focusRingType = .none
         queryField.isBezeled = false
         queryField.isBordered = false
@@ -290,7 +279,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
-        stack.spacing = Metrics.stackSpacing
+        stack.spacing = DesignTokens.Component.terminalSearchStackSpacingPX
         stack.detachesHiddenViews = true
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -300,23 +289,23 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         )
         preferredWidthConstraint.priority = .defaultHigh
         let minimumQueryWidthConstraint = queryField.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: Metrics.minimumQueryWidth
+            greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumQueryWidthPX
         )
         minimumQueryWidthConstraint.priority = .init(rawValue: 999)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Metrics.barHeightPX),
+            heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchHeightPX),
             preferredWidthConstraint,
 
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.stackLeadingInset),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.stackTrailingInset),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.stackVerticalInset),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.stackVerticalInset),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalSearchStackLeadingInsetPX),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DesignTokens.Component.terminalSearchStackTrailingInsetPX),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: DesignTokens.Component.terminalSearchStackVerticalInsetPX),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Component.terminalSearchStackVerticalInsetPX),
 
-            queryField.heightAnchor.constraint(equalToConstant: Metrics.queryHeight),
+            queryField.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchQueryHeightPX),
             minimumQueryWidthConstraint,
             resultCountLabel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: Metrics.minimumResultCountWidth
+                greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumResultCountWidthPX
             ),
         ])
         update(summary: .empty)
@@ -341,8 +330,8 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         button.imageScaling = .scaleProportionallyDown
         button.setAccessibilityLabel(accessibilityLabel)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: Metrics.buttonSide).isActive = true
-        button.heightAnchor.constraint(equalToConstant: Metrics.buttonSide).isActive = true
+        button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
+        button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
         return button
     }
 

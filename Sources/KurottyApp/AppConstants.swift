@@ -55,6 +55,47 @@ enum AppConstants {
         static let minimumCellWidthPX: CGFloat = 8
     }
 
+    /// Domain values behind the bottom status bar. These are thresholds, units,
+    /// and traversal/timing bounds — not design tokens — so they are kept out of
+    /// `DesignTokens.Component.StatusBar`, which carries only the bar's geometry
+    /// and type.
+    enum StatusBar {
+        /// Percent thresholds for value coloring.
+        static let warningPercentRATIO: Double = 80
+        static let errorPercentRATIO: Double = 92
+        static let maximumCPUPercentRATIO: Double = 100
+        static let bytesPerKilobyteRATIO: Double = 1024
+        /// Bound on how deep a pane's process subtree is walked per sample.
+        static let processTreeMaximumDepthCOUNT = 6
+        static let processTreeMaximumProcessCOUNT = 256
+        static let samplingIntervalSeconds: TimeInterval = 2.0
+        /// How long a process tree is given to exit after `SIGTERM` before it is
+        /// force-quit.
+        static let killGracePeriodSeconds: TimeInterval = 3.0
+
+        /// Universal symbols and unit abbreviations. These are not translated:
+        /// `%`, `·`, `—`, and the SI-style byte units read the same in every
+        /// language Kurotty ships.
+        static let memoryColumnLabel = "RSS"
+        static let memorySummaryLabel = "Σ RSS"
+        static let memoryPrefix = "RAM"
+        static let cpuPrefix = "CPU"
+        static let summarySeparator = "·"
+        static let labelSeparator = "·"
+        static let detailSeparator = "—"
+        static let unavailableValue = "—"
+        static let kilobyteUnit = "KB"
+        static let megabyteUnit = "MB"
+        static let gigabyteUnit = "GB"
+        static let percentUnit = "%"
+    }
+
+    enum FileExplorer {
+        /// Filesystem events arrive in bursts; the tree is rebuilt once the
+        /// burst settles rather than per event.
+        static let watcherDebounceMS = 300
+    }
+
     /// Single source of truth for where Kurotty stores anything on disk.
     ///
     /// Settings, shell history, and scrollback snapshots all live under the same
