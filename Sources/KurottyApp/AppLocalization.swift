@@ -53,6 +53,8 @@ enum L10nKey: String, CaseIterable {
     case splitRight, splitLeft, splitDown, splitUp
     case replayCommandQuestion, openLinkQuestion, cancel, open, openInBrowser, replay
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
+    // Close confirmation for a tab or window whose shell still runs a process.
+    case closeRunningProcessTitle, closeRunningProcessMessage, closeRunningProcessConfirm
     case updateUnavailableTitle, updateUnavailableMessage, ok
     case moveToApplicationsTitle, moveToApplicationsMessage, moveToApplications, moveToApplicationsLater
     case moveToApplicationsFailedTitle, moveToApplicationsFailedMessage, translocatedMessage
@@ -168,6 +170,9 @@ enum AppLocalization {
             .replayCommandQuestion: "Replay Command?", .openLinkQuestion: "Open Link?", .cancel: "Cancel", .open: "Open", .openInBrowser: "Open in Browser", .replay: "Replay",
             .pasteLinesQuestion: "Paste %d lines?", .pasteLinesExplanation: "The shell can run every line this paste contains.", .pasteConfirm: "Paste",
             .pasteTooLargeTitle: "Paste Too Large", .pasteTooLargeExplanation: "This clipboard content is %d bytes, above the %d byte paste limit.",
+            .closeRunningProcessTitle: "Close and end the running process?",
+            .closeRunningProcessMessage: "Closing will terminate: %@. Unsaved work in that process is lost.",
+            .closeRunningProcessConfirm: "Close",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
             .moveToApplicationsTitle: "Move to Applications?", .moveToApplicationsMessage: "%@ is running from a read-only or temporary location, so it cannot update itself. Moving it to the Applications folder and relaunching fixes that.", .moveToApplications: "Move and Relaunch", .moveToApplicationsLater: "Not Now",
             .moveToApplicationsFailedTitle: "Move Failed", .moveToApplicationsFailedMessage: "The Applications folder could not be written to: %@", .translocatedMessage: "macOS is running %@ from a randomized read-only copy, so it cannot update itself and cannot move itself either. Move the app to the Applications folder in Finder, then open it from there.",
@@ -250,6 +255,9 @@ enum AppLocalization {
             .replayCommandQuestion: "명령을 다시 실행할까요?", .openLinkQuestion: "링크를 열까요?", .cancel: "취소", .open: "열기", .openInBrowser: "브라우저에서 열기", .replay: "다시 실행",
             .pasteLinesQuestion: "%d줄을 붙여넣을까요?", .pasteLinesExplanation: "이 붙여넣기에 포함된 모든 줄이 셸에서 실행될 수 있습니다.", .pasteConfirm: "붙여넣기",
             .pasteTooLargeTitle: "붙여넣기 내용이 너무 큽니다", .pasteTooLargeExplanation: "클립보드 내용이 %d바이트로, 붙여넣기 한도 %d바이트를 넘습니다.",
+            .closeRunningProcessTitle: "실행 중인 프로세스를 종료하고 닫을까요?",
+            .closeRunningProcessMessage: "닫으면 다음 프로세스가 종료됩니다: %@. 해당 프로세스에서 저장하지 않은 작업은 사라집니다.",
+            .closeRunningProcessConfirm: "닫기",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
             .moveToApplicationsTitle: "응용 프로그램 폴더로 옮길까요?", .moveToApplicationsMessage: "%@이(가) 읽기 전용이거나 임시 위치에서 실행 중이라 스스로 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮기고 다시 실행하면 해결됩니다.", .moveToApplications: "옮기고 다시 실행", .moveToApplicationsLater: "나중에",
             .moveToApplicationsFailedTitle: "옮기지 못했습니다", .moveToApplicationsFailedMessage: "응용 프로그램 폴더에 쓸 수 없습니다: %@", .translocatedMessage: "macOS가 %@을(를) 무작위 읽기 전용 사본으로 실행하고 있어 스스로 업데이트할 수도, 옮길 수도 없습니다. Finder에서 앱을 응용 프로그램 폴더로 옮긴 뒤 거기서 실행해 주세요.",
@@ -332,6 +340,9 @@ enum AppLocalization {
             .replayCommandQuestion: "コマンドを再実行しますか？", .openLinkQuestion: "リンクを開きますか？", .cancel: "キャンセル", .open: "開く", .openInBrowser: "ブラウザで開く", .replay: "再実行",
             .pasteLinesQuestion: "%d行をペーストしますか？", .pasteLinesExplanation: "このペーストに含まれるすべての行がシェルで実行される可能性があります。", .pasteConfirm: "ペースト",
             .pasteTooLargeTitle: "ペースト内容が大きすぎます", .pasteTooLargeExplanation: "クリップボードの内容は %d バイトで、ペースト上限の %d バイトを超えています。",
+            .closeRunningProcessTitle: "実行中のプロセスを終了して閉じますか？",
+            .closeRunningProcessMessage: "閉じると次のプロセスが終了します: %@。そのプロセスの保存していない作業は失われます。",
+            .closeRunningProcessConfirm: "閉じる",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
             .moveToApplicationsTitle: "アプリケーションフォルダに移動しますか？", .moveToApplicationsMessage: "%@ は読み取り専用または一時的な場所から実行されているため、自身をアップデートできません。アプリケーションフォルダに移動して再起動すると解決します。", .moveToApplications: "移動して再起動", .moveToApplicationsLater: "後で",
             .moveToApplicationsFailedTitle: "移動できませんでした", .moveToApplicationsFailedMessage: "アプリケーションフォルダに書き込めません: %@", .translocatedMessage: "macOS が %@ をランダムな読み取り専用のコピーとして実行しているため、自身をアップデートすることも移動することもできません。Finder でアプリをアプリケーションフォルダに移動してから、そこで開いてください。",
