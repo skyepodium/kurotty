@@ -17,7 +17,10 @@ enum TerminalShellPathQuoting {
 /// TerminalWindowCommandHistory.swift.
 extension TerminalWindowController {
     func configureFileExplorerPane() {
-        fileExplorerPanel.translatesAutoresizingMaskIntoConstraints = false
+        // Same as the left sidebar: the split view owns the column frame, so
+        // Auto Layout must not fight it for the width.
+        fileExplorerPanel.translatesAutoresizingMaskIntoConstraints = true
+        fileExplorerPanel.autoresizingMask = [.height]
         fileExplorerPanel.wantsLayer = true
         fileExplorerPanel.layer?.cornerRadius = 0
         fileExplorerPanel.layer?.borderWidth = 0
@@ -26,30 +29,10 @@ extension TerminalWindowController {
         let explorerSubviewIndex = commandHistorySplitView.arrangedSubviews.count - 1
         commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: explorerSubviewIndex)
 
-        let preferredWidthConstraint = fileExplorerPanel.widthAnchor.constraint(
-            equalToConstant: DesignTokens.Component.fileExplorerPanelDefaultWidthPX
-        )
-        preferredWidthConstraint.priority = .defaultLow
-        // Held inactive while the panel is hidden; see
-        // `setSidebarPanelHidden(_:panel:widthConstraints:)` for why.
-        fileExplorerWidthConstraints = [
-            fileExplorerPanel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.fileExplorerPanelMinWidthPX
-            ),
-            fileExplorerPanel.widthAnchor.constraint(
-                lessThanOrEqualToConstant: DesignTokens.Component.fileExplorerPanelMaxWidthPX
-            ),
-            preferredWidthConstraint,
-        ]
-
         // The panel starts collapsed through the shared helper so the hidden
         // state, the released width constraints, and the zero-width pin are
         // established exactly once, in one place.
-        setSidebarPanelHidden(
-            true,
-            panel: fileExplorerPanel,
-            widthConstraints: fileExplorerWidthConstraints
-        )
+        setSidebarPanelHidden(true, panel: fileExplorerPanel)
         fileExplorerPanel.callbacks = TerminalFileExplorerCallbacks(
             openFile: { [weak self] url in
                 self?.openEditorTab(for: url)
@@ -73,11 +56,7 @@ extension TerminalWindowController {
         guard isFileExplorerPanelVisible != visible else {
             return
         }
-        setSidebarPanelHidden(
-            !visible,
-            panel: fileExplorerPanel,
-            widthConstraints: fileExplorerWidthConstraints
-        )
+        setSidebarPanelHidden(!visible, panel: fileExplorerPanel)
         updateSidebarToggleButtonStates()
         if visible {
             restoreSidebarWidthIfCollapsed(fileExplorerPanel)

@@ -612,6 +612,10 @@ enum DesignTokens {
         static let commandHistoryDefaultExpandedGroupCount = 3
         static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
         static let fileExplorerPanelDefaultWidthPX: CGFloat = 350
+        /// The terminal column never shrinks past this. Sidebars are allowed to
+        /// take space from it, but not to erase it: a zero-width terminal is a
+        /// broken window, not a narrow one.
+        static let terminalColumnMinWidthPX: CGFloat = 240
         static let fileExplorerPanelMinWidthPX: CGFloat = 210
         static let fileExplorerPanelMaxWidthPX: CGFloat = 460
         static let fileExplorerPanelCornerRadiusPX: CGFloat = 0

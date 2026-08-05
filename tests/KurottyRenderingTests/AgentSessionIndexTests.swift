@@ -689,39 +689,44 @@ final class AgentSessionIndexTests: XCTestCase {
     /// Layout, so leaving the width constraints active kept the split view
     /// reserving a strip of width plus its divider after closing a sidebar.
     @MainActor
-    func testSidebarWidthConstraintsAreActiveOnlyWhileThePanelIsVisible() {
+    func testAHiddenSidebarReservesNoWidth() {
+        // Width used to be a constraint that was toggled with visibility. It is
+        // a divider position now, and hiding takes the panel out of the split
+        // view entirely, so the contract is asserted through geometry instead
+        // of through the constraints that no longer exist.
         let controller = makeWindowController()
         defer { controller.close() }
+        controller.window?.setContentSize(NSSize(width: 1200, height: 800))
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(controller.commandHistoryWidthConstraints.isEmpty)
-        XCTAssertFalse(controller.fileExplorerWidthConstraints.isEmpty)
-        XCTAssertTrue(
-            controller.commandHistoryWidthConstraints.allSatisfy { !$0.isActive },
-            "a hidden left sidebar must not reserve width"
-        )
-        XCTAssertTrue(
-            controller.fileExplorerWidthConstraints.allSatisfy { !$0.isActive },
-            "a hidden right sidebar must not reserve width"
+        let split = controller.commandHistorySplitView
+        XCTAssertFalse(split.arrangedSubviews.contains(controller.leftSidebarPanel))
+        XCTAssertFalse(split.arrangedSubviews.contains(controller.fileExplorerPanel))
+        XCTAssertEqual(
+            controller.terminalContentHostView.frame.width,
+            split.frame.width,
+            accuracy: 1,
+            "with both sidebars hidden the terminal must own the whole width"
         )
 
         controller.setCommandHistoryPanelVisible(true)
         controller.setFileExplorerPanelVisible(true)
-        XCTAssertTrue(controller.commandHistoryWidthConstraints.allSatisfy(\.isActive))
-        XCTAssertTrue(controller.fileExplorerWidthConstraints.allSatisfy(\.isActive))
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertTrue(split.arrangedSubviews.contains(controller.leftSidebarPanel))
+        XCTAssertTrue(split.arrangedSubviews.contains(controller.fileExplorerPanel))
+        XCTAssertLessThan(controller.terminalContentHostView.frame.width, split.frame.width)
 
         controller.setCommandHistoryPanelVisible(false)
         controller.setFileExplorerPanelVisible(false)
-        XCTAssertTrue(
-            controller.commandHistoryWidthConstraints.allSatisfy { !$0.isActive },
-            "closing the left sidebar must release its width constraints"
-        )
-        XCTAssertTrue(
-            controller.fileExplorerWidthConstraints.allSatisfy { !$0.isActive },
-            "closing the right sidebar must release its width constraints"
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            controller.terminalContentHostView.frame.width,
+            split.frame.width,
+            accuracy: 1,
+            "hiding both sidebars must give the width back"
         )
     }
 
-    @MainActor
     func testBothSidebarsRouteThroughTheSharedHiddenHelper() throws {
         let historySource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowCommandHistory.swift")
         let explorerSource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowFileExplorer.swift")
