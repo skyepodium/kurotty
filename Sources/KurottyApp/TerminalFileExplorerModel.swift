@@ -196,6 +196,38 @@ enum FileExplorerDirectoryLister {
     }
 }
 
+// MARK: - Agent provenance overlay
+
+/// What one explorer row shows about recent agent authorship.
+///
+/// Kept separate from `FileExplorerGitBadge`: git describes what the worktree
+/// differs from, provenance describes who typed it. A file can be both, one, or
+/// neither, and neither answer substitutes for the other.
+struct FileExplorerAgentMarker: Equatable, Sendable {
+    /// The row's own newest agent write inside the recency window. Nil for
+    /// directories and for files no indexed session wrote.
+    let touch: AgentFileTouch?
+    /// Whether this row, or anything under it, changed inside the window. A
+    /// collapsed folder carries this without carrying a touch of its own.
+    let hasRecentChange: Bool
+
+    static let none = FileExplorerAgentMarker(touch: nil, hasRecentChange: false)
+
+    static func make(
+        absolutePath: String,
+        provenance: AgentFileProvenanceIndex,
+        now: Date
+    ) -> FileExplorerAgentMarker {
+        guard provenance.hasRecentChange(atOrUnder: absolutePath, now: now) else {
+            return .none
+        }
+        return FileExplorerAgentMarker(
+            touch: provenance.recentTouch(forAbsolutePath: absolutePath, now: now),
+            hasRecentChange: true
+        )
+    }
+}
+
 // MARK: - Git overlay
 
 enum FileExplorerGitBadge: Equatable, Sendable {

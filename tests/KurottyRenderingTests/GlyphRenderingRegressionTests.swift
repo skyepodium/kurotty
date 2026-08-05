@@ -1525,9 +1525,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 14 when `terminal.restoreScrollbackOnLaunch` was
-        // added.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 15"))
+        // Re-pointed at schema 16 when the editor's own font size and line-wrap
+        // settings were added.
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 16"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))

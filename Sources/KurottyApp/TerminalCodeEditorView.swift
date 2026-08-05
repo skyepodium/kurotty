@@ -126,6 +126,7 @@ final class TerminalCodeEditorView: NSView {
     // MARK: - Public API
 
     func load(url: URL) {
+        applyEditorSettings()
         fileURL = url
         language = CodeSyntaxLanguage(fileExtension: url.pathExtension)
         callbacks.onTitleChanged?(url.lastPathComponent)
@@ -229,13 +230,15 @@ final class TerminalCodeEditorView: NSView {
         textView.smartInsertDeleteEnabled = false
         textView.font = editorFont
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
+        // AppKit's own find bar rather than a bespoke one: it brings Cmd+F,
+        // Cmd+G, incremental highlighting, and the standard Find menu items for
+        // free, and it already matches the system chrome the editor sits in.
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.textContainerInset = NSSize(
             width: DesignTokens.Component.codeEditorTextInsetXPX,
             height: DesignTokens.Component.codeEditorTextInsetYPX
         )
-        textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
         textView.onSaveKeyEquivalent = { [weak self] in
             self?.save()
@@ -339,11 +342,48 @@ final class TerminalCodeEditorView: NSView {
 
     // MARK: - Appearance
 
+    /// Settings are read on demand rather than cached: an editor tab can be
+    /// open across a settings change, and a stale copy would keep the old size.
+    private static func editorSettings() -> TerminalSettings {
+        ((try? AppSettingsStore.shared.load()) ?? .default).terminal
+    }
+
     private var editorFont: NSFont {
-        NSFont.monospacedSystemFont(
-            ofSize: DesignTokens.Typography.codeEditorFontSizePT,
+        let size = Self.editorSettings().codeEditorFontSize
+        return NSFont.monospacedSystemFont(
+            ofSize: size > 0 ? size : DesignTokens.Typography.codeEditorFontSizePT,
             weight: .regular
         )
+    }
+
+    /// Re-reads the editor's own settings. Called on load and whenever settings
+    /// change, so a size or wrap change lands in tabs that are already open
+    /// rather than only in the next one.
+    func applyEditorSettings() {
+        textView.font = editorFont
+        applyLineWrapping(Self.editorSettings().codeEditorWrapsLines)
+        rehighlight()
+    }
+
+    /// Soft wrap folds long lines to the pane width; hard wrap lets them run and
+    /// scrolls horizontally. The text container has to be resized either way,
+    /// because a container left at the view width silently keeps folding.
+    private func applyLineWrapping(_ wraps: Bool) {
+        guard let container = textView.textContainer else { return }
+        scrollView.hasHorizontalScroller = !wraps
+        textView.isHorizontallyResizable = !wraps
+        if wraps {
+            textView.autoresizingMask = [.width]
+            textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            container.widthTracksTextView = true
+            container.size = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
+        } else {
+            textView.autoresizingMask = [.height]
+            textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            container.widthTracksTextView = false
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        }
+        textView.needsLayout = true
     }
 
     private func applyPalette() {

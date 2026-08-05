@@ -13,7 +13,24 @@ import Foundation
 /// mirroring `TerminalCommandHistoryStore`.
 @MainActor
 final class AgentSessionIndexStore: NSObject {
-    static let shared = AgentSessionIndexStore()
+    static let shared = AgentSessionIndexStore(
+        isIndexingEnabled: isRunningUnderXCTest ? false : nil
+    )
+
+    /// The shared store scans every transcript under the real home directory on
+    /// a detached task. Under XCTest that is wrong twice over: it makes the
+    /// suite read whatever happens to be in the developer's `~/.claude`, and it
+    /// leaves long file-I/O tasks running past the tests that started them,
+    /// still holding a hop back to the main actor when the harness tears the
+    /// process down. Tests that want the store build their own with an injected
+    /// home directory.
+    ///
+    /// Detected by the presence of the XCTest runtime rather than an
+    /// environment variable: `swift test` does not set the variables Xcode
+    /// does, and a gate that silently stops matching is worse than no gate.
+    static var isRunningUnderXCTest: Bool {
+        NSClassFromString("XCTestCase") != nil
+    }
     static let didChangeNotification = Notification.Name("dev.kurotty.agentSessionIndex.didChange")
 
     /// Reuse key for an already-parsed transcript. A file is re-read only when
@@ -22,16 +39,24 @@ final class AgentSessionIndexStore: NSObject {
         let modificationDate: Date
         let sizeBytes: Int
         let record: AgentSessionRecord
+        /// File writes this transcript recorded. Cached alongside the record so
+        /// an unchanged transcript is never re-parsed for provenance either.
+        let touches: [AgentFileTouch]
     }
 
     private struct ScanOutcome: Sendable {
         let records: [AgentSessionRecord]
+        let provenance: AgentFileProvenanceIndex
         let cache: [String: CacheEntry]
     }
 
     /// Records ordered newest-updated first and capped at
     /// `AppConstants.AgentSessions.maximumSessionCount`.
     private(set) var records: [AgentSessionRecord] = []
+    /// Which working-tree files the indexed sessions wrote, and from which
+    /// prompt. Empty until the first scan completes and whenever indexing is
+    /// off, so callers render without markers rather than waiting.
+    private(set) var provenance = AgentFileProvenanceIndex.empty
     private(set) var isIndexingEnabled: Bool
     private(set) var isScanning = false
     private(set) var hasCompletedInitialScan = false
@@ -84,6 +109,7 @@ final class AgentSessionIndexStore: NSObject {
         isIndexingEnabled = enabled
         guard enabled else {
             records = []
+            provenance = .empty
             cache = [:]
             hasCompletedInitialScan = false
             NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
@@ -101,6 +127,7 @@ final class AgentSessionIndexStore: NSObject {
                 return
             }
             records = []
+            provenance = .empty
             cache = [:]
             NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
             return
@@ -132,16 +159,25 @@ final class AgentSessionIndexStore: NSObject {
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 
+    /// Test seam: replaces the provenance index without touching the filesystem.
+    func setProvenanceForTesting(_ touches: [AgentFileTouch]) {
+        provenance = AgentFileProvenanceIndex(touches: touches)
+        hasCompletedInitialScan = true
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    }
+
     private func applyScanOutcome(_ outcome: ScanOutcome) {
         isScanning = false
         hasCompletedInitialScan = true
         guard isIndexingEnabled else {
             records = []
+            provenance = .empty
             cache = [:]
             NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
             return
         }
         records = outcome.records
+        provenance = outcome.provenance
         cache = outcome.cache
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
         guard wantsRescanAfterCurrentScan else {
@@ -196,10 +232,21 @@ final class AgentSessionIndexStore: NSObject {
                 else {
                     continue
                 }
+                // Provenance re-reads the same string rather than the same file:
+                // the second pass costs CPU on a background task once per
+                // changed transcript, and the cache keeps rescans free.
+                let touches = AgentFileProvenanceExtractorFactory
+                    .extractor(for: scanner.agent)
+                    .touches(
+                        contents: read.contents,
+                        sessionID: record.sessionID,
+                        transcriptPath: path
+                    )
                 nextCache[path] = CacheEntry(
                     modificationDate: modificationDate,
                     sizeBytes: sizeBytes,
-                    record: record
+                    record: record,
+                    touches: touches
                 )
                 records.append(record)
             }
@@ -210,9 +257,11 @@ final class AgentSessionIndexStore: NSObject {
         // Only keep cache entries for the records that survived the cap so the
         // cache cannot outgrow the published index.
         let keptPaths = Set(capped.map(\.filePath))
+        let keptCache = nextCache.filter { keptPaths.contains($0.key) }
         return ScanOutcome(
             records: capped,
-            cache: nextCache.filter { keptPaths.contains($0.key) }
+            provenance: AgentFileProvenanceIndex(touches: keptCache.values.flatMap(\.touches)),
+            cache: keptCache
         )
     }
 }

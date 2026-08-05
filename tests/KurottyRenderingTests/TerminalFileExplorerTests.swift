@@ -278,3 +278,131 @@ final class TerminalFileExplorerTests: XCTestCase {
         XCTAssertNil(TerminalGitStatusRunner.collectStatus(rootDirectoryPath: temporaryRoot.path))
     }
 }
+
+// MARK: - Agent provenance rows
+
+/// The explorer's agent-provenance column: a reserved slot before the git
+/// column, a tooltip that names the session's prompt, and a transcript action
+/// that is present only for files an agent actually wrote.
+@MainActor
+final class TerminalFileExplorerAgentProvenanceRowTests: XCTestCase {
+    private enum RowFixture {
+        static let rowWidthPX: CGFloat = 240
+        static let prompt = "Document the provenance index"
+        static let transcriptPath = "/Users/tester/.claude/projects/slug/session-1.jsonl"
+    }
+
+    private func touch(for url: URL, minutesAgo: Int = 90) -> AgentFileTouch {
+        AgentFileTouch(
+            agent: .claudeCode,
+            sessionID: "session-1",
+            absolutePath: url.standardizedFileURL.path,
+            changedAt: Date().addingTimeInterval(TimeInterval(-minutesAgo * 60)),
+            kind: .edited,
+            promptExcerpt: RowFixture.prompt,
+            transcriptPath: RowFixture.transcriptPath
+        )
+    }
+
+    private func rowCell(marker: FileExplorerAgentMarker) -> TerminalFileExplorerRowCellView {
+        let item = TerminalFileExplorerOutlineItem(
+            node: FileExplorerNode(
+                url: URL(fileURLWithPath: "/Users/tester/dev/project/README.md"),
+                kind: .file
+            )
+        )
+        let cell = TerminalFileExplorerRowCellView(
+            item: item,
+            badge: .modified,
+            agentMarker: marker,
+            chromeTheme: .dark
+        )
+        cell.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: RowFixture.rowWidthPX,
+            height: DesignTokens.Component.fileExplorerRowHeightPX
+        )
+        cell.layoutSubtreeIfNeeded()
+        return cell
+    }
+
+    func testAMarkedRowExplainsItselfInTheTooltip() throws {
+        let url = URL(fileURLWithPath: "/Users/tester/dev/project/README.md")
+        let marker = FileExplorerAgentMarker(touch: touch(for: url), hasRecentChange: true)
+        let tooltip = try XCTUnwrap(rowCell(marker: marker).toolTip)
+        XCTAssertTrue(tooltip.contains(AgentSessionKind.claudeCode.displayName))
+        XCTAssertTrue(tooltip.contains(RowFixture.prompt))
+    }
+
+    func testAnUnmarkedRowCarriesNoTooltip() {
+        XCTAssertNil(rowCell(marker: .none).toolTip)
+    }
+
+    /// The reason the column is reserved rather than inserted on demand: a slot
+    /// that appears and disappears would move the file name from row to row,
+    /// which is exactly the defect the git column was rebuilt to remove.
+    func testTheAgentColumnIsReservedWhetherOrNotItDraws() {
+        let url = URL(fileURLWithPath: "/Users/tester/dev/project/README.md")
+        let marked = rowCell(
+            marker: FileExplorerAgentMarker(touch: touch(for: url), hasRecentChange: true)
+        )
+        let unmarked = rowCell(marker: .none)
+        for cell in [marked, unmarked] {
+            let agentSlot = cell.subviews.compactMap { $0 as? TerminalFileExplorerAgentSlotView }.first
+            let gitSlot = cell.subviews.compactMap { $0 as? TerminalFileExplorerGitSlotView }.first
+            XCTAssertNotNil(agentSlot)
+            XCTAssertNotNil(gitSlot)
+            XCTAssertEqual(
+                agentSlot?.frame.width,
+                DesignTokens.Component.fileExplorerAgentSlotSizePX
+            )
+            // Agent column sits immediately before the git column.
+            XCTAssertEqual(agentSlot?.frame.maxX, gitSlot?.frame.minX)
+        }
+        XCTAssertEqual(
+            marked.subviews.compactMap { $0 as? TerminalFileExplorerAgentSlotView }.first?.frame,
+            unmarked.subviews.compactMap { $0 as? TerminalFileExplorerAgentSlotView }.first?.frame
+        )
+    }
+
+    func testTranscriptContextActionIsOfferedOnlyForFilesAnAgentWrote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-provenance-menu-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("README.md")
+        try "content\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let panel = TerminalFileExplorerPanelView(
+            agentSessionIndexStore: AgentSessionIndexStore(
+                homeDirectory: root,
+                scanners: [],
+                isIndexingEnabled: false,
+                observesSettingsChanges: false
+            )
+        )
+        panel.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+        panel.update(rootDirectory: root)
+        panel.layoutSubtreeIfNeeded()
+
+        let menu = try XCTUnwrap(panel.contextMenuForTesting)
+        let transcriptTitle = AppLocalization.string(.revealTranscriptInFinder)
+        let transcriptItem = try XCTUnwrap(menu.items.first { $0.title == transcriptTitle })
+
+        panel.selectRowForTesting(0)
+        menu.delegate?.menuNeedsUpdate?(menu)
+        XCTAssertFalse(transcriptItem.isEnabled)
+
+        panel.setAgentProvenanceForTesting(AgentFileProvenanceIndex(touches: [touch(for: file)]))
+        panel.selectRowForTesting(0)
+        menu.delegate?.menuNeedsUpdate?(menu)
+        XCTAssertTrue(transcriptItem.isEnabled)
+        XCTAssertTrue(
+            panel.agentMarkerForTesting(
+                absolutePath: file.standardizedFileURL.path,
+                now: Date()
+            ).hasRecentChange
+        )
+    }
+}

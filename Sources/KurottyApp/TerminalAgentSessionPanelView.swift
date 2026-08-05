@@ -29,6 +29,7 @@ final class TerminalAgentSessionPanelView: NSView {
     /// state is centered in the list region instead of the whole panel and can
     /// never be drawn over the section header or the search pill.
     private let listContainerView = NSView()
+    private let usageSummaryView = TerminalAgentUsageSummaryView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
     private let emptyStateIconView = NSImageView()
@@ -64,6 +65,7 @@ final class TerminalAgentSessionPanelView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         searchPillView.applyChromeTheme(theme)
+        usageSummaryView.applyChromeTheme(theme)
         DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
         applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
@@ -152,6 +154,10 @@ final class TerminalAgentSessionPanelView: NSView {
         searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
+
+        usageSummaryView.translatesAutoresizingMaskIntoConstraints = false
+        usageSummaryView.applyChromeTheme(chromeTheme)
+        addSubview(usageSummaryView)
     }
 
     private func configureSectionHeader() {
@@ -239,8 +245,15 @@ final class TerminalAgentSessionPanelView: NSView {
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
 
-            listContainerView.topAnchor.constraint(
+            usageSummaryView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
+                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+            ),
+            usageSummaryView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            usageSummaryView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            listContainerView.topAnchor.constraint(
+                equalTo: usageSummaryView.bottomAnchor,
                 constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
             ),
             listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -275,6 +288,14 @@ final class TerminalAgentSessionPanelView: NSView {
         reloadGroups()
     }
 
+    /// Recomputed whenever the index changes so the strip tracks the same data
+    /// the list shows. Hidden by itself when no session reports usage.
+    private func refreshUsageSummary(records: [AgentSessionRecord]) {
+        usageSummaryView.update(
+            summary: AgentTokenUsageSummary.make(records: records, now: Date())
+        )
+    }
+
     private func reloadGroups() {
         let groups = AgentSessionRowBuilder.groups(
             records: store.records,
@@ -282,6 +303,9 @@ final class TerminalAgentSessionPanelView: NSView {
             homeDirectory: homeDirectory
         )
         groupItems = groups.map(TerminalAgentSessionGroupOutlineItem.init)
+        // The strip summarizes the whole index, not the filtered view: a search
+        // narrows which sessions you are looking at, not how much you spent.
+        refreshUsageSummary(records: store.records)
         updateEmptyState()
         outlineView.reloadData()
         applyExpansionState()

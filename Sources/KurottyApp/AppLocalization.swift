@@ -54,6 +54,8 @@ enum L10nKey: String, CaseIterable {
     case replayCommandQuestion, openLinkQuestion, cancel, open, openInBrowser, replay
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     case updateUnavailableTitle, updateUnavailableMessage, ok
+    case moveToApplicationsTitle, moveToApplicationsMessage, moveToApplications, moveToApplicationsLater
+    case moveToApplicationsFailedTitle, moveToApplicationsFailedMessage, translocatedMessage
     case help, copyDiagnosticsReport, diagnosticsReportCopiedTitle, diagnosticsReportCopiedMessage
     case settingsWindow, settingsValid, errors, warnings
     case invalidSettingsJSON, settingsLoaded, settingsLoadFailed, settingsNotApplied, settingsApplying, settingsApplied, settingsApplyFailed
@@ -97,6 +99,21 @@ enum L10nKey: String, CaseIterable {
     case statusBarProcessUsageTitle, statusBarMemoryDescription
     case statusBarQuitProcess, statusBarQuitProcessTitle, statusBarQuitProcessMessage
     case statusBarQuitProcessConfirm, statusBarNoProcesses
+    // Git worktree segment and its popover.
+    case statusBarWorktreeTitle, statusBarWorktreeMainTag, statusBarWorktreeMainDescription
+    case statusBarWorktreeLinkedDescription, statusBarWorktreeDetached, statusBarWorktreeLocked
+    case statusBarWorktreeDirtyDescription
+    // Two keys because English needs a singular form; Korean and Japanese use
+    // the same wording for both.
+    case statusBarWorktreeSessionCount, statusBarWorktreeSessionCountOne
+    case statusBarWorktreeChangeDirectory, statusBarNoWorktrees
+    // Agent token usage strip.
+    case agentUsageToday, agentUsageInput, agentUsageOutput, agentUsageCache, agentUsageAccessibility
+    // Agent change provenance in the file explorer.
+    case fileExplorerAgentTouchTitle, fileExplorerAgentTouchPrompt, fileExplorerAgentTouchAccessibility
+    // Agent context-window forecast.
+    case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
+    case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
 }
 
 enum AppLocalization {
@@ -152,6 +169,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "Paste %d lines?", .pasteLinesExplanation: "The shell can run every line this paste contains.", .pasteConfirm: "Paste",
             .pasteTooLargeTitle: "Paste Too Large", .pasteTooLargeExplanation: "This clipboard content is %d bytes, above the %d byte paste limit.",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
+            .moveToApplicationsTitle: "Move to Applications?", .moveToApplicationsMessage: "%@ is running from a read-only or temporary location, so it cannot update itself. Moving it to the Applications folder and relaunching fixes that.", .moveToApplications: "Move and Relaunch", .moveToApplicationsLater: "Not Now",
+            .moveToApplicationsFailedTitle: "Move Failed", .moveToApplicationsFailedMessage: "The Applications folder could not be written to: %@", .translocatedMessage: "macOS is running %@ from a randomized read-only copy, so it cannot update itself and cannot move itself either. Move the app to the Applications folder in Finder, then open it from there.",
             .help: "Help", .copyDiagnosticsReport: "Copy Diagnostics Report",
             .diagnosticsReportCopiedTitle: "Diagnostics Report Copied", .diagnosticsReportCopiedMessage: "The report is on the clipboard. It contains version, renderer, and event counts only — no terminal output, commands, or full paths.",
             .settingsWindow: "%@ Settings", .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
@@ -200,6 +219,22 @@ enum AppLocalization {
             .statusBarQuitProcess: "Quit process", .statusBarQuitProcessTitle: "Quit this process?",
             .statusBarQuitProcessMessage: "The pane's shell process tree is asked to terminate, then force-quit if it does not exit. Unsaved work in that pane is lost.",
             .statusBarQuitProcessConfirm: "Quit", .statusBarNoProcesses: "No pane processes are being sampled.",
+            .statusBarWorktreeTitle: "Worktrees", .statusBarWorktreeMainTag: "main",
+            .statusBarWorktreeMainDescription: "Main worktree", .statusBarWorktreeLinkedDescription: "Linked worktree",
+            .statusBarWorktreeDetached: "detached", .statusBarWorktreeLocked: "locked",
+            .statusBarWorktreeDirtyDescription: "Uncommitted changes",
+            .statusBarWorktreeSessionCount: "%d agent sessions", .statusBarWorktreeSessionCountOne: "%d agent session",
+            .statusBarWorktreeChangeDirectory: "Insert cd",
+            .statusBarNoWorktrees: "This directory is not in a git worktree.",
+            .agentUsageToday: "TODAY", .agentUsageInput: "in", .agentUsageOutput: "out", .agentUsageCache: "cache", .agentUsageAccessibility: "%1$@ tokens today across %2$d sessions",
+            .fileExplorerAgentTouchTitle: "Changed by %1$@ · %2$@", .fileExplorerAgentTouchPrompt: "Prompt: %@",
+            .fileExplorerAgentTouchAccessibility: "Changed by an agent",
+            .agentContextLabel: "Context",
+            .agentContextOfLimit: "%1$d%% of %2$@",
+            .agentContextTurnsLeft: "~%d turns left",
+            .agentContextOverLimit: "over limit",
+            .agentContextLimitUnknown: "%@ used, limit unknown",
+            .agentContextAccessibility: "Context %1$d%% used",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -216,6 +251,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "%d줄을 붙여넣을까요?", .pasteLinesExplanation: "이 붙여넣기에 포함된 모든 줄이 셸에서 실행될 수 있습니다.", .pasteConfirm: "붙여넣기",
             .pasteTooLargeTitle: "붙여넣기 내용이 너무 큽니다", .pasteTooLargeExplanation: "클립보드 내용이 %d바이트로, 붙여넣기 한도 %d바이트를 넘습니다.",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
+            .moveToApplicationsTitle: "응용 프로그램 폴더로 옮길까요?", .moveToApplicationsMessage: "%@이(가) 읽기 전용이거나 임시 위치에서 실행 중이라 스스로 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮기고 다시 실행하면 해결됩니다.", .moveToApplications: "옮기고 다시 실행", .moveToApplicationsLater: "나중에",
+            .moveToApplicationsFailedTitle: "옮기지 못했습니다", .moveToApplicationsFailedMessage: "응용 프로그램 폴더에 쓸 수 없습니다: %@", .translocatedMessage: "macOS가 %@을(를) 무작위 읽기 전용 사본으로 실행하고 있어 스스로 업데이트할 수도, 옮길 수도 없습니다. Finder에서 앱을 응용 프로그램 폴더로 옮긴 뒤 거기서 실행해 주세요.",
             .help: "도움말", .copyDiagnosticsReport: "진단 리포트 복사",
             .diagnosticsReportCopiedTitle: "진단 리포트를 복사했습니다", .diagnosticsReportCopiedMessage: "리포트가 클립보드에 있습니다. 버전, 렌더러, 이벤트 개수만 포함하며 터미널 출력, 명령어, 전체 경로는 들어 있지 않습니다.",
             .settingsWindow: "%@ 설정", .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
@@ -264,6 +301,22 @@ enum AppLocalization {
             .statusBarQuitProcess: "프로세스 종료", .statusBarQuitProcessTitle: "이 프로세스를 종료할까요?",
             .statusBarQuitProcessMessage: "패널의 셸 프로세스 트리에 종료를 요청하고, 응답이 없으면 강제 종료합니다. 저장하지 않은 작업은 사라집니다.",
             .statusBarQuitProcessConfirm: "종료", .statusBarNoProcesses: "샘플링 중인 패널 프로세스가 없습니다.",
+            .statusBarWorktreeTitle: "워크트리", .statusBarWorktreeMainTag: "메인",
+            .statusBarWorktreeMainDescription: "메인 워크트리", .statusBarWorktreeLinkedDescription: "연결된 워크트리",
+            .statusBarWorktreeDetached: "분리됨", .statusBarWorktreeLocked: "잠김",
+            .statusBarWorktreeDirtyDescription: "커밋하지 않은 변경 사항",
+            .statusBarWorktreeSessionCount: "에이전트 세션 %d개", .statusBarWorktreeSessionCountOne: "에이전트 세션 %d개",
+            .statusBarWorktreeChangeDirectory: "cd 입력",
+            .statusBarNoWorktrees: "이 디렉터리는 git 워크트리 안에 있지 않습니다.",
+            .agentUsageToday: "오늘", .agentUsageInput: "입력", .agentUsageOutput: "출력", .agentUsageCache: "캐시", .agentUsageAccessibility: "오늘 %2$d개 세션에서 %1$@ 토큰",
+            .fileExplorerAgentTouchTitle: "%1$@이(가) 변경 · %2$@", .fileExplorerAgentTouchPrompt: "프롬프트: %@",
+            .fileExplorerAgentTouchAccessibility: "에이전트가 변경함",
+            .agentContextLabel: "컨텍스트",
+            .agentContextOfLimit: "%2$@ 중 %1$d%%",
+            .agentContextTurnsLeft: "약 %d턴 남음",
+            .agentContextOverLimit: "한도 초과",
+            .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
+            .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -280,6 +333,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "%d行をペーストしますか？", .pasteLinesExplanation: "このペーストに含まれるすべての行がシェルで実行される可能性があります。", .pasteConfirm: "ペースト",
             .pasteTooLargeTitle: "ペースト内容が大きすぎます", .pasteTooLargeExplanation: "クリップボードの内容は %d バイトで、ペースト上限の %d バイトを超えています。",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
+            .moveToApplicationsTitle: "アプリケーションフォルダに移動しますか？", .moveToApplicationsMessage: "%@ は読み取り専用または一時的な場所から実行されているため、自身をアップデートできません。アプリケーションフォルダに移動して再起動すると解決します。", .moveToApplications: "移動して再起動", .moveToApplicationsLater: "後で",
+            .moveToApplicationsFailedTitle: "移動できませんでした", .moveToApplicationsFailedMessage: "アプリケーションフォルダに書き込めません: %@", .translocatedMessage: "macOS が %@ をランダムな読み取り専用のコピーとして実行しているため、自身をアップデートすることも移動することもできません。Finder でアプリをアプリケーションフォルダに移動してから、そこで開いてください。",
             .help: "ヘルプ", .copyDiagnosticsReport: "診断レポートをコピー",
             .diagnosticsReportCopiedTitle: "診断レポートをコピーしました", .diagnosticsReportCopiedMessage: "レポートはクリップボードにあります。バージョン、レンダラー、イベント数のみを含み、ターミナル出力・コマンド・完全なパスは含まれません。",
             .settingsWindow: "%@の設定", .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
@@ -328,6 +383,22 @@ enum AppLocalization {
             .statusBarQuitProcess: "プロセスを終了", .statusBarQuitProcessTitle: "このプロセスを終了しますか？",
             .statusBarQuitProcessMessage: "ペインのシェルプロセスツリーに終了を要求し、応答がなければ強制終了します。保存していない作業は失われます。",
             .statusBarQuitProcessConfirm: "終了", .statusBarNoProcesses: "サンプリング中のペインプロセスはありません。",
+            .statusBarWorktreeTitle: "ワークツリー", .statusBarWorktreeMainTag: "メイン",
+            .statusBarWorktreeMainDescription: "メインワークツリー", .statusBarWorktreeLinkedDescription: "リンクされたワークツリー",
+            .statusBarWorktreeDetached: "デタッチ", .statusBarWorktreeLocked: "ロック中",
+            .statusBarWorktreeDirtyDescription: "コミットされていない変更",
+            .statusBarWorktreeSessionCount: "エージェントセッション %d 件", .statusBarWorktreeSessionCountOne: "エージェントセッション %d 件",
+            .statusBarWorktreeChangeDirectory: "cd を入力",
+            .statusBarNoWorktrees: "このディレクトリは git ワークツリー内にありません。",
+            .agentUsageToday: "今日", .agentUsageInput: "入力", .agentUsageOutput: "出力", .agentUsageCache: "キャッシュ", .agentUsageAccessibility: "本日 %2$d セッションで %1$@ トークン",
+            .fileExplorerAgentTouchTitle: "%1$@ が変更 · %2$@", .fileExplorerAgentTouchPrompt: "プロンプト: %@",
+            .fileExplorerAgentTouchAccessibility: "エージェントが変更しました",
+            .agentContextLabel: "コンテキスト",
+            .agentContextOfLimit: "%2$@ 中 %1$d%%",
+            .agentContextTurnsLeft: "残り約 %d ターン",
+            .agentContextOverLimit: "上限超過",
+            .agentContextLimitUnknown: "%@ 使用、上限不明",
+            .agentContextAccessibility: "コンテキスト %1$d%% 使用",
         ],
     ]
 }

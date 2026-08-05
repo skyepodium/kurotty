@@ -90,6 +90,17 @@ enum AppConstants {
         static let percentUnit = "%"
     }
 
+    enum GitWorktree {
+        /// Upper bound on `git status` invocations per worktree refresh. One
+        /// process per checkout is acceptable for the handful of worktrees a
+        /// person runs agents in; a repository with dozens of them must not
+        /// turn one refresh into dozens of processes.
+        static let dirtyCheckMaximumCOUNT = 12
+        /// Universal marker for "has uncommitted changes", matching the
+        /// convention shell prompts already use. Not translated.
+        static let dirtyMarker = "*"
+    }
+
     enum FileExplorer {
         /// Filesystem events arrive in bursts; the tree is rebuilt once the
         /// burst settles rather than per event.
@@ -158,6 +169,21 @@ enum AppConstants {
         static let maximumJSONSearchDepth = 4
         static let maximumTitleCharacters = 120
         static let maximumPromptCharacters = 400
+    }
+
+    /// Attribution of working-tree files to the agent session and prompt that
+    /// wrote them, derived from the same transcripts `AgentSessions` indexes.
+    enum AgentProvenance {
+        /// Newest touches kept across every indexed session. A developer's
+        /// transcript history reaches tens of thousands of file writes, and the
+        /// index exists to answer "who changed this recently", not to be an
+        /// archive.
+        static let maximumTouchCount = 20_000
+        /// History depth kept per file, newest first.
+        static let maximumTouchesPerFile = 20
+        /// How recently an agent must have written a file for the explorer to
+        /// mark it.
+        static let recentTouchWindowSeconds: TimeInterval = 24 * 60 * 60
     }
 
     /// Bounded reads for the JSONL transcript viewer. The reader never loads a

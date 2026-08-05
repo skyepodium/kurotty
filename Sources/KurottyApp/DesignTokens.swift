@@ -508,6 +508,13 @@ enum DesignTokens {
         /// on purpose: these two lines are one label pair, not two rows, and a
         /// full step would break them apart.
         static let preferencesHeadingLineGapPX: CGFloat = 2
+        /// Settings search. The query field sits in the sidebar between the
+        /// window heading and the category list, so its bottom gap is a control
+        /// gap rather than the section gap that separates it from the heading.
+        static let preferencesSearchFieldBottomGapPX = Space.x3PX
+        static let preferencesSearchEmptyStateTopGapPX = Space.x6PX
+        static let preferencesSearchEmptyStateGapPX = Space.x3PX
+        static let preferencesSearchEmptyStateIconPointSizePT: CGFloat = 18
         static let settingsEditorFontSizePT: CGFloat = 12
         static let glyphAtlasSizePX = 4096
         static let glyphSlotWidthPX = 128
@@ -625,6 +632,14 @@ enum DesignTokens {
         static let fileExplorerGitConflictPointSizePT: CGFloat = 10
         static let fileExplorerFolderIconAlphaRATIO: CGFloat = 0.85
         static let fileExplorerDimmedTextAlphaRATIO: CGFloat = 0.50
+        /// Agent-provenance column, sitting immediately before the git column.
+        /// A hollow ring rather than a second filled dot: git already owns the
+        /// filled-dot vocabulary, and shape separates the two states faster
+        /// than a fourth dot color would.
+        static let fileExplorerAgentSlotSizePX: CGFloat = 12
+        static let fileExplorerAgentRingDiameterPX: CGFloat = 6
+        static let fileExplorerAgentRingLineWidthPX: CGFloat = 1.5
+        static let fileExplorerAgentRingAlphaRATIO: CGFloat = 0.90
 
         // MARK: Shared sidebar search pill
 
@@ -649,6 +664,21 @@ enum DesignTokens {
         static let agentSessionAgentIconPointSizePT: CGFloat = 12
         static let agentSessionEmptyStateIconPointSizePT: CGFloat = 18
         static let agentSessionDefaultExpandedGroupCount = 3
+        // Context-window meter on a session row. One bar, no ticks, no label:
+        // the exact numbers live in the row tooltip, so the bar only has to
+        // carry "roughly how full" at a glance without competing with the
+        // title beside it.
+        static let agentContextMeterWidthPX: CGFloat = 26
+        static let agentContextMeterHeightPX: CGFloat = 3
+        /// Unfilled remainder. Low enough to read as a groove rather than a
+        /// second value.
+        static let agentContextMeterTrackAlphaRATIO: CGFloat = 0.16
+        /// Filled portion at rest. Recessive ink, not the accent: the accent is
+        /// reserved for focus and selection.
+        static let agentContextMeterFillAlphaRATIO: CGFloat = 0.50
+        /// Filled portion once the window is under pressure, and while the row
+        /// is selected. The only state that earns extra contrast.
+        static let agentContextMeterEmphasisAlphaRATIO: CGFloat = 0.90
         // Read-only agent transcript viewer. Flat inline rows: a tool run is one
         // line that expands in place, so detail rows are indented rather than
         // boxed.
@@ -754,6 +784,10 @@ enum DesignTokens {
             static let metricGapPX = Space.x4PX
             static let agentLabelMaxWidthPX: CGFloat = 160
             static let agentDetailMaxWidthPX: CGFloat = 96
+            /// Branch names get less room than the agent label: the segment is
+            /// a locator, and the full path lives in the tooltip and popover.
+            static let worktreeLabelMaxWidthPX: CGFloat = 140
+            static let worktreeRowBranchMaxWidthPX: CGFloat = 150
             static let memoryValueMinWidthPX: CGFloat = 48
             static let cpuValueMinWidthPX: CGFloat = 40
             static let spinnerSizePX: CGFloat = 12
