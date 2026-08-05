@@ -13,7 +13,24 @@ import Foundation
 /// mirroring `TerminalCommandHistoryStore`.
 @MainActor
 final class AgentSessionIndexStore: NSObject {
-    static let shared = AgentSessionIndexStore()
+    static let shared = AgentSessionIndexStore(
+        isIndexingEnabled: isRunningUnderXCTest ? false : nil
+    )
+
+    /// The shared store scans every transcript under the real home directory on
+    /// a detached task. Under XCTest that is wrong twice over: it makes the
+    /// suite read whatever happens to be in the developer's `~/.claude`, and it
+    /// leaves long file-I/O tasks running past the tests that started them,
+    /// still holding a hop back to the main actor when the harness tears the
+    /// process down. Tests that want the store build their own with an injected
+    /// home directory.
+    ///
+    /// Detected by the presence of the XCTest runtime rather than an
+    /// environment variable: `swift test` does not set the variables Xcode
+    /// does, and a gate that silently stops matching is worse than no gate.
+    static var isRunningUnderXCTest: Bool {
+        NSClassFromString("XCTestCase") != nil
+    }
     static let didChangeNotification = Notification.Name("dev.kurotty.agentSessionIndex.didChange")
 
     /// Reuse key for an already-parsed transcript. A file is re-read only when
