@@ -48,17 +48,23 @@ struct TerminalStatusBarPaneDescriptor: Equatable, Sendable {
     let shellProcessIdentifier: pid_t?
     /// OSC 7 working directory, used to look up a resumable agent session.
     let workingDirectoryPath: String
+    /// True when OSC 7 reported that directory on another machine. Local-only
+    /// lookups such as the git worktree segment must not run against a remote
+    /// path that happens to exist on this Mac too.
+    let isWorkingDirectoryRemote: Bool
 
     init(
         paneIdentifier: String,
         title: String,
         shellProcessIdentifier: pid_t?,
-        workingDirectoryPath: String
+        workingDirectoryPath: String,
+        isWorkingDirectoryRemote: Bool = false
     ) {
         self.paneIdentifier = paneIdentifier
         self.title = title
         self.shellProcessIdentifier = shellProcessIdentifier
         self.workingDirectoryPath = workingDirectoryPath
+        self.isWorkingDirectoryRemote = isWorkingDirectoryRemote
     }
 }
 
@@ -363,17 +369,36 @@ struct TerminalStatusBarVisibility: Equatable, Sendable {
     let showsAgentDetail: Bool
     let showsCPUMetric: Bool
     let showsMemoryValue: Bool
+    /// The worktree segment is dropped whole rather than reduced to its icon:
+    /// a branch glyph without a branch name locates nothing.
+    let showsWorktree: Bool
+
+    init(
+        showsAgentLabel: Bool,
+        showsAgentDetail: Bool,
+        showsCPUMetric: Bool,
+        showsMemoryValue: Bool,
+        showsWorktree: Bool = false
+    ) {
+        self.showsAgentLabel = showsAgentLabel
+        self.showsAgentDetail = showsAgentDetail
+        self.showsCPUMetric = showsCPUMetric
+        self.showsMemoryValue = showsMemoryValue
+        self.showsWorktree = showsWorktree
+    }
 
     static let full = TerminalStatusBarVisibility(
         showsAgentLabel: true,
         showsAgentDetail: true,
         showsCPUMetric: true,
-        showsMemoryValue: true
+        showsMemoryValue: true,
+        showsWorktree: true
     )
 }
 
 /// Pure width -> visibility mapping, applied in the documented order as the
-/// window narrows.
+/// window narrows: the worktree segment and the agent detail go first, then the
+/// CPU metric, then the agent label, and finally the memory value.
 enum TerminalStatusBarLayoutPolicy {
     static func visibility(barWidthPX: CGFloat) -> TerminalStatusBarVisibility {
         guard barWidthPX >= DesignTokens.Component.StatusBar.iconOnlyBreakpointPX else {

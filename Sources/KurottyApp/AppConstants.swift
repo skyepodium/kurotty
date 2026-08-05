@@ -90,6 +90,17 @@ enum AppConstants {
         static let percentUnit = "%"
     }
 
+    enum GitWorktree {
+        /// Upper bound on `git status` invocations per worktree refresh. One
+        /// process per checkout is acceptable for the handful of worktrees a
+        /// person runs agents in; a repository with dozens of them must not
+        /// turn one refresh into dozens of processes.
+        static let dirtyCheckMaximumCOUNT = 12
+        /// Universal marker for "has uncommitted changes", matching the
+        /// convention shell prompts already use. Not translated.
+        static let dirtyMarker = "*"
+    }
+
     enum FileExplorer {
         /// Filesystem events arrive in bursts; the tree is rebuilt once the
         /// burst settles rather than per event.

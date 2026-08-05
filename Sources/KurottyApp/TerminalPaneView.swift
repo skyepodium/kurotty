@@ -426,7 +426,8 @@ final class TerminalPaneView: NSView {
             paneIdentifier: agentPaneIdentifier,
             title: paneTitle,
             shellProcessIdentifier: shellProcessIdentifier,
-            workingDirectoryPath: terminalSurfaceView.workingDirectoryPath
+            workingDirectoryPath: terminalSurfaceView.workingDirectoryPath,
+            isWorkingDirectoryRemote: terminalSurfaceView.workingDirectoryLocation.isRemote
         )
     }
 

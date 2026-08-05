@@ -102,4 +102,5 @@ enum IconSymbol {
     static let memory = "memorychip"
     static let cpu = "cpu"
     static let agent = "sparkles"
+    static let worktree = "arrow.triangle.branch"
 }
