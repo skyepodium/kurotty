@@ -379,7 +379,10 @@ enum TerminalGitWorktreeRunner {
         process.arguments = [GitCommand.gitExecutableName] + arguments
         let standardOutputPipe = Pipe()
         process.standardOutput = standardOutputPipe
-        process.standardError = Pipe()
+        // stderr is discarded, so it must not be an unread Pipe: a chatty git
+        // fills the ~64 KB pipe buffer, blocks, and wedges this serial queue
+        // (and every queued request behind it) forever.
+        process.standardError = FileHandle.nullDevice
         do {
             try process.run()
         } catch {

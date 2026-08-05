@@ -150,6 +150,15 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
         guard let window = notification.object as? NSWindow else {
             return
         }
+        // The coordinator lives for the whole app, so every per-window
+        // registration must be unregistered here: otherwise each detach/close
+        // cycle leaves a permanent NotificationCenter entry keyed to a dead
+        // window.
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
         detachedWindowControllers.removeAll { $0.window === window }
     }
 }
