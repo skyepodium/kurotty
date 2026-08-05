@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var commandPaletteController: CommandPaletteWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before any window: an app running from the DMG cannot update itself,
+        // and the offer to move is worth making while the screen is still
+        // empty rather than after the user has started working in a terminal.
+        AppInstallLocationPrompt.presentIfNeeded()
         installApplicationIcon()
         TerminalNotifier.shared.requestAuthorization()
         notificationBridge.start()

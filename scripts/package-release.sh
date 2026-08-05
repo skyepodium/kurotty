@@ -145,6 +145,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
+  <!-- macOS resolves the whole bundle, embedded frameworks included, against
+       the localizations the app declares. Without this Sparkle's dialogs stay
+       English even though it ships ko and ja. Keep this list in step with
+       AppLanguage. -->
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>ko</string>
+    <string>ja</string>
+  </array>
   <key>CFBundleExecutable</key>
   <string>kurotty</string>
   <key>CFBundleIconFile</key>
