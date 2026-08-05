@@ -90,7 +90,7 @@ extension PreferencesView {
 
         let themeSection = section(title: copy(.themeSection), subtitle: copy(.themeSectionHelp))
         themePopup.removeAllItems()
-        themePopup.addItems(withTitles: [copy(.themeKurotty), copy(.themeLightty), copy(.themeCustom)])
+        themePopup.addItems(withTitles: PreferencesThemePopup.entries.map { copy($0.copyKey) })
         themePopup.target = self
         themePopup.action = #selector(themeChanged(_:))
         addRow(copy(.theme), control: themePopup, to: themeSection)

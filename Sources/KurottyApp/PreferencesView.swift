@@ -349,12 +349,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
     @objc func themeChanged(_ sender: NSPopUpButton) {
         guard !isUpdatingControls else { return }
-        let themeName: String
-        switch sender.indexOfSelectedItem {
-        case 0: themeName = TerminalThemePreset.kurottyName
-        case 1: themeName = TerminalThemePreset.lighttyName
-        default: themeName = TerminalThemePreset.customName
-        }
+        let themeName = PreferencesThemePopup.presetName(atIndex: sender.indexOfSelectedItem)
         settings.terminal.theme = themeName
         if let colors = TerminalThemePreset.colors(named: themeName) {
             settings.terminal.colors = colors
@@ -505,11 +500,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         windowHeightField.doubleValue = settings.window.height
         windowHeightStepper.doubleValue = settings.window.height
 
-        switch TerminalThemePreset.canonicalName(settings.terminal.theme) {
-        case TerminalThemePreset.kurottyName: themePopup.selectItem(at: 0)
-        case TerminalThemePreset.lighttyName: themePopup.selectItem(at: 1)
-        default: themePopup.selectItem(at: 2)
-        }
+        themePopup.selectItem(
+            at: PreferencesThemePopup.index(
+                ofPresetName: TerminalThemePreset.canonicalName(settings.terminal.theme)
+            )
+        )
         foregroundWell.color = NSColor(hexRGB: settings.terminal.colors.foreground) ?? .textColor
         backgroundWell.color = NSColor(hexRGB: settings.terminal.colors.background) ?? .textBackgroundColor
         cursorWell.color = NSColor(hexRGB: settings.terminal.colors.cursor) ?? .controlAccentColor
@@ -600,6 +595,37 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     var searchEmptyStateMessageForTesting: String { search.emptyStateMessageForTesting }
 
     var searchIndexForTesting: PreferencesSearchIndex { search.indexForTesting }
+}
+
+/// Single source of the theme popup's order. The popup titles, the
+/// index-to-preset mapping on selection, and the preset-to-index mapping on
+/// sync all derive from this list, so adding a selectable preset is one entry
+/// here (plus its copy key and `TerminalThemePreset` colors) instead of three
+/// coordinated switch edits.
+enum PreferencesThemePopup {
+    struct Entry {
+        let presetName: String
+        let copyKey: PreferencesCopy.Key
+    }
+
+    /// Custom stays last: it is the fallback for any stored theme name that
+    /// is not a selectable preset.
+    static let entries: [Entry] = [
+        Entry(presetName: TerminalThemePreset.kurottyName, copyKey: .themeKurotty),
+        Entry(presetName: TerminalThemePreset.lighttyName, copyKey: .themeLightty),
+        Entry(presetName: TerminalThemePreset.customName, copyKey: .themeCustom),
+    ]
+
+    static func presetName(atIndex index: Int) -> String {
+        guard entries.indices.contains(index) else {
+            return TerminalThemePreset.customName
+        }
+        return entries[index].presetName
+    }
+
+    static func index(ofPresetName name: String) -> Int {
+        entries.firstIndex { $0.presetName == name } ?? entries.count - 1
+    }
 }
 
 private final class FlippedPreferencesDocumentView: NSView {
