@@ -82,6 +82,10 @@ struct AgentSessionRecord: Equatable, Sendable {
     /// records none, which is also what a truncated head/tail read produces for
     /// the window it did not visit.
     let tokenUsage: AgentTokenUsage
+    /// How full this session's context window is. `.unknown` when the
+    /// transcript carried no token accounting; its `limit` is separately nil
+    /// when neither the transcript nor the model name yields a window.
+    let contextForecast: AgentContextForecast
 
     init(
         agent: AgentSessionKind,
@@ -96,7 +100,8 @@ struct AgentSessionRecord: Equatable, Sendable {
         firstUserPrompt: String? = nil,
         lastUserPrompt: String? = nil,
         filePath: String,
-        tokenUsage: AgentTokenUsage = .zero
+        tokenUsage: AgentTokenUsage = .zero,
+        contextForecast: AgentContextForecast = .unknown
     ) {
         self.agent = agent
         self.sessionID = sessionID
@@ -111,6 +116,7 @@ struct AgentSessionRecord: Equatable, Sendable {
         self.lastUserPrompt = lastUserPrompt
         self.filePath = filePath
         self.tokenUsage = tokenUsage
+        self.contextForecast = contextForecast
     }
 }
 
