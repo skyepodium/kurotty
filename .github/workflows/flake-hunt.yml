@@ -5,13 +5,10 @@ name: Flake Hunt
 # never reproduced on a developer machine, so the runner is the only place the
 # measurement can be taken.
 #
-# `workflow_dispatch` only becomes selectable once this file is on the default
-# branch, so the branch push trigger below exists to gather data before then.
-# Drop it once the hunt is over.
+# Kept after the hunt it was built for: the abort it measured took three
+# attempts to remove, and the next intermittent failure will want the same
+# instrument rather than another round of guessing.
 on:
-  push:
-    branches:
-      - chore/flake-hunt
   workflow_dispatch:
     inputs:
       iterations:
