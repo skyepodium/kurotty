@@ -2055,10 +2055,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("let overlapPenalty: CGFloat = overlapsPerpendicularAxis ? 0 : 10_000"))
         XCTAssertTrue(splitSource.contains("guard candidateCenter.y < activeCenter.y else { return nil }"))
         XCTAssertTrue(splitSource.contains("guard candidateCenter.y > activeCenter.y else { return nil }"))
-        XCTAssertTrue(splitSource.contains("private func configurePane(_ pane: TerminalPaneView)"))
+        XCTAssertTrue(splitSource.contains("func configurePane(_ pane: TerminalPaneView)"))
         XCTAssertTrue(splitSource.contains("pane.closeRequested = { [weak self] pane in"))
         XCTAssertTrue(splitSource.contains("pane.focusChanged = { [weak self] _ in"))
-        XCTAssertTrue(splitSource.contains("private func refreshPaneChrome()"))
+        XCTAssertTrue(splitSource.contains("func refreshPaneChrome()"))
         XCTAssertTrue(splitSource.contains("pane.setChromeVisible(isVisible)"))
         XCTAssertTrue(splitSource.contains("pane.setChromeActive(pane.ownsFirstResponder)"))
         XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
@@ -2142,7 +2142,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testNestedSplitRebalancesAfterItReceivesBounds() throws {
         let splitSource = try splitTerminalViewSource()
 
-        XCTAssertTrue(splitSource.contains("private var needsInitialRebalance = false"))
+        XCTAssertTrue(splitSource.contains("var needsInitialRebalance = false"))
         XCTAssertTrue(splitSource.contains("override func layout()"))
         XCTAssertTrue(splitSource.contains("if needsInitialRebalance"))
         XCTAssertTrue(splitSource.contains("needsInitialRebalance = false"))
@@ -3250,9 +3250,11 @@ private func terminalCommandRegistrySource() throws -> String {
 }
 
 private func splitTerminalViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/SplitTerminalView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
+    // The tmux projection and focus navigation were split into their own
+    // files; the source-shape assertions cover the whole family.
+    try appSource("SplitTerminalView.swift")
+        + appSource("SplitTerminalViewTmuxLayout.swift")
+        + appSource("SplitTerminalViewFocus.swift")
 }
 
 private func coreBridgeSource() throws -> String {
