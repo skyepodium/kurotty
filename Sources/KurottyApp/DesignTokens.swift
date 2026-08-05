@@ -656,6 +656,21 @@ enum DesignTokens {
         static let agentSessionAgentIconPointSizePT: CGFloat = 12
         static let agentSessionEmptyStateIconPointSizePT: CGFloat = 18
         static let agentSessionDefaultExpandedGroupCount = 3
+        // Context-window meter on a session row. One bar, no ticks, no label:
+        // the exact numbers live in the row tooltip, so the bar only has to
+        // carry "roughly how full" at a glance without competing with the
+        // title beside it.
+        static let agentContextMeterWidthPX: CGFloat = 26
+        static let agentContextMeterHeightPX: CGFloat = 3
+        /// Unfilled remainder. Low enough to read as a groove rather than a
+        /// second value.
+        static let agentContextMeterTrackAlphaRATIO: CGFloat = 0.16
+        /// Filled portion at rest. Recessive ink, not the accent: the accent is
+        /// reserved for focus and selection.
+        static let agentContextMeterFillAlphaRATIO: CGFloat = 0.50
+        /// Filled portion once the window is under pressure, and while the row
+        /// is selected. The only state that earns extra contrast.
+        static let agentContextMeterEmphasisAlphaRATIO: CGFloat = 0.90
         // Read-only agent transcript viewer. Flat inline rows: a tool run is one
         // line that expands in place, so detail rows are indented rather than
         // boxed.

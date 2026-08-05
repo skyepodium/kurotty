@@ -245,11 +245,16 @@ struct ClaudeSessionScanner: AgentSessionScanning {
         // Claude writes a fresh usage block per assistant message, so these are
         // summed. See `AgentTokenUsageParsing` for why Codex is not.
         var tokenUsage = AgentTokenUsage.zero
+        // The same block also describes context occupancy: one message's whole
+        // prompt plus its reply is what the next request has to carry. That is
+        // a level, not an increment, so it is sampled rather than summed.
+        var context = AgentContextForecastBuilder()
 
         for object in objects {
             let type = AgentSessionTranscriptParsing.nonEmptyString(object[Field.type])
             if let increment = AgentTokenUsageParsing.claudeIncrement(in: object) {
                 tokenUsage = tokenUsage + increment
+                context.observe(occupancyTokens: increment.totalTokens)
             }
             sessionID = sessionID ?? AgentSessionTranscriptParsing.nonEmptyString(object[Field.sessionID])
 
@@ -298,7 +303,11 @@ struct ClaudeSessionScanner: AgentSessionScanning {
             firstUserPrompt: firstUserPrompt.map(cappedPrompt),
             lastUserPrompt: (lastPrompt ?? firstUserPrompt).map(cappedPrompt),
             filePath: fileURL.path,
-            tokenUsage: tokenUsage
+            tokenUsage: tokenUsage,
+            // Claude records no context window anywhere in the transcript, so
+            // the limit can only come from the model name, and stays unknown
+            // for a model the table does not list.
+            contextForecast: context.forecast(model: tokenUsage.model)
         )
     }
 
@@ -420,12 +429,24 @@ struct CodexSessionScanner: AgentSessionScanning {
         // Codex reports a running total on every token_count event, so the last
         // one replaces the previous rather than adding to it.
         var tokenUsage = AgentTokenUsage.zero
+        // Context occupancy is the *last* request's cost, not the running
+        // total: the total counts the conversation once per turn it was
+        // re-sent, so it passes the window long before the window is full.
+        var context = AgentContextForecastBuilder()
 
         for object in objects {
             range.observe(timestamps.date(from: object[Field.timestamp]))
             let payload = object[Field.payload] as? [String: Any]
-            if let payload, let total = AgentTokenUsageParsing.codexRunningTotal(in: payload) {
-                tokenUsage = total
+            if let payload {
+                if let total = AgentTokenUsageParsing.codexRunningTotal(in: payload) {
+                    tokenUsage = total
+                }
+                if let last = AgentTokenUsageParsing.codexLastRequest(in: payload) {
+                    context.observe(occupancyTokens: last.totalTokens)
+                }
+                if let window = AgentTokenUsageParsing.codexContextWindow(in: payload) {
+                    context.observe(transcriptContextWindow: window)
+                }
             }
             if cwd == nil {
                 cwd = AgentSessionTranscriptParsing.workingDirectory(in: object)
@@ -484,7 +505,10 @@ struct CodexSessionScanner: AgentSessionScanning {
             firstUserPrompt: firstUserPrompt.map(cappedPrompt),
             lastUserPrompt: lastUserPrompt.map(cappedPrompt),
             filePath: fileURL.path,
-            tokenUsage: tokenUsage
+            tokenUsage: tokenUsage,
+            // Codex records the window itself, so the model table is never
+            // consulted here and the limit is a measured value.
+            contextForecast: context.forecast(model: tokenUsage.model)
         )
     }
 

@@ -66,6 +66,8 @@ enum AgentTokenUsageParsing {
     private enum CodexField {
         static let info = "info"
         static let totalUsage = "total_token_usage"
+        static let lastUsage = "last_token_usage"
+        static let contextWindow = "model_context_window"
         static let inputTokens = "input_tokens"
         static let outputTokens = "output_tokens"
         static let cachedInputTokens = "cached_input_tokens"
@@ -91,21 +93,46 @@ enum AgentTokenUsageParsing {
 
     /// The session's running total as of this event. Later events supersede
     /// earlier ones; they are not added together.
+    static func codexRunningTotal(in payload: [String: Any]) -> AgentTokenUsage? {
+        codexUsage(in: payload, field: CodexField.totalUsage)
+    }
+
+    /// What the most recent request to the model actually cost. Unlike the
+    /// running total this does not accumulate, so it is the only Codex field
+    /// that describes the live conversation rather than the whole session, and
+    /// its `totalTokens` is that request's prompt plus its reply.
+    static func codexLastRequest(in payload: [String: Any]) -> AgentTokenUsage? {
+        codexUsage(in: payload, field: CodexField.lastUsage)
+    }
+
+    /// The context window Codex recorded for the model it was talking to.
+    /// Measured, not inferred: Codex writes this beside every `token_count`.
+    static func codexContextWindow(in payload: [String: Any]) -> Int? {
+        guard let info = payload[CodexField.info] as? [String: Any] else {
+            return nil
+        }
+        let window = integer(info[CodexField.contextWindow])
+        return window > 0 ? window : nil
+    }
+
+    /// Both Codex usage blocks carry the same fields, so they share a reader.
     ///
     /// Codex reports cached input inside `input_tokens` rather than beside it,
     /// so the cached part is subtracted back out to keep `inputTokens` meaning
     /// the same thing it does for Claude: input that was not served from cache.
-    static func codexRunningTotal(in payload: [String: Any]) -> AgentTokenUsage? {
+    /// `totalTokens` is unaffected by that split and still equals the block's
+    /// own input plus output.
+    private static func codexUsage(in payload: [String: Any], field: String) -> AgentTokenUsage? {
         guard let info = payload[CodexField.info] as? [String: Any],
-              let total = info[CodexField.totalUsage] as? [String: Any]
+              let block = info[field] as? [String: Any]
         else {
             return nil
         }
-        let cached = integer(total[CodexField.cachedInputTokens])
-        let input = integer(total[CodexField.inputTokens])
+        let cached = integer(block[CodexField.cachedInputTokens])
+        let input = integer(block[CodexField.inputTokens])
         let usage = AgentTokenUsage(
             inputTokens: max(0, input - cached),
-            outputTokens: integer(total[CodexField.outputTokens]),
+            outputTokens: integer(block[CodexField.outputTokens]),
             cacheReadTokens: cached,
             cacheWriteTokens: 0,
             model: nil

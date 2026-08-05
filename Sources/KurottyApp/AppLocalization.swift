@@ -101,6 +101,9 @@ enum L10nKey: String, CaseIterable {
     case statusBarQuitProcessConfirm, statusBarNoProcesses
     // Agent token usage strip.
     case agentUsageToday, agentUsageInput, agentUsageOutput, agentUsageCache, agentUsageAccessibility
+    // Agent context-window forecast.
+    case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
+    case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
 }
 
 enum AppLocalization {
@@ -207,6 +210,12 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "The pane's shell process tree is asked to terminate, then force-quit if it does not exit. Unsaved work in that pane is lost.",
             .statusBarQuitProcessConfirm: "Quit", .statusBarNoProcesses: "No pane processes are being sampled.",
             .agentUsageToday: "TODAY", .agentUsageInput: "in", .agentUsageOutput: "out", .agentUsageCache: "cache", .agentUsageAccessibility: "%1$@ tokens today across %2$d sessions",
+            .agentContextLabel: "Context",
+            .agentContextOfLimit: "%1$d%% of %2$@",
+            .agentContextTurnsLeft: "~%d turns left",
+            .agentContextOverLimit: "over limit",
+            .agentContextLimitUnknown: "%@ used, limit unknown",
+            .agentContextAccessibility: "Context %1$d%% used",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -274,6 +283,12 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "패널의 셸 프로세스 트리에 종료를 요청하고, 응답이 없으면 강제 종료합니다. 저장하지 않은 작업은 사라집니다.",
             .statusBarQuitProcessConfirm: "종료", .statusBarNoProcesses: "샘플링 중인 패널 프로세스가 없습니다.",
             .agentUsageToday: "오늘", .agentUsageInput: "입력", .agentUsageOutput: "출력", .agentUsageCache: "캐시", .agentUsageAccessibility: "오늘 %2$d개 세션에서 %1$@ 토큰",
+            .agentContextLabel: "컨텍스트",
+            .agentContextOfLimit: "%2$@ 중 %1$d%%",
+            .agentContextTurnsLeft: "약 %d턴 남음",
+            .agentContextOverLimit: "한도 초과",
+            .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
+            .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -341,6 +356,12 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "ペインのシェルプロセスツリーに終了を要求し、応答がなければ強制終了します。保存していない作業は失われます。",
             .statusBarQuitProcessConfirm: "終了", .statusBarNoProcesses: "サンプリング中のペインプロセスはありません。",
             .agentUsageToday: "今日", .agentUsageInput: "入力", .agentUsageOutput: "出力", .agentUsageCache: "キャッシュ", .agentUsageAccessibility: "本日 %2$d セッションで %1$@ トークン",
+            .agentContextLabel: "コンテキスト",
+            .agentContextOfLimit: "%2$@ 中 %1$d%%",
+            .agentContextTurnsLeft: "残り約 %d ターン",
+            .agentContextOverLimit: "上限超過",
+            .agentContextLimitUnknown: "%@ 使用、上限不明",
+            .agentContextAccessibility: "コンテキスト %1$d%% 使用",
         ],
     ]
 }
