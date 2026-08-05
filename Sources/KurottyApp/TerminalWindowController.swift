@@ -252,7 +252,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         guard !hasActiveTmuxProjection(hosting: item) else { return }
         guard confirmEditorTabCloseIfNeeded(item) else { return }
         if tabView.numberOfTabViewItems <= 1 {
+            // `performClose` runs `windowShouldClose`, which confirms running
+            // processes for the whole window; a second tab-level prompt here
+            // would ask twice for the same close.
             window?.performClose(nil)
+            return
+        }
+        guard confirmCloseIfRunningProcess(shellProcessIdentifiers: shellProcessIdentifiers(in: item)) else {
             return
         }
         closeTab(item)
@@ -779,7 +785,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         guard !hasActiveTmuxProjection(hosting: item) else { return }
         guard confirmEditorTabCloseIfNeeded(item) else { return }
         if tabView.numberOfTabViewItems <= 1 {
+            // `performClose` runs `windowShouldClose`, which confirms running
+            // processes for the whole window; a second tab-level prompt here
+            // would ask twice for the same close.
             window?.performClose(nil)
+            return
+        }
+        guard confirmCloseIfRunningProcess(shellProcessIdentifiers: shellProcessIdentifiers(in: item)) else {
             return
         }
         closeTab(tabView.tabViewItem(at: index))

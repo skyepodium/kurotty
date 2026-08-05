@@ -11,6 +11,7 @@ enum PreferencesCopy {
         case agentSessionIndex, agentSessionIndexCheckboxTitle
         case hideMouseCursor, hideMouseCursorCheckboxTitle
         case confirmMultilinePaste, confirmMultilinePasteCheckboxTitle
+        case confirmClose, confirmCloseCheckboxTitle
         case perProjectHistory, perProjectHistoryCheckboxTitle
         case agentStatusHooks, agentStatusHooksCheckboxTitle
         case restoreScrollback, restoreScrollbackCheckboxTitle
@@ -18,6 +19,8 @@ enum PreferencesCopy {
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case themeKurotty, themeLightty, themeCustom, customColors, customColorsHelp
+        case importThemeButtonTitle, themeImported, themeImportFailed
+        case themeImportUnrecognized, themeImportIncomplete
         case foreground, background, cursor, ansiPalette
         case windowTitle, windowSubtitle, windowSizeSection, windowSizeHelp, width, height
         case loaded, loadFailed, saving, saved, saveFailed
@@ -51,6 +54,7 @@ enum PreferencesCopy {
             .agentSessionIndex: "Agent sessions", .agentSessionIndexCheckboxTitle: "Index AI agent sessions stored on this Mac (read-only)",
             .hideMouseCursor: "Pointer", .hideMouseCursorCheckboxTitle: "Hide the mouse pointer while typing",
             .confirmMultilinePaste: "Paste", .confirmMultilinePasteCheckboxTitle: "Ask before pasting more than one line",
+            .confirmClose: "Closing", .confirmCloseCheckboxTitle: "Ask before closing a tab or window with a running process",
             .perProjectHistory: "Shell history", .perProjectHistoryCheckboxTitle: "Keep a separate shell history per project (new sessions)",
             .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let agents report status through Kurotty's local hook (off by default)",
             .restoreScrollback: "Restore scrollback", .restoreScrollbackCheckboxTitle: "Restore each pane's scrollback text at launch (display only, applies next launch)",
@@ -61,6 +65,11 @@ enum PreferencesCopy {
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "Custom",
             .customColors: "Custom colors", .customColorsHelp: "Changing any color keeps the full palette as a custom theme.",
+            .importThemeButtonTitle: "Import Theme…",
+            .themeImported: "Imported \"%@\" as the custom theme.",
+            .themeImportFailed: "Could not import theme: %@",
+            .themeImportUnrecognized: "The file is not an iTerm2 .itermcolors or Ghostty theme file.",
+            .themeImportIncomplete: "The theme is missing colors. All 16 ANSI colors plus foreground and background are required.",
             .foreground: "Text", .background: "Background", .cursor: "Cursor", .ansiPalette: "ANSI palette · normal and bright",
             .windowTitle: "Window", .windowSubtitle: "Set the default size for new windows.",
             .windowSizeSection: "Default window size", .windowSizeHelp: "Existing windows keep their current size.", .width: "Width", .height: "Height",
@@ -77,6 +86,7 @@ enum PreferencesCopy {
             .commandHistory: "명령 기록", .commandHistoryCheckboxTitle: "명령 기록 패널을 위해 실행한 명령을 저장",
             .agentSessionIndex: "에이전트 세션", .agentSessionIndexCheckboxTitle: "이 Mac에 저장된 AI 에이전트 세션을 색인 (읽기 전용)",
             .confirmMultilinePaste: "붙여넣기", .confirmMultilinePasteCheckboxTitle: "여러 줄을 붙여넣기 전에 확인",
+            .confirmClose: "닫기", .confirmCloseCheckboxTitle: "실행 중인 프로세스가 있는 탭이나 윈도우를 닫기 전에 확인",
             .hideMouseCursor: "포인터", .hideMouseCursorCheckboxTitle: "입력하는 동안 마우스 포인터 숨기기",
             .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
             .restoreScrollback: "스크롤백 복원", .restoreScrollbackCheckboxTitle: "실행 시 각 패널의 스크롤백 텍스트를 복원 (표시 전용, 다음 실행부터 적용)",
@@ -88,6 +98,11 @@ enum PreferencesCopy {
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "커스텀",
             .customColors: "커스텀 색상", .customColorsHelp: "색상을 하나라도 변경하면 전체 팔레트를 커스텀 테마로 보관합니다.",
+            .importThemeButtonTitle: "테마 가져오기…",
+            .themeImported: "\"%@\"을(를) 커스텀 테마로 가져왔습니다.",
+            .themeImportFailed: "테마를 가져올 수 없습니다: %@",
+            .themeImportUnrecognized: "iTerm2 .itermcolors 또는 Ghostty 테마 파일이 아닙니다.",
+            .themeImportIncomplete: "테마에 색상이 부족합니다. ANSI 16색과 글자·배경 색상이 모두 필요합니다.",
             .foreground: "글자", .background: "배경", .cursor: "커서", .ansiPalette: "ANSI 팔레트 · 기본 및 밝은 색",
             .windowTitle: "윈도우", .windowSubtitle: "새 윈도우의 기본 크기를 설정합니다.",
             .windowSizeSection: "기본 윈도우 크기", .windowSizeHelp: "이미 열린 윈도우의 크기는 유지됩니다.", .width: "너비", .height: "높이",
@@ -104,6 +119,7 @@ enum PreferencesCopy {
             .commandHistory: "コマンド履歴", .commandHistoryCheckboxTitle: "コマンド履歴パネルのために実行したコマンドを保存",
             .agentSessionIndex: "エージェントセッション", .agentSessionIndexCheckboxTitle: "このMacに保存されたAIエージェントのセッションをインデックス（読み取り専用）",
             .confirmMultilinePaste: "ペースト", .confirmMultilinePasteCheckboxTitle: "複数行をペーストする前に確認",
+            .confirmClose: "閉じる", .confirmCloseCheckboxTitle: "実行中のプロセスがあるタブやウインドウを閉じる前に確認",
             .hideMouseCursor: "ポインタ", .hideMouseCursorCheckboxTitle: "入力中はマウスポインタを隠す",
             .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
             .restoreScrollback: "スクロールバックを復元", .restoreScrollbackCheckboxTitle: "起動時に各ペインのスクロールバックを復元 (表示のみ、次回起動から適用)",
@@ -115,6 +131,11 @@ enum PreferencesCopy {
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "カスタム",
             .customColors: "カスタムカラー", .customColorsHelp: "いずれかの色を変更すると、パレット全体をカスタムテーマとして保持します。",
+            .importThemeButtonTitle: "テーマを読み込む…",
+            .themeImported: "\"%@\"をカスタムテーマとして読み込みました。",
+            .themeImportFailed: "テーマを読み込めません: %@",
+            .themeImportUnrecognized: "iTerm2 の .itermcolors または Ghostty のテーマファイルではありません。",
+            .themeImportIncomplete: "テーマの色が不足しています。ANSI 16色と文字・背景の色がすべて必要です。",
             .foreground: "文字", .background: "背景", .cursor: "カーソル", .ansiPalette: "ANSIパレット・標準と明色",
             .windowTitle: "ウインドウ", .windowSubtitle: "新しいウインドウのデフォルトサイズを設定します。",
             .windowSizeSection: "デフォルトサイズ", .windowSizeHelp: "開いているウインドウのサイズは変わりません。", .width: "幅", .height: "高さ",

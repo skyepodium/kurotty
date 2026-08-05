@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 16
+    public static let schemaVersion = 17
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
@@ -23,6 +23,11 @@ public enum SettingsDefaults {
     /// Live-applied and on by default. A paste that spans more than one line
     /// can execute every line it contains, so it asks for confirmation first.
     public static let confirmMultilinePaste = true
+    /// Live-applied and on by default. Closing a tab or window kills every
+    /// process its shells are running, so a close that would terminate a
+    /// running child process (an editor, ssh, a build) asks first. A pane whose
+    /// shell is idle closes without a prompt.
+    public static let confirmCloseRunningProcess = true
     /// On by default. Indexing reads the user's AI agent transcripts, so the
     /// Settings checkbox must always be able to turn it off; when disabled no
     /// scan runs at all and no index is retained.

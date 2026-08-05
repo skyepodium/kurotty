@@ -21,6 +21,7 @@ struct AppSettings: Codable, Equatable {
             commandHistoryEnabled: Defaults.commandHistoryEnabled,
             statusBarEnabled: Defaults.statusBarEnabled,
             confirmMultilinePaste: Defaults.confirmMultilinePaste,
+            confirmCloseRunningProcess: Defaults.confirmCloseRunningProcess,
             agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
             hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
             agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled,
@@ -47,6 +48,7 @@ struct AppSettings: Codable, Equatable {
         static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
         static let statusBarEnabled = SettingsDefaults.statusBarEnabled
         static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
+        static let confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
         static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
         static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
         static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
@@ -94,6 +96,10 @@ struct AppSettings: Codable, Equatable {
 /// `confirmMultilinePaste` is live-applied and defaults **on**: a paste that
 /// spans more than one line asks before any byte reaches the PTY, because the
 /// shell would otherwise execute every line the clipboard carried.
+/// `confirmCloseRunningProcess` is live-applied and defaults **on**: closing a
+/// tab or window kills every process its shells are running, so a close that
+/// would terminate a running child process asks first. An idle shell closes
+/// without a prompt.
 /// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
 /// starts a loopback listener and writes Kurotty-marked entries into the user's
 /// agent hook configuration, so it is always an explicit opt-in.
@@ -113,6 +119,7 @@ struct TerminalSettings: Codable, Equatable {
     var commandHistoryEnabled: Bool
     var statusBarEnabled: Bool
     var confirmMultilinePaste: Bool
+    var confirmCloseRunningProcess: Bool
     var agentSessionIndexEnabled: Bool
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
@@ -134,6 +141,7 @@ struct TerminalSettings: Codable, Equatable {
         case commandHistoryEnabled
         case statusBarEnabled
         case confirmMultilinePaste
+        case confirmCloseRunningProcess
         case agentSessionIndexEnabled
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
@@ -151,6 +159,7 @@ struct TerminalSettings: Codable, Equatable {
         commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled,
         statusBarEnabled: Bool = SettingsDefaults.statusBarEnabled,
         confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
+        confirmCloseRunningProcess: Bool = SettingsDefaults.confirmCloseRunningProcess,
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
         agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled,
@@ -166,6 +175,7 @@ struct TerminalSettings: Codable, Equatable {
         self.commandHistoryEnabled = commandHistoryEnabled
         self.statusBarEnabled = statusBarEnabled
         self.confirmMultilinePaste = confirmMultilinePaste
+        self.confirmCloseRunningProcess = confirmCloseRunningProcess
         self.agentSessionIndexEnabled = agentSessionIndexEnabled
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
@@ -189,6 +199,10 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.statusBarEnabled
         confirmMultilinePaste = try container.decodeIfPresent(Bool.self, forKey: .confirmMultilinePaste)
             ?? SettingsDefaults.confirmMultilinePaste
+        // Absent in schema versions below 17; those files fall back to the
+        // current default rather than failing to decode.
+        confirmCloseRunningProcess = try container.decodeIfPresent(Bool.self, forKey: .confirmCloseRunningProcess)
+            ?? SettingsDefaults.confirmCloseRunningProcess
         // Absent in schema versions below 11; those files fall back to the
         // current default rather than failing to decode.
         agentSessionIndexEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentSessionIndexEnabled)
@@ -387,6 +401,8 @@ struct AppSettingsNormalizer {
         static let scrollbackRestoreSchemaVersion = 14
         /// Schema version that introduced `terminal.statusBarEnabled`.
         static let statusBarSchemaVersion = 15
+        /// Schema version that introduced `terminal.confirmCloseRunningProcess`.
+        static let closeConfirmationSchemaVersion = 17
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -433,6 +449,13 @@ struct AppSettingsNormalizer {
             // current default; from schema 15 on, an explicit choice in either
             // direction is preserved.
             next.terminal.statusBarEnabled = SettingsDefaults.statusBarEnabled
+        }
+        if sourceSchemaVersion < Migration.closeConfirmationSchemaVersion {
+            // Settings written before schema 17 predate the close confirmation,
+            // so the key carries no user intent. Migrated files land on the
+            // current default; from schema 17 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
