@@ -54,6 +54,8 @@ enum L10nKey: String, CaseIterable {
     case replayCommandQuestion, openLinkQuestion, cancel, open, openInBrowser, replay
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     case updateUnavailableTitle, updateUnavailableMessage, ok
+    case moveToApplicationsTitle, moveToApplicationsMessage, moveToApplications, moveToApplicationsLater
+    case moveToApplicationsFailedTitle, moveToApplicationsFailedMessage, translocatedMessage
     case help, copyDiagnosticsReport, diagnosticsReportCopiedTitle, diagnosticsReportCopiedMessage
     case settingsWindow, settingsValid, errors, warnings
     case invalidSettingsJSON, settingsLoaded, settingsLoadFailed, settingsNotApplied, settingsApplying, settingsApplied, settingsApplyFailed
@@ -152,6 +154,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "Paste %d lines?", .pasteLinesExplanation: "The shell can run every line this paste contains.", .pasteConfirm: "Paste",
             .pasteTooLargeTitle: "Paste Too Large", .pasteTooLargeExplanation: "This clipboard content is %d bytes, above the %d byte paste limit.",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
+            .moveToApplicationsTitle: "Move to Applications?", .moveToApplicationsMessage: "%@ is running from a read-only or temporary location, so it cannot update itself. Moving it to the Applications folder and relaunching fixes that.", .moveToApplications: "Move and Relaunch", .moveToApplicationsLater: "Not Now",
+            .moveToApplicationsFailedTitle: "Move Failed", .moveToApplicationsFailedMessage: "The Applications folder could not be written to: %@", .translocatedMessage: "macOS is running %@ from a randomized read-only copy, so it cannot update itself and cannot move itself either. Move the app to the Applications folder in Finder, then open it from there.",
             .help: "Help", .copyDiagnosticsReport: "Copy Diagnostics Report",
             .diagnosticsReportCopiedTitle: "Diagnostics Report Copied", .diagnosticsReportCopiedMessage: "The report is on the clipboard. It contains version, renderer, and event counts only — no terminal output, commands, or full paths.",
             .settingsWindow: "%@ Settings", .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
@@ -216,6 +220,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "%d줄을 붙여넣을까요?", .pasteLinesExplanation: "이 붙여넣기에 포함된 모든 줄이 셸에서 실행될 수 있습니다.", .pasteConfirm: "붙여넣기",
             .pasteTooLargeTitle: "붙여넣기 내용이 너무 큽니다", .pasteTooLargeExplanation: "클립보드 내용이 %d바이트로, 붙여넣기 한도 %d바이트를 넘습니다.",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
+            .moveToApplicationsTitle: "응용 프로그램 폴더로 옮길까요?", .moveToApplicationsMessage: "%@이(가) 읽기 전용이거나 임시 위치에서 실행 중이라 스스로 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮기고 다시 실행하면 해결됩니다.", .moveToApplications: "옮기고 다시 실행", .moveToApplicationsLater: "나중에",
+            .moveToApplicationsFailedTitle: "옮기지 못했습니다", .moveToApplicationsFailedMessage: "응용 프로그램 폴더에 쓸 수 없습니다: %@", .translocatedMessage: "macOS가 %@을(를) 무작위 읽기 전용 사본으로 실행하고 있어 스스로 업데이트할 수도, 옮길 수도 없습니다. Finder에서 앱을 응용 프로그램 폴더로 옮긴 뒤 거기서 실행해 주세요.",
             .help: "도움말", .copyDiagnosticsReport: "진단 리포트 복사",
             .diagnosticsReportCopiedTitle: "진단 리포트를 복사했습니다", .diagnosticsReportCopiedMessage: "리포트가 클립보드에 있습니다. 버전, 렌더러, 이벤트 개수만 포함하며 터미널 출력, 명령어, 전체 경로는 들어 있지 않습니다.",
             .settingsWindow: "%@ 설정", .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
@@ -280,6 +286,8 @@ enum AppLocalization {
             .pasteLinesQuestion: "%d行をペーストしますか？", .pasteLinesExplanation: "このペーストに含まれるすべての行がシェルで実行される可能性があります。", .pasteConfirm: "ペースト",
             .pasteTooLargeTitle: "ペースト内容が大きすぎます", .pasteTooLargeExplanation: "クリップボードの内容は %d バイトで、ペースト上限の %d バイトを超えています。",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
+            .moveToApplicationsTitle: "アプリケーションフォルダに移動しますか？", .moveToApplicationsMessage: "%@ は読み取り専用または一時的な場所から実行されているため、自身をアップデートできません。アプリケーションフォルダに移動して再起動すると解決します。", .moveToApplications: "移動して再起動", .moveToApplicationsLater: "後で",
+            .moveToApplicationsFailedTitle: "移動できませんでした", .moveToApplicationsFailedMessage: "アプリケーションフォルダに書き込めません: %@", .translocatedMessage: "macOS が %@ をランダムな読み取り専用のコピーとして実行しているため、自身をアップデートすることも移動することもできません。Finder でアプリをアプリケーションフォルダに移動してから、そこで開いてください。",
             .help: "ヘルプ", .copyDiagnosticsReport: "診断レポートをコピー",
             .diagnosticsReportCopiedTitle: "診断レポートをコピーしました", .diagnosticsReportCopiedMessage: "レポートはクリップボードにあります。バージョン、レンダラー、イベント数のみを含み、ターミナル出力・コマンド・完全なパスは含まれません。",
             .settingsWindow: "%@の設定", .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
