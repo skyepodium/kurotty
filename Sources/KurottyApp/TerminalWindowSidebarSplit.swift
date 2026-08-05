@@ -82,15 +82,10 @@ extension TerminalWindowController: NSSplitViewDelegate {
     /// an empty strip at the window edge. With the pane removed there is no gap
     /// to draw and no frame to keep; showing re-inserts it at its edge and
     /// re-applies the width constraints and holding priorities.
-    func setSidebarPanelHidden(
-        _ hidden: Bool,
-        panel: NSView,
-        widthConstraints: [NSLayoutConstraint]
-    ) {
+    func setSidebarPanelHidden(_ hidden: Bool, panel: NSView) {
         let splitView = commandHistorySplitView
         panel.isHidden = hidden
         if hidden {
-            NSLayoutConstraint.deactivate(widthConstraints)
             guard splitView.arrangedSubviews.contains(panel) else {
                 return
             }
@@ -107,21 +102,128 @@ extension TerminalWindowController: NSSplitViewDelegate {
             } else {
                 splitView.addArrangedSubview(panel)
             }
-            // Hiding takes the panel out of the split view, which destroys the
-            // constraints tying it to the split view's edges, so the height pin
-            // has to be rebuilt on every reveal. Without it the panel measures
-            // its own header-to-list chain and stops partway down the window
-            // instead of reaching the status bar.
-            NSLayoutConstraint.activate([
-                panel.topAnchor.constraint(equalTo: splitView.topAnchor),
-                panel.bottomAnchor.constraint(equalTo: splitView.bottomAnchor),
-            ])
-            NSLayoutConstraint.activate(widthConstraints)
         }
         applySidebarHoldingPriorities()
         splitView.adjustSubviews()
+        if !hidden {
+            // `adjustSubviews` gives a freshly inserted column whatever is
+            // left over, which is the whole window when it is the only sidebar.
+            // Put the divider at the panel's default width instead.
+            openSidebarPanelAtDefaultWidth(panel)
+        }
         splitView.needsLayout = true
         splitView.needsDisplay = true
+    }
+
+    /// Places a newly revealed panel at its designed width.
+    private func openSidebarPanelAtDefaultWidth(_ panel: NSView) {
+        let splitView = commandHistorySplitView
+        guard let index = splitView.arrangedSubviews.firstIndex(of: panel) else {
+            return
+        }
+        if index == 0 {
+            splitView.setPosition(
+                DesignTokens.Component.commandHistoryPanelDefaultWidthPX,
+                ofDividerAt: 0
+            )
+            return
+        }
+        let dividerIndex = max(0, splitView.arrangedSubviews.count - 2)
+        splitView.setPosition(
+            splitView.bounds.width - DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
+            ofDividerAt: dividerIndex
+        )
+    }
+
+    /// Distributes width across the columns on every resize.
+    ///
+    /// The default distribution lets the terminal absorb everything, which is
+    /// right until the window gets small: the terminal reaches zero while two
+    /// sidebars sit at 400pt each, and the window is left with no terminal in
+    /// it. So the terminal keeps a floor, and the sidebars give width back —
+    /// widest first, never below their own minimums — until it is met.
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        // `adjustSubviews()` routes straight back into this method, so the
+        // layout has to be done here for every case, including the trivial ones.
+        let panes = splitView.arrangedSubviews
+        guard splitView === commandHistorySplitView, panes.count > 1,
+              let terminalIndex = panes.firstIndex(of: terminalContentHostView)
+        else {
+            fillEvenly(panes, in: splitView)
+            return
+        }
+
+        let dividerTotal = splitView.dividerThickness * CGFloat(panes.count - 1)
+        let available = max(0, splitView.bounds.width - dividerTotal)
+        var widths = panes.map { pane -> CGFloat in
+            pane === terminalContentHostView
+                ? 0
+                : min(max(pane.frame.width, sidebarMinimumWidth(at: panes.firstIndex(of: pane) ?? 0, in: panes)),
+                      sidebarMaximumWidth(at: panes.firstIndex(of: pane) ?? 0, in: panes))
+        }
+        widths[terminalIndex] = available - widths.enumerated()
+            .filter { $0.offset != terminalIndex }
+            .reduce(0) { $0 + $1.element }
+
+        var deficit = DesignTokens.Component.terminalColumnMinWidthPX - widths[terminalIndex]
+        while deficit > 0 {
+            // Widest sidebar first, so one very wide panel gives before a panel
+            // already near its floor does.
+            let donors = widths.enumerated()
+                .filter { $0.offset != terminalIndex }
+                .filter { $0.element > sidebarMinimumWidth(at: $0.offset, in: panes) }
+                .sorted { $0.element > $1.element }
+            guard let donor = donors.first else {
+                break
+            }
+            let floor = sidebarMinimumWidth(at: donor.offset, in: panes)
+            let take = min(deficit, donor.element - floor)
+            widths[donor.offset] -= take
+            widths[terminalIndex] += take
+            deficit -= take
+        }
+
+        var x: CGFloat = 0
+        for (index, pane) in panes.enumerated() {
+            pane.frame = NSRect(
+                x: x,
+                y: 0,
+                width: max(0, widths[index]),
+                height: splitView.bounds.height
+            )
+            x += max(0, widths[index]) + splitView.dividerThickness
+        }
+    }
+
+    /// Fallback for the cases the sidebar rule does not apply to: one column,
+    /// or a split view this controller does not own. Keeps the existing
+    /// proportions rather than inventing a distribution.
+    private func fillEvenly(_ panes: [NSView], in splitView: NSSplitView) {
+        guard !panes.isEmpty else { return }
+        let dividerTotal = splitView.dividerThickness * CGFloat(panes.count - 1)
+        let available = max(0, splitView.bounds.width - dividerTotal)
+        let previousTotal = panes.reduce(0) { $0 + $1.frame.width }
+        var x: CGFloat = 0
+        for (index, pane) in panes.enumerated() {
+            let share = previousTotal > 0
+                ? available * (pane.frame.width / previousTotal)
+                : available / CGFloat(panes.count)
+            let width = index == panes.count - 1 ? max(0, available - x) : share
+            pane.frame = NSRect(x: x, y: 0, width: width, height: splitView.bounds.height)
+            x += width + splitView.dividerThickness
+        }
+    }
+
+    private func sidebarMinimumWidth(at index: Int, in panes: [NSView]) -> CGFloat {
+        panes[index] === leftSidebarPanel
+            ? DesignTokens.Component.commandHistoryPanelMinWidthPX
+            : DesignTokens.Component.fileExplorerPanelMinWidthPX
+    }
+
+    private func sidebarMaximumWidth(at index: Int, in panes: [NSView]) -> CGFloat {
+        panes[index] === leftSidebarPanel
+            ? DesignTokens.Component.commandHistoryPanelMaxWidthPX
+            : DesignTokens.Component.fileExplorerPanelMaxWidthPX
     }
 
     /// Only the terminal host should absorb leftover width, so every sidebar

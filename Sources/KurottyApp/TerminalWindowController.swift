@@ -47,8 +47,6 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// Sidebar width constraints stay active only while the panel is shown: a
     /// hidden view still participates in Auto Layout, so leaving them on keeps
     /// the split view reserving a sliver of width plus its divider.
-    var commandHistoryWidthConstraints: [NSLayoutConstraint] = []
-    var fileExplorerWidthConstraints: [NSLayoutConstraint] = []
     /// Per-pane scrollback persistence for this window. `nil` when Application
     /// Support is unavailable; every call site treats that as "no snapshots".
     /// Settable so tests can point it at a temporary root instead of the user's
