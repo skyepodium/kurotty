@@ -1801,7 +1801,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
         XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
-        XCTAssertTrue(windowSource.contains("private final class TerminalTabItemView: NSView"))
+        XCTAssertTrue(windowSource.contains("final class TerminalTabItemView: NSView"))
         // Re-pointed 2026-08: the tab add/close affordances were text glyphs
         // ("+" / "×") typed into a button title. They are now SF Symbols from
         // the shared `IconSymbol` registry, so they scale with the icon ramp
@@ -3124,8 +3124,16 @@ private func preferencesThemePreviewViewSource() throws -> String {
 }
 
 private func terminalWindowControllerSource() throws -> String {
+    // The drop-target and tab-item views were split into their own files; the
+    // source-shape assertions cover the whole family.
+    try appSource("TerminalWindowController.swift")
+        + appSource("TerminalTabItemView.swift")
+        + appSource("TerminalPaneDropTargetView.swift")
+}
+
+private func appSource(_ fileName: String) throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalWindowController.swift")
+        .appendingPathComponent("Sources/KurottyApp/").appendingPathComponent(fileName)
     return try String(contentsOf: path, encoding: .utf8)
 }
 
