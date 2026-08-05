@@ -155,6 +155,12 @@ final class TerminalFileExplorerPanelView: NSView {
     private var watcher: TerminalFileExplorerRootWatcher?
     private var filterGeneration = 0
     private let gitStatusService = TerminalGitStatusService()
+    /// Read-only source of "which agent wrote this file, from which prompt".
+    /// The explorer never scans transcripts itself; it renders whatever the
+    /// shared index already holds and asks it to rescan only on an explicit
+    /// user action or a root change.
+    private let agentSessionIndexStore: AgentSessionIndexStore
+    private var agentProvenance = AgentFileProvenanceIndex.empty
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
     private let directoryNameLabel = NSTextField(labelWithString: "")
@@ -174,13 +180,25 @@ final class TerminalFileExplorerPanelView: NSView {
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
-    init() {
+    init(agentSessionIndexStore: AgentSessionIndexStore = .shared) {
+        self.agentSessionIndexStore = agentSessionIndexStore
         super.init(frame: .zero)
         configureSubviews()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(agentSessionIndexDidChange(_:)),
+            name: AgentSessionIndexStore.didChangeNotification,
+            object: agentSessionIndexStore
+        )
+        agentProvenance = agentSessionIndexStore.provenance
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: Public API
@@ -215,6 +233,10 @@ final class TerminalFileExplorerPanelView: NSView {
             }
             gitOverlay = .empty
             outlineView.reloadData()
+            // A new project is a new set of files to attribute, so the index is
+            // asked to rescan here and on the explicit refresh action only.
+            // Filesystem-watcher refreshes must not trigger a transcript walk.
+            agentSessionIndexStore.refresh()
         }
         refresh()
     }
@@ -290,6 +312,25 @@ final class TerminalFileExplorerPanelView: NSView {
 
     var isSearchEnabledForTesting: Bool {
         searchPillView.isEnabled
+    }
+
+    /// Injects a provenance index without a store scan, so row markers and the
+    /// transcript context action are testable against fixed touches.
+    func setAgentProvenanceForTesting(_ index: AgentFileProvenanceIndex) {
+        agentProvenance = index
+        outlineView.reloadData()
+    }
+
+    func agentMarkerForTesting(absolutePath: String, now: Date) -> FileExplorerAgentMarker {
+        FileExplorerAgentMarker.make(absolutePath: absolutePath, provenance: agentProvenance, now: now)
+    }
+
+    var contextMenuForTesting: NSMenu? {
+        outlineView.menu
+    }
+
+    func selectRowForTesting(_ row: Int) {
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
     // MARK: Setup
@@ -532,7 +573,13 @@ final class TerminalFileExplorerPanelView: NSView {
     // MARK: Interactions
 
     @objc private func refreshClicked(_ sender: Any?) {
+        agentSessionIndexStore.refresh()
         refresh()
+    }
+
+    @objc private func agentSessionIndexDidChange(_ notification: Notification) {
+        agentProvenance = agentSessionIndexStore.provenance
+        outlineView.reloadData()
     }
 
     @objc private func rowDoubleClicked(_ sender: Any?) {
@@ -587,6 +634,9 @@ final class TerminalFileExplorerPanelView: NSView {
             (.revealInFinder, #selector(revealFromContextMenu(_:))),
             (.copyPath, #selector(copyPathFromContextMenu(_:))),
             (.insertPathIntoTerminal, #selector(insertPathFromContextMenu(_:))),
+            // Only meaningful for a file an agent wrote; `menuNeedsUpdate`
+            // disables it otherwise rather than presenting a dead action.
+            (.revealTranscriptInFinder, #selector(revealAgentTranscriptFromContextMenu(_:))),
         ]
         for (key, action) in entries {
             let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
@@ -623,6 +673,26 @@ final class TerminalFileExplorerPanelView: NSView {
             return
         }
         callbacks.insertPath(item.node.url.path)
+    }
+
+    /// Opens Finder on the transcript that recorded the newest agent write to
+    /// this file: the reveal path from "an agent changed this" to the session
+    /// and prompt that did it.
+    @objc private func revealAgentTranscriptFromContextMenu(_ sender: Any?) {
+        guard let item = clickedOrSelectedItem(),
+              let touch = agentProvenance.mostRecentTouch(forAbsolutePath: item.node.url.path)
+        else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: touch.transcriptPath)])
+    }
+
+    /// Whether the clicked or selected row has an agent transcript to reveal.
+    private func hasAgentTranscript(for item: TerminalFileExplorerOutlineItem?) -> Bool {
+        guard let item else {
+            return false
+        }
+        return agentProvenance.mostRecentTouch(forAbsolutePath: item.node.url.path) != nil
     }
 }
 
@@ -676,10 +746,15 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
         guard let outlineItem = item as? TerminalFileExplorerOutlineItem else {
             return nil
         }
-        let badge = gitOverlay.badge(forAbsolutePath: outlineItem.node.url.path)
+        let absolutePath = outlineItem.node.url.path
         return TerminalFileExplorerRowCellView(
             item: outlineItem,
-            badge: badge,
+            badge: gitOverlay.badge(forAbsolutePath: absolutePath),
+            agentMarker: FileExplorerAgentMarker.make(
+                absolutePath: absolutePath,
+                provenance: agentProvenance,
+                now: Date()
+            ),
             chromeTheme: chromeTheme
         )
     }
@@ -688,8 +763,13 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
 extension TerminalFileExplorerPanelView: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         let item = clickedOrSelectedItem()
+        let hasTranscript = hasAgentTranscript(for: item)
         for menuItem in menu.items {
-            menuItem.isEnabled = item != nil
+            guard menuItem.action == #selector(revealAgentTranscriptFromContextMenu(_:)) else {
+                menuItem.isEnabled = item != nil
+                continue
+            }
+            menuItem.isEnabled = hasTranscript
         }
     }
 }

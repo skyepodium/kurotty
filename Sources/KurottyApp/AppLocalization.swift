@@ -101,6 +101,8 @@ enum L10nKey: String, CaseIterable {
     case statusBarQuitProcessConfirm, statusBarNoProcesses
     // Agent token usage strip.
     case agentUsageToday, agentUsageInput, agentUsageOutput, agentUsageCache, agentUsageAccessibility
+    // Agent change provenance in the file explorer.
+    case fileExplorerAgentTouchTitle, fileExplorerAgentTouchPrompt, fileExplorerAgentTouchAccessibility
 }
 
 enum AppLocalization {
@@ -207,6 +209,8 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "The pane's shell process tree is asked to terminate, then force-quit if it does not exit. Unsaved work in that pane is lost.",
             .statusBarQuitProcessConfirm: "Quit", .statusBarNoProcesses: "No pane processes are being sampled.",
             .agentUsageToday: "TODAY", .agentUsageInput: "in", .agentUsageOutput: "out", .agentUsageCache: "cache", .agentUsageAccessibility: "%1$@ tokens today across %2$d sessions",
+            .fileExplorerAgentTouchTitle: "Changed by %1$@ · %2$@", .fileExplorerAgentTouchPrompt: "Prompt: %@",
+            .fileExplorerAgentTouchAccessibility: "Changed by an agent",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -274,6 +278,8 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "패널의 셸 프로세스 트리에 종료를 요청하고, 응답이 없으면 강제 종료합니다. 저장하지 않은 작업은 사라집니다.",
             .statusBarQuitProcessConfirm: "종료", .statusBarNoProcesses: "샘플링 중인 패널 프로세스가 없습니다.",
             .agentUsageToday: "오늘", .agentUsageInput: "입력", .agentUsageOutput: "출력", .agentUsageCache: "캐시", .agentUsageAccessibility: "오늘 %2$d개 세션에서 %1$@ 토큰",
+            .fileExplorerAgentTouchTitle: "%1$@이(가) 변경 · %2$@", .fileExplorerAgentTouchPrompt: "프롬프트: %@",
+            .fileExplorerAgentTouchAccessibility: "에이전트가 변경함",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -341,6 +347,8 @@ enum AppLocalization {
             .statusBarQuitProcessMessage: "ペインのシェルプロセスツリーに終了を要求し、応答がなければ強制終了します。保存していない作業は失われます。",
             .statusBarQuitProcessConfirm: "終了", .statusBarNoProcesses: "サンプリング中のペインプロセスはありません。",
             .agentUsageToday: "今日", .agentUsageInput: "入力", .agentUsageOutput: "出力", .agentUsageCache: "キャッシュ", .agentUsageAccessibility: "本日 %2$d セッションで %1$@ トークン",
+            .fileExplorerAgentTouchTitle: "%1$@ が変更 · %2$@", .fileExplorerAgentTouchPrompt: "プロンプト: %@",
+            .fileExplorerAgentTouchAccessibility: "エージェントが変更しました",
         ],
     ]
 }
