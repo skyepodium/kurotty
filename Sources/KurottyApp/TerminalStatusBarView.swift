@@ -38,15 +38,26 @@ protocol TerminalStatusBarDataSource: AnyObject {
 final class TerminalStatusBarView: NSView {
     private let topBorderView = NSView()
     private let agentSegmentView = TerminalStatusBarAgentSegmentView(frame: .zero)
+    private let worktreeSegmentView = TerminalStatusBarWorktreeSegmentView(frame: .zero)
     private let resourceSegmentView = TerminalStatusBarResourceSegmentView(frame: .zero)
     private let sampler: TerminalResourceUsageSampler
     private let registry: AgentActivityRegistry
     private let sessionIndexStore: AgentSessionIndexStore
+    private let worktreeService: any TerminalGitWorktreeProviding
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var heightConstraint: NSLayoutConstraint?
     private var visibility = TerminalStatusBarVisibility.full
     private var lastAppliedWidthPX: CGFloat = 0
     private var activePopover: NSPopover?
+    private var worktreeSnapshot: TerminalGitWorktreeSnapshot?
+    /// Working directory the current snapshot describes. Directory changes
+    /// arrive through the same notification as title changes, which fires once
+    /// per prompt, so an unchanged directory must not spawn another `git`.
+    private var worktreeDirectoryPath: String?
+
+    /// The worktree state the segment currently renders, applied from the
+    /// service's async result.
+    private(set) var currentWorktreeSummary = TerminalStatusBarWorktreeSummary.absent
 
     weak var dataSource: (any TerminalStatusBarDataSource)?
     /// Resolved from `AgentStatusHookCoordinator.shared` by default; injectable
@@ -59,11 +70,13 @@ final class TerminalStatusBarView: NSView {
         frame frameRect: NSRect = .zero,
         sampler: TerminalResourceUsageSampler = TerminalResourceUsageSampler(),
         registry: AgentActivityRegistry = .shared,
-        sessionIndexStore: AgentSessionIndexStore = .shared
+        sessionIndexStore: AgentSessionIndexStore = .shared,
+        worktreeService: any TerminalGitWorktreeProviding = TerminalGitWorktreeService()
     ) {
         self.sampler = sampler
         self.registry = registry
         self.sessionIndexStore = sessionIndexStore
+        self.worktreeService = worktreeService
         super.init(frame: frameRect)
         configureLayout()
         configureSampler()
@@ -146,8 +159,10 @@ final class TerminalStatusBarView: NSView {
         sampler.resetDeltaState()
         refreshAgentSegment()
         guard !isCollapsed else {
+            worktreeService.cancelPendingRequests()
             return
         }
+        refreshWorktreeSegment()
         sampler.sampleNow()
     }
 
@@ -168,11 +183,45 @@ final class TerminalStatusBarView: NSView {
         agentSegmentView.update(summary: summary, visibility: visibility)
     }
 
+    /// Recomputes the worktree segment for the active pane's working directory.
+    ///
+    /// The lookup is skipped entirely while the directory is unchanged, so the
+    /// per-prompt directory notification cannot turn into a `git` process per
+    /// command.
+    func refreshWorktreeSegment(forcesReload: Bool = false) {
+        let descriptor = activePaneDescriptor
+        // An SSH pane reports a path that belongs to another machine; running
+        // git against it locally would describe the wrong repository.
+        let directoryPath = (descriptor?.isWorkingDirectoryRemote ?? true)
+            ? ""
+            : (descriptor?.workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        guard !directoryPath.isEmpty else {
+            worktreeService.cancelPendingRequests()
+            applyWorktreeSnapshot(nil, directoryPath: nil)
+            return
+        }
+        guard forcesReload || directoryPath != worktreeDirectoryPath else {
+            return
+        }
+        worktreeDirectoryPath = directoryPath
+        worktreeService.requestSnapshot(workingDirectoryPath: directoryPath) { [weak self] snapshot in
+            self?.applyWorktreeSnapshot(snapshot, directoryPath: directoryPath)
+        }
+    }
+
+    private func applyWorktreeSnapshot(_ snapshot: TerminalGitWorktreeSnapshot?, directoryPath: String?) {
+        worktreeSnapshot = snapshot
+        worktreeDirectoryPath = directoryPath
+        currentWorktreeSummary = TerminalStatusBarWorktreeComposer.summary(snapshot: snapshot)
+        worktreeSegmentView.update(summary: currentWorktreeSummary, visibility: visibility)
+    }
+
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         topBorderView.layer?.backgroundColor = theme.borderHairline.cgColor
         agentSegmentView.applyChromeTheme(theme)
+        worktreeSegmentView.applyChromeTheme(theme)
         resourceSegmentView.applyChromeTheme(theme)
     }
 
@@ -190,12 +239,17 @@ final class TerminalStatusBarView: NSView {
         addSubview(topBorderView)
 
         agentSegmentView.translatesAutoresizingMaskIntoConstraints = false
+        worktreeSegmentView.translatesAutoresizingMaskIntoConstraints = false
         resourceSegmentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(agentSegmentView)
+        addSubview(worktreeSegmentView)
         addSubview(resourceSegmentView)
 
         agentSegmentView.onClick = { [weak self] in
             self?.agentSegmentClicked()
+        }
+        worktreeSegmentView.onClick = { [weak self] in
+            self?.worktreeSegmentClicked()
         }
         resourceSegmentView.onClick = { [weak self] in
             self?.resourceSegmentClicked()
@@ -214,6 +268,14 @@ final class TerminalStatusBarView: NSView {
             ),
             agentSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
+            // The worktree segment joins the leading group: pane context reads
+            // left to right as agent, then where that agent is working.
+            worktreeSegmentView.leadingAnchor.constraint(
+                equalTo: agentSegmentView.trailingAnchor,
+                constant: DesignTokens.Component.StatusBar.segmentGroupGapPX
+            ),
+            worktreeSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
             resourceSegmentView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
                 constant: -(DesignTokens.Component.StatusBar.horizontalInsetPX
@@ -221,7 +283,7 @@ final class TerminalStatusBarView: NSView {
             ),
             resourceSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             resourceSegmentView.leadingAnchor.constraint(
-                greaterThanOrEqualTo: agentSegmentView.trailingAnchor,
+                greaterThanOrEqualTo: worktreeSegmentView.trailingAnchor,
                 constant: DesignTokens.Component.StatusBar.segmentGroupGapPX
             ),
         ])
@@ -244,6 +306,7 @@ final class TerminalStatusBarView: NSView {
         }
         visibility = nextVisibility
         agentSegmentView.update(summary: agentSegmentView.currentSummary, visibility: visibility)
+        worktreeSegmentView.update(summary: worktreeSegmentView.currentSummary, visibility: visibility)
         resourceSegmentView.update(usage: sampler.latestUsage, visibility: visibility)
     }
 
@@ -366,6 +429,30 @@ final class TerminalStatusBarView: NSView {
         // Inserted only; there is no execute path, so no trailing newline.
         dataSource?.statusBarInsertText(
             AgentSessionResumeCommand.command(for: record),
+            paneIdentifier: paneIdentifier
+        )
+    }
+
+    private func worktreeSegmentClicked() {
+        let rows = GitWorktreeRowBuilder.rows(
+            snapshot: worktreeSnapshot ?? .empty,
+            records: sessionIndexStore.records
+        )
+        let contentView = TerminalStatusBarWorktreeListView(rows: rows, theme: chromeTheme)
+        contentView.onChangeDirectory = { [weak self] worktree in
+            self?.insertChangeDirectoryCommand(worktree)
+        }
+        present(contentView: contentView, relativeTo: worktreeSegmentView)
+    }
+
+    private func insertChangeDirectoryCommand(_ worktree: GitWorktree) {
+        guard let paneIdentifier = activePaneDescriptor?.paneIdentifier else {
+            return
+        }
+        activePopover?.close()
+        // Inserted only; there is no execute path, so no trailing newline.
+        dataSource?.statusBarInsertText(
+            GitWorktreeChangeDirectoryCommand.command(for: worktree),
             paneIdentifier: paneIdentifier
         )
     }

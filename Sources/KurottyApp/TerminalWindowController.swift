@@ -540,6 +540,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         // notification, so the explorer root follows the active pane's cwd
         // here. The refresh recomputes from the active pane and is idempotent.
         refreshFileExplorerRootDirectory()
+        workingDirectoryDidChange()
         guard let surface = notification.object as? TerminalSurfaceView,
               let title = notification.userInfo?[TerminalSurfaceView.titleNotificationKey] as? String,
               let item = tabItem(containing: surface)

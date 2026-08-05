@@ -754,6 +754,10 @@ enum DesignTokens {
             static let metricGapPX = Space.x4PX
             static let agentLabelMaxWidthPX: CGFloat = 160
             static let agentDetailMaxWidthPX: CGFloat = 96
+            /// Branch names get less room than the agent label: the segment is
+            /// a locator, and the full path lives in the tooltip and popover.
+            static let worktreeLabelMaxWidthPX: CGFloat = 140
+            static let worktreeRowBranchMaxWidthPX: CGFloat = 150
             static let memoryValueMinWidthPX: CGFloat = 48
             static let cpuValueMinWidthPX: CGFloat = 40
             static let spinnerSizePX: CGFloat = 12
