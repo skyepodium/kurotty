@@ -942,6 +942,12 @@ final class TmuxControlCoreTests: XCTestCase {
     // "freed pointer was not the last allocation", SIGABRT. A CI loop put that
     // at 45% of runs, always in one of these two. `wait(for:timeout:)` pumps
     // the same run loop without the async invocation path.
+    // The driver's fatal-recovery timers are fired by hand here. On a real
+    // scheduler this test waits on a 10ms sleep, which leaves an unstructured
+    // task running underneath XCTest while the test method is parked; a CI loop
+    // measured an abort out of the Swift concurrency task allocator in 45-60%
+    // of runs, always in this test or its sibling below. With the timers
+    // injected there is nothing suspended and nothing to race.
     func testFatalRecoveryWritesBlankBeforeGracePeriodSynthesizesExit() {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
@@ -954,10 +960,12 @@ final class TmuxControlCoreTests: XCTestCase {
             maximumResizeKeyCount: 2,
             inputChunkByteCount: 1
         )
+        let scheduler = TmuxManualDelayScheduler()
         let driver = TmuxControlModeDriver(
             fatalAbortDelay: 0.01,
             fatalWaitExitDelay: 0.01,
-            mutationQueueLimits: limits
+            mutationQueueLimits: limits,
+            scheduler: scheduler
         ) { command in
             commands.append(command)
             if command == "\n" {
@@ -973,6 +981,7 @@ final class TmuxControlCoreTests: XCTestCase {
         completeInitialSnapshot(driver)
 
         driver.sendKeys(to: "%0", text: "x")
+        scheduler.fireUntilQuiet()
         wait(for: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
@@ -993,15 +1002,23 @@ final class TmuxControlCoreTests: XCTestCase {
     // "freed pointer was not the last allocation", SIGABRT. A CI loop put that
     // at 45% of runs, always in one of these two. `wait(for:timeout:)` pumps
     // the same run loop without the async invocation path.
+    // The driver's fatal-recovery timers are fired by hand here. On a real
+    // scheduler this test waits on a 10ms sleep, which leaves an unstructured
+    // task running underneath XCTest while the test method is parked; a CI loop
+    // measured an abort out of the Swift concurrency task allocator in 45-60%
+    // of runs, always in this test or its sibling below. With the timers
+    // injected there is nothing suspended and nothing to race.
     func testParserLocalAbortWaitsForFatalFallbackBeforeRestoringLocalUI() {
         let blankWritten = expectation(description: "tmux wait-exit released")
         let exited = expectation(description: "local tmux UI restored")
         var commands: [String] = []
         var recoveryEvents: [String] = []
         var exitCount = 0
+        let scheduler = TmuxManualDelayScheduler()
         let driver = TmuxControlModeDriver(
             fatalAbortDelay: 0.01,
-            fatalWaitExitDelay: 0.01
+            fatalWaitExitDelay: 0.01,
+            scheduler: scheduler
         ) { command in
             commands.append(command)
             if command == "\n" {
@@ -1022,6 +1039,7 @@ final class TmuxControlCoreTests: XCTestCase {
         XCTAssertEqual(exitCount, 0)
         XCTAssertTrue(driver.state.isAttached)
         XCTAssertEqual(commands.last, "detach-client\n")
+        scheduler.fireUntilQuiet()
         wait(for: [blankWritten, exited], timeout: 1)
 
         let detachIndex = commands.firstIndex(of: "detach-client\n")
