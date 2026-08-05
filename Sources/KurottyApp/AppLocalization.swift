@@ -99,6 +99,14 @@ enum L10nKey: String, CaseIterable {
     case statusBarProcessUsageTitle, statusBarMemoryDescription
     case statusBarQuitProcess, statusBarQuitProcessTitle, statusBarQuitProcessMessage
     case statusBarQuitProcessConfirm, statusBarNoProcesses
+    // Git worktree segment and its popover.
+    case statusBarWorktreeTitle, statusBarWorktreeMainTag, statusBarWorktreeMainDescription
+    case statusBarWorktreeLinkedDescription, statusBarWorktreeDetached, statusBarWorktreeLocked
+    case statusBarWorktreeDirtyDescription
+    // Two keys because English needs a singular form; Korean and Japanese use
+    // the same wording for both.
+    case statusBarWorktreeSessionCount, statusBarWorktreeSessionCountOne
+    case statusBarWorktreeChangeDirectory, statusBarNoWorktrees
     // Agent token usage strip.
     case agentUsageToday, agentUsageInput, agentUsageOutput, agentUsageCache, agentUsageAccessibility
     // Agent context-window forecast.
@@ -209,6 +217,13 @@ enum AppLocalization {
             .statusBarQuitProcess: "Quit process", .statusBarQuitProcessTitle: "Quit this process?",
             .statusBarQuitProcessMessage: "The pane's shell process tree is asked to terminate, then force-quit if it does not exit. Unsaved work in that pane is lost.",
             .statusBarQuitProcessConfirm: "Quit", .statusBarNoProcesses: "No pane processes are being sampled.",
+            .statusBarWorktreeTitle: "Worktrees", .statusBarWorktreeMainTag: "main",
+            .statusBarWorktreeMainDescription: "Main worktree", .statusBarWorktreeLinkedDescription: "Linked worktree",
+            .statusBarWorktreeDetached: "detached", .statusBarWorktreeLocked: "locked",
+            .statusBarWorktreeDirtyDescription: "Uncommitted changes",
+            .statusBarWorktreeSessionCount: "%d agent sessions", .statusBarWorktreeSessionCountOne: "%d agent session",
+            .statusBarWorktreeChangeDirectory: "Insert cd",
+            .statusBarNoWorktrees: "This directory is not in a git worktree.",
             .agentUsageToday: "TODAY", .agentUsageInput: "in", .agentUsageOutput: "out", .agentUsageCache: "cache", .agentUsageAccessibility: "%1$@ tokens today across %2$d sessions",
             .agentContextLabel: "Context",
             .agentContextOfLimit: "%1$d%% of %2$@",
@@ -282,6 +297,13 @@ enum AppLocalization {
             .statusBarQuitProcess: "프로세스 종료", .statusBarQuitProcessTitle: "이 프로세스를 종료할까요?",
             .statusBarQuitProcessMessage: "패널의 셸 프로세스 트리에 종료를 요청하고, 응답이 없으면 강제 종료합니다. 저장하지 않은 작업은 사라집니다.",
             .statusBarQuitProcessConfirm: "종료", .statusBarNoProcesses: "샘플링 중인 패널 프로세스가 없습니다.",
+            .statusBarWorktreeTitle: "워크트리", .statusBarWorktreeMainTag: "메인",
+            .statusBarWorktreeMainDescription: "메인 워크트리", .statusBarWorktreeLinkedDescription: "연결된 워크트리",
+            .statusBarWorktreeDetached: "분리됨", .statusBarWorktreeLocked: "잠김",
+            .statusBarWorktreeDirtyDescription: "커밋하지 않은 변경 사항",
+            .statusBarWorktreeSessionCount: "에이전트 세션 %d개", .statusBarWorktreeSessionCountOne: "에이전트 세션 %d개",
+            .statusBarWorktreeChangeDirectory: "cd 입력",
+            .statusBarNoWorktrees: "이 디렉터리는 git 워크트리 안에 있지 않습니다.",
             .agentUsageToday: "오늘", .agentUsageInput: "입력", .agentUsageOutput: "출력", .agentUsageCache: "캐시", .agentUsageAccessibility: "오늘 %2$d개 세션에서 %1$@ 토큰",
             .agentContextLabel: "컨텍스트",
             .agentContextOfLimit: "%2$@ 중 %1$d%%",
@@ -355,6 +377,13 @@ enum AppLocalization {
             .statusBarQuitProcess: "プロセスを終了", .statusBarQuitProcessTitle: "このプロセスを終了しますか？",
             .statusBarQuitProcessMessage: "ペインのシェルプロセスツリーに終了を要求し、応答がなければ強制終了します。保存していない作業は失われます。",
             .statusBarQuitProcessConfirm: "終了", .statusBarNoProcesses: "サンプリング中のペインプロセスはありません。",
+            .statusBarWorktreeTitle: "ワークツリー", .statusBarWorktreeMainTag: "メイン",
+            .statusBarWorktreeMainDescription: "メインワークツリー", .statusBarWorktreeLinkedDescription: "リンクされたワークツリー",
+            .statusBarWorktreeDetached: "デタッチ", .statusBarWorktreeLocked: "ロック中",
+            .statusBarWorktreeDirtyDescription: "コミットされていない変更",
+            .statusBarWorktreeSessionCount: "エージェントセッション %d 件", .statusBarWorktreeSessionCountOne: "エージェントセッション %d 件",
+            .statusBarWorktreeChangeDirectory: "cd を入力",
+            .statusBarNoWorktrees: "このディレクトリは git ワークツリー内にありません。",
             .agentUsageToday: "今日", .agentUsageInput: "入力", .agentUsageOutput: "出力", .agentUsageCache: "キャッシュ", .agentUsageAccessibility: "本日 %2$d セッションで %1$@ トークン",
             .agentContextLabel: "コンテキスト",
             .agentContextOfLimit: "%2$@ 中 %1$d%%",

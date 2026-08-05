@@ -21,9 +21,9 @@ extension TerminalWindowController {
         statusBarView.refreshPanes()
     }
 
-    /// Pane focus only changes which pane's agent status the left segment
-    /// shows; the sampled pane set is unchanged, so this deliberately does not
-    /// reset the sampler.
+    /// Pane focus only changes which pane's agent status and working directory
+    /// the leading segments show; the sampled pane set is unchanged, so this
+    /// deliberately does not reset the sampler.
     func observePaneFocus() {
         NotificationCenter.default.addObserver(
             self,
@@ -35,6 +35,15 @@ extension TerminalWindowController {
 
     @objc func paneFocusDidChange(_ notification: Notification) {
         statusBarView.refreshAgentSegment()
+        statusBarView.refreshWorktreeSegment()
+    }
+
+    /// OSC 7 working-directory changes publish through the terminal title
+    /// notification, which is also how the file explorer follows the active
+    /// pane. The bar re-reads the worktree only when the directory actually
+    /// changed, so a per-prompt title update costs nothing.
+    func workingDirectoryDidChange() {
+        statusBarView.refreshWorktreeSegment()
     }
 
     // MARK: - Window lifecycle
