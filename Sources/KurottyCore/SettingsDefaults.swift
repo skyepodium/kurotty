@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 15
+    public static let schemaVersion = 16
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
@@ -11,6 +11,15 @@ public enum SettingsDefaults {
     /// the screen model; it never writes to a PTY and never runs a command, so
     /// it stays separate from the command-replay opt-in.
     public static let restoreScrollbackOnLaunch = true
+
+    /// The editor is sized for prose-length lines, the terminal for a cell
+    /// grid, so the two font sizes are separate settings.
+    public static let codeEditorFontSizePT = 13.0
+    public static let minimumCodeEditorFontSizePT = 8.0
+    public static let maximumCodeEditorFontSizePT = 32.0
+    /// Off: long lines scroll horizontally instead of folding, which is what
+    /// wide tables and long string literals want.
+    public static let codeEditorWrapsLines = false
     /// Live-applied and on by default. A paste that spans more than one line
     /// can execute every line it contains, so it asks for confirmation first.
     public static let confirmMultilinePaste = true

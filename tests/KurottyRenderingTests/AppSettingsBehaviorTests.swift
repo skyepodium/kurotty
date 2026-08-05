@@ -550,7 +550,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
         // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
         // the schema-12 keys below keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 16)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertFalse(
@@ -681,7 +681,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testScrollbackRestoreDefaultsOn() {
         // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
         // the scrollback-restore default below is unchanged.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 16)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -746,7 +746,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 16)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }

@@ -5,6 +5,7 @@ enum PreferencesCopy {
         case settingsTitle, terminalCategory, appearanceCategory, windowCategory
         case terminalTitle, terminalSubtitle, shellSection, shellSectionHelp, workingDirectory
         case textSection, textSectionHelp, font, fontSize, historySection, historySectionHelp, scrollback, lines
+        case editorSection, editorSectionHelp, editorFontSize, editorWrap, editorWrapCheckboxTitle
         case commandHistory, commandHistoryCheckboxTitle
         case agentSessionIndex, agentSessionIndexCheckboxTitle
         case hideMouseCursor, hideMouseCursorCheckboxTitle
@@ -42,6 +43,7 @@ enum PreferencesCopy {
             .terminalTitle: "Terminal", .terminalSubtitle: "Configure new shell sessions, text, and history.",
             .shellSection: "Shell", .shellSectionHelp: "The working directory is used for new terminal sessions.", .workingDirectory: "Working directory",
             .textSection: "Text", .textSectionHelp: "Font changes apply to open terminal surfaces.", .font: "Font", .fontSize: "Font size",
+            .editorSection: "Editor", .editorSectionHelp: "Applies to open editor tabs as well as new ones.", .editorFontSize: "Font size", .editorWrap: "Line wrap", .editorWrapCheckboxTitle: "Fold long lines to the pane width instead of scrolling",
             .historySection: "History", .historySectionHelp: "Limit retained scrollback to keep memory use predictable.", .scrollback: "Scrollback", .lines: "lines",
             .commandHistory: "Command history", .commandHistoryCheckboxTitle: "Record commands for the Command History panel",
             .agentSessionIndex: "Agent sessions", .agentSessionIndexCheckboxTitle: "Index AI agent sessions stored on this Mac (read-only)",
@@ -67,6 +69,7 @@ enum PreferencesCopy {
             .terminalTitle: "터미널", .terminalSubtitle: "새 셸 세션과 글꼴, 기록을 설정합니다.",
             .shellSection: "셸", .shellSectionHelp: "새 터미널 세션을 시작할 작업 폴더입니다.", .workingDirectory: "작업 폴더",
             .textSection: "텍스트", .textSectionHelp: "글꼴 변경은 열려 있는 터미널에도 적용됩니다.", .font: "글꼴", .fontSize: "글꼴 크기",
+            .editorSection: "에디터", .editorSectionHelp: "열려 있는 에디터 탭에도 함께 적용됩니다.", .editorFontSize: "글꼴 크기", .editorWrap: "줄바꿈", .editorWrapCheckboxTitle: "긴 줄을 가로 스크롤 대신 패널 너비에 맞춰 접기",
             .historySection: "기록", .historySectionHelp: "메모리 사용량을 예측할 수 있도록 스크롤백 보관량을 제한합니다.", .scrollback: "스크롤백", .lines: "줄",
             .commandHistory: "명령 기록", .commandHistoryCheckboxTitle: "명령 기록 패널을 위해 실행한 명령을 저장",
             .agentSessionIndex: "에이전트 세션", .agentSessionIndexCheckboxTitle: "이 Mac에 저장된 AI 에이전트 세션을 색인 (읽기 전용)",
@@ -92,6 +95,7 @@ enum PreferencesCopy {
             .terminalTitle: "ターミナル", .terminalSubtitle: "新しいシェルセッション、テキスト、履歴を設定します。",
             .shellSection: "シェル", .shellSectionHelp: "新しいターミナルセッションで使用する作業フォルダです。", .workingDirectory: "作業フォルダ",
             .textSection: "テキスト", .textSectionHelp: "フォントの変更は開いているターミナルにも適用されます。", .font: "フォント", .fontSize: "フォントサイズ",
+            .editorSection: "エディタ", .editorSectionHelp: "開いているエディタタブにも適用されます。", .editorFontSize: "フォントサイズ", .editorWrap: "行の折り返し", .editorWrapCheckboxTitle: "長い行を横スクロールせずペイン幅で折り返す",
             .historySection: "履歴", .historySectionHelp: "メモリ使用量を予測可能にするため、スクロールバックの保持量を制限します。", .scrollback: "スクロールバック", .lines: "行",
             .commandHistory: "コマンド履歴", .commandHistoryCheckboxTitle: "コマンド履歴パネルのために実行したコマンドを保存",
             .agentSessionIndex: "エージェントセッション", .agentSessionIndexCheckboxTitle: "このMacに保存されたAIエージェントのセッションをインデックス（読み取り専用）",
