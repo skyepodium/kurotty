@@ -9,6 +9,10 @@ protocol TerminalAppKitRenderer: TerminalFrameRenderer {
     var diagnosticCellBoundaryOverlayEnabled: Bool { get set }
     var diagnosticBaselineOverlayEnabled: Bool { get set }
     var diagnosticGlyphQuadOverlayEnabled: Bool { get set }
+    /// Last frame's damage decision, surfaced through the protocol so the
+    /// terminal surface can report it in diagnostics without depending on a
+    /// concrete renderer.
+    var damageDiagnostics: TerminalRenderDamageDiagnostics { get }
 
     func applyAppearance(
         font: NSFont,

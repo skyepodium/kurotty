@@ -10,6 +10,26 @@ enum TerminalEditorTabTitleFormatter {
     }
 }
 
+/// Pure identity and title formatting for transcript tabs, so tab reuse and
+/// labelling are testable without building an AppKit tab view.
+enum AgentSessionTranscriptTabTitleFormatter {
+    static let titleSeparator = " — "
+
+    /// A session is identified by agent plus id, so the same id from two agents
+    /// opens two tabs.
+    static func sessionKey(for record: AgentSessionRecord) -> String {
+        "\(record.agent.rawValue)/\(record.sessionID)"
+    }
+
+    static func label(for record: AgentSessionRecord) -> String {
+        let title = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            return record.agent.displayName
+        }
+        return title + titleSeparator + record.agent.displayName
+    }
+}
+
 /// Pure mapping from the three-button unsaved-changes alert to a close
 /// decision, so the policy is testable without running a modal alert.
 enum TerminalEditorTabClosePolicy {
@@ -37,10 +57,20 @@ extension TerminalWindowController {
     /// Opens `url` in a center editor tab, reusing an existing tab that
     /// already shows the same file.
     func openEditorTab(for url: URL) {
+        openEditorTab(for: url, line: nil)
+    }
+
+    /// Opens `url` in a center editor tab and, when `line` is non-nil, scrolls
+    /// to and selects that 1-based line. Terminal `path:line:col` links use this
+    /// overload; the file explorer uses the line-free one.
+    func openEditorTab(for url: URL, line: Int?, column: Int? = nil) {
         let standardized = url.standardizedFileURL
         if let existing = editorTabItem(for: standardized) {
             tabView.selectTabViewItem(existing)
             updateTabBar()
+            if let line, let editor = editorView(in: existing) {
+                editor.scrollTo(line: line, column: column)
+            }
             return
         }
 
@@ -63,6 +93,66 @@ extension TerminalWindowController {
         tabView.addTabViewItem(item)
         tabView.selectTabViewItem(item)
         updateTabBar()
+        if let line {
+            editor.scrollTo(line: line, column: column)
+        }
+    }
+
+    /// Opens `record`'s read-only transcript in a center tab, reusing the tab
+    /// already showing that session instead of opening a second one.
+    ///
+    /// Same containment contract as editor tabs: the hosted view is not a
+    /// `SplitTerminalView`, so every terminal-only controller path falls through
+    /// as a no-op.
+    @discardableResult
+    func openTranscriptTab(for record: AgentSessionRecord) -> NSTabViewItem? {
+        guard !record.filePath.isEmpty else {
+            return nil
+        }
+        let key = AgentSessionTranscriptTabTitleFormatter.sessionKey(for: record)
+        if let existing = transcriptTabItem(forSessionKey: key) {
+            tabView.selectTabViewItem(existing)
+            updateTabBar()
+            return existing
+        }
+
+        let transcript = AgentSessionTranscriptView(
+            controller: AgentSessionTranscriptController(record: record)
+        )
+        transcript.applyChromeTheme(chromeTheme)
+        let item = NSTabViewItem(identifier: UUID().uuidString)
+        item.view = transcript
+        item.label = AgentSessionTranscriptTabTitleFormatter.label(for: record)
+        tabView.addTabViewItem(item)
+        tabView.selectTabViewItem(item)
+        window?.title = item.label
+        updateTabBar()
+        return item
+    }
+
+    func transcriptView(in item: NSTabViewItem) -> AgentSessionTranscriptView? {
+        item.view as? AgentSessionTranscriptView
+    }
+
+    var openTranscriptSessionKeys: [String] {
+        (0..<tabView.numberOfTabViewItems).compactMap { index in
+            transcriptView(in: tabView.tabViewItem(at: index)).map { view in
+                AgentSessionTranscriptTabTitleFormatter.sessionKey(for: view.record)
+            }
+        }
+    }
+
+    private func transcriptTabItem(forSessionKey key: String) -> NSTabViewItem? {
+        for index in 0..<tabView.numberOfTabViewItems {
+            let item = tabView.tabViewItem(at: index)
+            guard let view = transcriptView(in: item),
+                  AgentSessionTranscriptTabTitleFormatter.sessionKey(for: view.record) == key
+            else {
+                continue
+            }
+            return item
+        }
+        return nil
     }
 
     func editorView(in item: NSTabViewItem) -> TerminalCodeEditorView? {

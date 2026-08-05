@@ -6,15 +6,30 @@ import Foundation
 struct TerminalCommandHistoryEntry: Codable, Equatable {
     var commandText: String
     var cwd: String?
+    /// `user@host` when the command ran on a remote machine over SSH; `nil`
+    /// for this Mac.
+    ///
+    /// Schema migration: the key is absent from every history file written
+    /// before remote tracking existed. `Codable` decodes a missing optional as
+    /// `nil`, which is exactly the "local" meaning those entries had, so old
+    /// files load unchanged and gain the key on the next save.
+    var cwdHost: String?
     var exitCode: Int?
     var startedAt: Date?
     var finishedAt: Date
     var duration: TimeInterval?
     var useCount: Int
 
+    /// True when the entry's directory only exists on another machine, so
+    /// `cd`/reveal actions must not be pointed at the local filesystem.
+    var isRemote: Bool {
+        cwdHost != nil
+    }
+
     init(
         commandText: String,
         cwd: String?,
+        cwdHost: String? = nil,
         exitCode: Int?,
         startedAt: Date? = nil,
         finishedAt: Date,
@@ -23,6 +38,7 @@ struct TerminalCommandHistoryEntry: Codable, Equatable {
     ) {
         self.commandText = commandText
         self.cwd = cwd
+        self.cwdHost = cwdHost
         self.exitCode = exitCode
         self.startedAt = startedAt
         self.finishedAt = finishedAt
@@ -128,6 +144,7 @@ final class TerminalCommandHistoryStore: NSObject {
         let entry = TerminalCommandHistoryEntry(
             commandText: commandText,
             cwd: context.cwd,
+            cwdHost: context.cwdHost,
             exitCode: context.exitCode,
             startedAt: context.duration.map { finishedAt.addingTimeInterval(-$0) },
             finishedAt: finishedAt,
@@ -148,9 +165,12 @@ final class TerminalCommandHistoryStore: NSObject {
         var normalized = entry
         normalized.commandText = commandText
         var nextEntries = entries()
+        // The host is part of the identity: the same command in the same path
+        // on two different machines must never collapse into one entry.
         if var newest = nextEntries.last,
            newest.commandText == commandText,
-           newest.cwd == normalized.cwd {
+           newest.cwd == normalized.cwd,
+           newest.cwdHost == normalized.cwdHost {
             newest.exitCode = normalized.exitCode
             newest.startedAt = normalized.startedAt
             newest.finishedAt = normalized.finishedAt

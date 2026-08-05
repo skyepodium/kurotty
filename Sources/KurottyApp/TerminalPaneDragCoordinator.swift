@@ -104,11 +104,13 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
         DesignTokens.Color.paneDropTargetBorder.setStroke()
         NSBezierPath(
             roundedRect: rect.insetBy(dx: DesignTokens.Component.hairlinePX, dy: DesignTokens.Component.hairlinePX),
-            xRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX,
-            yRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX
+            xRadius: DesignTokens.Radius.smPX,
+            yRadius: DesignTokens.Radius.smPX
         ).stroke()
+        // A drag chip is a tab-weight label, not a pane header: it floats over
+        // the window and has to stay readable against whatever is behind it.
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .semibold),
+            .font: DesignTokens.Typography.tabLabelSel.font,
             .foregroundColor: DesignTokens.Color.textPrimary,
         ]
         pane.displayTitle.draw(

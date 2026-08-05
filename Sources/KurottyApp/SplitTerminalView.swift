@@ -51,6 +51,7 @@ final class SplitTerminalView: NSSplitView {
         isVertical = axis == .vertical
         dividerStyle = .paneSplitter
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         if let pane {
             configurePane(pane)
@@ -207,6 +208,18 @@ final class SplitTerminalView: NSSplitView {
         pane.sendText(text)
     }
 
+    /// Status-bar snapshots for every pane in this tab, in layout order.
+    func statusBarPaneDescriptors() -> [TerminalStatusBarPaneDescriptor] {
+        terminalPanesInLayoutOrder.map(\.statusBarDescriptor)
+    }
+
+    /// Identity of the focused pane for the status bar's agent segment,
+    /// falling back to the first pane so a window that has lost first
+    /// responder still reports a pane.
+    func activeStatusBarPaneIdentifier() -> String? {
+        (activePane() ?? firstPane())?.agentPaneIdentifier
+    }
+
     /// The terminal surface of the focused pane, falling back to the first
     /// pane. Used by window chrome that tracks the active pane's state, such
     /// as the file-explorer working directory.
@@ -229,9 +242,27 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func layoutOnlyDescriptor(idPrefix: String) -> WorkspaceSnapshotCoordinator.SplitTreeDescriptor {
+        layoutOnlyDescriptor(idPrefix: idPrefix) { _, _ in nil }
+    }
+
+    /// Builds the layout descriptor and offers every live pane, with the
+    /// identifier the descriptor assigns it, to `resolveScrollbackRef`.
+    ///
+    /// One traversal serves both persistence directions: the save path returns
+    /// the reference it just captured, and the restore path returns `nil` while
+    /// recording the pane against its identifier. Keeping it to a single
+    /// recursion is what stops descriptor identity and restore identity from
+    /// drifting apart.
+    func layoutOnlyDescriptor(
+        idPrefix: String,
+        resolveScrollbackRef: (TerminalPaneView, String) -> String?
+    ) -> WorkspaceSnapshotCoordinator.SplitTreeDescriptor {
         if arrangedSubviews.count == 1,
            let pane = arrangedSubviews.first as? TerminalPaneView {
-            return .pane(pane.layoutOnlyDescriptor(id: "\(idPrefix)-pane-0"))
+            let id = "\(idPrefix)-pane-0"
+            var descriptor = pane.layoutOnlyDescriptor(id: id)
+            descriptor.scrollbackRef = resolveScrollbackRef(pane, id)
+            return .pane(descriptor)
         }
         if arrangedSubviews.count == 1,
            let placeholder = arrangedSubviews.first as? TmuxGatewayPanePlaceholder {
@@ -246,7 +277,10 @@ final class SplitTerminalView: NSSplitView {
             children: arrangedSubviews.enumerated().compactMap { index, subview in
                 let childIDPrefix = "\(idPrefix)-\(index)"
                 if let pane = subview as? TerminalPaneView {
-                    return .pane(pane.layoutOnlyDescriptor(id: "\(childIDPrefix)-pane"))
+                    let id = "\(childIDPrefix)-pane"
+                    var descriptor = pane.layoutOnlyDescriptor(id: id)
+                    descriptor.scrollbackRef = resolveScrollbackRef(pane, id)
+                    return .pane(descriptor)
                 }
                 if let placeholder = subview as? TmuxGatewayPanePlaceholder {
                     return .pane(WorkspaceSnapshotCoordinator.PaneDescriptor(
@@ -254,7 +288,10 @@ final class SplitTerminalView: NSSplitView {
                     ))
                 }
                 if let splitView = subview as? SplitTerminalView {
-                    return splitView.layoutOnlyDescriptor(idPrefix: childIDPrefix)
+                    return splitView.layoutOnlyDescriptor(
+                        idPrefix: childIDPrefix,
+                        resolveScrollbackRef: resolveScrollbackRef
+                    )
                 }
                 return nil
             },

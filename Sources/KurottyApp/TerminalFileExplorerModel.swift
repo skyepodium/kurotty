@@ -199,15 +199,32 @@ enum FileExplorerDirectoryLister {
 // MARK: - Git overlay
 
 enum FileExplorerGitBadge: Equatable, Sendable {
+    /// Both sides of a merge touched the path. The only state the user has to
+    /// resolve, so it outranks every other badge at a shared ancestor.
+    case conflicted
     case modified
+    /// Staged in the index with no further worktree change.
+    case staged
     case untracked
     case ignored
+
+    /// Which badge survives when two states meet at a shared ancestor folder.
+    /// Higher wins; `ignored` never propagates and is resolved separately.
+    var ancestorPrecedenceRANK: Int {
+        switch self {
+        case .conflicted: return 4
+        case .modified: return 3
+        case .staged: return 2
+        case .untracked: return 1
+        case .ignored: return 0
+        }
+    }
 }
 
 /// Immutable overlay mapping absolute paths under a repository root to git
 /// badges, with ancestor propagation precomputed: a folder containing a
 /// modified file reports `.modified`, ignored directories cover their
-/// contents, and `.modified` wins over `.untracked` at shared ancestors.
+/// contents, and the higher `ancestorPrecedenceRANK` wins where two states meet.
 struct FileExplorerGitOverlay: Equatable, Sendable {
     static let empty = FileExplorerGitOverlay(repositoryRootPath: "", snapshot: .empty)
 
@@ -221,8 +238,14 @@ struct FileExplorerGitOverlay: Equatable, Sendable {
         for path in snapshot.untrackedRelativePaths {
             Self.assign(.untracked, toPathAndAncestors: path, in: &badges)
         }
+        for path in snapshot.stagedRelativePaths {
+            Self.assign(.staged, toPathAndAncestors: path, in: &badges)
+        }
         for path in snapshot.modifiedRelativePaths {
             Self.assign(.modified, toPathAndAncestors: path, in: &badges)
+        }
+        for path in snapshot.conflictedRelativePaths {
+            Self.assign(.conflicted, toPathAndAncestors: path, in: &badges)
         }
         badgeByRelativePath = badges
         ignoredRelativePaths = Set(snapshot.ignoredRelativePaths)
@@ -275,7 +298,8 @@ struct FileExplorerGitOverlay: Equatable, Sendable {
     ) {
         var current = path
         while !current.isEmpty {
-            if badge == .modified || badges[current] == nil {
+            let existingRank = badges[current]?.ancestorPrecedenceRANK ?? 0
+            if badge.ancestorPrecedenceRANK >= existingRank {
                 badges[current] = badge
             }
             current = parentPath(of: current)

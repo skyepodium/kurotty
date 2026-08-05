@@ -545,6 +545,252 @@ final class AppSettingsBehaviorTests: XCTestCase {
         """
     }
 
+    // MARK: - Schema 12 pane-behavior keys
+
+    func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
+        // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
+        // the schema-12 keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
+        XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
+        XCTAssertFalse(
+            SettingsDefaults.agentStatusHooksEnabled,
+            "hooks start a listener and edit agent configuration, so they must be opt-in"
+        )
+        XCTAssertTrue(AppSettings.default.terminal.hideMouseCursorWhileTyping)
+        XCTAssertTrue(AppSettings.default.shell.perProjectHistoryEnabled)
+        XCTAssertFalse(AppSettings.default.terminal.agentStatusHooksEnabled)
+    }
+
+    /// A settings file written before schema 12 carries no user intent for
+    /// these keys, so migration lands them on the current defaults.
+    func testSettingsWrittenBeforeSchemaTwelveNormalizeToTheCurrentDefaults() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 11
+        settings.terminal.hideMouseCursorWhileTyping = false
+        settings.terminal.agentStatusHooksEnabled = true
+        settings.shell.perProjectHistoryEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(normalized.terminal.hideMouseCursorWhileTyping, SettingsDefaults.hideMouseCursorWhileTyping)
+        XCTAssertEqual(normalized.terminal.agentStatusHooksEnabled, SettingsDefaults.agentStatusHooksEnabled)
+        XCTAssertEqual(normalized.shell.perProjectHistoryEnabled, SettingsDefaults.perProjectHistoryEnabled)
+    }
+
+    func testCurrentSchemaPreservesExplicitChoicesForSchemaTwelveKeys() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.hideMouseCursorWhileTyping = false
+        settings.terminal.agentStatusHooksEnabled = true
+        settings.shell.perProjectHistoryEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertFalse(normalized.terminal.hideMouseCursorWhileTyping)
+        XCTAssertTrue(normalized.terminal.agentStatusHooksEnabled)
+        XCTAssertFalse(normalized.shell.perProjectHistoryEnabled)
+    }
+
+    /// An old file simply lacks the keys; decoding must fall back rather than
+    /// fail the whole document.
+    func testDecodingASettingsFileWithoutTheSchemaTwelveKeysUsesTheDefaults() throws {
+        let json = """
+        {
+          "schemaVersion": 11,
+          "terminal": {
+            "theme": "Kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(defaultColorsJSON())
+          },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.terminal.hideMouseCursorWhileTyping, SettingsDefaults.hideMouseCursorWhileTyping)
+        XCTAssertEqual(decoded.terminal.agentStatusHooksEnabled, SettingsDefaults.agentStatusHooksEnabled)
+        XCTAssertEqual(decoded.shell.perProjectHistoryEnabled, SettingsDefaults.perProjectHistoryEnabled)
+    }
+
+    func testSchemaTwelveKeysSurviveAnEncodeDecodeRoundTrip() throws {
+        var settings = AppSettings.default
+        settings.terminal.hideMouseCursorWhileTyping = false
+        settings.terminal.agentStatusHooksEnabled = true
+        settings.shell.perProjectHistoryEnabled = false
+
+        let decoded = try JSONDecoder().decode(
+            AppSettings.self,
+            from: JSONEncoder().encode(settings)
+        )
+
+        XCTAssertFalse(decoded.terminal.hideMouseCursorWhileTyping)
+        XCTAssertTrue(decoded.terminal.agentStatusHooksEnabled)
+        XCTAssertFalse(decoded.shell.perProjectHistoryEnabled)
+    }
+
+    /// The consumers must read the setting, not a hardcoded gate.
+    func testSchemaTwelveKeysReachTheirConsumers() {
+        XCTAssertFalse(
+            TerminalTypingCursorHiding.shouldHideCursor(
+                characters: "a",
+                modifierFlags: [],
+                isModalPresentationActive: false,
+                isEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            TerminalTypingCursorHiding.shouldHideCursor(
+                characters: "a",
+                modifierFlags: [],
+                isModalPresentationActive: false,
+                isEnabled: true
+            )
+        )
+        XCTAssertNil(
+            TerminalShellHistoryEnvironment.resolvedHistoryFilePath(
+                workingDirectory: "/tmp/project",
+                shellPath: "/bin/zsh",
+                inheritedHistoryFile: nil,
+                applicationSupportDirectory: "/tmp/support",
+                isEnabled: false,
+                gitRootLookup: { _ in nil }
+            ),
+            "a disabled per-project history must not set HISTFILE at all"
+        )
+        XCTAssertNotNil(
+            TerminalShellHistoryEnvironment.resolvedHistoryFilePath(
+                workingDirectory: "/tmp/project",
+                shellPath: "/bin/zsh",
+                inheritedHistoryFile: nil,
+                applicationSupportDirectory: "/tmp/support",
+                isEnabled: true,
+                gitRootLookup: { _ in nil }
+            )
+        )
+    }
+
+    // MARK: - Schema 14 scrollback restore
+
+    /// Restoring stored scrollback only repaints the screen model, so unlike
+    /// command replay it is safe to default on.
+    func testScrollbackRestoreDefaultsOn() {
+        // Re-pointed at schema 15 when `terminal.statusBarEnabled` was added;
+        // the scrollback-restore default below is unchanged.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
+        XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
+        XCTAssertEqual(
+            TerminalScrollbackRestoreSetting.keyPath,
+            "terminal.restoreScrollbackOnLaunch"
+        )
+        XCTAssertEqual(
+            TerminalScrollbackRestoreSetting.defaultValue,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    func testSettingsWrittenBeforeSchemaFourteenNormalizeToTheCurrentDefault() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 13
+        settings.terminal.restoreScrollbackOnLaunch = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(
+            normalized.terminal.restoreScrollbackOnLaunch,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    func testCurrentSchemaPreservesAnExplicitScrollbackRestoreChoice() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.restoreScrollbackOnLaunch = false
+
+        XCTAssertFalse(AppSettingsNormalizer.normalized(settings).terminal.restoreScrollbackOnLaunch)
+    }
+
+    func testDecodingASettingsFileWithoutTheScrollbackRestoreKeyUsesTheDefault() throws {
+        let json = """
+        {
+          "schemaVersion": 13,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          },
+          "window": { "width": 1100, "height": 720 },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(
+            decoded.terminal.restoreScrollbackOnLaunch,
+            SettingsDefaults.restoreScrollbackOnLaunch
+        )
+    }
+
+    // MARK: - Schema 15 status bar
+
+    /// The bar is passive chrome that samples resource counters, so it defaults
+    /// on but must always be switchable off; turning it off stops the sampler
+    /// rather than only hiding the view.
+    func testStatusBarDefaultsOn() {
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 15)
+        XCTAssertTrue(SettingsDefaults.statusBarEnabled)
+        XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
+    }
+
+    func testSettingsWrittenBeforeSchemaFifteenNormalizeToTheCurrentDefault() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 14
+        settings.terminal.statusBarEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(normalized.terminal.statusBarEnabled, SettingsDefaults.statusBarEnabled)
+    }
+
+    func testCurrentSchemaPreservesAnExplicitStatusBarChoice() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.statusBarEnabled = false
+
+        XCTAssertFalse(AppSettingsNormalizer.normalized(settings).terminal.statusBarEnabled)
+    }
+
+    func testDecodingASettingsFileWithoutTheStatusBarKeyUsesTheDefault() throws {
+        let json = """
+        {
+          "schemaVersion": 14,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          },
+          "window": { "width": 1100, "height": 720 },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.terminal.statusBarEnabled, SettingsDefaults.statusBarEnabled)
+    }
+
     private func customColorsJSON() -> String {
         """
         {

@@ -85,19 +85,23 @@ struct WorkspaceSnapshotCoordinator {
         var workingDirectory: String?
         var profileName: String?
         var restoreSafety: TerminalRestoreSafetyMetadata
+        /// Set when the pane's scrollback was captured for this save.
+        var scrollbackRef: String?
 
         init(
             id: String,
             title: String? = nil,
             workingDirectory: String? = nil,
             profileName: String? = nil,
-            restoreSafety: TerminalRestoreSafetyMetadata = .layoutOnly
+            restoreSafety: TerminalRestoreSafetyMetadata = .layoutOnly,
+            scrollbackRef: String? = nil
         ) {
             self.id = id
             self.title = title
             self.workingDirectory = workingDirectory
             self.profileName = profileName
             self.restoreSafety = restoreSafety
+            self.scrollbackRef = scrollbackRef
         }
     }
 
@@ -162,7 +166,8 @@ struct WorkspaceSnapshotCoordinator {
             title: descriptor.title,
             workingDirectory: descriptor.workingDirectory,
             profileName: descriptor.profileName,
-            restoreSafety: .layoutOnly
+            restoreSafety: .layoutOnly,
+            scrollbackRef: descriptor.scrollbackRef
         )
     }
 }

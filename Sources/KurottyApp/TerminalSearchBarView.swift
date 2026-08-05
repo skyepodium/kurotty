@@ -54,28 +54,21 @@ private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
 
 @MainActor
 final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
-    private enum Metrics {
-        static let stackLeadingInset: CGFloat = 8
-        static let stackTrailingInset: CGFloat = 6
-        static let stackSpacing: CGFloat = 4
-        static let stackVerticalInset: CGFloat = 7
-        static let queryHeight: CGFloat = 30
-        static let minimumQueryWidth: CGFloat = 120
-        static let minimumResultCountWidth: CGFloat = 44
-        static let buttonSide: CGFloat = 24
-
-        static func minimumWidth(
-            resultCountWidth: CGFloat,
-            navigationButtonCount: Int
-        ) -> CGFloat {
-            let arrangedViewCount = 3 + navigationButtonCount
-            return stackLeadingInset
-                + stackTrailingInset
-                + minimumQueryWidth
-                + resultCountWidth
-                + buttonSide * CGFloat(1 + navigationButtonCount)
-                + stackSpacing * CGFloat(arrangedViewCount - 1)
-        }
+    /// Width the bar needs before a given set of controls still fits. This is
+    /// layout arithmetic over the shared `Component.terminalSearch*` tokens, not
+    /// a token table of its own.
+    private static func minimumWidth(
+        resultCountWidth: CGFloat,
+        navigationButtonCount: Int
+    ) -> CGFloat {
+        let component = DesignTokens.Component.self
+        let arrangedViewCount = 3 + navigationButtonCount
+        return component.terminalSearchStackLeadingInsetPX
+            + component.terminalSearchStackTrailingInsetPX
+            + component.terminalSearchMinimumQueryWidthPX
+            + resultCountWidth
+            + component.terminalSearchButtonSidePX * CGFloat(1 + navigationButtonCount)
+            + component.terminalSearchStackSpacingPX * CGFloat(arrangedViewCount - 1)
     }
 
     var onQueryChanged: ((String) -> Void)?
@@ -86,21 +79,23 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     private let queryField = NSTextField()
     private let resultCountLabel = NSTextField(labelWithString: TerminalSearchSummary.empty.displayText)
     private lazy var previousButton = makeButton(
-        symbolName: "chevron.up",
+        symbolName: IconSymbol.previousMatch,
         accessibilityLabel: AppLocalization.string(.previousSearchMatch),
         action: #selector(previousButtonPressed(_:))
     )
     private lazy var nextButton = makeButton(
-        symbolName: "chevron.down",
+        symbolName: IconSymbol.nextMatch,
         accessibilityLabel: AppLocalization.string(.nextSearchMatch),
         action: #selector(nextButtonPressed(_:))
     )
     private lazy var closeButton = makeButton(
-        symbolName: "xmark",
+        symbolName: IconSymbol.close,
         accessibilityLabel: AppLocalization.string(.closeSearch),
         action: #selector(closeButtonPressed(_:))
     )
     private var chromeTheme = DesignTokens.ChromeTheme.dark
+    private var lastSummary = TerminalSearchSummary.empty
+    private var isQueryFieldFocused = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -131,20 +126,55 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         let hasMatches = summary.totalMatches > 0
         previousButton.isEnabled = hasMatches
         nextButton.isEnabled = hasMatches
+        lastSummary = summary
+        applyResultCountColor()
         needsLayout = true
     }
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.activeTabBackground.cgColor
-        layer?.borderColor = theme.borderHairline.cgColor
+        layer.map(DesignTokens.Elevation.floating(for: theme).apply(to:))
         queryField.textColor = theme.textPrimary
-        queryField.layer?.backgroundColor = theme.windowBackground.withAlphaComponent(0.9).cgColor
+        queryField.layer?.backgroundColor = theme.windowBackground
+            .withAlphaComponent(DesignTokens.Component.terminalSearchFieldFillAlphaRATIO)
+            .cgColor
         refreshLocalization()
-        resultCountLabel.textColor = theme.textSecondary
+        applyResultCountColor()
+        applyBorderColor()
+        // Symbols are palette-tinted, not template images, so a theme change has
+        // to rebuild them rather than just set `contentTintColor`.
         for button in [previousButton, nextButton, closeButton] {
-            button.contentTintColor = theme.textSecondary
+            guard let symbolName = button.identifier?.rawValue else { continue }
+            button.image = Icon.symbol(symbolName, .small, tint: theme.textSecondary) ?? button.image
         }
+    }
+
+    /// The bar borrows the focus ring the field itself gives up: `queryField`
+    /// draws no ring of its own, so the accent border is the only signal that
+    /// typing goes here.
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        isQueryFieldFocused = true
+        applyBorderColor()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        isQueryFieldFocused = false
+        applyBorderColor()
+    }
+
+    private func applyBorderColor() {
+        layer?.borderColor = isQueryFieldFocused
+            ? chromeTheme.accent.cgColor
+            : chromeTheme.hairline.cgColor
+    }
+
+    /// Zero matches for something the user actually typed is a failed search,
+    /// so the count turns `error`. An empty query has zero matches too, but
+    /// that is a resting state, not a failure.
+    private func applyResultCountColor() {
+        let isFailedSearch = lastSummary.totalMatches == 0 && !queryField.stringValue.isEmpty
+        resultCountLabel.textColor = isFailedSearch ? chromeTheme.error : chromeTheme.textTertiary
     }
 
     func refreshLocalization() {
@@ -165,6 +195,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ notification: Notification) {
+        applyResultCountColor()
         onQueryChanged?(queryField.stringValue)
     }
 
@@ -196,14 +227,14 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
 
     override func layout() {
         let resultCountWidth = max(
-            Metrics.minimumResultCountWidth,
+            DesignTokens.Component.terminalSearchMinimumResultCountWidthPX,
             resultCountLabel.intrinsicContentSize.width
         )
-        let showsNavigation = bounds.width >= Metrics.minimumWidth(
+        let showsNavigation = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
             navigationButtonCount: 2
         )
-        let showsResultCount = bounds.width >= Metrics.minimumWidth(
+        let showsResultCount = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
             navigationButtonCount: 0
         )
@@ -216,33 +247,29 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     private func configureLayout() {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = DesignTokens.Component.terminalSearchCornerRadiusPX
+        layer?.cornerRadius = DesignTokens.Radius.lgPX
         layer?.borderWidth = DesignTokens.Component.hairlinePX
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.22
-        layer?.shadowRadius = 10
-        layer?.shadowOffset = NSSize(width: 0, height: -2)
+        // The bar's own appearance never animates: it either is on screen or is
+        // not, and a fade would make Cmd+F feel slow.
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
 
         queryField.cell = VerticallyCenteredTextFieldCell(textCell: "")
         queryField.delegate = self
         queryField.isEditable = true
         queryField.isSelectable = true
         queryField.usesSingleLineMode = true
-        queryField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        queryField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.controlLabel.sizePT)
         queryField.focusRingType = .none
         queryField.isBezeled = false
         queryField.isBordered = false
         queryField.drawsBackground = false
         queryField.wantsLayer = true
-        queryField.layer?.cornerRadius = DesignTokens.Component.radiusSmallPX
+        queryField.layer?.cornerRadius = DesignTokens.Radius.smPX
         queryField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         queryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         queryField.translatesAutoresizingMaskIntoConstraints = false
 
-        resultCountLabel.font = NSFont.monospacedDigitSystemFont(
-            ofSize: DesignTokens.Typography.statusFontSizePT,
-            weight: .medium
-        )
+        resultCountLabel.font = DesignTokens.Typography.statusBarNum.font
         resultCountLabel.alignment = .right
         resultCountLabel.setContentHuggingPriority(.required, for: .horizontal)
         resultCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -252,7 +279,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
-        stack.spacing = Metrics.stackSpacing
+        stack.spacing = DesignTokens.Component.terminalSearchStackSpacingPX
         stack.detachesHiddenViews = true
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -262,7 +289,7 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         )
         preferredWidthConstraint.priority = .defaultHigh
         let minimumQueryWidthConstraint = queryField.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: Metrics.minimumQueryWidth
+            greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumQueryWidthPX
         )
         minimumQueryWidthConstraint.priority = .init(rawValue: 999)
 
@@ -270,15 +297,15 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
             heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchHeightPX),
             preferredWidthConstraint,
 
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.stackLeadingInset),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.stackTrailingInset),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.stackVerticalInset),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.stackVerticalInset),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalSearchStackLeadingInsetPX),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DesignTokens.Component.terminalSearchStackTrailingInsetPX),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: DesignTokens.Component.terminalSearchStackVerticalInsetPX),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Component.terminalSearchStackVerticalInsetPX),
 
-            queryField.heightAnchor.constraint(equalToConstant: Metrics.queryHeight),
+            queryField.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchQueryHeightPX),
             minimumQueryWidthConstraint,
             resultCountLabel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: Metrics.minimumResultCountWidth
+                greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumResultCountWidthPX
             ),
         ])
         update(summary: .empty)
@@ -290,18 +317,21 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         accessibilityLabel: String,
         action: Selector
     ) -> NSButton {
-        let button = NSButton(
-            image: NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel) ?? NSImage(),
-            target: self,
-            action: action
-        )
+        let image = Icon.symbol(
+            symbolName,
+            .small,
+            tint: chromeTheme.textSecondary,
+            accessibilityDescription: accessibilityLabel
+        ) ?? NSImage()
+        let button = NSButton(image: image, target: self, action: action)
+        button.identifier = NSUserInterfaceItemIdentifier(symbolName)
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
         button.setAccessibilityLabel(accessibilityLabel)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: Metrics.buttonSide).isActive = true
-        button.heightAnchor.constraint(equalToConstant: Metrics.buttonSide).isActive = true
+        button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
+        button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
         return button
     }
 

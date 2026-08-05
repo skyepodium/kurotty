@@ -15,6 +15,40 @@ struct TerminalCommandReplayApproval: Equatable {
     }
 }
 
+/// Approval carried by a quick-command dispatch.
+///
+/// A quick command is authored by the user, so triggering one from the palette,
+/// the context menu, or its own shortcut is itself the explicit act; there is no
+/// per-invocation dialog. Anything that was not started by the user directly
+/// (restore, automation, replayed state) leaves this false and can never make a
+/// command execute.
+struct QuickCommandApproval: Equatable {
+    let isUserInitiated: Bool
+
+    init(isUserInitiated: Bool) {
+        self.isUserInitiated = isUserInitiated
+    }
+}
+
+enum QuickCommandDispatchResult: Equatable {
+    /// Text was written with no trailing newline; the user still presses Return.
+    case insertedText(String)
+    /// Text plus Return was written: this executed.
+    case executedText(String)
+    /// An executing command that was not user-initiated. Nothing was written.
+    case requiresApproval
+    /// The command has no runnable body. Nothing was written.
+    case emptyCommand
+}
+
+struct QuickCommandDispatchHandlers {
+    var sendText: (String) -> Void
+
+    init(sendText: @escaping (String) -> Void = { _ in }) {
+        self.sendText = sendText
+    }
+}
+
 enum TerminalCommandSpanDispatchContext: Equatable {
     case fold(TerminalCommandFoldCandidate)
     case copyReference(TerminalCommandSpanReference)
@@ -90,6 +124,8 @@ enum TerminalCommandDispatcher {
             controller.toggleCommandHistoryPanel()
         case .toggleFileExplorerPanel:
             controller.toggleFileExplorerPanel()
+        case .toggleAgentSessionPanel:
+            controller.toggleAgentSessionPanel()
         case let .tmuxSwapPane(direction):
             controller.swapTmuxPane(direction)
         case let .tmuxRotateWindow(direction):
@@ -127,5 +163,29 @@ enum TerminalCommandDispatcher {
         default:
             return .mismatchedContext
         }
+    }
+
+    /// The only path from a quick command to a terminal pane.
+    ///
+    /// Mirrors the replay gate above: a payload that executes is written only
+    /// when the approval says the user initiated it, and an insert-only payload
+    /// can never carry a newline, so it lands on the prompt without running.
+    static func execute(
+        quickCommand: QuickCommand,
+        approval: QuickCommandApproval,
+        handlers: QuickCommandDispatchHandlers
+    ) -> QuickCommandDispatchResult {
+        guard let payload = QuickCommandNormalizer.dispatchPayload(for: quickCommand) else {
+            return .emptyCommand
+        }
+        guard payload.executes else {
+            handlers.sendText(payload.text)
+            return .insertedText(payload.text)
+        }
+        guard approval.isUserInitiated else {
+            return .requiresApproval
+        }
+        handlers.sendText(payload.text)
+        return .executedText(payload.text)
     }
 }

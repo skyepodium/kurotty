@@ -21,6 +21,7 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case findTerminalOutput = "terminal.findOutput"
     case toggleCommandHistoryPanel = "history.togglePanel"
     case toggleFileExplorerPanel = "explorer.togglePanel"
+    case toggleAgentSessionPanel = "sessions.togglePanel"
     case tmuxSwapPanePrevious = "tmux.swapPane.previous"
     case tmuxSwapPaneNext = "tmux.swapPane.next"
     case tmuxRotateWindowPrevious = "tmux.rotateWindow.previous"
@@ -44,6 +45,7 @@ enum TerminalWindowCommandAction: Equatable {
     case findTerminalOutput
     case toggleCommandHistoryPanel
     case toggleFileExplorerPanel
+    case toggleAgentSessionPanel
     case tmuxSwapPane(TmuxPaneSwapDirection)
     case tmuxRotateWindow(TmuxRotationDirection)
     case tmuxToggleZoom
@@ -191,13 +193,41 @@ struct TerminalCommandRegistry {
 
     let windowCommands: [TerminalCommand]
     let commandSpanCommands: [TerminalCommandSpanCommand]
+    /// User-authored quick commands already filtered for the active pane's
+    /// working directory. Empty unless a surface registered them.
+    let quickCommands: [TerminalQuickCommandRegistryEntry]
 
     init(
         windowCommands: [TerminalCommand],
-        commandSpanCommands: [TerminalCommandSpanCommand] = []
+        commandSpanCommands: [TerminalCommandSpanCommand] = [],
+        quickCommands: [TerminalQuickCommandRegistryEntry] = []
     ) {
         self.windowCommands = windowCommands
         self.commandSpanCommands = commandSpanCommands
+        self.quickCommands = quickCommands
+    }
+
+    /// Returns a copy of this registry carrying the quick commands visible in
+    /// `workingDirectory`. Directory-scoped commands outside that directory are
+    /// never registered, so they cannot appear in any surface.
+    func registering(
+        quickCommands: [QuickCommand],
+        workingDirectory: String?,
+        language: AppLanguage = .english
+    ) -> TerminalCommandRegistry {
+        TerminalCommandRegistry(
+            windowCommands: windowCommands,
+            commandSpanCommands: commandSpanCommands,
+            quickCommands: QuickCommandPresentation.entries(
+                for: quickCommands,
+                workingDirectory: workingDirectory,
+                language: language
+            )
+        )
+    }
+
+    func quickCommand(for id: String) -> QuickCommand? {
+        quickCommands.first { $0.quickCommand.id == id }?.quickCommand
     }
 
     func windowCommand(matching event: NSEvent) -> TerminalCommand? {
@@ -270,6 +300,14 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "e", modifiers: [.command, .shift]),
             action: .toggleFileExplorerPanel,
             searchTokens: ["file explorer", "explorer panel", "file tree", "browse files", "toggle explorer sidebar"]
+        ),
+        TerminalCommand(
+            id: .toggleAgentSessionPanel,
+            title: AppLocalization.string(.agentSessions, language: language),
+            category: .navigation,
+            shortcut: TerminalCommandShortcut(keyEquivalent: "a", modifiers: [.command, .shift]),
+            action: .toggleAgentSessionPanel,
+            searchTokens: ["agent sessions", "ai sessions", "claude code sessions", "codex sessions", "resume session", "session vault"]
         ),
         TerminalCommand(
             id: .focusPaneLeft,
