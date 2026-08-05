@@ -16,29 +16,27 @@ extension TerminalWindowController {
         leftSidebarPanel.layer?.cornerRadius = 0
         leftSidebarPanel.layer?.borderWidth = 0
         leftSidebarPanel.layer?.masksToBounds = false
-        leftSidebarPanel.translatesAutoresizingMaskIntoConstraints = false
-        terminalContentHostView.translatesAutoresizingMaskIntoConstraints = false
+        // The split view owns every column's frame. Leaving these on Auto
+        // Layout meant the frame it set on a divider drag was thrown away on the
+        // next layout pass and the panel snapped back to its minimum width, so
+        // the dividers did not move at all. Limits are enforced by
+        // `constrainMinCoordinate`/`constrainMaxCoordinate` instead, and the
+        // terminal column absorbs window resizing through its holding priority.
+        leftSidebarPanel.translatesAutoresizingMaskIntoConstraints = true
+        terminalContentHostView.translatesAutoresizingMaskIntoConstraints = true
+        // A column has to track the split view even before the divider logic
+        // runs: `resizeSubviewsWithOldSize` only fires once the split view has
+        // a frame, and a window that is never displayed would otherwise leave
+        // the terminal at zero size with nothing to render into.
+        leftSidebarPanel.autoresizingMask = [.height]
+        terminalContentHostView.autoresizingMask = [.width, .height]
         commandHistorySplitView.addArrangedSubview(leftSidebarPanel)
         commandHistorySplitView.addArrangedSubview(terminalContentHostView)
         commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         commandHistorySplitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
-        let preferredWidthConstraint = leftSidebarPanel.widthAnchor.constraint(
-            equalToConstant: DesignTokens.Component.commandHistoryPanelDefaultWidthPX
-        )
-        preferredWidthConstraint.priority = .defaultLow
-        // Held inactive while the panel is hidden; see
-        // `commandHistoryWidthConstraints` for why.
-        commandHistoryWidthConstraints = [
-            leftSidebarPanel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.commandHistoryPanelMinWidthPX
-            ),
-            leftSidebarPanel.widthAnchor.constraint(
-                lessThanOrEqualToConstant: DesignTokens.Component.commandHistoryPanelMaxWidthPX
-            ),
-            preferredWidthConstraint,
-        ]
-
+        // Width is a divider position now, not a constraint; the array stays so
+        // the shared show/hide helper keeps one signature for both sidebars.
         commandHistorySplitView.delegate = self
         rootView.addSubview(commandHistorySplitView)
         NSLayoutConstraint.activate([
@@ -52,24 +50,12 @@ extension TerminalWindowController {
             // instead of running under it.
             commandHistorySplitView.bottomAnchor.constraint(equalTo: statusBarView.topAnchor),
 
-            // The terminal column takes its height from the split view. The two
-            // sidebar panels get the same pin, but in `setSidebarPanelHidden`,
-            // because hiding removes them from the split view and takes any
-            // constraint declared here with them.
-            terminalContentHostView.topAnchor.constraint(equalTo: commandHistorySplitView.topAnchor),
-            terminalContentHostView.bottomAnchor.constraint(
-                equalTo: commandHistorySplitView.bottomAnchor
-            ),
         ])
 
         // The panel starts collapsed through the shared helper so the hidden
         // state, the released width constraints, and the zero-width pin are
         // established exactly once, in one place.
-        setSidebarPanelHidden(
-            true,
-            panel: leftSidebarPanel,
-            widthConstraints: commandHistoryWidthConstraints
-        )
+        setSidebarPanelHidden(true, panel: leftSidebarPanel)
         configureCommandHistoryPanelHandlers()
     }
 
@@ -89,11 +75,7 @@ extension TerminalWindowController {
         guard isCommandHistoryPanelVisible != visible else {
             return
         }
-        setSidebarPanelHidden(
-            !visible,
-            panel: leftSidebarPanel,
-            widthConstraints: commandHistoryWidthConstraints
-        )
+        setSidebarPanelHidden(!visible, panel: leftSidebarPanel)
         updateSidebarToggleButtonStates()
         if visible {
             restoreSidebarWidthIfCollapsed(leftSidebarPanel)

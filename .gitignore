@@ -9,3 +9,6 @@ DerivedData/
 dist/
 code-rule/
 .omx/logs/
+
+# Agent worktrees created by Claude Code.
+.claude/worktrees/
