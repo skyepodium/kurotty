@@ -242,9 +242,15 @@ struct ClaudeSessionScanner: AgentSessionScanning {
         var lastPrompt: String?
         var firstUserPrompt: String?
         var messageCount = 0
+        // Claude writes a fresh usage block per assistant message, so these are
+        // summed. See `AgentTokenUsageParsing` for why Codex is not.
+        var tokenUsage = AgentTokenUsage.zero
 
         for object in objects {
             let type = AgentSessionTranscriptParsing.nonEmptyString(object[Field.type])
+            if let increment = AgentTokenUsageParsing.claudeIncrement(in: object) {
+                tokenUsage = tokenUsage + increment
+            }
             sessionID = sessionID ?? AgentSessionTranscriptParsing.nonEmptyString(object[Field.sessionID])
 
             switch type {
@@ -291,7 +297,8 @@ struct ClaudeSessionScanner: AgentSessionScanning {
             isTranscriptTruncated: isTranscriptTruncated,
             firstUserPrompt: firstUserPrompt.map(cappedPrompt),
             lastUserPrompt: (lastPrompt ?? firstUserPrompt).map(cappedPrompt),
-            filePath: fileURL.path
+            filePath: fileURL.path,
+            tokenUsage: tokenUsage
         )
     }
 
@@ -410,10 +417,16 @@ struct CodexSessionScanner: AgentSessionScanning {
         var firstTranscriptPrompt: String?
         var lastTranscriptPrompt: String?
         var messageCount = 0
+        // Codex reports a running total on every token_count event, so the last
+        // one replaces the previous rather than adding to it.
+        var tokenUsage = AgentTokenUsage.zero
 
         for object in objects {
             range.observe(timestamps.date(from: object[Field.timestamp]))
             let payload = object[Field.payload] as? [String: Any]
+            if let payload, let total = AgentTokenUsageParsing.codexRunningTotal(in: payload) {
+                tokenUsage = total
+            }
             if cwd == nil {
                 cwd = AgentSessionTranscriptParsing.workingDirectory(in: object)
             }
@@ -470,7 +483,8 @@ struct CodexSessionScanner: AgentSessionScanning {
             isTranscriptTruncated: isTranscriptTruncated,
             firstUserPrompt: firstUserPrompt.map(cappedPrompt),
             lastUserPrompt: lastUserPrompt.map(cappedPrompt),
-            filePath: fileURL.path
+            filePath: fileURL.path,
+            tokenUsage: tokenUsage
         )
     }
 
