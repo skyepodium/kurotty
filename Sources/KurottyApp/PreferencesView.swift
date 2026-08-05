@@ -3,12 +3,6 @@ import KurottyCore
 
 @MainActor
 final class PreferencesView: NSView, NSTextFieldDelegate {
-    private enum Category: Int, CaseIterable {
-        case terminal
-        case appearance
-        case window
-    }
-
     private enum Layout {
         static let sidebarWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
         /// The window minus the category sidebar minus the outer inset on both
@@ -45,10 +39,16 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private var settings = AppSettings.default
     private var autosaveWorkItem: DispatchWorkItem?
     private var isUpdatingControls = false
-    private var selectedCategory = Category.terminal
+    private var selectedCategory = PreferencesCategory.terminal
     /// Buttons whose size constraints are already installed. Pages are rebuilt
     /// on every category switch, but the controls themselves are long-lived.
     private var sizedButtons = Set<ObjectIdentifier>()
+
+    private lazy var search = PreferencesSearchController(
+        contentWidthPX: Layout.contentWidthPX,
+        placeholder: { PreferencesCopy.string(.searchPlaceholder, language: AppLocalization.language) },
+        noResultsFormat: { PreferencesCopy.string(.searchNoResults, language: AppLocalization.language) }
+    )
 
     private lazy var categoryStack = NSStackView()
     private lazy var detailScrollView = NSScrollView()
@@ -130,7 +130,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         super.init(frame: frameRect)
         configure()
         reloadFromDisk()
-        selectCategory(.terminal)
+        // The chrome theme is derived from the settings that were just read, so
+        // the window shell has to be repainted here: `configure()` had nothing
+        // but the defaults to paint with, which left a light-theme settings
+        // window on a dark canvas.
+        applyChromeTheme()
+        indexEveryPane()
     }
 
     override init(frame frameRect: NSRect) {
@@ -138,7 +143,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         super.init(frame: frameRect)
         configure()
         reloadFromDisk()
-        selectCategory(.terminal)
+        // The chrome theme is derived from the settings that were just read, so
+        // the window shell has to be repainted here: `configure()` had nothing
+        // but the defaults to paint with, which left a light-theme settings
+        // window on a dark canvas.
+        applyChromeTheme()
+        indexEveryPane()
     }
 
     required init?(coder: NSCoder) {
@@ -200,6 +210,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         appearance = theme.windowAppearance
         layer?.backgroundColor = theme.surfaceCanvas.cgColor
         statusLabel.textColor = theme.textTertiary
+        search.applyChromeTheme(theme)
     }
 
     private func configureSidebar() {
@@ -213,7 +224,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         categoryStack.addArrangedSubview(headingLabel)
         categoryStack.setCustomSpacing(Layout.sectionSpacingPX, after: headingLabel)
 
-        for category in Category.allCases {
+        configureSearchField()
+
+        for category in PreferencesCategory.allCases {
             let button = NSButton(title: title(for: category), target: self, action: #selector(categorySelected(_:)))
             button.tag = category.rawValue
             button.bezelStyle = .recessed
@@ -226,6 +239,41 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             button.heightAnchor.constraint(equalToConstant: Layout.categoryButtonHeightPX).isActive = true
             categoryStack.addArrangedSubview(button)
         }
+    }
+
+    /// The query field sits above the category list, at the category buttons'
+    /// width: searching is a way into the list, not a fourth category.
+    private func configureSearchField() {
+        search.onCategoryRequested = { [weak self] category in
+            self?.selectCategory(category)
+        }
+        let queryField = search.queryField
+        categoryStack.addArrangedSubview(queryField)
+        queryField.widthAnchor.constraint(
+            equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX
+        ).isActive = true
+        categoryStack.setCustomSpacing(
+            DesignTokens.Component.preferencesSearchFieldBottomGapPX,
+            after: queryField
+        )
+    }
+
+    /// Builds each pane once at open so search can reach a setting in a pane the
+    /// user has never selected. The panes are rebuilt on every switch anyway, so
+    /// this costs one extra build each and keeps the builders as the only place
+    /// that knows which settings exist.
+    private func indexEveryPane() {
+        for category in PreferencesCategory.allCases {
+            selectCategory(category)
+        }
+        selectCategory(.terminal)
+    }
+
+    /// Cmd+F reaches the key window's responder chain before it reaches the app
+    /// delegate's terminal search, so in the Settings window "find" means find a
+    /// setting.
+    @objc func findTerminalOutput() {
+        search.focusQueryField()
     }
 
     private func configureDetailArea() {
@@ -267,11 +315,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func categorySelected(_ sender: NSButton) {
-        guard let category = Category(rawValue: sender.tag) else { return }
+        guard let category = PreferencesCategory(rawValue: sender.tag) else { return }
         selectCategory(category)
     }
 
-    private func selectCategory(_ category: Category) {
+    private func selectCategory(_ category: PreferencesCategory) {
         selectedCategory = category
         for case let button as NSButton in categoryStack.arrangedSubviews {
             button.state = button.tag == category.rawValue ? .on : .off
@@ -281,6 +329,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             $0.removeFromSuperview()
         }
 
+        search.beginRecording(category)
         switch category {
         case .terminal:
             buildTerminalPage()
@@ -289,6 +338,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         case .window:
             buildWindowPage()
         }
+        detailStack.addArrangedSubview(search.emptyStateView)
+        search.endRecording()
+        // `syncControlsFromSettings` re-applies the filter, so the rebuilt pane
+        // never appears unfiltered while a query is active.
         syncControlsFromSettings()
         detailScrollView.contentView.scroll(to: .zero)
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
@@ -298,10 +351,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         addPageHeader(copy(.terminalTitle), subtitle: copy(.terminalSubtitle))
 
         let shellSection = section(title: copy(.shellSection), subtitle: copy(.shellSectionHelp))
-        shellSection.addArrangedSubview(row(label: copy(.workingDirectory), control: workingDirectoryField))
+        addRow(copy(.workingDirectory), control: workingDirectoryField, to: shellSection)
         configureTextField(workingDirectoryField, action: #selector(textFieldChanged(_:)))
         perProjectHistoryCheckbox.title = copy(.perProjectHistoryCheckboxTitle)
-        shellSection.addArrangedSubview(row(label: copy(.perProjectHistory), control: perProjectHistoryCheckbox))
+        addRow(copy(.perProjectHistory), control: perProjectHistoryCheckbox, to: shellSection)
         detailStack.addArrangedSubview(shellSection)
 
         let textSection = section(title: copy(.textSection), subtitle: copy(.textSectionHelp))
@@ -309,15 +362,19 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         fontPopup.addItems(withTitles: availableMonospacedFonts())
         fontPopup.target = self
         fontPopup.action = #selector(fontChanged(_:))
-        textSection.addArrangedSubview(row(label: copy(.font), control: fontPopup))
+        addRow(copy(.font), control: fontPopup, to: textSection)
         configureNumericField(fontSizeField, stepper: fontSizeStepper, minimum: SettingsDefaults.minimumTerminalFontSizePT, maximum: SettingsDefaults.maximumTerminalFontSizePT, increment: 1)
-        textSection.addArrangedSubview(row(label: copy(.fontSize), control: numericControl(field: fontSizeField, stepper: fontSizeStepper, suffix: "pt")))
+        addRow(
+            copy(.fontSize),
+            control: numericControl(field: fontSizeField, stepper: fontSizeStepper, suffix: "pt"),
+            to: textSection
+        )
         hideMouseCursorCheckbox.title = copy(.hideMouseCursorCheckboxTitle)
-        textSection.addArrangedSubview(row(label: copy(.hideMouseCursor), control: hideMouseCursorCheckbox))
+        addRow(copy(.hideMouseCursor), control: hideMouseCursorCheckbox, to: textSection)
         confirmMultilinePasteCheckbox.title = copy(.confirmMultilinePasteCheckboxTitle)
-        textSection.addArrangedSubview(row(label: copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox))
+        addRow(copy(.confirmMultilinePaste), control: confirmMultilinePasteCheckbox, to: textSection)
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
-        textSection.addArrangedSubview(row(label: copy(.statusBar), control: statusBarCheckbox))
+        addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
         detailStack.addArrangedSubview(textSection)
 
         let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
@@ -328,25 +385,30 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             maximum: SettingsDefaults.maximumCodeEditorFontSizePT,
             increment: 1
         )
-        editorSection.addArrangedSubview(row(
-            label: copy(.editorFontSize),
-            control: numericControl(field: codeEditorFontSizeField, stepper: codeEditorFontSizeStepper, suffix: "pt")
-        ))
+        addRow(
+            copy(.editorFontSize),
+            control: numericControl(field: codeEditorFontSizeField, stepper: codeEditorFontSizeStepper, suffix: "pt"),
+            to: editorSection
+        )
         codeEditorWrapCheckbox.title = copy(.editorWrapCheckboxTitle)
-        editorSection.addArrangedSubview(row(label: copy(.editorWrap), control: codeEditorWrapCheckbox))
+        addRow(copy(.editorWrap), control: codeEditorWrapCheckbox, to: editorSection)
         detailStack.addArrangedSubview(editorSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
         configureNumericField(scrollbackField, stepper: scrollbackStepper, minimum: Double(SettingsDefaults.minimumScrollbackRows), maximum: Double(SettingsDefaults.maximumScrollbackRows), increment: 1_000)
-        historySection.addArrangedSubview(row(label: copy(.scrollback), control: numericControl(field: scrollbackField, stepper: scrollbackStepper, suffix: copy(.lines))))
+        addRow(
+            copy(.scrollback),
+            control: numericControl(field: scrollbackField, stepper: scrollbackStepper, suffix: copy(.lines)),
+            to: historySection
+        )
         commandHistoryCheckbox.title = copy(.commandHistoryCheckboxTitle)
-        historySection.addArrangedSubview(row(label: copy(.commandHistory), control: commandHistoryCheckbox))
+        addRow(copy(.commandHistory), control: commandHistoryCheckbox, to: historySection)
         agentSessionIndexCheckbox.title = copy(.agentSessionIndexCheckboxTitle)
-        historySection.addArrangedSubview(row(label: copy(.agentSessionIndex), control: agentSessionIndexCheckbox))
+        addRow(copy(.agentSessionIndex), control: agentSessionIndexCheckbox, to: historySection)
         restoreScrollbackCheckbox.title = copy(.restoreScrollbackCheckboxTitle)
-        historySection.addArrangedSubview(row(label: copy(.restoreScrollback), control: restoreScrollbackCheckbox))
+        addRow(copy(.restoreScrollback), control: restoreScrollbackCheckbox, to: historySection)
         agentStatusHooksCheckbox.title = copy(.agentStatusHooksCheckboxTitle)
-        historySection.addArrangedSubview(row(label: copy(.agentStatusHooks), control: agentStatusHooksCheckbox))
+        addRow(copy(.agentStatusHooks), control: agentStatusHooksCheckbox, to: historySection)
         detailStack.addArrangedSubview(historySection)
 
         let quickCommandsSection = section(
@@ -358,6 +420,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         // One primary action per pane, bottom-right of the last card. Every
         // other control in Preferences is a setting, not an action.
         quickCommandsSection.addArrangedSubview(trailingActionRow(quickCommandsButton))
+        // An action is not a hideable row, so its title is a keyword: the card
+        // is found by it and stays whole.
+        search.registerKeyword(quickCommandsButton.title, in: quickCommandsSection)
         detailStack.addArrangedSubview(quickCommandsSection)
     }
 
@@ -369,7 +434,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         themePopup.addItems(withTitles: [copy(.themeKurotty), copy(.themeLightty), copy(.themeCustom)])
         themePopup.target = self
         themePopup.action = #selector(themeChanged(_:))
-        themeSection.addArrangedSubview(row(label: copy(.theme), control: themePopup))
+        addRow(copy(.theme), control: themePopup, to: themeSection)
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
         previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
@@ -386,8 +451,16 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let sizeSection = section(title: copy(.windowSizeSection), subtitle: copy(.windowSizeHelp))
         configureNumericField(windowWidthField, stepper: windowWidthStepper, minimum: SettingsDefaults.minimumWindowWidthPX, maximum: SettingsDefaults.maximumWindowWidthPX, increment: 20)
         configureNumericField(windowHeightField, stepper: windowHeightStepper, minimum: SettingsDefaults.minimumWindowHeightPX, maximum: SettingsDefaults.maximumWindowHeightPX, increment: 20)
-        sizeSection.addArrangedSubview(row(label: copy(.width), control: numericControl(field: windowWidthField, stepper: windowWidthStepper, suffix: "px")))
-        sizeSection.addArrangedSubview(row(label: copy(.height), control: numericControl(field: windowHeightField, stepper: windowHeightStepper, suffix: "px")))
+        addRow(
+            copy(.width),
+            control: numericControl(field: windowWidthField, stepper: windowWidthStepper, suffix: "px"),
+            to: sizeSection
+        )
+        addRow(
+            copy(.height),
+            control: numericControl(field: windowHeightField, stepper: windowHeightStepper, suffix: "px"),
+            to: sizeSection
+        )
         detailStack.addArrangedSubview(sizeSection)
     }
 
@@ -408,6 +481,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         styleAsCard(customColorsStack)
         customColorsStack.translatesAutoresizingMaskIntoConstraints = false
         customColorsStack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
+        // The palette is a grid of wells, not a row list, so every color name is
+        // a keyword: searching "cursor" or "red" opens the card whole rather
+        // than tearing one well out of the grid.
+        search.registerCard(
+            customColorsStack,
+            title: copy(.customColors),
+            isAvailable: { [weak self] in self?.isCustomPaletteAvailable ?? false }
+        )
 
         let heading = sectionHeading(copy(.customColors), subtitle: copy(.customColorsHelp))
         heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
@@ -421,6 +502,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             labeledColorWell(copy(.background), well: backgroundWell),
             labeledColorWell(copy(.cursor), well: cursorWell),
         ])
+        for name in [copy(.foreground), copy(.background), copy(.cursor), copy(.ansiPalette)] {
+            search.registerKeyword(name, in: customColorsStack)
+        }
         primaryColors.orientation = .horizontal
         primaryColors.spacing = DesignTokens.Space.x6PX
         customColorsStack.addArrangedSubview(primaryColors)
@@ -436,7 +520,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             return well
         }
         let ansiControls = ansiWells.enumerated().map { index, well in
-            labeledColorWell(PreferencesCopy.ansiColorName(index, language: AppLocalization.language), well: well)
+            let name = PreferencesCopy.ansiColorName(index, language: AppLocalization.language)
+            search.registerKeyword(name, in: customColorsStack)
+            return labeledColorWell(name, well: well)
         }
         let ansiGrid = NSGridView(views: stride(from: 0, to: ansiControls.count, by: Layout.ansiColumnCount).map { start in
             Array(ansiControls[start..<min(start + Layout.ansiColumnCount, ansiControls.count)])
@@ -483,7 +569,17 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let heading = sectionHeading(title, subtitle: subtitle)
         heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         stack.addArrangedSubview(heading)
+        search.registerCard(stack, title: title)
         return stack
+    }
+
+    /// The one place a labeled setting is added to a card, and therefore the one
+    /// place search learns that the setting exists. A row added any other way is
+    /// a row no query can find.
+    private func addRow(_ label: String, control: NSView, to card: NSStackView) {
+        let rowView = row(label: label, control: control)
+        card.addArrangedSubview(rowView)
+        search.registerRow(rowView, label: label, in: card)
     }
 
     private func styleAsCard(_ view: NSView) {
@@ -803,7 +899,6 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         case TerminalThemePreset.lighttyName: themePopup.selectItem(at: 1)
         default: themePopup.selectItem(at: 2)
         }
-        customColorsStack.isHidden = settings.terminal.theme != TerminalThemePreset.customName
         foregroundWell.color = NSColor(hexRGB: settings.terminal.colors.foreground) ?? .textColor
         backgroundWell.color = NSColor(hexRGB: settings.terminal.colors.background) ?? .textBackgroundColor
         cursorWell.color = NSColor(hexRGB: settings.terminal.colors.cursor) ?? .controlAccentColor
@@ -811,6 +906,15 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             well.color = NSColor(hexRGB: settings.terminal.colors.ansi[index]) ?? .gray
         }
         previewView.colors = settings.terminal.colors
+        // The custom palette card is gated by the selected theme and by the
+        // active query. One owner decides its `isHidden` so the two rules cannot
+        // fight: the filter reads the gate through `isCustomPaletteAvailable`.
+        search.applyFilter()
+    }
+
+    /// The custom palette is editable only while the custom theme is selected.
+    private var isCustomPaletteAvailable: Bool {
+        settings.terminal.theme == TerminalThemePreset.customName
     }
 
     private func reloadFromDisk() {
@@ -852,7 +956,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         statusLabel.stringValue = text
     }
 
-    private func title(for category: Category) -> String {
+    private func title(for category: PreferencesCategory) -> String {
         switch category {
         case .terminal: return copy(.terminalCategory)
         case .appearance: return copy(.appearanceCategory)
@@ -874,6 +978,28 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private func copy(_ key: PreferencesCopy.Key) -> String {
         PreferencesCopy.string(key, language: AppLocalization.language)
     }
+
+    // MARK: Test hooks
+
+    var selectedCategoryForTesting: PreferencesCategory { selectedCategory }
+
+    /// Types a query the way the sidebar field does, including the pane switch
+    /// and the visibility pass it triggers.
+    func applySearchQueryForTesting(_ query: String) {
+        search.query = query
+    }
+
+    var visibleCardTitlesForTesting: [String] { search.visibleCardTitlesForTesting }
+
+    var visibleRowLabelsForTesting: [String] { search.visibleRowLabelsForTesting }
+
+    var searchFieldIsFocusedForTesting: Bool { search.isQueryFieldFocusedForTesting }
+
+    var searchEmptyStateIsVisibleForTesting: Bool { search.isEmptyStateVisibleForTesting }
+
+    var searchEmptyStateMessageForTesting: String { search.emptyStateMessageForTesting }
+
+    var searchIndexForTesting: PreferencesSearchIndex { search.indexForTesting }
 }
 
 private final class FlippedPreferencesDocumentView: NSView {

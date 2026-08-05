@@ -3,6 +3,7 @@ import Foundation
 enum PreferencesCopy {
     enum Key {
         case settingsTitle, terminalCategory, appearanceCategory, windowCategory
+        case searchPlaceholder, searchNoResults
         case terminalTitle, terminalSubtitle, shellSection, shellSectionHelp, workingDirectory
         case textSection, textSectionHelp, font, fontSize, historySection, historySectionHelp, scrollback, lines
         case editorSection, editorSectionHelp, editorFontSize, editorWrap, editorWrapCheckboxTitle
@@ -40,6 +41,7 @@ enum PreferencesCopy {
     private static let translations: [AppLanguage: [Key: String]] = [
         .english: [
             .settingsTitle: "Settings", .terminalCategory: "Terminal", .appearanceCategory: "Appearance", .windowCategory: "Window",
+            .searchPlaceholder: "Search settings", .searchNoResults: "No setting matches “%@”.",
             .terminalTitle: "Terminal", .terminalSubtitle: "Configure new shell sessions, text, and history.",
             .shellSection: "Shell", .shellSectionHelp: "The working directory is used for new terminal sessions.", .workingDirectory: "Working directory",
             .textSection: "Text", .textSectionHelp: "Font changes apply to open terminal surfaces.", .font: "Font", .fontSize: "Font size",
@@ -66,6 +68,7 @@ enum PreferencesCopy {
         ],
         .korean: [
             .settingsTitle: "설정", .terminalCategory: "터미널", .appearanceCategory: "모양", .windowCategory: "윈도우",
+            .searchPlaceholder: "설정 검색", .searchNoResults: "“%@”와 일치하는 설정이 없습니다.",
             .terminalTitle: "터미널", .terminalSubtitle: "새 셸 세션과 글꼴, 기록을 설정합니다.",
             .shellSection: "셸", .shellSectionHelp: "새 터미널 세션을 시작할 작업 폴더입니다.", .workingDirectory: "작업 폴더",
             .textSection: "텍스트", .textSectionHelp: "글꼴 변경은 열려 있는 터미널에도 적용됩니다.", .font: "글꼴", .fontSize: "글꼴 크기",
@@ -92,6 +95,7 @@ enum PreferencesCopy {
         ],
         .japanese: [
             .settingsTitle: "設定", .terminalCategory: "ターミナル", .appearanceCategory: "外観", .windowCategory: "ウインドウ",
+            .searchPlaceholder: "設定を検索", .searchNoResults: "「%@」に一致する設定はありません。",
             .terminalTitle: "ターミナル", .terminalSubtitle: "新しいシェルセッション、テキスト、履歴を設定します。",
             .shellSection: "シェル", .shellSectionHelp: "新しいターミナルセッションで使用する作業フォルダです。", .workingDirectory: "作業フォルダ",
             .textSection: "テキスト", .textSectionHelp: "フォントの変更は開いているターミナルにも適用されます。", .font: "フォント", .fontSize: "フォントサイズ",

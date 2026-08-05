@@ -508,6 +508,13 @@ enum DesignTokens {
         /// on purpose: these two lines are one label pair, not two rows, and a
         /// full step would break them apart.
         static let preferencesHeadingLineGapPX: CGFloat = 2
+        /// Settings search. The query field sits in the sidebar between the
+        /// window heading and the category list, so its bottom gap is a control
+        /// gap rather than the section gap that separates it from the heading.
+        static let preferencesSearchFieldBottomGapPX = Space.x3PX
+        static let preferencesSearchEmptyStateTopGapPX = Space.x6PX
+        static let preferencesSearchEmptyStateGapPX = Space.x3PX
+        static let preferencesSearchEmptyStateIconPointSizePT: CGFloat = 18
         static let settingsEditorFontSizePT: CGFloat = 12
         static let glyphAtlasSizePX = 4096
         static let glyphSlotWidthPX = 128
