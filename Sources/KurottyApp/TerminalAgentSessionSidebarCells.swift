@@ -28,11 +28,12 @@ final class TerminalAgentSessionOutlineItem: NSObject {
 @MainActor
 final class TerminalAgentSessionGroupCellView: NSTableCellView {
     private enum Symbol {
-        static let folder = "folder"
+        static let folder = "folder.fill"
     }
 
     private let titleLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
+    private let badgeView: TerminalSidebarCountBadgeView
 
     init(
         display: TerminalCommandHistoryDirectoryDisplay,
@@ -41,9 +42,12 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
     ) {
         titleLabel = NSTextField(labelWithString: display.lastComponent)
         titleStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            baseWeight: .semibold,
-            baseColor: chromeTheme.textPrimary,
+            role: DesignTokens.Typography.rowTitle,
+            restColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
+        badgeView = TerminalSidebarCountBadgeView(
+            text: "\(sessionCount)",
             chromeTheme: chromeTheme
         )
         super.init(frame: .zero)
@@ -52,9 +56,9 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         iconView.image = NSImage(systemSymbolName: Symbol.folder, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(
                 pointSize: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
-                weight: .medium
+                weight: .regular
             ))
-        iconView.contentTintColor = chromeTheme.textSecondary
+        iconView.contentTintColor = chromeTheme.textTertiary
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -67,8 +71,7 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         addSubview(nameLabel)
 
         let parentLabel = NSTextField(labelWithString: display.parentDisplay)
-        parentLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSecondaryFontSizePT)
-        parentLabel.textColor = chromeTheme.textMuted
+        DesignTokens.Typography.rowSecondary.apply(to: parentLabel, color: chromeTheme.textTertiary)
         parentLabel.lineBreakMode = .byTruncatingMiddle
         parentLabel.maximumNumberOfLines = 1
         parentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -76,10 +79,6 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         parentLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(parentLabel)
 
-        let badgeView = TerminalAgentSessionBadgeView(
-            text: "\(sessionCount)",
-            chromeTheme: chromeTheme
-        )
         addSubview(badgeView)
 
         toolTip = display.path.isEmpty ? nil : display.path
@@ -112,6 +111,7 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
 extension TerminalAgentSessionGroupCellView: TerminalSidebarRowTitleStyling {
     func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
         titleStyler.apply(appearance, to: titleLabel)
+        badgeView.apply(appearance)
     }
 }
 
@@ -121,6 +121,7 @@ extension TerminalAgentSessionGroupCellView: TerminalSidebarRowTitleStyling {
 final class TerminalAgentSessionRowCellView: NSTableCellView {
     private let titleLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
+    private let badgeView: TerminalSidebarCountBadgeView
 
     init(
         record: AgentSessionRecord,
@@ -130,9 +131,13 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
     ) {
         titleLabel = NSTextField(labelWithString: record.title)
         titleStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            baseWeight: .semibold,
-            baseColor: chromeTheme.textPrimary,
+            role: DesignTokens.Typography.rowTitle,
+            restColor: chromeTheme.textSecondary,
+            selectedColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
+        badgeView = TerminalSidebarCountBadgeView(
+            text: AgentSessionRowBuilder.messageCountLabel(for: record),
             chromeTheme: chromeTheme
         )
         super.init(frame: .zero)
@@ -143,7 +148,7 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
                 pointSize: DesignTokens.Component.agentSessionAgentIconPointSizePT,
                 weight: .medium
             ))
-        iconView.contentTintColor = chromeTheme.textSecondary
+        iconView.contentTintColor = chromeTheme.textTertiary
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -157,8 +162,7 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
         let directoryLabel = NSTextField(
             labelWithString: AgentSessionRowBuilder.directoryLabel(for: record, homeDirectory: homeDirectory)
         )
-        directoryLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSecondaryFontSizePT)
-        directoryLabel.textColor = chromeTheme.textMuted
+        DesignTokens.Typography.rowSecondary.apply(to: directoryLabel, color: chromeTheme.textTertiary)
         directoryLabel.lineBreakMode = .byTruncatingMiddle
         directoryLabel.maximumNumberOfLines = 1
         directoryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -168,16 +172,15 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
         let timeLabel = NSTextField(
             labelWithString: AgentSessionRowBuilder.relativeTimeLabel(for: record, now: now)
         )
-        timeLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSecondaryFontSizePT)
-        timeLabel.textColor = chromeTheme.textMuted
+        timeLabel.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Typography.rowSecondary.sizePT,
+            weight: DesignTokens.Typography.rowSecondary.weight
+        )
+        timeLabel.textColor = chromeTheme.textTertiary
         timeLabel.alignment = .right
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(timeLabel)
 
-        let badgeView = TerminalAgentSessionBadgeView(
-            text: AgentSessionRowBuilder.messageCountLabel(for: record),
-            chromeTheme: chromeTheme
-        )
         addSubview(badgeView)
 
         toolTip = [record.title, AgentSessionRowBuilder.agentDetailLabel(for: record), record.cwd]
@@ -223,28 +226,36 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
 extension TerminalAgentSessionRowCellView: TerminalSidebarRowTitleStyling {
     func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
         titleStyler.apply(appearance, to: titleLabel)
+        badgeView.apply(appearance)
     }
 }
 
-/// Rounded count badge sharing the command-history badge metrics so both
-/// left-panel sections render identical pills.
+/// Count badge shared by the command-history and agent-session group rows.
+///
+/// Deliberately not a pill. A fully rounded capsule is the shape the system
+/// reserves for status; a count is data, so it takes the smallest radius on the
+/// scale and stays visually subordinate to the row title.
 @MainActor
-final class TerminalAgentSessionBadgeView: NSView {
+final class TerminalSidebarCountBadgeView: NSView {
+    private let countLabel: NSTextField
+    private let chromeTheme: DesignTokens.ChromeTheme
+
     init(text: String, chromeTheme: DesignTokens.ChromeTheme) {
+        countLabel = NSTextField(labelWithString: text)
+        self.chromeTheme = chromeTheme
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = DesignTokens.Component.commandHistoryBadgeHeightPX / 2
+        layer?.cornerRadius = DesignTokens.Radius.xsPX
         layer?.backgroundColor = chromeTheme.textPrimary
             .withAlphaComponent(DesignTokens.Component.commandHistoryBadgeBackgroundAlphaRATIO)
             .cgColor
         translatesAutoresizingMaskIntoConstraints = false
 
-        let countLabel = NSTextField(labelWithString: text)
-        countLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarBadgeFontSizePT,
-            weight: .medium
+        countLabel.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Typography.badge.sizePT,
+            weight: DesignTokens.Typography.badge.weight
         )
-        countLabel.textColor = chromeTheme.textSecondary
+        countLabel.textColor = chromeTheme.textTertiary
         countLabel.alignment = .center
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(countLabel)
@@ -268,5 +279,13 @@ final class TerminalAgentSessionBadgeView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    /// Forwarded by the owning cell: the badge is a grandchild of the row view,
+    /// so it never receives the row's style callback directly.
+    func apply(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        countLabel.textColor = appearance.rail == nil
+            ? chromeTheme.textTertiary
+            : chromeTheme.textSecondary
     }
 }

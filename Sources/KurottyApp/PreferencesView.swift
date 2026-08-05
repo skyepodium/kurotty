@@ -10,15 +10,32 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     private enum Layout {
-        static let sidebarWidthPX: CGFloat = 184
-        static let contentWidthPX: CGFloat = 590
-        static let sectionSpacingPX: CGFloat = 18
-        static let sectionInsetPX: CGFloat = 16
-        static let rowSpacingPX: CGFloat = 10
+        static let sidebarWidthPX = PreferencesMetrics.sidebarWidthPX
+        /// The window minus the category sidebar minus the outer inset on both
+        /// sides. Cards fill this width exactly so their left edges line up with
+        /// the pane heading above them.
+        static let contentWidthPX = PreferencesMetrics.windowWidthPX
+            - PreferencesMetrics.sidebarWidthPX
+            - DesignTokens.Space.x6PX * 2
+        static let outerInsetPX = DesignTokens.Space.x6PX
+        static let categoryListLeadingPX = DesignTokens.Space.x4PX
+        static let categoryListTopPX = DesignTokens.Space.x5PX
+        static let sectionSpacingPX = DesignTokens.Space.x5PX
+        static let cardPaddingPX = DesignTokens.Space.x5PX
+        static let rowSpacingPX = DesignTokens.Space.x3PX
         static let labelWidthPX: CGFloat = 150
-        static let fieldWidthPX: CGFloat = 240
+        static let labelControlGapPX = DesignTokens.Space.x4PX
+        /// What is left inside a card once the right-aligned label column and
+        /// its gap are taken.
+        static let controlColumnWidthPX = contentWidthPX
+            - cardPaddingPX * 2
+            - labelWidthPX
+            - labelControlGapPX
+        static let fieldWidthPX = PreferencesMetrics.controlWidthPX
         static let previewHeightPX: CGFloat = 176
         static let colorWellSizePX: CGFloat = 34
+        static let categoryButtonHeightPX: CGFloat = 32
+        static let categoryListTrailingInsetPX: CGFloat = 28
         static let ansiColumnCount = 4
     }
 
@@ -28,6 +45,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private var settings = AppSettings.default
     private var autosaveWorkItem: DispatchWorkItem?
     private var isUpdatingControls = false
+    private var selectedCategory = Category.terminal
+    /// Buttons whose size constraints are already installed. Pages are rebuilt
+    /// on every category switch, but the controls themselves are long-lived.
+    private var sizedButtons = Set<ObjectIdentifier>()
 
     private lazy var categoryStack = NSStackView()
     private lazy var detailScrollView = NSScrollView()
@@ -117,8 +138,17 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Chrome theme in effect for the settings window. Preferences used to paint
+    /// its cards with the generic system control background regardless of the
+    /// terminal theme, which is why it was the one surface that never matched
+    /// the rest of the app.
+    private var chromeTheme: DesignTokens.ChromeTheme {
+        DesignTokens.ChromeTheme.theme(for: settings)
+    }
+
     private func configure() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
 
         configureSidebar()
         configureDetailArea()
@@ -134,9 +164,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         addSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            categoryStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            categoryStack.topAnchor.constraint(equalTo: topAnchor, constant: 18),
-            categoryStack.widthAnchor.constraint(equalToConstant: Layout.sidebarWidthPX - 28),
+            categoryStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.categoryListLeadingPX),
+            categoryStack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.categoryListTopPX),
+            categoryStack.widthAnchor.constraint(equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX),
 
             divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.sidebarWidthPX),
             divider.topAnchor.constraint(equalTo: topAnchor),
@@ -145,25 +175,36 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             detailScrollView.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
             detailScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             detailScrollView.topAnchor.constraint(equalTo: topAnchor),
-            detailScrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -8),
+            detailScrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -DesignTokens.Space.x3PX),
 
-            statusLabel.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: 22),
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
-            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            statusLabel.heightAnchor.constraint(equalToConstant: 18),
+            statusLabel.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: Layout.outerInsetPX),
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInsetPX),
+            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Space.x4PX),
+            statusLabel.heightAnchor.constraint(equalToConstant: PreferencesMetrics.statusHeightPX),
         ])
+        applyChromeTheme()
+    }
+
+    /// Repaints the window shell, the cards, and the system controls for the
+    /// active terminal theme. Called on load and after every save so a theme
+    /// change in the Appearance pane is reflected immediately.
+    private func applyChromeTheme() {
+        let theme = chromeTheme
+        appearance = theme.windowAppearance
+        layer?.backgroundColor = theme.surfaceCanvas.cgColor
+        statusLabel.textColor = theme.textTertiary
     }
 
     private func configureSidebar() {
         categoryStack.orientation = .vertical
         categoryStack.alignment = .leading
-        categoryStack.spacing = 4
+        categoryStack.spacing = DesignTokens.Space.x1PX
         categoryStack.translatesAutoresizingMaskIntoConstraints = false
 
         let headingLabel = NSTextField(labelWithString: copy(.settingsTitle))
-        headingLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        headingLabel.font = DesignTokens.Typography.prefsTitle.font
         categoryStack.addArrangedSubview(headingLabel)
-        categoryStack.setCustomSpacing(14, after: headingLabel)
+        categoryStack.setCustomSpacing(Layout.sectionSpacingPX, after: headingLabel)
 
         for category in Category.allCases {
             let button = NSButton(title: title(for: category), target: self, action: #selector(categorySelected(_:)))
@@ -172,8 +213,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             button.alignment = .left
             button.setButtonType(.toggle)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: Layout.sidebarWidthPX - 28).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            button.widthAnchor.constraint(
+                equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX
+            ).isActive = true
+            button.heightAnchor.constraint(equalToConstant: Layout.categoryButtonHeightPX).isActive = true
             categoryStack.addArrangedSubview(button)
         }
     }
@@ -186,7 +229,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         detailStack.orientation = .vertical
         detailStack.alignment = .leading
         detailStack.spacing = Layout.sectionSpacingPX
-        detailStack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 28, right: 24)
+        detailStack.edgeInsets = NSEdgeInsets(
+            top: Layout.outerInsetPX,
+            left: Layout.outerInsetPX,
+            bottom: Layout.outerInsetPX,
+            right: Layout.outerInsetPX
+        )
         detailStack.translatesAutoresizingMaskIntoConstraints = false
 
         let documentView = FlippedPreferencesDocumentView()
@@ -205,8 +253,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     private func configureStatusBar() {
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.font = DesignTokens.Typography.prefsCaption.font
+        statusLabel.textColor = chromeTheme.textTertiary
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
     }
@@ -217,6 +265,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     private func selectCategory(_ category: Category) {
+        selectedCategory = category
         for case let button as NSButton in categoryStack.arrangedSubviews {
             button.state = button.tag == category.rawValue ? .on : .off
         }
@@ -282,8 +331,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             subtitle: copy(.quickCommandsSectionHelp)
         )
         quickCommandsButton.title = copy(.quickCommandsButtonTitle)
-        quickCommandsButton.bezelStyle = .rounded
-        quickCommandsSection.addArrangedSubview(row(label: copy(.quickCommands), control: quickCommandsButton))
+        stylePrimaryButton(quickCommandsButton)
+        // One primary action per pane, bottom-right of the last card. Every
+        // other control in Preferences is a setting, not an action.
+        quickCommandsSection.addArrangedSubview(trailingActionRow(quickCommandsButton))
         detailStack.addArrangedSubview(quickCommandsSection)
     }
 
@@ -298,7 +349,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         themeSection.addArrangedSubview(row(label: copy(.theme), control: themePopup))
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
-        previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
+        previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         themeSection.addArrangedSubview(previewView)
         detailStack.addArrangedSubview(themeSection)
 
@@ -325,15 +376,18 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         customColorsStack.orientation = .vertical
         customColorsStack.alignment = .leading
         customColorsStack.spacing = Layout.rowSpacingPX
-        customColorsStack.edgeInsets = NSEdgeInsets(top: Layout.sectionInsetPX, left: Layout.sectionInsetPX, bottom: Layout.sectionInsetPX, right: Layout.sectionInsetPX)
-        customColorsStack.wantsLayer = true
-        customColorsStack.layer?.cornerRadius = 10
-        customColorsStack.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        customColorsStack.edgeInsets = NSEdgeInsets(
+            top: Layout.cardPaddingPX,
+            left: Layout.cardPaddingPX,
+            bottom: Layout.cardPaddingPX,
+            right: Layout.cardPaddingPX
+        )
+        styleAsCard(customColorsStack)
         customColorsStack.translatesAutoresizingMaskIntoConstraints = false
         customColorsStack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
 
         let heading = sectionHeading(copy(.customColors), subtitle: copy(.customColorsHelp))
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
+        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         customColorsStack.addArrangedSubview(heading)
 
         configureColorWell(foregroundWell, tag: 0)
@@ -345,11 +399,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             labeledColorWell(copy(.cursor), well: cursorWell),
         ])
         primaryColors.orientation = .horizontal
-        primaryColors.spacing = 22
+        primaryColors.spacing = DesignTokens.Space.x6PX
         customColorsStack.addArrangedSubview(primaryColors)
 
         let ansiTitle = NSTextField(labelWithString: copy(.ansiPalette))
-        ansiTitle.font = .systemFont(ofSize: 12, weight: .medium)
+        ansiTitle.font = DesignTokens.Typography.prefsSection.font
+        ansiTitle.textColor = chromeTheme.textPrimary
         customColorsStack.addArrangedSubview(ansiTitle)
 
         ansiWells = (0..<TerminalColorSettings.requiredAnsiColorCount).map { index in
@@ -363,8 +418,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let ansiGrid = NSGridView(views: stride(from: 0, to: ansiControls.count, by: Layout.ansiColumnCount).map { start in
             Array(ansiControls[start..<min(start + Layout.ansiColumnCount, ansiControls.count)])
         })
-        ansiGrid.rowSpacing = 8
-        ansiGrid.columnSpacing = 10
+        ansiGrid.rowSpacing = DesignTokens.Space.x3PX
+        ansiGrid.columnSpacing = DesignTokens.Space.x3PX
         customColorsStack.addArrangedSubview(ansiGrid)
     }
 
@@ -372,32 +427,52 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 4
+        stack.spacing = DesignTokens.Space.x1PX
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.font = DesignTokens.Typography.prefsTitle.font
+        titleLabel.textColor = chromeTheme.textPrimary
         let subtitleLabel = wrappingLabel(subtitle)
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.font = DesignTokens.Typography.prefsBody.font
+        subtitleLabel.textColor = chromeTheme.textSecondary
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
         stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
         detailStack.addArrangedSubview(stack)
     }
 
+    /// A settings card: raised fill, hairline border, `md` radius, `x5` padding.
+    /// The fill and border come from the chrome theme, so the card belongs to
+    /// the same surface family as the sidebar and the tab bar.
     private func section(title: String, subtitle: String) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Layout.rowSpacingPX
-        stack.edgeInsets = NSEdgeInsets(top: Layout.sectionInsetPX, left: Layout.sectionInsetPX, bottom: Layout.sectionInsetPX, right: Layout.sectionInsetPX)
-        stack.wantsLayer = true
-        stack.layer?.cornerRadius = 10
-        stack.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        stack.edgeInsets = NSEdgeInsets(
+            top: Layout.cardPaddingPX,
+            left: Layout.cardPaddingPX,
+            bottom: Layout.cardPaddingPX,
+            right: Layout.cardPaddingPX
+        )
+        styleAsCard(stack)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
         let heading = sectionHeading(title, subtitle: subtitle)
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.sectionInsetPX * 2).isActive = true
+        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         stack.addArrangedSubview(heading)
         return stack
+    }
+
+    private func styleAsCard(_ view: NSView) {
+        let theme = chromeTheme
+        view.wantsLayer = true
+        view.layer?.cornerRadius = DesignTokens.Radius.mdPX
+        view.layer?.backgroundColor = theme.surfaceRaised.cgColor
+        view.layer?.borderWidth = DesignTokens.Component.hairlinePX
+        view.layer?.borderColor = theme.hairline.cgColor
+        // Switching preferences panes is not a transition; cards must appear at
+        // their final color.
+        view.layer.map(ChromeMotion.disableImplicitAnimations(on:))
     }
 
     private func sectionHeading(_ title: String, subtitle: String) -> NSStackView {
@@ -406,10 +481,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         stack.alignment = .leading
         stack.spacing = 2
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.font = DesignTokens.Typography.prefsSection.font
+        titleLabel.textColor = chromeTheme.textPrimary
         let subtitleLabel = wrappingLabel(subtitle)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.font = .systemFont(ofSize: 11)
+        subtitleLabel.font = DesignTokens.Typography.prefsCaption.font
+        subtitleLabel.textColor = chromeTheme.textTertiary
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
         return stack
@@ -417,6 +493,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
     private func row(label title: String, control: NSView) -> NSStackView {
         let label = NSTextField(labelWithString: title)
+        label.font = DesignTokens.Typography.prefsBody.font
+        label.textColor = chromeTheme.textSecondary
         label.alignment = .right
         label.translatesAutoresizingMaskIntoConstraints = false
         label.widthAnchor.constraint(equalToConstant: Layout.labelWidthPX).isActive = true
@@ -424,20 +502,72 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         if control is NSPopUpButton {
             control.widthAnchor.constraint(equalToConstant: Layout.fieldWidthPX).isActive = true
         }
+        // Checkbox titles are full sentences and are the widest thing in a card.
+        // At 720pt they no longer fit on one line, so they wrap instead of
+        // truncating: a setting whose explanation ends in an ellipsis is worse
+        // than a setting that takes two lines.
+        if let checkbox = control as? NSButton, checkbox.cell is NSButtonCell {
+            checkbox.font = DesignTokens.Typography.prefsBody.font
+            checkbox.cell?.wraps = true
+            checkbox.cell?.lineBreakMode = .byWordWrapping
+            checkbox.widthAnchor.constraint(
+                lessThanOrEqualToConstant: Layout.controlColumnWidthPX
+            ).isActive = true
+        }
         let stack = NSStackView(views: [label, control])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 12
+        stack.spacing = Layout.labelControlGapPX
         return stack
+    }
+
+    /// Right-aligns a pane's single primary action inside its card.
+    private func trailingActionRow(_ control: NSView) -> NSStackView {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let stack = NSStackView(views: [spacer, control])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.distribution = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(
+            equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2
+        ).isActive = true
+        return stack
+    }
+
+    /// The AppKit spelling of `.borderedProminent`: an accent-filled rounded
+    /// push button at the regular control height.
+    private func stylePrimaryButton(_ button: NSButton) {
+        styleButtonMetrics(button)
+        button.bezelColor = chromeTheme.accent
+    }
+
+    /// Every other button in Preferences is the recessed category list, which is
+    /// a selection control rather than an action, so there is no second bezel
+    /// style to define here yet.
+    private func styleButtonMetrics(_ button: NSButton) {
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.translatesAutoresizingMaskIntoConstraints = false
+        guard sizedButtons.insert(ObjectIdentifier(button)).inserted else { return }
+        button.heightAnchor.constraint(
+            equalToConstant: PreferencesMetrics.buttonHeightPX
+        ).isActive = true
+        button.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: PreferencesMetrics.buttonWidthPX
+        ).isActive = true
     }
 
     private func numericControl(field: NSTextField, stepper: NSStepper, suffix: String) -> NSStackView {
         let suffixLabel = NSTextField(labelWithString: suffix)
-        suffixLabel.textColor = .secondaryLabelColor
+        suffixLabel.font = DesignTokens.Typography.prefsCaption.font
+        suffixLabel.textColor = chromeTheme.textTertiary
         let stack = NSStackView(views: [field, stepper, suffixLabel])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 6
+        stack.spacing = DesignTokens.Space.x2PX
         return stack
     }
 
@@ -445,12 +575,13 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         well.toolTip = title
         well.setAccessibilityLabel(title)
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 11)
+        label.font = DesignTokens.Typography.prefsCaption.font
+        label.textColor = chromeTheme.textTertiary
         label.alignment = .center
         let stack = NSStackView(views: [well, label])
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 4
+        stack.spacing = DesignTokens.Space.x1PX
         return stack
     }
 
@@ -469,7 +600,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         field.alignment = .right
         field.formatter = NumberFormatter.integerOrDecimal
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        field.widthAnchor.constraint(equalToConstant: PreferencesMetrics.numericFieldWidthPX).isActive = true
         stepper.minValue = minimum
         stepper.maxValue = maximum
         stepper.increment = increment
@@ -498,7 +629,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         if let colors = TerminalThemePreset.colors(named: themeName) {
             settings.terminal.colors = colors
         }
-        syncControlsFromSettings()
+        applyChromeTheme()
+        // The cards take their fill from the chrome theme, so a preset switch
+        // has to rebuild the pane. Instant, never a transition.
+        selectCategory(selectedCategory)
         scheduleAutosave()
     }
 
@@ -679,6 +813,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             try store.save(snapshot)
             settings = try store.load()
             syncControlsFromSettings()
+            applyChromeTheme()
             setStatus(copy(.saved))
         } catch {
             setStatus(String(format: copy(.saveFailed), error.localizedDescription))
@@ -749,4 +884,34 @@ private extension NSColor {
             Int(round(rgb.blueComponent * 255))
         )
     }
+}
+
+/// Preferences window geometry.
+///
+/// MIGRATION: these replace `DesignTokens.Component.preferences*`. The window
+/// drops from 820x640 to 720x560 (the content never filled 820, so the extra
+/// width read as an empty gutter), the control width from 240 to 220, and every
+/// button to the macOS regular control height of 28. `textFieldWidthPX` is
+/// unchanged at 160 and is kept here so the whole set migrates together.
+enum PreferencesMetrics {
+    static let windowWidthPX: CGFloat = 720
+    static let windowHeightPX: CGFloat = 560
+    static let sidebarWidthPX: CGFloat = 184
+    static let controlWidthPX: CGFloat = 220
+    static let statusHeightPX: CGFloat = 16
+    static let buttonWidthPX: CGFloat = 84
+    static let buttonHeightPX: CGFloat = 28
+    static let textFieldWidthPX: CGFloat = 160
+    static let numericFieldWidthPX: CGFloat = 96
+}
+
+/// MIGRATION: preferences type roles. The shared ramp stops at `windowTitle`
+/// (13pt) because chrome is dense; a settings window is a document surface and
+/// needs a larger title and body rung. These four belong in
+/// `DesignTokens.Typography` once that file is free.
+private extension DesignTokens.Typography {
+    static let prefsTitle = Role(sizePT: 20, weight: .semibold, lineHeightPX: 26)
+    static let prefsSection = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
+    static let prefsBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
+    static let prefsCaption = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
 }

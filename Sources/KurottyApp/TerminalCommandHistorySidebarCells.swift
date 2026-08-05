@@ -9,7 +9,18 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
         static let keypadEnterKey: UInt16 = 76
     }
 
+    private enum Symbol {
+        static let collapsed = "chevron.right"
+        static let expanded = "chevron.down"
+    }
+
     var onReturnKey: (() -> Void)?
+
+    /// Tint for the disclosure chevron. The outline view builds that button
+    /// itself, so it cannot be reached through the cell views.
+    var disclosureTintColor: NSColor = DesignTokens.ChromeTheme.dark.textTertiary {
+        didSet { needsDisplay = true }
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.returnKey || event.keyCode == KeyCode.keypadEnterKey {
@@ -17,6 +28,41 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// AppKit's stock disclosure triangle is a filled system triangle at the
+    /// system size. The sidebar wants a quiet 9pt chevron in a 16x16 box that
+    /// turns a quarter-turn on expand, which is exactly the collapsed/expanded
+    /// image pair below.
+    override func makeView(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier,
+        owner: Any?
+    ) -> NSView? {
+        let view = super.makeView(withIdentifier: identifier, owner: owner)
+        guard identifier == NSOutlineView.disclosureButtonIdentifier,
+              let button = view as? NSButton
+        else {
+            return view
+        }
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: DesignTokens.Component.commandHistoryDisclosurePointSizePT,
+            weight: .semibold
+        )
+        button.image = NSImage(systemSymbolName: Symbol.collapsed, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        button.alternateImage = NSImage(systemSymbolName: Symbol.expanded, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.contentTintColor = disclosureTintColor
+        button.frame = NSRect(
+            origin: button.frame.origin,
+            size: NSSize(
+                width: DesignTokens.Component.commandHistoryDisclosureBoxSizePX,
+                height: DesignTokens.Component.commandHistoryDisclosureBoxSizePX
+            )
+        )
+        return button
     }
 }
 
@@ -31,18 +77,24 @@ final class TerminalCommandHistorySidebarRowView: TerminalSidebarRowView {}
 @MainActor
 final class TerminalCommandHistoryGroupCellView: NSTableCellView {
     private enum Symbol {
-        static let folder = "folder"
+        /// Filled, because the icon is what carries the level: the group name
+        /// itself is now the same rank as the rows under it.
+        static let folder = "folder.fill"
     }
 
     private let titleLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
+    private let badgeView: TerminalSidebarCountBadgeView
 
     init(group: TerminalCommandHistoryPanelGroup, chromeTheme: DesignTokens.ChromeTheme) {
         titleLabel = NSTextField(labelWithString: group.display.lastComponent)
         titleStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            baseWeight: .semibold,
-            baseColor: chromeTheme.textPrimary,
+            role: DesignTokens.Typography.rowTitle,
+            restColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
+        )
+        badgeView = TerminalSidebarCountBadgeView(
+            text: "\(group.entriesNewestFirst.count)",
             chromeTheme: chromeTheme
         )
         super.init(frame: .zero)
@@ -51,9 +103,9 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         iconView.image = NSImage(systemSymbolName: Symbol.folder, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(
                 pointSize: DesignTokens.Component.commandHistoryGroupIconPointSizePT,
-                weight: .medium
+                weight: .regular
             ))
-        iconView.contentTintColor = chromeTheme.textSecondary
+        iconView.contentTintColor = chromeTheme.textTertiary
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
@@ -66,8 +118,7 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         addSubview(nameLabel)
 
         let parentLabel = NSTextField(labelWithString: group.display.parentDisplay)
-        parentLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSecondaryFontSizePT)
-        parentLabel.textColor = chromeTheme.textMuted
+        DesignTokens.Typography.rowSecondary.apply(to: parentLabel, color: chromeTheme.textTertiary)
         parentLabel.lineBreakMode = .byTruncatingMiddle
         parentLabel.maximumNumberOfLines = 1
         parentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -75,21 +126,7 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         parentLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(parentLabel)
 
-        let badgeView = NSView()
-        badgeView.wantsLayer = true
-        badgeView.layer?.cornerRadius = DesignTokens.Component.commandHistoryBadgeHeightPX / 2
-        badgeView.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistoryBadgeBackgroundAlphaRATIO)
-            .cgColor
-        badgeView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badgeView)
-
-        let countLabel = NSTextField(labelWithString: "\(group.entriesNewestFirst.count)")
-        countLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarBadgeFontSizePT, weight: .medium)
-        countLabel.textColor = chromeTheme.textSecondary
-        countLabel.alignment = .center
-        countLabel.translatesAutoresizingMaskIntoConstraints = false
-        badgeView.addSubview(countLabel)
 
         toolTip = group.display.path.isEmpty ? nil : group.display.path
 
@@ -113,20 +150,6 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
                 constant: -DesignTokens.Component.commandHistoryRowInsetXPX
             ),
             badgeView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badgeView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.commandHistoryBadgeHeightPX),
-            badgeView.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.commandHistoryBadgeMinWidthPX
-            ),
-
-            countLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
-            countLabel.leadingAnchor.constraint(
-                equalTo: badgeView.leadingAnchor,
-                constant: DesignTokens.Component.commandHistoryBadgeTextInsetXPX
-            ),
-            countLabel.trailingAnchor.constraint(
-                equalTo: badgeView.trailingAnchor,
-                constant: -DesignTokens.Component.commandHistoryBadgeTextInsetXPX
-            ),
         ])
     }
 
@@ -138,6 +161,7 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
 extension TerminalCommandHistoryGroupCellView: TerminalSidebarRowTitleStyling {
     func applySidebarRowTitleStyle(_ appearance: TerminalSidebarRowHighlight.Appearance) {
         titleStyler.apply(appearance, to: titleLabel)
+        badgeView.apply(appearance)
     }
 }
 
@@ -152,11 +176,10 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
     init(entry: TerminalCommandHistoryEntry, chromeTheme: DesignTokens.ChromeTheme, now: Date) {
         commandLabel = NSTextField(labelWithString: entry.commandText)
         titleStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarCommandFontSizePT,
-            baseWeight: .regular,
-            baseColor: chromeTheme.textPrimary,
-            chromeTheme: chromeTheme,
-            isMonospaced: true
+            role: DesignTokens.Typography.monoBody,
+            restColor: chromeTheme.textSecondary,
+            selectedColor: chromeTheme.textPrimary,
+            chromeTheme: chromeTheme
         )
         super.init(frame: .zero)
 
@@ -180,8 +203,13 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
         let detailLabel = NSTextField(
             labelWithString: TerminalCommandHistoryRowBuilder.trailingDetailLabel(for: entry, now: now)
         )
-        detailLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSecondaryFontSizePT)
-        detailLabel.textColor = chromeTheme.textMuted
+        // Monospaced digits: the relative time ticks over while the panel is
+        // open and must not shift the column it sits in.
+        detailLabel.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Typography.rowSecondary.sizePT,
+            weight: DesignTokens.Typography.rowSecondary.weight
+        )
+        detailLabel.textColor = chromeTheme.textTertiary
         detailLabel.alignment = .right
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(detailLabel)

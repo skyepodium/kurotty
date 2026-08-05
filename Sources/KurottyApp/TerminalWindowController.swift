@@ -660,7 +660,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         }
 
         let addButton = ChromeIconButton(title: "+", target: self, action: #selector(newTabButtonPressed(_:)))
-        addButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
+        addButton.font = DesignTokens.Typography.tabLabelSel.font
         addButton.normalTintColor = chromeTheme.textSecondary
         addButton.hoverTintColor = chromeTheme.textPrimary
         addButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
@@ -903,6 +903,13 @@ final class TerminalPaneDropTargetView: NSView {
 private final class TerminalTabItemView: NSView {
     private let titleField = NSTextField(labelWithString: "")
     private let closeButton = ChromeIconButton(title: "×", target: nil, action: nil)
+    /// Achromatic hover wash painted over whatever the tab's base fill is, so
+    /// hover reads the same on the selected and unselected tab and can never be
+    /// mistaken for the accent.
+    private let hoverOverlayView = NSView()
+    /// Selection marker: a 2pt accent rail across the tab's top edge, clipped to
+    /// the tab's corner radius.
+    private let selectionRailView = NSView()
     private let selected: Bool
     private let chromeTheme: DesignTokens.ChromeTheme
     private var isHovered = false
@@ -966,18 +973,24 @@ private final class TerminalTabItemView: NSView {
     private func configure(title: String) {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = DesignTokens.Component.terminalTabCornerRadiusPX
-        layer?.borderWidth = selected ? DesignTokens.Component.terminalTabBorderWidthPX : 0
-        layer?.borderColor = chromeTheme.borderHairline.cgColor
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOffset = NSSize(width: 0, height: DesignTokens.Component.terminalTabShadowOffsetYPX)
-        layer?.shadowRadius = selected ? DesignTokens.Component.terminalTabShadowRadiusPX : 0
-        layer?.shadowOpacity = selected ? DesignTokens.Component.terminalTabShadowOpacity : 0
+        layer?.cornerRadius = DesignTokens.Radius.mdPX
+        // Clipping is what lets the top rail stop at the rounded corners instead
+        // of overhanging them.
+        layer?.masksToBounds = true
+
+        hoverOverlayView.wantsLayer = true
+        hoverOverlayView.isHidden = true
+        hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor
+        hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hoverOverlayView)
+
+        selectionRailView.wantsLayer = true
+        selectionRailView.isHidden = !selected
+        selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor
+        selectionRailView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(selectionRailView)
 
         titleField.stringValue = title
-        titleField.font = selected
-            ? NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .semibold)
-            : NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .regular)
         titleField.lineBreakMode = .byTruncatingMiddle
         titleField.maximumNumberOfLines = 1
         titleField.translatesAutoresizingMaskIntoConstraints = false
@@ -985,8 +998,10 @@ private final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
-        closeButton.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT, weight: .medium)
-        closeButton.normalTintColor = selected ? chromeTheme.textSecondary : chromeTheme.textMuted
+        closeButton.font = NSFont.systemFont(
+            ofSize: DesignTokens.Component.terminalTabCloseGlyphPointSizePT,
+            weight: .medium
+        )
         closeButton.hoverTintColor = chromeTheme.textPrimary
         closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(0.18)
         addSubview(closeButton)
@@ -995,6 +1010,18 @@ private final class TerminalTabItemView: NSView {
             heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX),
             widthAnchor.constraint(greaterThanOrEqualToConstant: DesignTokens.Component.terminalTabMinWidthPX),
             widthAnchor.constraint(lessThanOrEqualToConstant: DesignTokens.Component.terminalTabMaxWidthPX),
+
+            hoverOverlayView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hoverOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hoverOverlayView.topAnchor.constraint(equalTo: topAnchor),
+            hoverOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            selectionRailView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            selectionRailView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            selectionRailView.topAnchor.constraint(equalTo: topAnchor),
+            selectionRailView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.terminalTabTopRailHeightPX
+            ),
 
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabTitleLeadingPX),
             titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -DesignTokens.Component.terminalTabTitleCloseGapPX),
@@ -1010,17 +1037,19 @@ private final class TerminalTabItemView: NSView {
 
     private func updateAppearance() {
         layer?.backgroundColor = tabBackgroundColor.cgColor
-        titleField.textColor = selected || isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
-        closeButton.normalTintColor = selected || isHovered ? chromeTheme.textSecondary : chromeTheme.textMuted
+        hoverOverlayView.isHidden = !isHovered
+        let titleRole = selected ? DesignTokens.Typography.tabLabelSel : DesignTokens.Typography.tabLabel
+        titleRole.apply(
+            to: titleField,
+            color: selected || isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
+        )
+        closeButton.normalTintColor = selected || isHovered ? chromeTheme.textSecondary : chromeTheme.textTertiary
         closeButton.alphaValue = selected || isHovered ? 1 : 0
     }
 
+    /// The unselected tab has no fill of its own: it sits directly on
+    /// `surfaceChrome`, so only the selected tab is raised out of the bar.
     private var tabBackgroundColor: NSColor {
-        if selected {
-            return isHovered ? chromeTheme.activeTabBackground.blended(withFraction: 0.10, of: chromeTheme.accent) ?? chromeTheme.activeTabBackground : chromeTheme.activeTabBackground
-        }
-        return isHovered
-            ? chromeTheme.inactiveTabHoverBackground
-            : chromeTheme.inactiveTabBackground
+        selected ? chromeTheme.surfaceRaised : .clear
     }
 }

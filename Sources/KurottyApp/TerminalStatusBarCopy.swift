@@ -7,27 +7,27 @@ import Foundation
 /// `DesignTokens.Component` (sizes) and keep the unit suffixes.
 enum TerminalStatusBarTokens {
     static let heightPX: CGFloat = 24
-    static let horizontalInsetPX: CGFloat = 12
-    static let segmentGroupGapPX: CGFloat = 12
-    static let segmentPaddingXPX: CGFloat = 6
-    static let segmentCornerRadiusPX: CGFloat = 4
-    static let fontSizePT: CGFloat = 11
+    static let horizontalInsetPX = DesignTokens.Space.x4PX
+    static let segmentGroupGapPX = DesignTokens.Space.x4PX
+    static let segmentPaddingXPX = DesignTokens.Space.x2PX
+    static let segmentCornerRadiusPX = DesignTokens.Radius.xsPX
+    static let fontSizePT = DesignTokens.Typography.statusBar.sizePT
     static let iconPointSizePT: CGFloat = 11
     static let dotSizePX: CGFloat = 6
     static let hollowRingLineWidthPX: CGFloat = 1.5
     static let hollowRingAlphaRATIO: CGFloat = 0.55
-    static let dotGlyphGapPX: CGFloat = 4
-    static let glyphLabelGapPX: CGFloat = 6
-    static let labelDetailGapPX: CGFloat = 6
-    static let iconValueGapPX: CGFloat = 4
-    static let metricGapPX: CGFloat = 12
+    static let dotGlyphGapPX = DesignTokens.Space.x1PX
+    static let glyphLabelGapPX = DesignTokens.Space.x2PX
+    static let labelDetailGapPX = DesignTokens.Space.x2PX
+    static let iconValueGapPX = DesignTokens.Space.x1PX
+    static let metricGapPX = DesignTokens.Space.x4PX
     static let agentLabelMaxWidthPX: CGFloat = 160
     static let agentDetailMaxWidthPX: CGFloat = 96
     static let memoryValueMinWidthPX: CGFloat = 48
     static let cpuValueMinWidthPX: CGFloat = 40
     static let spinnerSizePX: CGFloat = 12
     static let badgeHeightPX: CGFloat = 14
-    static let badgeTextInsetXPX: CGFloat = 4
+    static let badgeTextInsetXPX = DesignTokens.Space.x1PX
     static let badgeCornerRadiusPX: CGFloat = 3
     static let badgeFontSizePT: CGFloat = 9
     static let hoverFillAlphaRATIO: CGFloat = 0.07
@@ -36,9 +36,9 @@ enum TerminalStatusBarTokens {
     static let samplingIntervalSeconds: TimeInterval = 2.0
     static let killGracePeriodSeconds: TimeInterval = 3.0
     static let popoverWidthPX: CGFloat = 320
-    static let popoverInsetPX: CGFloat = 12
+    static let popoverInsetPX = DesignTokens.Space.x4PX
     static let popoverRowHeightPX: CGFloat = 22
-    static let popoverRowGapPX: CGFloat = 4
+    static let popoverRowGapPX = DesignTokens.Space.x1PX
     static let popoverMaximumRowCount = 12
     /// Responsive-truncation breakpoints, widest first.
     static let agentDetailBreakpointPX: CGFloat = 560

@@ -99,6 +99,8 @@ final class TerminalCodeEditorView: NSView {
         didSet { textView.isEditable = !isReadOnly && isShowingText }
     }
 
+    private let pathBarContainer = NSView()
+    private let pathBarSeparator = NSView()
     private let pathBar = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let textView = TerminalCodeEditorTextView()
@@ -198,11 +200,24 @@ final class TerminalCodeEditorView: NSView {
 
     private func configureSubviews() {
         wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
 
-        pathBar.font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        pathBarContainer.wantsLayer = true
+        pathBarContainer.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        pathBarContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(pathBarContainer)
+
+        pathBarSeparator.wantsLayer = true
+        pathBarSeparator.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        pathBarSeparator.translatesAutoresizingMaskIntoConstraints = false
+        pathBarContainer.addSubview(pathBarSeparator)
+
+        pathBar.font = DesignTokens.Typography.rowSecondary.font
         pathBar.lineBreakMode = .byTruncatingHead
+        pathBar.maximumNumberOfLines = 1
+        pathBar.cell?.lineBreakMode = .byTruncatingHead
         pathBar.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(pathBar)
+        pathBarContainer.addSubview(pathBar)
 
         textView.isRichText = false
         textView.allowsUndo = true
@@ -249,16 +264,28 @@ final class TerminalCodeEditorView: NSView {
         addSubview(placeholderLabel)
 
         NSLayoutConstraint.activate([
-            pathBar.topAnchor.constraint(equalTo: topAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
-            pathBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetXPX),
-            pathBar.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -DesignTokens.Component.codeEditorPathBarInsetXPX),
+            pathBarContainer.topAnchor.constraint(equalTo: topAnchor),
+            pathBarContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pathBarContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pathBarContainer.heightAnchor.constraint(equalToConstant: CodeEditorMetrics.pathBarHeightPX),
 
-            scrollView.topAnchor.constraint(equalTo: pathBar.bottomAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
+            pathBarSeparator.leadingAnchor.constraint(equalTo: pathBarContainer.leadingAnchor),
+            pathBarSeparator.trailingAnchor.constraint(equalTo: pathBarContainer.trailingAnchor),
+            pathBarSeparator.bottomAnchor.constraint(equalTo: pathBarContainer.bottomAnchor),
+            pathBarSeparator.heightAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX),
+
+            pathBar.leadingAnchor.constraint(equalTo: pathBarContainer.leadingAnchor, constant: CodeEditorMetrics.pathBarInsetXPX),
+            pathBar.trailingAnchor.constraint(lessThanOrEqualTo: pathBarContainer.trailingAnchor, constant: -CodeEditorMetrics.pathBarInsetXPX),
+            pathBar.centerYAnchor.constraint(equalTo: pathBarContainer.centerYAnchor),
+
+            // Gap 0: the path bar carries its own hairline, so a second gap
+            // would read as a floating label again.
+            scrollView.topAnchor.constraint(equalTo: pathBarContainer.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            imagePreviewView.topAnchor.constraint(equalTo: pathBar.bottomAnchor, constant: DesignTokens.Component.codeEditorPathBarInsetYPX),
+            imagePreviewView.topAnchor.constraint(equalTo: pathBarContainer.bottomAnchor),
             imagePreviewView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imagePreviewView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imagePreviewView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -321,6 +348,8 @@ final class TerminalCodeEditorView: NSView {
 
     private func applyPalette() {
         layer?.backgroundColor = palette.chromeBackground.cgColor
+        pathBarContainer.layer?.backgroundColor = palette.pathBarBackground.cgColor
+        pathBarSeparator.layer?.backgroundColor = palette.hairline.cgColor
         scrollView.backgroundColor = palette.editorBackground
         imagePreviewView.backgroundColor = palette.editorBackground
         textView.backgroundColor = palette.editorBackground
@@ -330,30 +359,91 @@ final class TerminalCodeEditorView: NSView {
         rulerView?.applyPalette(palette)
     }
 
+    /// Renders the path as a breadcrumb: ancestor directories in quiet text,
+    /// separated by chevrons, with the filename as the only emphasized run. A
+    /// slash-joined string made the whole path read as one undifferentiated
+    /// blob, so the file you actually have open was the hardest part to find.
     private func updatePathBar() {
         guard let url = fileURL else {
             pathBar.attributedStringValue = NSAttributedString(string: "")
             return
         }
-        let directory = url.deletingLastPathComponent().path
-        let font = NSFont.systemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
-        let boldFont = NSFont.boldSystemFont(ofSize: DesignTokens.Typography.labelFontSizePT)
+        let ancestorFont = DesignTokens.Typography.rowSecondary.font
+        let fileNameFont = NSFont.systemFont(
+            ofSize: DesignTokens.Typography.rowSecondary.sizePT,
+            weight: .medium
+        )
         let value = NSMutableAttributedString()
-        value.append(NSAttributedString(
-            string: directory + "/",
-            attributes: [.foregroundColor: palette.mutedText, .font: font]
-        ))
+        let ancestors = url.deletingLastPathComponent().pathComponents
+            .filter { $0 != CodeEditorMetrics.rootPathComponent }
+        for ancestor in ancestors {
+            value.append(NSAttributedString(
+                string: ancestor,
+                attributes: [.foregroundColor: palette.mutedText, .font: ancestorFont]
+            ))
+            value.append(breadcrumbSeparator())
+        }
         value.append(NSAttributedString(
             string: url.lastPathComponent,
-            attributes: [.foregroundColor: palette.primaryText, .font: boldFont]
+            attributes: [.foregroundColor: palette.secondaryText, .font: fileNameFont]
         ))
         if dirtyTracker.isDirty {
             value.append(NSAttributedString(
                 string: " " + TerminalCodeEditorConstants.modifiedDotGlyph,
-                attributes: [.foregroundColor: palette.modifiedDot, .font: font]
+                attributes: [.foregroundColor: palette.modifiedDot, .font: ancestorFont]
             ))
         }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingHead
+        value.addAttribute(
+            .paragraphStyle,
+            value: paragraph,
+            range: NSRange(location: 0, length: value.length)
+        )
         pathBar.attributedStringValue = value
+    }
+
+    /// A chevron with `x1` of air on both sides. Falls back to a plain glyph if
+    /// the symbol is unavailable so the path never collapses into one word.
+    private func breadcrumbSeparator() -> NSAttributedString {
+        // A zero-width space carrying exactly `x1` of kerning: a literal space
+        // would be whatever the system font decides, not a design step.
+        let spacer = NSAttributedString(
+            string: CodeEditorMetrics.zeroWidthSpace,
+            attributes: [
+                .font: DesignTokens.Typography.rowSecondary.font,
+                .kern: DesignTokens.Space.x1PX,
+            ]
+        )
+        let separator = NSMutableAttributedString()
+        separator.append(spacer)
+        guard let image = Icon.symbol(
+            IconSymbol.breadcrumbSeparator,
+            pointSizePT: CodeEditorMetrics.breadcrumbSeparatorPointSizePT,
+            weight: .semibold,
+            tint: palette.mutedText
+        ) else {
+            separator.append(NSAttributedString(
+                string: CodeEditorMetrics.breadcrumbSeparatorFallbackGlyph,
+                attributes: [
+                    .foregroundColor: palette.mutedText,
+                    .font: DesignTokens.Typography.rowSecondary.font,
+                ]
+            ))
+            separator.append(spacer)
+            return separator
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = NSRect(
+            x: 0,
+            y: (DesignTokens.Typography.rowSecondary.font.capHeight - image.size.height) / 2,
+            width: image.size.width,
+            height: image.size.height
+        )
+        separator.append(NSAttributedString(attachment: attachment))
+        separator.append(spacer)
+        return separator
     }
 
     private func rehighlight() {
@@ -425,7 +515,7 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
     init(scrollView: NSScrollView, textView: NSTextView) {
         self.textView = textView
         super.init(scrollView: scrollView, orientation: .verticalRuler)
-        ruleThickness = DesignTokens.Component.codeEditorGutterWidthPX
+        ruleThickness = CodeEditorMetrics.gutterWidthPX
         clientView = textView
     }
 
@@ -450,12 +540,22 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
         else {
             return
         }
-        palette.gutterBackground.setFill()
+        // No separate gutter tint: a differently colored strip beside the text
+        // is a 2010 IDE idiom. The gutter shares the editor background and is
+        // separated by a hairline only.
+        palette.editorBackground.setFill()
         bounds.fill()
+        palette.hairline.setFill()
+        NSRect(
+            x: bounds.maxX - DesignTokens.Component.hairlinePX,
+            y: bounds.minY,
+            width: DesignTokens.Component.hairlinePX,
+            height: bounds.height
+        ).fill()
 
         rebuildLineIndexIfNeeded(text: textView.string as NSString)
         let currentLine = lineNumber(forCharacterIndex: textView.selectedRange().location)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: DesignTokens.Typography.codeEditorGutterFontSizePT, weight: .regular)
+        let font = DesignTokens.Typography.monoGutter.font
         let inset = textView.textContainerInset.height
         let originOffset = convert(NSPoint.zero, from: textView).y
 
@@ -496,11 +596,13 @@ final class TerminalCodeEditorLineNumberRulerView: NSRulerView {
         let label = "\(number)" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: emphasized ? palette.primaryText : palette.mutedText,
+            // The current line steps up one rank only; a full-contrast number
+            // would out-shout the code it labels.
+            .foregroundColor: emphasized ? palette.secondaryText : palette.mutedText,
         ]
         let size = label.size(withAttributes: attributes)
         let drawRect = NSRect(
-            x: ruleThickness - size.width - DesignTokens.Component.codeEditorGutterLabelTrailingPX,
+            x: ruleThickness - size.width - CodeEditorMetrics.gutterLabelTrailingPX,
             y: yPosition + (height - size.height) / 2,
             width: size.width,
             height: size.height
@@ -594,9 +696,15 @@ final class TerminalImagePreviewView: NSView {
 struct TerminalCodeEditorPalette {
     let chromeBackground: NSColor
     let editorBackground: NSColor
-    let gutterBackground: NSColor
+    /// Path-bar fill. Raised, so the bar reads as a bar and not as text sitting
+    /// loose on the editor background.
+    let pathBarBackground: NSColor
+    /// Single separation color for the path bar's bottom edge and the gutter's
+    /// right edge.
+    let hairline: NSColor
     let plainText: NSColor
     let primaryText: NSColor
+    let secondaryText: NSColor
     let mutedText: NSColor
     let modifiedDot: NSColor
     let keyword: NSColor
@@ -620,10 +728,12 @@ struct TerminalCodeEditorPalette {
         return TerminalCodeEditorPalette(
             chromeBackground: theme.topChromeBackground,
             editorBackground: isLight ? theme.activeTabBackground : DesignTokens.Color.terminalBackground,
-            gutterBackground: isLight ? theme.paneHeaderBackground : DesignTokens.Color.windowBackground,
+            pathBarBackground: theme.surfaceRaised,
+            hairline: theme.hairline,
             plainText: theme.textPrimary,
             primaryText: theme.textPrimary,
-            mutedText: theme.textMuted,
+            secondaryText: theme.textSecondary,
+            mutedText: theme.textTertiary,
             modifiedDot: theme.activeIndicator,
             keyword: TerminalCodeEditorSyntaxColors.syntaxKeyword,
             string: theme.success,
@@ -647,4 +757,39 @@ enum TerminalCodeEditorSyntaxColors {
 enum TerminalCodeEditorConstants {
     static let modifiedDotGlyph = "●"
     static let saveKeyCharacter = "s"
+}
+
+/// Editor chrome geometry that the shared token file does not carry yet.
+///
+/// MIGRATION: `gutterWidthPX` (40) replaces
+/// `DesignTokens.Component.codeEditorGutterWidthPX` (44), and
+/// `pathBarHeightPX` replaces the `codeEditorPathBarInsetYPX` gap the path bar
+/// used to float in. `codeEditorPathBarInsetXPX` / `codeEditorGutterLabelTrailingPX`
+/// are now expressed as `Space.x4PX` / `Space.x3PX` and can be deleted from
+/// `DesignTokens.Component` once nothing else reads them.
+private enum CodeEditorMetrics {
+    /// The path bar is a real 28pt bar with a hairline bottom edge.
+    static let pathBarHeightPX: CGFloat = 28
+    static let pathBarInsetXPX = DesignTokens.Space.x4PX
+    /// 40, down from 44: four digits fit at 11pt with `x3` of trailing air.
+    static let gutterWidthPX: CGFloat = 40
+    static let gutterLabelTrailingPX = DesignTokens.Space.x3PX
+    /// Off the icon ramp on purpose: the chevron has to sit inside 11pt type
+    /// without becoming the loudest thing in the bar.
+    static let breadcrumbSeparatorPointSizePT: CGFloat = 8
+    static let breadcrumbSeparatorFallbackGlyph = "›"
+    static let zeroWidthSpace = "\u{200B}"
+    static let rootPathComponent = "/"
+}
+
+/// MIGRATION: `monoGutter` belongs in `DesignTokens.Typography` beside
+/// `monoBody`. It is 11/regular with monospaced digits so a jump from line 9 to
+/// line 10 cannot shift the column.
+private extension DesignTokens.Typography {
+    static let monoGutter = Role(
+        sizePT: 11,
+        weight: .regular,
+        lineHeightPX: 15,
+        design: .monospacedDigit
+    )
 }

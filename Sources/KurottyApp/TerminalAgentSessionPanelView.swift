@@ -12,7 +12,6 @@ import AppKit
 final class TerminalAgentSessionPanelView: NSView {
     private enum Symbol {
         static let emptyState = "bubble.left.and.text.bubble.right"
-        static let search = "magnifyingglass"
     }
 
     var onInsertResumeCommand: ((AgentSessionRecord) -> Void)?
@@ -24,12 +23,10 @@ final class TerminalAgentSessionPanelView: NSView {
 
     private let store: AgentSessionIndexStore
     private let homeDirectory: String
-    private let searchPillView = NSView()
-    // A plain text field with our own leading magnifier, matching the history
-    // panel: NSSearchField draws its search button from its cell and would
-    // overlap the placeholder once the bezel is disabled for pill styling.
-    private let searchIconView = NSImageView()
-    private let filterField = NSTextField()
+    /// Shared sidebar control; see `TerminalSidebarSearchPillView`.
+    private let searchPillView = TerminalSidebarSearchPillView(
+        placeholder: { AppLocalization.string(.agentSessionsFilterPlaceholder) }
+    )
     private let sectionHeaderLabel = NSTextField(labelWithString: "")
     /// Clipping container for everything below the search pill. The scroll
     /// view and the empty state are both children of this view, so the empty
@@ -70,13 +67,8 @@ final class TerminalAgentSessionPanelView: NSView {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
-        searchPillView.layer?.backgroundColor = theme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistorySearchPillBackgroundAlphaRATIO)
-            .cgColor
-        filterField.textColor = theme.textPrimary
-        searchIconView.contentTintColor = theme.textMuted
-        applyFilterPlaceholder()
-        sectionHeaderLabel.textColor = theme.textMuted
+        searchPillView.applyChromeTheme(theme)
+        DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
         emptyStateIconView.contentTintColor = theme.textMuted
         emptyStateLabel.textColor = theme.textMuted
         emptyStateIconView.alphaValue = 0.66
@@ -86,7 +78,7 @@ final class TerminalAgentSessionPanelView: NSView {
     }
 
     func focusFilterField() {
-        window?.makeFirstResponder(filterField)
+        searchPillView.focus()
     }
 
     /// Called when the section becomes visible: indexing only ever runs on an
@@ -156,62 +148,20 @@ final class TerminalAgentSessionPanelView: NSView {
     }
 
     private func configureSearchPill() {
-        searchPillView.wantsLayer = true
-        searchPillView.layer?.cornerRadius = DesignTokens.Component.commandHistorySearchPillCornerRadiusPX
-        searchPillView.layer?.backgroundColor = chromeTheme.textPrimary
-            .withAlphaComponent(DesignTokens.Component.commandHistorySearchPillBackgroundAlphaRATIO)
-            .cgColor
+        searchPillView.onQueryChanged = { [weak self] in
+            self?.reloadGroups()
+        }
+        searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
-
-        searchIconView.image = NSImage(
-            systemSymbolName: Symbol.search,
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(
-                pointSize: DesignTokens.Typography.sidebarSearchFontSizePT,
-                weight: .regular
-            )
-        )
-        searchIconView.contentTintColor = chromeTheme.textMuted
-        searchIconView.imageScaling = .scaleNone
-        searchIconView.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(searchIconView)
-
-        filterField.delegate = self
-        filterField.target = self
-        filterField.action = #selector(filterChanged(_:))
-        filterField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT)
-        filterField.isBezeled = false
-        filterField.isBordered = false
-        filterField.drawsBackground = false
-        filterField.focusRingType = .none
-        filterField.lineBreakMode = .byTruncatingTail
-        filterField.cell?.usesSingleLineMode = true
-        filterField.translatesAutoresizingMaskIntoConstraints = false
-        searchPillView.addSubview(filterField)
-        applyFilterPlaceholder()
-    }
-
-    /// The placeholder needs an explicit muted color so it reads correctly
-    /// against the pill in both the light and dark chrome themes.
-    private func applyFilterPlaceholder() {
-        filterField.placeholderAttributedString = NSAttributedString(
-            string: AppLocalization.string(.agentSessionsFilterPlaceholder),
-            attributes: [
-                .foregroundColor: chromeTheme.textMuted,
-                .font: NSFont.systemFont(ofSize: DesignTokens.Typography.sidebarSearchFontSizePT),
-            ]
-        )
     }
 
     private func configureSectionHeader() {
         sectionHeaderLabel.stringValue = AppLocalization.string(.agentSessionsSectionTitle).localizedUppercase
-        sectionHeaderLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.sidebarSectionHeaderFontSizePT,
-            weight: .semibold
+        DesignTokens.Typography.sectionHeader.apply(
+            to: sectionHeaderLabel,
+            color: chromeTheme.textTertiary
         )
-        sectionHeaderLabel.textColor = chromeTheme.textMuted
         sectionHeaderLabel.lineBreakMode = .byTruncatingTail
         sectionHeaderLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(sectionHeaderLabel)
@@ -261,8 +211,7 @@ final class TerminalAgentSessionPanelView: NSView {
         emptyStateIconView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(emptyStateIconView)
 
-        emptyStateLabel.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT)
-        emptyStateLabel.textColor = chromeTheme.textMuted
+        DesignTokens.Typography.rowTitle.apply(to: emptyStateLabel, color: chromeTheme.textMuted)
         emptyStateLabel.alignment = .center
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(emptyStateLabel)
@@ -271,7 +220,6 @@ final class TerminalAgentSessionPanelView: NSView {
     private func activateLayoutConstraints() {
         let insetX = DesignTokens.Component.commandHistoryPanelInsetXPX
         let insetY = DesignTokens.Component.commandHistoryPanelInsetYPX
-        let pillTextInset = DesignTokens.Component.commandHistorySearchPillTextInsetXPX
         NSLayoutConstraint.activate([
             sectionHeaderLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
             sectionHeaderLabel.leadingAnchor.constraint(
@@ -286,19 +234,6 @@ final class TerminalAgentSessionPanelView: NSView {
             ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
-            searchPillView.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.commandHistorySearchPillHeightPX
-            ),
-
-            searchIconView.leadingAnchor.constraint(equalTo: searchPillView.leadingAnchor, constant: pillTextInset),
-            searchIconView.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
-
-            filterField.leadingAnchor.constraint(
-                equalTo: searchIconView.trailingAnchor,
-                constant: DesignTokens.Component.commandHistorySearchIconGapPX
-            ),
-            filterField.trailingAnchor.constraint(equalTo: searchPillView.trailingAnchor, constant: -pillTextInset),
-            filterField.centerYAnchor.constraint(equalTo: searchPillView.centerYAnchor),
 
             listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
@@ -336,14 +271,10 @@ final class TerminalAgentSessionPanelView: NSView {
         reloadGroups()
     }
 
-    @objc private func filterChanged(_ sender: NSTextField) {
-        reloadGroups()
-    }
-
     private func reloadGroups() {
         let groups = AgentSessionRowBuilder.groups(
             records: store.records,
-            filter: filterField.stringValue,
+            filter: searchPillView.stringValue,
             homeDirectory: homeDirectory
         )
         groupItems = groups.map(TerminalAgentSessionGroupOutlineItem.init)
@@ -359,7 +290,7 @@ final class TerminalAgentSessionPanelView: NSView {
     private func applyExpansionState() {
         isApplyingExpansionState = true
         defer { isApplyingExpansionState = false }
-        let isFiltering = !filterField.stringValue.isEmpty
+        let isFiltering = !searchPillView.stringValue.isEmpty
         for (index, item) in groupItems.enumerated() {
             let expandedByDefault = index < DesignTokens.Component.agentSessionDefaultExpandedGroupCount
             let isExpanded = isFiltering
@@ -595,20 +526,12 @@ extension TerminalAgentSessionPanelView: NSOutlineViewDataSource, NSOutlineViewD
 
     private func recordUserDisclosureToggle(_ notification: Notification, isExpanded: Bool) {
         guard !isApplyingExpansionState,
-              filterField.stringValue.isEmpty,
+              searchPillView.stringValue.isEmpty,
               let groupItem = notification.userInfo?["NSObject"] as? TerminalAgentSessionGroupOutlineItem
         else {
             return
         }
         explicitExpansionByPath[groupItem.group.display.path] = isExpanded
-    }
-}
-
-extension TerminalAgentSessionPanelView: NSTextFieldDelegate {
-    /// Filter as the user types, matching the history panel's immediate-send
-    /// behavior.
-    func controlTextDidChange(_ notification: Notification) {
-        reloadGroups()
     }
 }
 

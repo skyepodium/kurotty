@@ -16,6 +16,10 @@ final class AgentActivityIndicatorView: NSView {
     private let arcLayer = CAShapeLayer()
     private var lastPathSize = CGSize.zero
     private var isSpinning = false
+    /// Status hues are theme-owned: the dark ramp's green measures about 1.6:1
+    /// on a light surface, so a shared palette makes this indicator (and the
+    /// status text beside it) unreadable on the light theme.
+    private var chromeTheme = DesignTokens.ChromeTheme.dark
 
     private enum Animation {
         static let rotationKey = "dev.kurotty.agentActivity.spin"
@@ -69,6 +73,11 @@ final class AgentActivityIndicatorView: NSView {
     /// itself and stops the spinner so it costs nothing while idle.
     func update(status: AgentActivityStatus?) {
         self.status = status
+        applyAppearance()
+    }
+
+    func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        chromeTheme = theme
         applyAppearance()
     }
 
@@ -131,9 +140,11 @@ final class AgentActivityIndicatorView: NSView {
             return
         }
         isHidden = false
-        let color = Self.color(for: status.state)
+        let color = Self.color(for: status.state, theme: chromeTheme)
         dotLayer.fillColor = color.cgColor
-        arcLayer.strokeColor = color.withAlphaComponent(0.85).cgColor
+        arcLayer.strokeColor = color.withAlphaComponent(
+            DesignTokens.Component.agentActivityIndicatorArcAlphaRATIO
+        ).cgColor
         toolTip = Self.tooltip(for: status)
         guard status.state == .working else {
             arcLayer.isHidden = true
@@ -167,16 +178,19 @@ final class AgentActivityIndicatorView: NSView {
         arcLayer.isHidden = true
     }
 
-    static func color(for state: AgentActivityState) -> NSColor {
+    static func color(
+        for state: AgentActivityState,
+        theme: DesignTokens.ChromeTheme
+    ) -> NSColor {
         switch state {
         case .working:
-            return DesignTokens.Color.accentBlue
+            return theme.accent
         case .waitingForInput:
-            return DesignTokens.Color.warningOrange
+            return theme.warning
         case .blocked:
-            return DesignTokens.Color.errorRed
+            return theme.error
         case .done:
-            return DesignTokens.Color.successGreen
+            return theme.success
         }
     }
 

@@ -672,8 +672,14 @@ final class AgentActivityStatusTests: XCTestCase {
 
     @MainActor
     func testIndicatorColorsAndTooltipsAreDistinctPerState() {
-        let colors = AgentActivityState.allCases.map { AgentActivityIndicatorView.color(for: $0) }
-        XCTAssertEqual(Set(colors).count, AgentActivityState.allCases.count)
+        // Status hues are theme-owned, so both ramps have to stay distinct: a
+        // shared palette rendered the light theme's status text unreadable.
+        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+            let colors = AgentActivityState.allCases.map {
+                AgentActivityIndicatorView.color(for: $0, theme: theme)
+            }
+            XCTAssertEqual(Set(colors).count, AgentActivityState.allCases.count)
+        }
 
         // Pinned to English: the tooltip now resolves through AppLocalization,
         // so an explicit language keeps the assertion independent of the

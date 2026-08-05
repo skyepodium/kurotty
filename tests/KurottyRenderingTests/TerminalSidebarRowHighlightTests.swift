@@ -151,19 +151,21 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
     // MARK: - Title weight ladder
 
     func testTitleWeightEmphasisStepsUpFromTheCellBaseWeight() {
+        // Re-pointed onto the type ramp: cells now name a role, never a weight,
+        // so the ladder is exercised through `rowTitle` (.regular) and
+        // `windowTitle` (.semibold) instead of the retired `sidebar*FontSizePT`
+        // constants.
         let regularStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarCommandFontSizePT,
-            baseWeight: .regular,
-            baseColor: theme.textPrimary,
+            role: DesignTokens.Typography.rowTitle,
+            restColor: theme.textPrimary,
             chromeTheme: theme
         )
         XCTAssertEqual(regularStyler.resolvedWeight(for: appearance()), .regular)
         XCTAssertEqual(regularStyler.resolvedWeight(for: appearance(selected: true)), .medium)
 
         let semiboldStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarGroupNameFontSizePT,
-            baseWeight: .semibold,
-            baseColor: theme.textPrimary,
+            role: DesignTokens.Typography.windowTitle,
+            restColor: theme.textPrimary,
             chromeTheme: theme
         )
         XCTAssertEqual(semiboldStyler.resolvedWeight(for: appearance()), .semibold)
@@ -172,9 +174,8 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
 
     func testInactiveSelectionDemotesTitleColorToSecondary() {
         let styler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.sidebarCommandFontSizePT,
-            baseWeight: .regular,
-            baseColor: theme.textPrimary,
+            role: DesignTokens.Typography.monoBody,
+            restColor: theme.textPrimary,
             chromeTheme: theme
         )
         let label = NSTextField(labelWithString: "kurotty")

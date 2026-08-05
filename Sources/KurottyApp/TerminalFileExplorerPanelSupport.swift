@@ -33,9 +33,9 @@ enum FileExplorerIcon {
     static let refreshSymbolName = "arrow.clockwise"
     /// Empty-state glyph for a working directory that lives on another machine.
     static let remoteSymbolName = "network"
-    static let ignoredBadgeText = "⊘"
-    static let modifiedBadgeText = "M"
-    static let untrackedBadgeText = "U"
+    /// Conflict is the only git state that still earns a glyph: it is the one
+    /// the user has to act on, and a triangle says so where a dot cannot.
+    static let conflictSymbolName = "exclamationmark.triangle.fill"
     private static let defaultFileSymbolName = "doc"
     private static let symbolNameByExtension: [String: String] = [
         "swift": "swift",
@@ -99,14 +99,21 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         badge: FileExplorerGitBadge?,
         chromeTheme: DesignTokens.ChromeTheme
     ) {
+        let isDirectory = item.node.kind == .directory
+        // Ignored entries carry no dot at all; the whole row drops a rank
+        // instead, which says "present but out of play" without a glyph.
         let isDimmed = item.node.isHiddenFile || badge == .ignored
+        // Dimming is a color, never `alphaValue`: alpha also dims the subpixel
+        // antialiasing, so a faded label loses stroke weight as well as
+        // contrast and stops looking like the same typeface.
+        let dimmedColor = chromeTheme.textTertiary.withAlphaComponent(
+            DesignTokens.Component.fileExplorerDimmedTextAlphaRATIO
+        )
         nameLabel = NSTextField(labelWithString: item.filterDisplayPath ?? item.node.name)
         titleStyler = TerminalSidebarRowTitleStyler(
-            baseFontSizePT: DesignTokens.Typography.labelFontSizePT,
-            baseWeight: .regular,
-            baseColor: isDimmed
-                ? chromeTheme.textMuted
-                : item.node.kind == .directory ? chromeTheme.textSecondary : chromeTheme.textPrimary,
+            role: DesignTokens.Typography.rowTitle,
+            restColor: isDimmed ? dimmedColor : chromeTheme.textSecondary,
+            selectedColor: isDimmed ? dimmedColor : chromeTheme.textPrimary,
             chromeTheme: chromeTheme
         )
         super.init(frame: .zero)
@@ -116,34 +123,28 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
             systemSymbolName: FileExplorerIcon.symbolName(for: item.node),
             accessibilityDescription: nil
         )
-        iconView.contentTintColor = isDimmed || item.node.kind == .directory
-            ? chromeTheme.textMuted
-            : chromeTheme.textSecondary
-        iconView.alphaValue = isDimmed ? FileExplorerMetrics.dimmedAlphaRATIO : 1
+        iconView.contentTintColor = Self.iconColor(
+            isDimmed: isDimmed,
+            isDirectory: isDirectory,
+            dimmedColor: dimmedColor,
+            chromeTheme: chromeTheme
+        )
         iconView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: FileExplorerMetrics.rowIconSizePX,
+            pointSize: DesignTokens.Component.fileExplorerRowIconPointSizePT,
             weight: .regular
         )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
         titleStyler.apply(.rest, to: nameLabel)
-        nameLabel.alphaValue = isDimmed ? FileExplorerMetrics.dimmedAlphaRATIO : 1
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.maximumNumberOfLines = 1
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(nameLabel)
 
-        let badgeLabel = NSTextField(labelWithString: Self.badgeText(for: badge))
-        badgeLabel.font = NSFont.systemFont(
-            ofSize: DesignTokens.Typography.statusFontSizePT,
-            weight: .semibold
-        )
-        badgeLabel.textColor = Self.badgeColor(for: badge, chromeTheme: chromeTheme)
-        badgeLabel.alignment = .right
-        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(badgeLabel)
+        let gitSlotView = TerminalFileExplorerGitSlotView(badge: badge, chromeTheme: chromeTheme)
+        addSubview(gitSlotView)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(
@@ -158,18 +159,15 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
             ),
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            badgeLabel.leadingAnchor.constraint(
+            gitSlotView.leadingAnchor.constraint(
                 greaterThanOrEqualTo: nameLabel.trailingAnchor,
                 constant: FileExplorerMetrics.rowGapPX
             ),
-            badgeLabel.trailingAnchor.constraint(
+            gitSlotView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
                 constant: -FileExplorerMetrics.rowInsetXPX
             ),
-            badgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badgeLabel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: FileExplorerMetrics.badgeMinWidthPX
-            ),
+            gitSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -177,23 +175,108 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
-    private static func badgeText(for badge: FileExplorerGitBadge?) -> String {
-        switch badge {
-        case .modified: FileExplorerIcon.modifiedBadgeText
-        case .untracked: FileExplorerIcon.untrackedBadgeText
-        case .ignored: FileExplorerIcon.ignoredBadgeText
-        case nil: ""
-        }
-    }
-
-    private static func badgeColor(
-        for badge: FileExplorerGitBadge?,
+    private static func iconColor(
+        isDimmed: Bool,
+        isDirectory: Bool,
+        dimmedColor: NSColor,
         chromeTheme: DesignTokens.ChromeTheme
     ) -> NSColor {
+        guard !isDimmed else {
+            return dimmedColor
+        }
+        // Folders take a quiet accent so the tree's structure is readable at a
+        // glance; files stay at the lowest text rank.
+        return isDirectory
+            ? chromeTheme.accent.withAlphaComponent(
+                DesignTokens.Component.fileExplorerFolderIconAlphaRATIO
+            )
+            : chromeTheme.textTertiary
+    }
+}
+
+/// Fixed-width git column for one explorer row.
+///
+/// The column is a reserved 14x14 slot whatever the row's state is. The
+/// previous `M` / `U` / `⊘` letters had different optical weights and baselines,
+/// so the name column beside them shifted from row to row; a slot plus a 5pt dot
+/// cannot.
+@MainActor
+final class TerminalFileExplorerGitSlotView: NSView {
+    private let badge: FileExplorerGitBadge?
+    private let chromeTheme: DesignTokens.ChromeTheme
+
+    init(badge: FileExplorerGitBadge?, chromeTheme: DesignTokens.ChromeTheme) {
+        self.badge = badge
+        self.chromeTheme = chromeTheme
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerGitSlotSizePX
+            ),
+            heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.fileExplorerGitSlotSizePX
+            ),
+        ])
+        configureConflictGlyphIfNeeded()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard badge != .conflicted, let dotColor else {
+            return
+        }
+        let size = DesignTokens.Component.fileExplorerGitDotSizePX
+        let dotRect = NSRect(
+            x: bounds.midX - size / 2,
+            y: bounds.midY - size / 2,
+            width: size,
+            height: size
+        )
+        dotColor.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+    }
+
+    /// Conflict is the one state that outgrows a dot, so it gets a glyph
+    /// centered in the same reserved slot.
+    private func configureConflictGlyphIfNeeded() {
+        guard badge == .conflicted else {
+            return
+        }
+        let glyphView = NSImageView()
+        glyphView.image = NSImage(
+            systemSymbolName: FileExplorerIcon.conflictSymbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: DesignTokens.Component.fileExplorerGitConflictPointSizePT,
+            weight: .regular
+        ))
+        glyphView.contentTintColor = chromeTheme.error
+        glyphView.imageScaling = .scaleNone
+        glyphView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glyphView)
+        NSLayoutConstraint.activate([
+            glyphView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            glyphView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    /// `nil` means the slot stays empty: clean files and ignored entries both
+    /// draw nothing, and ignored rows are already demoted as a whole row.
+    private var dotColor: NSColor? {
         switch badge {
-        case .modified: chromeTheme.warning
-        case .untracked: chromeTheme.success
-        case .ignored, nil: chromeTheme.textMuted
+        case .modified:
+            return chromeTheme.warning
+        case .untracked:
+            return chromeTheme.success
+        case .staged:
+            return chromeTheme.accent
+        case .conflicted, .ignored, nil:
+            return nil
         }
     }
 }

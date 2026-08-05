@@ -87,7 +87,89 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         XCTAssertTrue(panel.emptyStateFrameForTesting.isEmpty || panel.emptyStateIsHiddenForTesting)
     }
 
+    // MARK: - Section strip
+
+    /// `NSSegmentedControl` has no legal 22pt height, which is why the old
+    /// selector rendered squashed and needed `setWidth(0…)` plus a lowered
+    /// compression resistance. The replacement must not reintroduce it.
+    func testSectionSelectorIsNotASegmentedControl() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        let segmentedControls = descendants(of: sidebar).filter { $0 is NSSegmentedControl }
+        XCTAssertTrue(segmentedControls.isEmpty)
+        XCTAssertEqual(
+            sidebar.sectionControlFrameForTesting.height,
+            DesignTokens.Component.leftSidebarSectionStripHeightPX
+        )
+    }
+
+    func testSectionStripItemsSplitTheStripEvenlyAtEveryWidth() {
+        for width in PanelWidth.allPX {
+            let sidebar = makeLaidOutSidebar(width: width)
+            let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
+            XCTAssertEqual(items.count, TerminalLeftSidebarSection.allCases.count)
+            let widths = Set(items.map { $0.frame.width })
+            XCTAssertEqual(widths.count, 1, "section items must be equal width at \(width)")
+        }
+    }
+
+    /// The list used to sit 2pt below the strip, which read as glued to it.
+    func testListStartsAFullSpacingStepBelowTheStrip() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        let stripFrame = sidebar.sectionControlFrameForTesting
+        let panelFrame = sidebar.historyPanel.frame
+        XCTAssertEqual(
+            stripFrame.minY - panelFrame.maxY,
+            DesignTokens.Component.leftSidebarSectionStripBottomGapPX,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            DesignTokens.Component.leftSidebarSectionStripBottomGapPX,
+            DesignTokens.Space.x3PX
+        )
+    }
+
+    func testSelectingASectionMovesTheSelectedItem() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
+        sidebar.showSection(.agentSessions)
+        XCTAssertEqual(items.filter(\.isSelectedSection).map(\.section), [.agentSessions])
+        sidebar.showSection(.commandHistory)
+        XCTAssertEqual(items.filter(\.isSelectedSection).map(\.section), [.commandHistory])
+    }
+
+    // MARK: - Shared search pill
+
+    /// All three sidebar sections had their own near-identical pill before it
+    /// was extracted; they must now share exactly one implementation.
+    func testEverySidebarSectionUsesTheSharedSearchPill() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        let explorer = TerminalFileExplorerPanelView()
+        layOut(explorer, width: PanelWidth.defaultPX)
+        for panel in [sidebar.historyPanel as NSView, sidebar.agentSessionPanel as NSView, explorer] {
+            let pills = descendants(of: panel).compactMap { $0 as? TerminalSidebarSearchPillView }
+            XCTAssertEqual(pills.count, 1, "\(type(of: panel)) must host exactly one shared pill")
+            XCTAssertEqual(
+                pills.first?.frame.height,
+                DesignTokens.Component.sidebarSearchPillHeightPX
+            )
+        }
+    }
+
+    func testSearchPillShowsItsClearButtonOnlyWhileItHasText() {
+        let pill = TerminalSidebarSearchPillView(placeholder: { "filter" })
+        layOut(pill, width: 200, height: DesignTokens.Component.sidebarSearchPillHeightPX)
+        XCTAssertFalse(pill.isClearButtonVisibleForTesting)
+        pill.stringValue = "swift"
+        XCTAssertTrue(pill.isClearButtonVisibleForTesting)
+        pill.stringValue = ""
+        XCTAssertFalse(pill.isClearButtonVisibleForTesting)
+    }
+
     // MARK: - Helpers
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
 
     private func makeLaidOutSidebar(width: CGFloat) -> TerminalLeftSidebarPanelView {
         let sidebar = TerminalLeftSidebarPanelView()

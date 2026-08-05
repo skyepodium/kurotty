@@ -185,11 +185,11 @@ final class TerminalStatusBarDotView: NSView {
         case .idle:
             return theme.activeStatusDot
         case .working:
-            return DesignTokens.Color.accentBlue
+            return theme.accent
         case .waiting:
-            return DesignTokens.Color.warningOrange
+            return theme.warning
         case .error:
-            return DesignTokens.Color.errorRed
+            return theme.error
         }
     }
 }
@@ -252,14 +252,14 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
             )
         )
 
-        labelField.font = NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT, weight: .regular)
+        labelField.font = DesignTokens.Typography.statusBar.font
         labelField.lineBreakMode = .byTruncatingTail
         labelField.isSelectable = false
         labelField.cell?.truncatesLastVisibleLine = true
 
         detailField.font = NSFont.monospacedDigitSystemFont(
-            ofSize: TerminalStatusBarTokens.fontSizePT,
-            weight: .regular
+            ofSize: DesignTokens.Typography.statusBar.sizePT,
+            weight: DesignTokens.Typography.statusBar.weight
         )
         detailField.lineBreakMode = .byTruncatingTail
         detailField.isSelectable = false
@@ -267,7 +267,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
 
         badgeField.font = NSFont.monospacedDigitSystemFont(
             ofSize: TerminalStatusBarTokens.badgeFontSizePT,
-            weight: .medium
+            weight: DesignTokens.Typography.badge.weight
         )
         badgeField.isSelectable = false
         badgeField.translatesAutoresizingMaskIntoConstraints = false
@@ -341,6 +341,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
 
     private func applyContent() {
         dotView.apply(style: summary.dot, theme: chromeTheme)
+        spinnerView.applyChromeTheme(chromeTheme)
         let showsSpinner = summary.showsSpinner
         spinnerView.isHidden = !showsSpinner
         glyphView.isHidden = showsSpinner || !summary.showsAgentGlyph
@@ -357,7 +358,7 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
             labelField.attributedStringValue = Self.callToActionText(
                 summary.label,
                 color: chromeTheme.textSecondary,
-                font: labelField.font ?? NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT),
+                font: labelField.font ?? DesignTokens.Typography.statusBar.font,
                 isUnderlined: false
             )
         } else {
@@ -440,10 +441,7 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
         }
 
         for valueField in [memoryValueField, cpuValueField] {
-            valueField.font = NSFont.monospacedDigitSystemFont(
-                ofSize: TerminalStatusBarTokens.fontSizePT,
-                weight: .medium
-            )
+            valueField.font = DesignTokens.Typography.statusBarNum.font
             valueField.alignment = .right
             valueField.isSelectable = false
             valueField.wantsLayer = true
@@ -550,9 +548,9 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
         case .normal:
             field.textColor = baseColor
         case .warning:
-            field.textColor = DesignTokens.Color.warningOrange
+            field.textColor = chromeTheme.warning
         case .error:
-            field.textColor = DesignTokens.Color.errorRed
+            field.textColor = chromeTheme.error
         }
     }
 }

@@ -233,34 +233,66 @@ protocol TerminalSidebarRowTitleStyling: AnyObject {
 }
 
 /// Applies the title cues (weight, text rank) of a resolved row appearance to a
-/// cell's title label. Each cell owns its base font and base color; the styler
-/// only expresses the *delta* selection introduces.
+/// cell's title label.
+///
+/// The cell names a type ramp role, never a weight: the role owns size, weight,
+/// and font design, and the styler only expresses the *delta* selection
+/// introduces. A cell may give selection its own text rank (`selectedColor`)
+/// because several sidebar rows sit at `textSecondary` at rest and step up to
+/// `textPrimary` only when they are the selected row.
 @MainActor
 struct TerminalSidebarRowTitleStyler {
-    let baseFontSizePT: CGFloat
-    let baseWeight: NSFont.Weight
-    let baseColor: NSColor
+    let role: DesignTokens.Typography.Role
+    /// Rest and hover color.
+    let restColor: NSColor
+    /// Color once the row is the selected row of a key window.
+    let selectedColor: NSColor
     let chromeTheme: DesignTokens.ChromeTheme
-    var isMonospaced = false
+
+    init(
+        role: DesignTokens.Typography.Role,
+        restColor: NSColor,
+        selectedColor: NSColor? = nil,
+        chromeTheme: DesignTokens.ChromeTheme
+    ) {
+        self.role = role
+        self.restColor = restColor
+        self.selectedColor = selectedColor ?? restColor
+        self.chromeTheme = chromeTheme
+    }
 
     func apply(_ appearance: TerminalSidebarRowHighlight.Appearance, to label: NSTextField) {
         label.font = font(for: resolvedWeight(for: appearance))
-        label.textColor = appearance.titleColorRole == .secondary ? chromeTheme.textSecondary : baseColor
+        label.textColor = color(for: appearance)
+    }
+
+    func color(for appearance: TerminalSidebarRowHighlight.Appearance) -> NSColor {
+        guard appearance.titleColorRole != .secondary else {
+            return chromeTheme.textSecondary
+        }
+        // An accent rail is the marker of an active selection; rest and hover
+        // never carry one.
+        return appearance.rail == nil ? restColor : selectedColor
     }
 
     /// `.regular` titles land exactly on the spec's `.medium`; heavier base
     /// weights step up the ladder so the cue is visible everywhere.
     func resolvedWeight(for appearance: TerminalSidebarRowHighlight.Appearance) -> NSFont.Weight {
         guard appearance.titleWeight == TerminalSidebarRowHighlight.Typography.selectedTitleWeight else {
-            return baseWeight
+            return role.weight
         }
-        return TerminalSidebarRowHighlight.Typography.emphasized(baseWeight)
+        return TerminalSidebarRowHighlight.Typography.emphasized(role.weight)
     }
 
     private func font(for weight: NSFont.Weight) -> NSFont {
-        isMonospaced
-            ? NSFont.monospacedSystemFont(ofSize: baseFontSizePT, weight: weight)
-            : NSFont.systemFont(ofSize: baseFontSizePT, weight: weight)
+        switch role.design {
+        case .monospaced:
+            return NSFont.monospacedSystemFont(ofSize: role.sizePT, weight: weight)
+        case .monospacedDigit:
+            return NSFont.monospacedDigitSystemFont(ofSize: role.sizePT, weight: weight)
+        case .system:
+            return NSFont.systemFont(ofSize: role.sizePT, weight: weight)
+        }
     }
 }
 

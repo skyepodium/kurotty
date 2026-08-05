@@ -105,7 +105,7 @@ final class TerminalStatusBarProcessUsageView: NSView {
         quitButton.tag = index
         quitButton.bezelStyle = .inline
         quitButton.controlSize = .small
-        quitButton.font = NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT)
+        quitButton.font = DesignTokens.Typography.statusBar.font
         quitButton.isEnabled = paneUsage.processIdentifier != nil
         quitButtonRows[index] = paneUsage
 
@@ -260,31 +260,25 @@ final class TerminalStatusBarAgentHistoryView: NSView {
 enum TerminalStatusBarPopoverText {
     static func header(_ text: String, theme: DesignTokens.ChromeTheme) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: DesignTokens.Typography.statusFontSizePT, weight: .semibold)
-        field.textColor = theme.textPrimary
+        DesignTokens.Typography.sectionHeader.apply(to: field, color: theme.textPrimary)
         return field
     }
 
     static func primary(_ text: String, theme: DesignTokens.ChromeTheme) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT, weight: .regular)
-        field.textColor = theme.textPrimary
+        DesignTokens.Typography.statusBar.apply(to: field, color: theme.textPrimary)
         return field
     }
 
     static func secondary(_ text: String, theme: DesignTokens.ChromeTheme) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: TerminalStatusBarTokens.fontSizePT, weight: .regular)
-        field.textColor = theme.textMuted
+        DesignTokens.Typography.statusBar.apply(to: field, color: theme.textTertiary)
         return field
     }
 
     static func monospacedValue(_ text: String, theme: DesignTokens.ChromeTheme) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont.monospacedDigitSystemFont(
-            ofSize: TerminalStatusBarTokens.fontSizePT,
-            weight: .medium
-        )
+        field.font = DesignTokens.Typography.statusBarNum.font
         field.textColor = theme.textSecondary
         return field
     }

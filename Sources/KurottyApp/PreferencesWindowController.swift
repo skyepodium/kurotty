@@ -78,8 +78,8 @@ final class PreferencesWindowController: NSWindowController {
         let view = PreferencesView(frame: NSRect(
             x: 0,
             y: 0,
-            width: DesignTokens.Component.preferencesWidthPX,
-            height: DesignTokens.Component.preferencesHeightPX
+            width: PreferencesMetrics.windowWidthPX,
+            height: PreferencesMetrics.windowHeightPX
         ), store: store)
         let window = NSWindow(
             contentRect: view.frame,
@@ -88,13 +88,16 @@ final class PreferencesWindowController: NSWindowController {
             defer: false
         )
         let initialContentSize = NSSize(
-            width: DesignTokens.Component.preferencesWidthPX,
-            height: DesignTokens.Component.preferencesHeightPX
+            width: PreferencesMetrics.windowWidthPX,
+            height: PreferencesMetrics.windowHeightPX
         )
         window.title = AppLocalization.format(.settingsWindow, AppConstants.Bundle.displayName)
         window.contentView = view
         window.setContentSize(initialContentSize)
-        window.minSize = NSSize(width: 720, height: 520)
+        window.minSize = NSSize(
+            width: PreferencesMetrics.windowWidthPX,
+            height: PreferencesMetrics.windowHeightPX
+        )
         window.center()
         super.init(window: window)
     }

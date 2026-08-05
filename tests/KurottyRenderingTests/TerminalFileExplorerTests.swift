@@ -18,7 +18,10 @@ final class TerminalFileExplorerTests: XCTestCase {
 
     // MARK: - Porcelain parser
 
-    func testParserClassifiesModifiedUntrackedAndIgnoredRecords() {
+    /// Re-pointed: the explorer's git column now distinguishes staged and
+    /// conflicted work from an unstaged edit, so a record whose worktree letter
+    /// is a space is staged rather than modified.
+    func testParserClassifiesModifiedStagedUntrackedAndIgnoredRecords() {
         let output = porcelainOutput([
             " M Sources/App/File.swift",
             "M  Staged.swift",
@@ -27,12 +30,26 @@ final class TerminalFileExplorerTests: XCTestCase {
             "!! .build/",
         ])
         let snapshot = GitPorcelainParser.parse(porcelainZOutput: output)
-        XCTAssertEqual(
-            snapshot.modifiedRelativePaths,
-            ["Sources/App/File.swift", "Staged.swift", "Added.swift"]
-        )
+        XCTAssertEqual(snapshot.modifiedRelativePaths, ["Sources/App/File.swift"])
+        XCTAssertEqual(snapshot.stagedRelativePaths, ["Staged.swift", "Added.swift"])
         XCTAssertEqual(snapshot.untrackedRelativePaths, ["notes.txt"])
         XCTAssertEqual(snapshot.ignoredRelativePaths, [".build"])
+    }
+
+    func testParserClassifiesUnmergedRecordsAsConflicted() {
+        let output = porcelainOutput([
+            "UU Both.swift",
+            "AA AddedByBoth.swift",
+            "DD DeletedByBoth.swift",
+            "AU AddedByUs.swift",
+            " M Plain.swift",
+        ])
+        let snapshot = GitPorcelainParser.parse(porcelainZOutput: output)
+        XCTAssertEqual(
+            snapshot.conflictedRelativePaths,
+            ["Both.swift", "AddedByBoth.swift", "DeletedByBoth.swift", "AddedByUs.swift"]
+        )
+        XCTAssertEqual(snapshot.modifiedRelativePaths, ["Plain.swift"])
     }
 
     func testParserConsumesRenameOriginPathField() {
@@ -42,8 +59,10 @@ final class TerminalFileExplorerTests: XCTestCase {
             "?? extra.txt",
         ])
         let snapshot = GitPorcelainParser.parse(porcelainZOutput: output)
-        XCTAssertEqual(snapshot.modifiedRelativePaths, ["NewName.swift"])
+        // `R ` is an index-only change, so the rename lands in the staged list.
+        XCTAssertEqual(snapshot.stagedRelativePaths, ["NewName.swift"])
         XCTAssertEqual(snapshot.untrackedRelativePaths, ["extra.txt"])
+        XCTAssertFalse(snapshot.stagedRelativePaths.contains("OldName.swift"))
         XCTAssertFalse(snapshot.modifiedRelativePaths.contains("OldName.swift"))
         XCTAssertFalse(snapshot.untrackedRelativePaths.contains("OldName.swift"))
     }
@@ -65,6 +84,8 @@ final class TerminalFileExplorerTests: XCTestCase {
 
     private func makeOverlay(
         modified: [String] = [],
+        staged: [String] = [],
+        conflicted: [String] = [],
         untracked: [String] = [],
         ignored: [String] = []
     ) -> FileExplorerGitOverlay {
@@ -72,6 +93,8 @@ final class TerminalFileExplorerTests: XCTestCase {
             repositoryRootPath: Fixture.repositoryRootPath,
             snapshot: GitStatusSnapshot(
                 modifiedRelativePaths: modified,
+                stagedRelativePaths: staged,
+                conflictedRelativePaths: conflicted,
                 untrackedRelativePaths: untracked,
                 ignoredRelativePaths: ignored
             )
@@ -94,6 +117,34 @@ final class TerminalFileExplorerTests: XCTestCase {
         XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("Sources")), .modified)
         XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("Sources/New.swift")), .untracked)
         XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("docs")), .untracked)
+    }
+
+    /// Ancestor precedence is a single rank order, so a conflicted file always
+    /// surfaces through the folders above it even when they also hold modified
+    /// or staged work.
+    func testAncestorPrecedenceOrdersConflictOverModifiedOverStagedOverUntracked() {
+        let overlay = makeOverlay(
+            modified: ["Sources/Modified.swift"],
+            staged: ["Sources/Staged.swift", "staged-only/File.swift"],
+            conflicted: ["Sources/Conflicted.swift"],
+            untracked: ["Sources/New.swift"]
+        )
+        XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("Sources")), .conflicted)
+        XCTAssertEqual(
+            overlay.badge(forAbsolutePath: absolutePath("Sources/Modified.swift")),
+            .modified
+        )
+        XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("Sources/Staged.swift")), .staged)
+        XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("Sources/New.swift")), .untracked)
+        XCTAssertEqual(overlay.badge(forAbsolutePath: absolutePath("staged-only")), .staged)
+    }
+
+    func testStagedOutranksUntrackedButNotModifiedAtSharedAncestors() {
+        let stagedOverUntracked = makeOverlay(staged: ["dir/A.swift"], untracked: ["dir/B.swift"])
+        XCTAssertEqual(stagedOverUntracked.badge(forAbsolutePath: absolutePath("dir")), .staged)
+
+        let modifiedOverStaged = makeOverlay(modified: ["dir/A.swift"], staged: ["dir/B.swift"])
+        XCTAssertEqual(modifiedOverStaged.badge(forAbsolutePath: absolutePath("dir")), .modified)
     }
 
     func testIgnoredDirectoryCoversDescendantsWithoutMarkingSiblings() {

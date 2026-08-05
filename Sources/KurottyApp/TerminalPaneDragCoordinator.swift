@@ -104,8 +104,8 @@ final class TerminalPaneDragCoordinator: NSObject, NSDraggingSource {
         DesignTokens.Color.paneDropTargetBorder.setStroke()
         NSBezierPath(
             roundedRect: rect.insetBy(dx: DesignTokens.Component.hairlinePX, dy: DesignTokens.Component.hairlinePX),
-            xRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX,
-            yRadius: DesignTokens.Component.terminalPaneDragPreviewCornerRadiusPX
+            xRadius: DesignTokens.Radius.smPX,
+            yRadius: DesignTokens.Radius.smPX
         ).stroke()
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: DesignTokens.Typography.paneHeaderFontSizePT, weight: .semibold),

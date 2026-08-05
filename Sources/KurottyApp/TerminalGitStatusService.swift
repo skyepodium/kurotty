@@ -8,6 +8,10 @@ import Foundation
 
 struct GitStatusSnapshot: Equatable, Sendable {
     var modifiedRelativePaths: [String] = []
+    /// Staged in the index with a clean worktree side.
+    var stagedRelativePaths: [String] = []
+    /// Unmerged: both sides of a merge touched the path.
+    var conflictedRelativePaths: [String] = []
     var untrackedRelativePaths: [String] = []
     var ignoredRelativePaths: [String] = []
 
@@ -32,9 +36,49 @@ struct GitPorcelainParser {
         static let minimumRecordCount = 4
         static let ignoredStatus = "!!"
         static let untrackedStatus = "??"
+        static let unmergedStatusLetter: Character = "U"
+        /// Porcelain v1 unmerged records that carry no `U` at all.
+        static let unmergedPairStatuses: Set<String> = ["AA", "DD"]
+        static let unchangedStatusLetter: Character = " "
         static let renameStatusLetter: Character = "R"
         static let copyStatusLetter: Character = "C"
         static let directorySuffix = "/"
+    }
+
+    /// Splits a tracked porcelain record into conflicted / staged / modified.
+    ///
+    /// Porcelain v1 spells the index state in the first letter and the worktree
+    /// state in the second. A record is unmerged when either letter is `U`, or
+    /// when both letters are the same add/delete pair (`AA`, `DD`); it is purely
+    /// staged when the index letter is set and the worktree letter is a space.
+    private static func classifyTrackedRecord(
+        statusField: String,
+        path: String,
+        into snapshot: inout GitStatusSnapshot
+    ) {
+        let indexLetter = statusField.first ?? Field.unchangedStatusLetter
+        let worktreeLetter = statusField.last ?? Field.unchangedStatusLetter
+        guard !isUnmerged(statusField: statusField, indexLetter: indexLetter, worktreeLetter: worktreeLetter) else {
+            snapshot.conflictedRelativePaths.append(path)
+            return
+        }
+        guard worktreeLetter == Field.unchangedStatusLetter,
+              indexLetter != Field.unchangedStatusLetter
+        else {
+            snapshot.modifiedRelativePaths.append(path)
+            return
+        }
+        snapshot.stagedRelativePaths.append(path)
+    }
+
+    private static func isUnmerged(
+        statusField: String,
+        indexLetter: Character,
+        worktreeLetter: Character
+    ) -> Bool {
+        indexLetter == Field.unmergedStatusLetter
+            || worktreeLetter == Field.unmergedStatusLetter
+            || Field.unmergedPairStatuses.contains(statusField)
     }
 
     static func parse(porcelainZOutput output: String) -> GitStatusSnapshot {
@@ -61,7 +105,7 @@ struct GitPorcelainParser {
             case Field.untrackedStatus:
                 snapshot.untrackedRelativePaths.append(path)
             default:
-                snapshot.modifiedRelativePaths.append(path)
+                classifyTrackedRecord(statusField: statusField, path: path, into: &snapshot)
             }
         }
         return snapshot
