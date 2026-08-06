@@ -1090,6 +1090,30 @@ enum DesignTokens {
         /// to use — percent thresholds, byte scale, process-walk bounds,
         /// sampling and kill timing — are not design tokens and live in
         /// `AppConstants.StatusBar`.
+        /// Rate-limit quota meters. A meter is a track and a fill, not a
+        /// container for type, so every geometry value here is fixed: a 4px
+        /// track scaled to 7px stops reading as a hairline rule and starts
+        /// reading as a broken progress bar. Only `rowHeightPX` moves, because
+        /// it is a slot the agent label and percentage sit in.
+        enum AgentQuota {
+            static var rowHeightPX: CGFloat { UIScale.scaledMetric(30) }
+            static let meterTrackHeightPX: CGFloat = 4
+            static let meterTrackCornerRadiusPX: CGFloat = 2
+            /// Floor on the fill so a window with a fraction of a percent spent
+            /// still shows something; a fill thinner than this anti-aliases
+            /// away and reads as zero.
+            static let meterMinimumFillWidthPX: CGFloat = 2
+            static let meterTrackAlphaRATIO: CGFloat = 0.9
+            static let sectionRowGapPX = Space.x2PX
+            static let labelMeterGapPX = Space.x1PX
+            /// Slot reserved for the right-aligned percentage so a meter does
+            /// not resize as the number crosses 10% or 100%.
+            static var percentWidthPX: CGFloat { UIScale.scaledMetric(34) }
+            /// The status bar carries the meter as a glyph-sized token beside
+            /// its number, not as a full-width bar.
+            static let statusBarMeterWidthPX: CGFloat = 22
+        }
+
         enum StatusBar {
             static var heightPX: CGFloat { UIScale.scaledMetric(24) }
             static let horizontalInsetPX = Space.x4PX

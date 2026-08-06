@@ -120,6 +120,11 @@ enum L10nKey: String, CaseIterable {
     // Agent context-window forecast.
     case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
     case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
+    // Agent rate-limit quota. Window names ("5h", "7d") are derived from the
+    // reported duration and stay untranslated, matching the relative ages the
+    // history and session rows already render.
+    case agentQuotaTitle, agentQuotaResetsIn, agentQuotaNotReported
+    case agentQuotaAccessibility, statusBarQuotaTitle
     // Child-exit banner. `childExitClose` is its own key rather than a reuse of
     // `closeRunningProcessConfirm`: that string belongs to an alert about a
     // process that is still running, and the two must stay free to diverge.
@@ -162,8 +167,10 @@ enum AppLocalization {
         translations[language]?[key] ?? translations[.english]?[key] ?? key.rawValue
     }
 
-    static func format(_ key: L10nKey, _ arguments: CVarArg...) -> String {
-        String(format: string(key), locale: Locale(identifier: language.rawValue), arguments: arguments)
+    /// The language is a leading parameter rather than a trailing one because
+    /// the arguments are variadic; a trailing label could never be reached.
+    static func format(_ key: L10nKey, language: AppLanguage = language, _ arguments: CVarArg...) -> String {
+        String(format: string(key, language: language), locale: Locale(identifier: language.rawValue), arguments: arguments)
     }
 
     static func hasTranslation(for key: L10nKey, language: AppLanguage) -> Bool {
@@ -260,6 +267,11 @@ enum AppLocalization {
             .agentContextOverLimit: "over limit",
             .agentContextLimitUnknown: "%@ used, limit unknown",
             .agentContextAccessibility: "Context %1$d%% used",
+            .agentQuotaTitle: "QUOTA",
+            .agentQuotaResetsIn: "Resets in %@",
+            .agentQuotaNotReported: "%@ does not record rate limits on disk",
+            .agentQuotaAccessibility: "%1$@ %2$@ window %3$d%% used",
+            .statusBarQuotaTitle: "Rate limits",
             .childExitTitleClean: "Session ended",
             .childExitTitleCode: "Session ended with exit code %d",
             .childExitTitleSignal: "Session ended on signal %d",
@@ -357,6 +369,11 @@ enum AppLocalization {
             .agentContextOverLimit: "한도 초과",
             .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
             .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
+            .agentQuotaTitle: "사용 한도",
+            .agentQuotaResetsIn: "%@ 후 초기화",
+            .agentQuotaNotReported: "%@은(는) 사용 한도를 디스크에 기록하지 않습니다",
+            .agentQuotaAccessibility: "%1$@ %2$@ 구간 %3$d%% 사용",
+            .statusBarQuotaTitle: "사용 한도",
             .childExitTitleClean: "세션이 종료되었습니다",
             .childExitTitleCode: "세션이 종료 코드 %d로 끝났습니다",
             .childExitTitleSignal: "세션이 시그널 %d로 종료되었습니다",
@@ -454,6 +471,11 @@ enum AppLocalization {
             .agentContextOverLimit: "上限超過",
             .agentContextLimitUnknown: "%@ 使用、上限不明",
             .agentContextAccessibility: "コンテキスト %1$d%% 使用",
+            .agentQuotaTitle: "利用上限",
+            .agentQuotaResetsIn: "%@ 後にリセット",
+            .agentQuotaNotReported: "%@ は利用上限をディスクに記録しません",
+            .agentQuotaAccessibility: "%1$@ %2$@ 枠 %3$d%% 使用",
+            .statusBarQuotaTitle: "利用上限",
             .childExitTitleClean: "セッションが終了しました",
             .childExitTitleCode: "セッションが終了コード %d で終了しました",
             .childExitTitleSignal: "セッションがシグナル %d で終了しました",

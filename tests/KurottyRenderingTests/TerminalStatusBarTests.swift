@@ -703,9 +703,9 @@ final class TerminalStatusBarTests: XCTestCase {
 
         let segments = statusBarView.subviews.compactMap { $0 as? TerminalStatusBarSegmentView }
 
-        // Agent and worktree lead, resource usage trails; the worktree segment
-        // sits between them and is covered by `TerminalGitWorktreeTests`.
-        XCTAssertEqual(segments.count, 3)
+        // Agent, worktree, and quota lead, resource usage trails; the worktree
+        // segment's position is covered by `TerminalGitWorktreeTests`.
+        XCTAssertEqual(segments.count, 4)
         let leading = try XCTUnwrap(segments.min { $0.frame.minX < $1.frame.minX })
         let trailing = try XCTUnwrap(segments.max { $0.frame.maxX < $1.frame.maxX })
         XCTAssertEqual(
