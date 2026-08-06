@@ -1286,50 +1286,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1"))
     }
 
-    func testNativeScrollerReflectsTerminalScrollbackOffset() throws {
+    /// The indicator's own behaviour — one view in the strip, thumb geometry,
+    /// idle fade, theming, cursor — is covered for real in
+    /// `TerminalScrollIndicatorTests`. What is left here is the surface view's
+    /// half of the contract: that it computes a scrollback range and hands it to
+    /// the coordinator.
+    func testTerminalSurfaceViewDrivesTheScrollbackIndicator() throws {
         let source = try terminalSurfaceViewSource()
-        let coordinatorSource = try terminalScrollIndicatorCoordinatorSource()
-        let tokens = try String(
-            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift"),
-            encoding: .utf8
-        )
-        let thumbSource = try scrollIndicatorThumbViewSource()
 
         XCTAssertTrue(source.contains("private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator"))
         XCTAssertTrue(source.contains("scrollIndicatorCoordinator.install(in: self)"))
-        XCTAssertTrue(coordinatorSource.contains("private let scroller = NSScroller(frame: .zero)"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.target = self"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.action = #selector(scrollerDidChange(_:))"))
-        XCTAssertTrue(coordinatorSource.contains("@objc private func scrollerDidChange(_ sender: NSScroller)"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion"))
         XCTAssertTrue(source.contains("let maxOffset = maxScrollbackOffset()"))
         XCTAssertTrue(source.contains("private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int"))
         XCTAssertTrue(source.contains("return max(0, contentRowCount - visibleCount)"))
-        XCTAssertTrue(coordinatorSource.contains("let contentRows = visibleRows + maxScrollbackOffset"))
-        XCTAssertTrue(coordinatorSource.contains("let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)"))
-        XCTAssertTrue(coordinatorSource.contains("let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight"))
-        XCTAssertTrue(coordinatorSource.contains("DesignTokens.Component.terminalScrollerMinKnobProportion"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion = knobProportion"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
-        XCTAssertTrue(coordinatorSource.contains("private let thumbView = ScrollIndicatorThumbView(frame: .zero)"))
-        XCTAssertTrue(thumbSource.contains("private func updateAppearance()"))
-        XCTAssertTrue(thumbSource.contains("color = DesignTokens.Color.scrollerThumb"))
-        XCTAssertTrue(coordinatorSource.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
-        XCTAssertTrue(coordinatorSource.contains("thumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
-        XCTAssertTrue(coordinatorSource.contains("thumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
         XCTAssertTrue(source.contains("private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat)"))
-        XCTAssertTrue(thumbSource.contains("override func mouseDragged(with event: NSEvent)"))
-        XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbHover"))
-        XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbActive"))
-        XCTAssertTrue(tokens.contains("terminalScrollerWidthPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerThumbWidthPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerMinThumbHeightPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerMinKnobProportion"))
-        XCTAssertTrue(tokens.contains("scrollerThumb"))
-        XCTAssertTrue(tokens.contains("scrollerThumbHover"))
-        XCTAssertTrue(tokens.contains("scrollerThumbActive"))
     }
 
     func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
@@ -3015,18 +2986,6 @@ private func terminalTextWidthSource() throws -> String {
 private func terminalDiagnosticsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalDiagnostics.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func scrollIndicatorThumbViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/ScrollIndicatorThumbView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalScrollIndicatorCoordinatorSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalScrollIndicatorCoordinator.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
