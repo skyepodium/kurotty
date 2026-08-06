@@ -36,7 +36,15 @@ pub const Parser = struct {
 
     pub fn feed(self: *Parser, bytes: []const u8) ![]Event {
         var events: std.ArrayList(Event) = .empty;
-        errdefer self.freeEvents(events.items);
+        // `events` is still a live ArrayList on this path, so its backing
+        // allocation is capacity-sized while `items` is length-sized. Handing
+        // `items` to `freeEvents` — which frees the slice as if it owned the
+        // allocation — is an invalid free that aborts the process. Unwind the
+        // payloads by hand and let the list free its own buffer.
+        errdefer {
+            self.freeEventPayloads(events.items);
+            events.deinit(self.allocator);
+        }
 
         for (bytes) |byte| {
             switch (self.state) {
@@ -175,7 +183,9 @@ pub const Parser = struct {
         return events.toOwnedSlice(self.allocator);
     }
 
-    pub fn freeEvents(self: *Parser, events: []const Event) void {
+    /// Releases what each event owns, leaving the slice itself alone. Safe to
+    /// call on a borrowed slice such as an ArrayList's `items`.
+    fn freeEventPayloads(self: *Parser, events: []const Event) void {
         for (events) |event| {
             switch (event) {
                 .printable => |printable_event| self.allocator.free(printable_event.bytes),
@@ -184,6 +194,12 @@ pub const Parser = struct {
                 .control => {},
             }
         }
+    }
+
+    /// Releases an owned slice as returned by `feed`. The slice must come from
+    /// `toOwnedSlice`, so that its length matches its allocation.
+    pub fn freeEvents(self: *Parser, events: []const Event) void {
+        self.freeEventPayloads(events);
         self.allocator.free(events);
     }
 
@@ -228,7 +244,15 @@ pub const Parser = struct {
                 if (digits.len == 0) {
                     try params.append(self.allocator, 0);
                 } else {
-                    try params.append(self.allocator, try std.fmt.parseInt(u16, digits, 10));
+                    // ECMA-48 clamps an out-of-range parameter. Propagating the
+                    // overflow instead made `\e[99999m` — a value any program
+                    // can emit — an error path, and that error path was the
+                    // invalid free above.
+                    const value = std.fmt.parseInt(u16, digits, 10) catch |err| switch (err) {
+                        error.Overflow => std.math.maxInt(u16),
+                        else => return err,
+                    };
+                    try params.append(self.allocator, value);
                 }
             }
         }

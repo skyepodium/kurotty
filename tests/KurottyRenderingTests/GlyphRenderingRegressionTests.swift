@@ -1842,7 +1842,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("onClose: { [weak self] in self?.closeTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("private func selectTab(at index: Int)"))
         XCTAssertTrue(windowSource.contains("private func closeTab(at index: Int)"))
-        XCTAssertTrue(windowSource.contains("if closeButton.frame.contains(location)"))
+        XCTAssertTrue(windowSource.contains("closeButtonAlpha: closeButton.alphaValue"))
         XCTAssertTrue(windowSource.contains("onClose()"))
         XCTAssertTrue(windowSource.contains("return"))
         XCTAssertTrue(windowSource.contains("@objc private func newTabButtonPressed(_ sender: NSButton)"))
@@ -2314,14 +2314,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("waitpid(pid, &status, WNOHANG)"))
 
         XCTAssertTrue(surfaceSource.contains("private let notifier = TerminalNotifier.shared"))
-        XCTAssertTrue(surfaceSource.contains("private var pendingSubmittedInputText = \"\""))
+        XCTAssertTrue(surfaceSource.contains("private var submittedCommandRecorder = TerminalSubmittedCommandRecorder()"))
         XCTAssertTrue(surfaceSource.contains("private var lastSubmittedCommandText: String?"))
         XCTAssertFalse(surfaceSource.contains("backgroundTask"))
         XCTAssertFalse(surfaceSource.contains("BackgroundTask"))
         XCTAssertTrue(surfaceSource.contains("private func send(_ text: String, recordsUserActivity: Bool = true)"))
         XCTAssertTrue(surfaceSource.contains("recordUserInput(text)"))
         XCTAssertTrue(surfaceSource.contains("recordSubmittedInputText(text)"))
-        XCTAssertTrue(surfaceSource.contains("captureSubmittedCommandTextIfNeeded()"))
+        XCTAssertTrue(surfaceSource.contains("submittedCommandRecorder.consume(text)"))
         XCTAssertFalse(surfaceSource.contains("TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput("))
         XCTAssertFalse(surfaceSource.contains("recordOutputForBackgroundTask(text)"))
         XCTAssertFalse(surfaceSource.contains("private func appendBackgroundTaskOutputText(_ text: String)"))
@@ -2341,7 +2341,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("isApplicationActive: NSApp.isActive"))
         XCTAssertTrue(surfaceSource.contains("isKeyWindow: window?.isKeyWindow == true"))
         XCTAssertTrue(surfaceSource.contains("isFirstResponder: window?.firstResponder === self"))
-        XCTAssertTrue(surfaceSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText)"))
+        let recorderSource = try terminalSubmittedCommandRecorderSource()
+        XCTAssertTrue(recorderSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingText)"))
         XCTAssertFalse(surfaceSource.contains("TerminalBackgroundTaskNotificationContent.make("))
         XCTAssertFalse(surfaceSource.contains("notifier.notifyBackgroundTaskCompleted(content: content)"))
         XCTAssertTrue(interpreterSource.contains("sendTerminalResponse(cursorPositionReport())"))
@@ -2943,6 +2944,12 @@ private func designTokensSource() throws -> String {
 private func terminalSurfaceViewSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalSurfaceView.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func terminalSubmittedCommandRecorderSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalSubmittedCommandRecorder.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
