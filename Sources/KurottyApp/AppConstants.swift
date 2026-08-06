@@ -369,6 +369,18 @@ enum AppConstants {
         static let inputDrainRetryDelaysMS = [4, 8, 16, 32, 64, 120]
         static let ptyReadBufferSizeBytes = 8192
         static let maximumUTF8ScalarBytes = 4
+        /// PTY output flow control. `outputHighWaterMarkBytes` is many read
+        /// buffers' worth, so an interactive burst never suspends the reader,
+        /// but a `yes` firehose crosses it within a frame and the child goes
+        /// back to blocking in `write(2)` where the OS wanted it.
+        static let outputHighWaterMarkBytes = 256 * 1024
+        /// Resume well below the high mark so suspend/resume does not toggle on
+        /// every chunk.
+        static let outputLowWaterMarkBytes = 64 * 1024
+        static let outputMaximumBytesPerDrain = 128 * 1024
+        /// Backstop for the undecoded byte buffer. Flow control should keep it
+        /// near zero; this only caps the damage if a consumer wedges.
+        static let pendingOutputByteLimit = 4 * 1024 * 1024
     }
 
     enum Rendering {
