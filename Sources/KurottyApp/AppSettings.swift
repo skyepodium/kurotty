@@ -30,7 +30,8 @@ struct AppSettings: Codable, Equatable {
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
             agentStatusHookConsent: Defaults.agentStatusHookConsent,
-            uiTextScalePercent: Defaults.uiTextScalePercent
+            uiTextScalePercent: Defaults.uiTextScalePercent,
+            commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -64,6 +65,7 @@ struct AppSettings: Codable, Equatable {
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
+        static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -138,6 +140,10 @@ struct AppSettings: Codable, Equatable {
 /// app-behavior key already sits — `statusBarEnabled` and `codeEditorFontSize`
 /// are no more "terminal" than this one — and `window` is strictly the
 /// launch-size pair.
+/// `commandProgressIndicatorEnabled` is live-applied and defaults **on**: the
+/// per-pane progress bar is ambient status with no dismiss affordance, so the
+/// switch is the only way to refuse it, and turning it off takes down a bar that
+/// is on screen at that moment rather than waiting for the next command.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -175,6 +181,10 @@ struct TerminalSettings: Codable, Equatable {
     /// Stored as a percentage rather than as a multiplier so the settings file
     /// and the Settings readout say the same thing.
     var uiTextScalePercent: Double
+    /// Shows the per-pane command progress bar. Independent of
+    /// `notifyOnCommandFinish`: that one is about a command the user walked away
+    /// from, this one is about the wait they are sitting through.
+    var commandProgressIndicatorEnabled: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -205,6 +215,7 @@ struct TerminalSettings: Codable, Equatable {
         case minimumCommandDurationSeconds
         case agentStatusHookConsent
         case uiTextScalePercent
+        case commandProgressIndicatorEnabled
     }
 
     init(
@@ -227,7 +238,8 @@ struct TerminalSettings: Codable, Equatable {
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
         agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
-        uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent
+        uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
+        commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -249,6 +261,7 @@ struct TerminalSettings: Codable, Equatable {
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
         self.agentStatusHookConsent = agentStatusHookConsent
         self.uiTextScalePercent = uiTextScalePercent
+        self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -309,6 +322,12 @@ struct TerminalSettings: Codable, Equatable {
         // which is the size every existing install is already running at.
         uiTextScalePercent = try container.decodeIfPresent(Double.self, forKey: .uiTextScalePercent)
             ?? SettingsDefaults.uiTextScalePercent
+        // Absent in schema versions below 19; those files fall back to the
+        // current default rather than failing to decode.
+        commandProgressIndicatorEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .commandProgressIndicatorEnabled
+        ) ?? SettingsDefaults.commandProgressIndicatorEnabled
     }
 }
 
@@ -509,6 +528,9 @@ struct AppSettingsNormalizer {
         static let commandFinishNotificationSchemaVersion = 18
         /// Schema version that introduced `terminal.uiTextScalePercent`.
         static let uiTextScaleSchemaVersion = 19
+        /// Schema version that introduced
+        /// `terminal.commandProgressIndicatorEnabled`.
+        static let commandProgressIndicatorSchemaVersion = 19
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -584,6 +606,13 @@ struct AppSettingsNormalizer {
             // number a hand-edited older file might contain; from schema 19 on,
             // an explicit scale is preserved.
             next.terminal.uiTextScalePercent = SettingsDefaults.uiTextScalePercent
+        }
+        if sourceSchemaVersion < Migration.commandProgressIndicatorSchemaVersion {
+            // Settings written before schema 19 predate the command progress
+            // bar, so the key carries no user intent. Migrated files land on the
+            // current default; from schema 19 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -96,6 +96,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// Raised once when this surface's child process is gone. The owning pane
     /// decides what to show and whether to close; the surface only reports.
     var onChildExit: ((TerminalChildExit) -> Void)?
+    /// Command lifecycle for the pane's progress bar: an OSC 133 boundary
+    /// opening or closing a command span, or an OSC 9;4 report inside one. The
+    /// surface only reports; the pane owns the bar and every visibility rule.
+    var onCommandProgress: ((TerminalCommandProgressEvent) -> Void)?
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
     var closeSearchRequested: (() -> Void)?
     private lazy var tmuxControlModeDriver = TmuxControlModeDriver { [weak self] command in
@@ -2880,6 +2884,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
+        if case .commandProgress(let report) = event {
+            onCommandProgress?(.reported(report))
+            return
+        }
         guard case .shellIntegration(let shellEvent) = event else {
             return
         }
@@ -2887,8 +2895,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         switch shellEvent {
         case .commandStart:
             shellIntegration.setActiveCommandText(lastSubmittedCommandText)
+            onCommandProgress?(.commandStarted)
         case .commandEnd(let context):
             TerminalCommandHistoryStore.shared.record(completion: context)
+            onCommandProgress?(.commandEnded(exitCode: context.exitCode))
             notifyCommandFinishedIfNeeded(context)
         default:
             break

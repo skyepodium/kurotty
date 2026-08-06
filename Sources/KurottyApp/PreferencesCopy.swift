@@ -16,6 +16,7 @@ enum PreferencesCopy {
         case agentStatusHooks, agentStatusHooksCheckboxTitle
         case restoreScrollback, restoreScrollbackCheckboxTitle
         case statusBar, statusBarCheckboxTitle
+        case commandProgress, commandProgressCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case interfaceSection, interfaceSectionHelp, uiTextScale
@@ -60,6 +61,7 @@ enum PreferencesCopy {
             .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let agents report status through Kurotty's local hook (asks once before editing your Claude Code settings)",
             .restoreScrollback: "Restore scrollback", .restoreScrollbackCheckboxTitle: "Restore each pane's scrollback text at launch (display only, applies next launch)",
             .statusBar: "Status bar", .statusBarCheckboxTitle: "Show the bottom status bar with agent state and pane resource usage",
+            .commandProgress: "Command progress", .commandProgressCheckboxTitle: "Show a progress bar at the top of a pane while a command runs",
             .quickCommandsSection: "Quick Commands", .quickCommandsSectionHelp: "Named commands offered in the command palette and the terminal context menu.",
             .quickCommands: "Quick Commands", .quickCommandsButtonTitle: "Edit Quick Commands…",
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
@@ -93,6 +95,7 @@ enum PreferencesCopy {
             .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
             .restoreScrollback: "스크롤백 복원", .restoreScrollbackCheckboxTitle: "실행 시 각 패널의 스크롤백 텍스트를 복원 (표시 전용, 다음 실행부터 적용)",
             .statusBar: "상태 표시줄", .statusBarCheckboxTitle: "에이전트 상태와 패널 리소스 사용량을 보여주는 하단 상태 표시줄 표시",
+            .commandProgress: "명령 진행 표시", .commandProgressCheckboxTitle: "명령이 실행되는 동안 패널 상단에 진행 막대 표시",
             .agentStatusHooks: "에이전트 상태 훅", .agentStatusHooksCheckboxTitle: "Kurotty의 로컬 훅으로 에이전트가 상태를 보고하도록 허용 (Claude Code 설정을 수정하기 전에 한 번 확인)",
             .quickCommandsSection: "빠른 명령", .quickCommandsSectionHelp: "명령 팔레트와 터미널 컨텍스트 메뉴에 표시되는 이름 붙인 명령입니다.",
             .quickCommands: "빠른 명령", .quickCommandsButtonTitle: "빠른 명령 편집…",
@@ -127,6 +130,7 @@ enum PreferencesCopy {
             .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
             .restoreScrollback: "スクロールバックを復元", .restoreScrollbackCheckboxTitle: "起動時に各ペインのスクロールバックを復元 (表示のみ、次回起動から適用)",
             .statusBar: "ステータスバー", .statusBarCheckboxTitle: "エージェント状態とペインのリソース使用量を表示する下部ステータスバーを表示",
+            .commandProgress: "コマンドの進行状況", .commandProgressCheckboxTitle: "コマンドの実行中にペイン上部へ進行バーを表示",
             .agentStatusHooks: "エージェント状態フック", .agentStatusHooksCheckboxTitle: "Kurottyのローカルフック経由でエージェントが状態を報告できるようにする（Claude Codeの設定を変更する前に一度だけ確認）",
             .quickCommandsSection: "クイックコマンド", .quickCommandsSectionHelp: "コマンドパレットとターミナルのコンテキストメニューに表示される名前付きコマンドです。",
             .quickCommands: "クイックコマンド", .quickCommandsButtonTitle: "クイックコマンドを編集…",

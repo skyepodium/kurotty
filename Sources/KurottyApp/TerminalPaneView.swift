@@ -24,6 +24,7 @@ final class TerminalPaneView: NSView {
     private let session: any TerminalSession
     private let searchBarView = TerminalSearchBarView()
     private let childExitBannerView = TerminalChildExitBannerView()
+    private let commandProgressBarView = TerminalCommandProgressBarView()
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var agentActivityWidthConstraint: NSLayoutConstraint?
     private var agentActivityTitleGapConstraint: NSLayoutConstraint?
@@ -70,6 +71,12 @@ final class TerminalPaneView: NSView {
         !searchBarView.isHidden
     }
 
+    /// The pane's command progress bar. Exposed so a test can drive the same
+    /// lifecycle the surface forwards without standing up a PTY.
+    var commandProgressBarForTesting: TerminalCommandProgressBarView {
+        commandProgressBarView
+    }
+
     func setTmuxDisplayTitle(_ title: String) {
         isTmuxDisplayTitleManaged = true
         if !title.isEmpty {
@@ -112,6 +119,7 @@ final class TerminalPaneView: NSView {
         observeTerminalTitle()
         observeTerminalFocus()
         observeAgentActivity()
+        observeSettings()
     }
 
     required init?(coder: NSCoder) {
@@ -181,9 +189,15 @@ final class TerminalPaneView: NSView {
         addSubview(terminalSurfaceView)
         addSubview(searchBarView)
         addSubview(childExitBannerView)
+        // Added last so the bar composites over the terminal surface, the same
+        // way the search bar and the exit banner do.
+        addSubview(commandProgressBarView)
 
         terminalSurfaceView.onChildExit = { [weak self] exit in
             self?.handleChildExit(exit)
+        }
+        terminalSurfaceView.onCommandProgress = { [weak self] event in
+            self?.commandProgressBarView.handle(event)
         }
         childExitBannerView.onRestart = { [weak self] in
             guard let self else { return }
@@ -299,6 +313,16 @@ final class TerminalPaneView: NSView {
             constant: DesignTokens.Component.terminalSearchInsetPX
         ).isActive = true
         NSLayoutConstraint.activate([
+            // The pane's top edge as the user sees it: below the header when a
+            // split shows one, at the very top of the pane when it does not.
+            commandProgressBarView.leadingAnchor.constraint(equalTo: terminalSurfaceView.leadingAnchor),
+            commandProgressBarView.trailingAnchor.constraint(equalTo: terminalSurfaceView.trailingAnchor),
+            commandProgressBarView.topAnchor.constraint(equalTo: terminalSurfaceView.topAnchor),
+            commandProgressBarView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.commandProgressBarHeightPX
+            ),
+        ])
+        NSLayoutConstraint.activate([
             childExitBannerView.leadingAnchor.constraint(
                 equalTo: terminalSurfaceView.leadingAnchor,
                 constant: DesignTokens.Component.childExitBannerInsetPX
@@ -315,6 +339,7 @@ final class TerminalPaneView: NSView {
         setChromeVisible(false)
         updateChromeAppearance()
         updateAgentActivityIndicator()
+        applyCommandProgressSetting((try? AppSettingsStore.shared.load()) ?? .default)
     }
 
     override func viewDidMoveToWindow() {
@@ -369,6 +394,7 @@ final class TerminalPaneView: NSView {
         searchBarView.applyChromeTheme(theme)
         childExitBannerView.applyChromeTheme(theme)
         agentActivityIndicatorView.applyChromeTheme(theme)
+        commandProgressBarView.applyChromeTheme(theme)
         updateChromeAppearance()
     }
 
@@ -470,6 +496,29 @@ final class TerminalPaneView: NSView {
             name: TerminalSurfaceView.focusDidChangeNotification,
             object: terminalSurfaceView
         )
+    }
+
+    /// The progress bar is the one piece of pane chrome with its own setting, so
+    /// the pane — not the window — has to hear the change: a bar the user is
+    /// looking at right now must go away the moment they turn it off.
+    private func observeSettings() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange(_:)),
+            name: AppSettingsStore.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
+            return
+        }
+        applyCommandProgressSetting(settings)
+    }
+
+    private func applyCommandProgressSetting(_ settings: AppSettings) {
+        commandProgressBarView.setEnabled(settings.terminal.commandProgressIndicatorEnabled)
     }
 
     private func observeAgentActivity() {

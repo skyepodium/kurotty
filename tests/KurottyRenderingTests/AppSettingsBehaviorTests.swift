@@ -576,6 +576,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
         // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
         // the schema-12 keys below keep their documented defaults.
+        // Re-pointed at schema 19, which added
+        // `terminal.commandProgressIndicatorEnabled`; the schema-12 keys below
+        // keep their documented defaults.
         XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
@@ -711,6 +714,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// command replay it is safe to default on.
     func testScrollbackRestoreDefaultsOn() {
         // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
+        // Re-pointed at schema 19, which added the command progress bar key;
         // the scrollback-restore default below is unchanged.
         XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)

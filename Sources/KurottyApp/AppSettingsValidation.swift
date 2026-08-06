@@ -32,6 +32,10 @@ enum AppSettingKey: String, Codable, Hashable {
     /// out-of-range state left for `report(for:)` to find.
     case terminalCloseOnChildExit
     case terminalUITextScalePercent
+    /// Declared for its lifecycle contract only, like
+    /// `terminalCloseOnChildExit`: a `Bool` decodes to one of two valid values,
+    /// so there is no out-of-range state for `report(for:)` to find.
+    case terminalCommandProgressIndicatorEnabled
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -81,6 +85,7 @@ enum AppSettingsValidation {
              .terminalColorsAnsi,
              .terminalCloseOnChildExit,
              .terminalUITextScalePercent,
+             .terminalCommandProgressIndicatorEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied
