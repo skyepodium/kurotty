@@ -2,12 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION_FILE="$ROOT_DIR/VERSION"
-VERSION="${1:-$(tr -d '[:space:]' < "$VERSION_FILE")}"
-
-case "$VERSION" in
-  v*) VERSION="${VERSION#v}" ;;
-esac
+# shellcheck source=scripts/version.sh
+source "$ROOT_DIR/scripts/version.sh"
+VERSION="$(kurotty_resolve_version "${1:-}")"
 
 APP_NAME="kurotty"
 APP_DISPLAY_NAME="Kurotty"

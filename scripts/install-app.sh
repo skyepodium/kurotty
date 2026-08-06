@@ -3,8 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="kurotty"
-VERSION_FILE="$ROOT_DIR/VERSION"
-VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+# shellcheck source=scripts/version.sh
+source "$ROOT_DIR/scripts/version.sh"
+VERSION="$(kurotty_resolve_version "${1:-}")"
 APP_BUNDLE="$ROOT_DIR/.build/${APP_NAME}.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP="$INSTALL_DIR/${APP_NAME}.app"
