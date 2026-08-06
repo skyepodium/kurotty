@@ -46,6 +46,7 @@ enum L10nKey: String, CaseIterable {
     case shell, newWindow, newTab, closePaneOrTab, splitVertically, splitHorizontally, previousTab, nextTab
     case commandPalette, findTerminalOutput, findTerminalOutputPlaceholder
     case previousSearchMatch, nextSearchMatch, closeSearch
+    case matchCase, useRegularExpression
     case edit, cut, copy, paste
     case language, systemDefault, english, korean, japanese
     case searchCommands, command, requiresConfirmation
@@ -162,6 +163,7 @@ enum AppLocalization {
             .splitVertically: "Split Vertically", .splitHorizontally: "Split Horizontally", .previousTab: "Previous Tab", .nextTab: "Next Tab",
             .commandPalette: "Command Palette", .findTerminalOutput: "Find Terminal Output", .findTerminalOutputPlaceholder: "Find",
             .previousSearchMatch: "Previous Match", .nextSearchMatch: "Next Match", .closeSearch: "Close Search",
+            .matchCase: "Match Case", .useRegularExpression: "Use Regular Expression",
             .edit: "Edit", .cut: "Cut", .copy: "Copy", .paste: "Paste",
             .language: "Language", .systemDefault: "Follow System Language", .english: "English", .korean: "Korean", .japanese: "Japanese",
             .searchCommands: "Search commands", .command: "Command", .requiresConfirmation: "Requires confirmation",
@@ -247,6 +249,7 @@ enum AppLocalization {
             .splitVertically: "좌우로 분할", .splitHorizontally: "상하로 분할", .previousTab: "이전 탭", .nextTab: "다음 탭",
             .commandPalette: "명령 팔레트", .findTerminalOutput: "터미널 출력 찾기", .findTerminalOutputPlaceholder: "찾기",
             .previousSearchMatch: "이전 일치 항목", .nextSearchMatch: "다음 일치 항목", .closeSearch: "검색 닫기",
+            .matchCase: "대소문자 구분", .useRegularExpression: "정규 표현식 사용",
             .edit: "편집", .cut: "오려두기", .copy: "복사", .paste: "붙여넣기",
             .language: "언어", .systemDefault: "시스템 언어 따라가기", .english: "영어", .korean: "한국어", .japanese: "일본어",
             .searchCommands: "명령 검색", .command: "명령", .requiresConfirmation: "확인 필요",
@@ -332,6 +335,7 @@ enum AppLocalization {
             .splitVertically: "左右に分割", .splitHorizontally: "上下に分割", .previousTab: "前のタブ", .nextTab: "次のタブ",
             .commandPalette: "コマンドパレット", .findTerminalOutput: "ターミナル出力を検索", .findTerminalOutputPlaceholder: "検索",
             .previousSearchMatch: "前の一致", .nextSearchMatch: "次の一致", .closeSearch: "検索を閉じる",
+            .matchCase: "大文字と小文字を区別", .useRegularExpression: "正規表現を使用",
             .edit: "編集", .cut: "カット", .copy: "コピー", .paste: "ペースト",
             .language: "言語", .systemDefault: "システム言語に従う", .english: "英語", .korean: "韓国語", .japanese: "日本語",
             .searchCommands: "コマンドを検索", .command: "コマンド", .requiresConfirmation: "確認が必要",

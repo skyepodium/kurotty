@@ -48,6 +48,12 @@ enum AppConstants {
         static let maxScrollbackRows = 1_000_000
         static let minimumScrollbackRows = 1_000
         static let maximumSearchMatchCount = 50_000
+        /// How many soft-wrapped rows search will join into one logical line.
+        /// A 100MB minified file printed with no newlines is one wrapped line
+        /// as far as the terminal is concerned; joining it whole would build a
+        /// position map the size of the scrollback. Past this bound the line is
+        /// treated as ending, which can miss a match straddling the split.
+        static let maximumSearchWrappedRowJoinCount = 512
         static let searchInputDebounceNanoseconds: UInt64 = 20_000_000
         static let searchContentRefreshDebounceNanoseconds: UInt64 = 35_000_000
         static let cursorWidthPX: Float = 2

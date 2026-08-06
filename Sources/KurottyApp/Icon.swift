@@ -82,6 +82,8 @@ enum IconSymbol {
     static let breadcrumbSeparator = "chevron.right"
     static let previousMatch = "chevron.up"
     static let nextMatch = "chevron.down"
+    static let matchCase = "textformat"
+    static let regularExpression = "curlybraces"
     static let disclosureCollapsed = "chevron.right"
     static let disclosureExpanded = "chevron.down"
     static let sidebarLeading = "sidebar.leading"

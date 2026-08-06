@@ -169,6 +169,9 @@ final class TerminalPaneView: NSView {
         searchBarView.onQueryChanged = { [weak self] query in
             self?.terminalSurfaceView.updateSearchQuery(query)
         }
+        searchBarView.onOptionsChanged = { [weak self] options in
+            self?.terminalSurfaceView.updateSearchOptions(options)
+        }
         searchBarView.onNextMatch = { [weak self] in
             self?.terminalSurfaceView.selectNextSearchMatch()
         }
