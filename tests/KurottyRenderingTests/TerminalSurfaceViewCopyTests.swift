@@ -8,7 +8,7 @@ final class TerminalSurfaceViewCopyTests: XCTestCase {
         var onOutput: ((String) -> Void)?
         var onRawOutput: ((Data) -> Void)?
         var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-        var onExit: ((Int32) -> Void)?
+        var onExit: ((TerminalChildExit) -> Void)?
         var writes: [String] = []
 
         func start(workingDirectory: String) {}

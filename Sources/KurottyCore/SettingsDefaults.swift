@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 17
+    public static let schemaVersion = 18
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
@@ -28,6 +28,13 @@ public enum SettingsDefaults {
     /// running child process (an editor, ssh, a build) asks first. A pane whose
     /// shell is idle closes without a prompt.
     public static let confirmCloseRunningProcess = true
+    /// Live-applied. What a pane does once its own child process has already
+    /// ended. `onCleanExit` matches the shell contract users expect: `exit`
+    /// takes the pane with it, while a crash or a nonzero status keeps the
+    /// pane and its scrollback on screen behind the exit banner. Unrelated to
+    /// `confirmCloseRunningProcess`, which only guards a close the user asks
+    /// for while a process is still running.
+    public static let closeOnChildExit = TerminalCloseOnChildExitMode.onCleanExit
     /// On by default. Indexing reads the user's AI agent transcripts, so the
     /// Settings checkbox must always be able to turn it off; when disabled no
     /// scan runs at all and no index is retained.

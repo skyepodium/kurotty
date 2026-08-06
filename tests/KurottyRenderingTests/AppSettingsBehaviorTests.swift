@@ -548,9 +548,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 12 pane-behavior keys
 
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
-        // Re-pointed at schema 17 when `terminal.confirmCloseRunningProcess`
-        // was added; the schema-12 keys below keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        // Re-pointed at schema 18 when `terminal.closeOnChildExit` was added;
+        // the schema-12 keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertFalse(
@@ -679,9 +679,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// Restoring stored scrollback only repaints the screen model, so unlike
     /// command replay it is safe to default on.
     func testScrollbackRestoreDefaultsOn() {
-        // Re-pointed at schema 17 when `terminal.confirmCloseRunningProcess`
-        // was added; the scrollback-restore default below is unchanged.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        // Re-pointed at schema 18 when `terminal.closeOnChildExit` was added;
+        // the scrollback-restore default below is unchanged.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -746,7 +746,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }

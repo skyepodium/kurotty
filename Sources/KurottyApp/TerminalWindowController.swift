@@ -801,6 +801,22 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         newTab()
     }
 
+    /// Closes the tab that hosts `pane`, for a pane whose child process has
+    /// already ended and that is its tab's only pane. Resolved from the pane
+    /// rather than from the selection: a background tab's shell can exit too,
+    /// and closing the selected tab instead would take the wrong one.
+    func closeTabHostingExitedPane(_ pane: TerminalPaneView) {
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView,
+                  splitView.containsPane(pane)
+            else {
+                continue
+            }
+            closeTab(at: index)
+            return
+        }
+    }
+
     private func closeTab(_ item: NSTabViewItem) {
         tabView.removeTabViewItem(item)
         updateTabBar()

@@ -1,3 +1,4 @@
+import KurottyCore
 import XCTest
 @testable import KurottyApp
 
@@ -586,7 +587,7 @@ final class AgentActivityStatusTests: XCTestCase {
         var onOutput: ((String) -> Void)?
         var onRawOutput: ((Data) -> Void)?
         var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-        var onExit: ((Int32) -> Void)?
+        var onExit: ((TerminalChildExit) -> Void)?
 
         func start(workingDirectory: String) {}
         func write(_ text: String) {}

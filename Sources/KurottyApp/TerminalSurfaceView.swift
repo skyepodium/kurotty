@@ -83,6 +83,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var confirmMultilinePasteEnabled: Bool
     private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
+    /// Raised once when this surface's child process is gone. The owning pane
+    /// decides what to show and whether to close; the surface only reports.
+    var onChildExit: ((TerminalChildExit) -> Void)?
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
     var closeSearchRequested: (() -> Void)?
     private lazy var tmuxControlModeDriver = TmuxControlModeDriver { [weak self] command in
@@ -196,7 +199,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         }
         shell.onExit = { [weak self] status in
             DispatchQueue.main.async {
-                self?.tmuxControlModeDriver.transportDidExit(status: status)
+                guard let self else { return }
+                // The tmux transport only speaks exit codes, so the signal case
+                // is flattened here and nowhere else; `onChildExit` keeps the
+                // full outcome for the pane that owns the exit banner.
+                self.tmuxControlModeDriver.transportDidExit(status: status.status.shellExitCode)
+                self.onChildExit?(status)
             }
         }
         shell.onRuntimeEvent = { [weak self] event in

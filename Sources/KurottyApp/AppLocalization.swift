@@ -116,6 +116,11 @@ enum L10nKey: String, CaseIterable {
     // Agent context-window forecast.
     case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
     case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
+    // Child-exit banner. `childExitClose` is its own key rather than a reuse of
+    // `closeRunningProcessConfirm`: that string belongs to an alert about a
+    // process that is still running, and the two must stay free to diverge.
+    case childExitTitleClean, childExitTitleCode, childExitTitleSignal
+    case childExitRanFor, childExitRestart, childExitClose
 }
 
 enum AppLocalization {
@@ -240,6 +245,11 @@ enum AppLocalization {
             .agentContextOverLimit: "over limit",
             .agentContextLimitUnknown: "%@ used, limit unknown",
             .agentContextAccessibility: "Context %1$d%% used",
+            .childExitTitleClean: "Session ended",
+            .childExitTitleCode: "Session ended with exit code %d",
+            .childExitTitleSignal: "Session ended on signal %d",
+            .childExitRanFor: "Ran for %@",
+            .childExitRestart: "Restart", .childExitClose: "Close",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -325,6 +335,11 @@ enum AppLocalization {
             .agentContextOverLimit: "한도 초과",
             .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
             .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
+            .childExitTitleClean: "세션이 종료되었습니다",
+            .childExitTitleCode: "세션이 종료 코드 %d로 끝났습니다",
+            .childExitTitleSignal: "세션이 시그널 %d로 종료되었습니다",
+            .childExitRanFor: "실행 시간 %@",
+            .childExitRestart: "다시 시작", .childExitClose: "닫기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -410,6 +425,11 @@ enum AppLocalization {
             .agentContextOverLimit: "上限超過",
             .agentContextLimitUnknown: "%@ 使用、上限不明",
             .agentContextAccessibility: "コンテキスト %1$d%% 使用",
+            .childExitTitleClean: "セッションが終了しました",
+            .childExitTitleCode: "セッションが終了コード %d で終了しました",
+            .childExitTitleSignal: "セッションがシグナル %d で終了しました",
+            .childExitRanFor: "実行時間 %@",
+            .childExitRestart: "再起動", .childExitClose: "閉じる",
         ],
     ]
 }

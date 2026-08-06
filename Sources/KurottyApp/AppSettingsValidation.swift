@@ -23,6 +23,11 @@ enum AppSettingKey: String, Codable, Hashable {
     case terminalColorsBackground
     case terminalColorsCursor
     case terminalColorsAnsi
+    /// Declared for its lifecycle contract only. The value reaches the report
+    /// as a typed `TerminalCloseOnChildExitMode`, so an unknown mode has
+    /// already been coerced to the default by the decoder and there is no
+    /// out-of-range state left for `report(for:)` to find.
+    case terminalCloseOnChildExit
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -66,6 +71,7 @@ enum AppSettingsValidation {
              .terminalColorsBackground,
              .terminalColorsCursor,
              .terminalColorsAnsi,
+             .terminalCloseOnChildExit,
              .windowWidth,
              .windowHeight:
             return .liveApplied

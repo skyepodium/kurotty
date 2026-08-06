@@ -748,6 +748,23 @@ enum DesignTokens {
         /// bottom bar reads as a divider between header and terminal; a leading
         /// rail reads as "this pane".
         static let terminalPaneChromeActiveRailWidthPX: CGFloat = 2
+
+        // MARK: Child-exit banner
+        //
+        // The banner floats over the dead terminal instead of replacing it:
+        // whatever the shell printed on its way out is usually the reason the
+        // user is looking at the pane at all. Top-leading so it never lands on
+        // the search bar, which owns the top-trailing corner.
+        static let childExitBannerInsetPX = Space.x4PX
+        static let childExitBannerMaxWidthPX: CGFloat = 360
+        static let childExitBannerPaddingXPX = Space.x4PX
+        static let childExitBannerPaddingYPX = Space.x3PX
+        /// Title to detail line. One label pair, so below a full step.
+        static let childExitBannerTextGapPX: CGFloat = 2
+        static let childExitBannerTextButtonGapPX = Space.x3PX
+        static let childExitBannerButtonGapPX = Space.x2PX
+        static let childExitBannerCornerRadiusPX = Radius.mdPX
+
         static let agentActivityIndicatorSizePX: CGFloat = 12
         static let agentActivityIndicatorDotSizePX: CGFloat = 6
         static let agentActivityIndicatorRingWidthPX: CGFloat = 1.5
