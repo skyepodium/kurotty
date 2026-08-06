@@ -345,19 +345,19 @@ enum DesignTokens {
         }
 
         static let windowTitle = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
-        static let tabLabel = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
-        static let tabLabelSel = Role(sizePT: 12, weight: .semibold, lineHeightPX: 16)
+        static let tabLabel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
+        static let tabLabelSel = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
         /// Uppercased at the call site; tracking opens the caps back up.
-        static let sectionHeader = Role(sizePT: 11, weight: .semibold, lineHeightPX: 15, tracking: 0.55)
-        static let rowTitle = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
-        static let rowTitleSel = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
-        static let rowSecondary = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
-        static let badge = Role(sizePT: 10, weight: .medium, lineHeightPX: 14)
-        static let statusBar = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
+        static let sectionHeader = Role(sizePT: 12, weight: .semibold, lineHeightPX: 16, tracking: 0.55)
+        static let rowTitle = Role(sizePT: 13, weight: .regular, lineHeightPX: 18)
+        static let rowTitleSel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
+        static let rowSecondary = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
+        static let badge = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
+        static let statusBar = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
         static let statusBarNum = Role(
-            sizePT: 11,
+            sizePT: 12,
             weight: .medium,
-            lineHeightPX: 15,
+            lineHeightPX: 16,
             design: .monospacedDigit
         )
         static let monoBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16, design: .monospaced)
@@ -369,7 +369,7 @@ enum DesignTokens {
             lineHeightPX: 15,
             design: .monospacedDigit
         )
-        static let paneHeader = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
+        static let paneHeader = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
         /// Text inside a chrome control that is not a list row: the search
         /// query field and the editor's empty-state placeholder. One rung above
         /// `rowTitle` because an input surface is not dense data.
@@ -663,8 +663,8 @@ enum DesignTokens {
         static let commandHistorySectionHeaderTopGapPX = Space.x5PX
         static let commandHistorySectionHeaderBottomGapPX = Space.x2PX
         static let commandHistorySectionHeaderInsetXPX = Space.x4PX
-        static let commandHistoryGroupRowHeightPX: CGFloat = 28
-        static let commandHistoryCommandRowHeightPX: CGFloat = 26
+        static let commandHistoryGroupRowHeightPX: CGFloat = 32
+        static let commandHistoryCommandRowHeightPX: CGFloat = 30
         static let commandHistoryStatusDotSizePX: CGFloat = 6
         static let commandHistoryRowInsetXPX = Space.x3PX
         /// Status dot to command text, and folder icon to group name.

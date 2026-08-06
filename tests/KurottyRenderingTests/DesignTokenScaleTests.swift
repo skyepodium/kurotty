@@ -109,17 +109,17 @@ final class DesignTokenScaleTests: XCTestCase {
     func testTypeRampRolesMatchTheSpecifiedSizesAndWeights() {
         let expected: [(String, DesignTokens.Typography.Role, CGFloat, NSFont.Weight)] = [
             ("windowTitle", DesignTokens.Typography.windowTitle, 13, .semibold),
-            ("tabLabel", DesignTokens.Typography.tabLabel, 12, .medium),
-            ("tabLabelSel", DesignTokens.Typography.tabLabelSel, 12, .semibold),
-            ("sectionHeader", DesignTokens.Typography.sectionHeader, 11, .semibold),
-            ("rowTitle", DesignTokens.Typography.rowTitle, 12, .regular),
-            ("rowTitleSel", DesignTokens.Typography.rowTitleSel, 12, .medium),
-            ("rowSecondary", DesignTokens.Typography.rowSecondary, 11, .regular),
-            ("badge", DesignTokens.Typography.badge, 10, .medium),
-            ("statusBar", DesignTokens.Typography.statusBar, 11, .regular),
-            ("statusBarNum", DesignTokens.Typography.statusBarNum, 11, .medium),
+            ("tabLabel", DesignTokens.Typography.tabLabel, 13, .medium),
+            ("tabLabelSel", DesignTokens.Typography.tabLabelSel, 13, .semibold),
+            ("sectionHeader", DesignTokens.Typography.sectionHeader, 12, .semibold),
+            ("rowTitle", DesignTokens.Typography.rowTitle, 13, .regular),
+            ("rowTitleSel", DesignTokens.Typography.rowTitleSel, 13, .medium),
+            ("rowSecondary", DesignTokens.Typography.rowSecondary, 12, .regular),
+            ("badge", DesignTokens.Typography.badge, 11, .medium),
+            ("statusBar", DesignTokens.Typography.statusBar, 12, .regular),
+            ("statusBarNum", DesignTokens.Typography.statusBarNum, 12, .medium),
             ("monoBody", DesignTokens.Typography.monoBody, 12, .regular),
-            ("paneHeader", DesignTokens.Typography.paneHeader, 11, .medium),
+            ("paneHeader", DesignTokens.Typography.paneHeader, 12, .medium),
         ]
         for (name, role, sizePT, weight) in expected {
             XCTAssertEqual(role.sizePT, sizePT, "\(name) size")
