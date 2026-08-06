@@ -215,7 +215,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         newTab()
     }
 
+    /// Find means "find in what is on screen". On a terminal tab that is the
+    /// pane's output search; on the settings tab it is the settings query
+    /// field, which is the only search that tab has.
     func findTerminalOutput() {
+        if let item = tabView.selectedTabViewItem, let settings = settingsView(in: item) {
+            settings.findTerminalOutput()
+            return
+        }
         currentSplitView()?.showSearchInActivePane()
     }
 
@@ -536,6 +543,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             } else if let transcript = transcriptView(in: item) {
                 transcript.applyChromeTheme(theme)
             }
+            // Deliberately not the settings tab: it is the surface that caused
+            // the theme change, and it repaints itself the moment the save
+            // lands. Repainting it from here would rebuild its pane mid-edit.
         }
     }
 

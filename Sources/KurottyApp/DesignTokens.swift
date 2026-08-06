@@ -486,17 +486,17 @@ enum DesignTokens {
 
         static let commandPaletteWidthPX: CGFloat = 680
         static let commandPaletteHeightPX: CGFloat = 500
-        /// Preferences window geometry. The window is 720x560 rather than the
-        /// old 820x640 (the content never filled 820, so the extra width read
-        /// as an empty gutter); every button is the macOS regular control
-        /// height of 28.
+        /// Settings surface geometry. Settings is a center tab, not a window, so
+        /// these are the size the surface is designed against and the frame the
+        /// hosted view starts at before the tab stretches it — not a window
+        /// size. Every button is the macOS regular control height of 28.
         static let preferencesWidthPX: CGFloat = 720
-        /// Tall enough that the Terminal pane — the longest of the three, at
-        /// 816pt of cards — opens fully instead of cutting its last card in
-        /// half. The window still clamps itself to the screen when this does
-        /// not fit, and stays resizable down to `preferencesMinHeightPX`.
         static let preferencesHeightPX: CGFloat = 852
-        static let preferencesMinHeightPX: CGFloat = 420
+        /// The content column is elastic: it takes whatever width the tab gives
+        /// it and stops here. Past this width the right-aligned label column and
+        /// its control drift so far apart that the pair stops reading as one
+        /// row, which is the failure mode of a full-bleed settings page.
+        static let preferencesContentMaxWidthPX: CGFloat = 720
         static let preferencesSidebarWidthPX: CGFloat = 184
         static let preferencesControlWidthPX: CGFloat = 220
         static let preferencesStatusHeightPX: CGFloat = 16
@@ -504,6 +504,21 @@ enum DesignTokens {
         static let preferencesButtonHeightPX: CGFloat = 28
         static let preferencesTextFieldWidthPX: CGFloat = 160
         static let preferencesNumericFieldWidthPX: CGFloat = 96
+        /// Top bar of the settings tab: the page title over the nav column and
+        /// the query field over the content column, on one line, above a
+        /// hairline. Sized like a toolbar rather than a card header because it
+        /// is chrome for the whole surface.
+        static let preferencesHeaderHeightPX: CGFloat = 52
+        static let preferencesHeaderSearchWidthPX: CGFloat = 320
+        static let preferencesNavRowHeightPX: CGFloat = 32
+        static let preferencesNavInsetXPX = Space.x4PX
+        static let preferencesNavTopInsetPX = Space.x5PX
+        /// Trailing air inside the nav column, so a nav row never touches the
+        /// divider that separates it from the content.
+        static let preferencesNavTrailingInsetPX: CGFloat = 28
+        static let preferencesLabelColumnWidthPX: CGFloat = 150
+        static let preferencesColorWellSizePX: CGFloat = 34
+        static let preferencesAnsiColumnCount = 4
         /// Title-to-subtitle gap inside one settings heading. Below `Space.x1PX`
         /// on purpose: these two lines are one label pair, not two rows, and a
         /// full step would break them apart.
@@ -515,6 +530,23 @@ enum DesignTokens {
         static let preferencesSearchEmptyStateTopGapPX = Space.x6PX
         static let preferencesSearchEmptyStateGapPX = Space.x3PX
         static let preferencesSearchEmptyStateIconPointSizePT: CGFloat = 18
+        /// Theme preview card. The sample draws in the terminal's own font at
+        /// the terminal's own size, so everything below is expressed relative to
+        /// that font rather than as fixed offsets: a preview with baked-in 13pt
+        /// metrics shows nothing when the font size changes.
+        static let preferencesThemePreviewHeightPX: CGFloat = 176
+        static let preferencesThemePreviewCornerRadiusPX = Radius.mdPX
+        static let preferencesThemePreviewInsetPX = Space.x5PX
+        /// Row pitch as a multiple of the point size, matching the loose
+        /// leading a terminal grid uses.
+        static let preferencesThemePreviewLineHeightRATIO: CGFloat = 1.6
+        /// Gap between the sample prompt's two segments, in advance widths, so
+        /// it scales with the font instead of stranding the path at a fixed
+        /// offset.
+        static let preferencesThemePreviewPromptGapCELLS: CGFloat = 2
+        static let preferencesThemePreviewSwatchHeightPX = Space.x1PX
+        static let preferencesThemePreviewSwatchBottomInsetPX = Space.x4PX
+        static let preferencesThemePreviewSwatchMinWidthPX = Space.x3PX
         static let settingsEditorFontSizePT: CGFloat = 12
         static let glyphAtlasSizePX = 4096
         static let glyphSlotWidthPX = 128
@@ -831,6 +863,44 @@ extension NSColor {
             green: CGFloat((hex >> greenShift) & channelMask) / maxChannelValue,
             blue: CGFloat(hex & channelMask) / maxChannelValue,
             alpha: alpha
+        )
+    }
+
+    /// Builds a color from a `#RRGGBB` string out of the user's terminal
+    /// palette, parsed by the same parser the renderer uses and placed in the
+    /// same space the renderer submits to Metal.
+    ///
+    /// A calibrated- or generic-RGB constructor renders a visibly different
+    /// value for the same hex, so any AppKit surface that has to agree with the
+    /// terminal — the settings theme preview above all — must come through
+    /// here. `nil` for anything that is not a six-digit triplet, so callers can
+    /// tell "unset" from black.
+    static func terminalPaletteSRGB(_ hex: String) -> NSColor? {
+        guard let components = ColorHexParser.components(hex) else {
+            return nil
+        }
+        return NSColor(
+            srgbRed: CGFloat(components.x),
+            green: CGFloat(components.y),
+            blue: CGFloat(components.z),
+            alpha: CGFloat(components.w)
+        )
+    }
+
+    /// The `#RRGGBB` spelling of this color in sRGB, the inverse of
+    /// `terminalPaletteSRGB`. Round-tripping through a device space instead
+    /// would rewrite the user's palette with shifted values the first time they
+    /// touched a color well.
+    var terminalPaletteHex: String {
+        guard let srgb = usingColorSpace(.sRGB) else {
+            return ColorHexParser.blackHex
+        }
+        let maxChannelValue: CGFloat = 255
+        return String(
+            format: "#%02X%02X%02X",
+            Int(round(srgb.redComponent * maxChannelValue)),
+            Int(round(srgb.greenComponent * maxChannelValue)),
+            Int(round(srgb.blueComponent * maxChannelValue))
         )
     }
 }

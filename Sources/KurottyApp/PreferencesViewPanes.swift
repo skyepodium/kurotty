@@ -14,7 +14,6 @@ extension PreferencesView {
         configureTextField(workingDirectoryField, action: #selector(textFieldChanged(_:)))
         perProjectHistoryCheckbox.title = copy(.perProjectHistoryCheckboxTitle)
         addRow(copy(.perProjectHistory), control: perProjectHistoryCheckbox, to: shellSection)
-        detailStack.addArrangedSubview(shellSection)
 
         let textSection = section(title: copy(.textSection), subtitle: copy(.textSectionHelp))
         fontPopup.removeAllItems()
@@ -36,7 +35,6 @@ extension PreferencesView {
         addRow(copy(.confirmClose), control: confirmCloseCheckbox, to: textSection)
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
         addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
-        detailStack.addArrangedSubview(textSection)
 
         let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
         configureNumericField(
@@ -53,7 +51,6 @@ extension PreferencesView {
         )
         codeEditorWrapCheckbox.title = copy(.editorWrapCheckboxTitle)
         addRow(copy(.editorWrap), control: codeEditorWrapCheckbox, to: editorSection)
-        detailStack.addArrangedSubview(editorSection)
 
         let historySection = section(title: copy(.historySection), subtitle: copy(.historySectionHelp))
         configureNumericField(scrollbackField, stepper: scrollbackStepper, minimum: Double(SettingsDefaults.minimumScrollbackRows), maximum: Double(SettingsDefaults.maximumScrollbackRows), increment: 1_000)
@@ -70,7 +67,6 @@ extension PreferencesView {
         addRow(copy(.restoreScrollback), control: restoreScrollbackCheckbox, to: historySection)
         agentStatusHooksCheckbox.title = copy(.agentStatusHooksCheckboxTitle)
         addRow(copy(.agentStatusHooks), control: agentStatusHooksCheckbox, to: historySection)
-        detailStack.addArrangedSubview(historySection)
 
         let quickCommandsSection = section(
             title: copy(.quickCommandsSection),
@@ -80,11 +76,10 @@ extension PreferencesView {
         stylePrimaryButton(quickCommandsButton)
         // One primary action per pane, bottom-right of the last card. Every
         // other control in Preferences is a setting, not an action.
-        quickCommandsSection.addArrangedSubview(trailingActionRow(quickCommandsButton))
+        addTrailingActionRow(quickCommandsButton, to: quickCommandsSection)
         // An action is not a hideable row, so its title is a keyword: the card
         // is found by it and stays whole.
         search.registerKeyword(quickCommandsButton.title, in: quickCommandsSection)
-        detailStack.addArrangedSubview(quickCommandsSection)
     }
 
     func buildAppearancePage() {
@@ -98,21 +93,19 @@ extension PreferencesView {
         addRow(copy(.theme), control: themePopup, to: themeSection)
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.heightAnchor.constraint(equalToConstant: Layout.previewHeightPX).isActive = true
-        previewView.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         themeSection.addArrangedSubview(previewView)
+        pinToCardContent(previewView, in: themeSection)
         // The Appearance pane's single primary action, mirroring the Quick
         // Commands editor button on the Terminal pane: everything else in the
         // card is a setting.
         importThemeButton.title = copy(.importThemeButtonTitle)
         stylePrimaryButton(importThemeButton)
-        themeSection.addArrangedSubview(trailingActionRow(importThemeButton))
+        addTrailingActionRow(importThemeButton, to: themeSection)
         // An action is not a hideable row, so its title is a keyword: the card
         // is found by it and stays whole.
         search.registerKeyword(importThemeButton.title, in: themeSection)
-        detailStack.addArrangedSubview(themeSection)
 
         configureCustomColors()
-        detailStack.addArrangedSubview(customColorsStack)
     }
 
     func buildWindowPage() {
@@ -131,7 +124,6 @@ extension PreferencesView {
             control: numericControl(field: windowHeightField, stepper: windowHeightStepper, suffix: "px"),
             to: sizeSection
         )
-        detailStack.addArrangedSubview(sizeSection)
     }
 
     func configureCustomColors() {
@@ -149,8 +141,14 @@ extension PreferencesView {
             right: Layout.cardPaddingPX
         )
         styleAsCard(customColorsStack)
-        customColorsStack.translatesAutoresizingMaskIntoConstraints = false
-        customColorsStack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
+        detailStack.addArrangedSubview(customColorsStack)
+        // Unlike the other cards this one is a long-lived view, so the previous
+        // build's column constraint has to be retired before the new one is
+        // installed against the stack it has just rejoined.
+        customColorsWidthConstraint?.isActive = false
+        let widthConstraint = contentColumnWidthConstraint(for: customColorsStack)
+        widthConstraint.isActive = true
+        customColorsWidthConstraint = widthConstraint
         // The palette is a grid of wells, not a row list, so every color name is
         // a keyword: searching "cursor" or "red" opens the card whole rather
         // than tearing one well out of the grid.
@@ -161,8 +159,8 @@ extension PreferencesView {
         )
 
         let heading = sectionHeading(copy(.customColors), subtitle: copy(.customColorsHelp))
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         customColorsStack.addArrangedSubview(heading)
+        pinToCardContent(heading, in: customColorsStack)
 
         configureColorWell(foregroundWell, tag: 0)
         configureColorWell(backgroundWell, tag: 1)
