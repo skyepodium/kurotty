@@ -57,6 +57,32 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(loaded.window.width, SettingsDefaults.maximumWindowWidthPX)
     }
 
+    /// The default used to be the one-million-row cap, which at roughly 96 bytes
+    /// a cell handed every fresh pane a multi-gigabyte ceiling with no PTY
+    /// backpressure behind it. The cap itself is unchanged — it is what a user
+    /// who asks for it may have.
+    func testAFreshInstallKeepsFarLessScrollbackThanTheCapAllows() {
+        XCTAssertEqual(SettingsDefaults.defaultScrollbackRows, 10_000)
+        XCTAssertEqual(AppSettings.default.terminal.scrollbackLines, SettingsDefaults.defaultScrollbackRows)
+        XCTAssertLessThan(AppSettings.default.terminal.scrollbackLines, SettingsDefaults.maximumScrollbackRows)
+        XCTAssertGreaterThanOrEqual(
+            AppSettings.default.terminal.scrollbackLines,
+            SettingsDefaults.minimumScrollbackRows
+        )
+        XCTAssertEqual(SettingsDefaults.maximumScrollbackRows, 1_000_000)
+    }
+
+    /// A user who set the cap explicitly keeps it; only new installs move.
+    func testAnExplicitScrollbackChoiceSurvivesNormalization() {
+        var settings = AppSettings.default
+        settings.terminal.scrollbackLines = SettingsDefaults.maximumScrollbackRows
+
+        XCTAssertEqual(
+            AppSettingsNormalizer.normalized(settings).terminal.scrollbackLines,
+            SettingsDefaults.maximumScrollbackRows
+        )
+    }
+
     func testShellWorkingDirectoryNormalizationExpandsTildeAndRejectsInvalidPaths() throws {
         XCTAssertEqual(
             ShellSettings.normalizedWorkingDirectory("~"),
@@ -548,18 +574,24 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 12 pane-behavior keys
 
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
-        // Re-pointed at schema 17 when `terminal.confirmCloseRunningProcess`
-        // was added; the schema-12 keys below keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        // Re-pointed at schema 18 when `terminal.notifyOnCommandFinish` and
+        // `terminal.minimumCommandDurationSeconds` were added; the schema-12
+        // keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
-        XCTAssertFalse(
+        XCTAssertTrue(
             SettingsDefaults.agentStatusHooksEnabled,
-            "hooks start a listener and edit agent configuration, so they must be opt-in"
+            "hooks are on by default, but the write into the user's agent configuration still waits for consent"
+        )
+        XCTAssertEqual(
+            AppSettings.default.terminal.agentStatusHookConsentChoice,
+            .unasked,
+            "a fresh install has answered nothing, so nothing may be written yet"
         )
         XCTAssertTrue(AppSettings.default.terminal.hideMouseCursorWhileTyping)
         XCTAssertTrue(AppSettings.default.shell.perProjectHistoryEnabled)
-        XCTAssertFalse(AppSettings.default.terminal.agentStatusHooksEnabled)
+        XCTAssertTrue(AppSettings.default.terminal.agentStatusHooksEnabled)
     }
 
     /// A settings file written before schema 12 carries no user intent for
@@ -568,7 +600,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         var settings = AppSettings.default
         settings.schemaVersion = 11
         settings.terminal.hideMouseCursorWhileTyping = false
-        settings.terminal.agentStatusHooksEnabled = true
+        settings.terminal.agentStatusHooksEnabled = false
         settings.shell.perProjectHistoryEnabled = false
 
         let normalized = AppSettingsNormalizer.normalized(settings)
@@ -583,13 +615,13 @@ final class AppSettingsBehaviorTests: XCTestCase {
         var settings = AppSettings.default
         settings.schemaVersion = SettingsDefaults.schemaVersion
         settings.terminal.hideMouseCursorWhileTyping = false
-        settings.terminal.agentStatusHooksEnabled = true
+        settings.terminal.agentStatusHooksEnabled = false
         settings.shell.perProjectHistoryEnabled = false
 
         let normalized = AppSettingsNormalizer.normalized(settings)
 
         XCTAssertFalse(normalized.terminal.hideMouseCursorWhileTyping)
-        XCTAssertTrue(normalized.terminal.agentStatusHooksEnabled)
+        XCTAssertFalse(normalized.terminal.agentStatusHooksEnabled)
         XCTAssertFalse(normalized.shell.perProjectHistoryEnabled)
     }
 
@@ -620,7 +652,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testSchemaTwelveKeysSurviveAnEncodeDecodeRoundTrip() throws {
         var settings = AppSettings.default
         settings.terminal.hideMouseCursorWhileTyping = false
-        settings.terminal.agentStatusHooksEnabled = true
+        settings.terminal.agentStatusHooksEnabled = false
         settings.shell.perProjectHistoryEnabled = false
 
         let decoded = try JSONDecoder().decode(
@@ -629,7 +661,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         )
 
         XCTAssertFalse(decoded.terminal.hideMouseCursorWhileTyping)
-        XCTAssertTrue(decoded.terminal.agentStatusHooksEnabled)
+        XCTAssertFalse(decoded.terminal.agentStatusHooksEnabled)
         XCTAssertFalse(decoded.shell.perProjectHistoryEnabled)
     }
 
@@ -679,9 +711,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// Restoring stored scrollback only repaints the screen model, so unlike
     /// command replay it is safe to default on.
     func testScrollbackRestoreDefaultsOn() {
-        // Re-pointed at schema 17 when `terminal.confirmCloseRunningProcess`
-        // was added; the scrollback-restore default below is unchanged.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        // Re-pointed at schema 18 when the command-finish notification keys
+        // were added; the scrollback-restore default below is unchanged.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -746,7 +778,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }

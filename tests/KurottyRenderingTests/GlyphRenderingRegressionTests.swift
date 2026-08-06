@@ -1525,9 +1525,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 17 when the running-process close confirmation
-        // was added.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 17"))
+        // Re-pointed at schema 18 when the command-finish notification keys and
+        // the agent hook consent record were added.
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 18"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))

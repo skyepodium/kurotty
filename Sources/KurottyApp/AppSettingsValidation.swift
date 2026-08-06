@@ -19,6 +19,9 @@ enum AppSettingKey: String, Codable, Hashable {
     case terminalFontName
     case terminalFontSize
     case terminalScrollbackLines
+    case terminalNotifyOnCommandFinish
+    case terminalMinimumCommandDurationSeconds
+    case terminalAgentStatusHookConsent
     case terminalColorsForeground
     case terminalColorsBackground
     case terminalColorsCursor
@@ -31,6 +34,7 @@ enum AppSettingKey: String, Codable, Hashable {
 enum AppSettingsValidationIssueCode: String, Codable, Equatable {
     case schemaMigrationAvailable
     case valueOutOfRange
+    case unsupportedValue
     case invalidHexColor
     case invalidAnsiColorCount
     case workingDirectoryNormalized
@@ -62,6 +66,9 @@ enum AppSettingsValidation {
              .terminalFontName,
              .terminalFontSize,
              .terminalScrollbackLines,
+             .terminalNotifyOnCommandFinish,
+             .terminalMinimumCommandDurationSeconds,
+             .terminalAgentStatusHookConsent,
              .terminalColorsForeground,
              .terminalColorsBackground,
              .terminalColorsCursor,
@@ -104,6 +111,28 @@ enum AppSettingsValidation {
             minimum: SettingsDefaults.minimumScrollbackRows,
             maximum: SettingsDefaults.maximumScrollbackRows,
             unit: "rows",
+            issues: &issues
+        )
+        validateRange(
+            key: .terminalMinimumCommandDurationSeconds,
+            value: settings.terminal.minimumCommandDurationSeconds,
+            minimum: SettingsDefaults.minimumAllowedCommandDurationSeconds,
+            maximum: SettingsDefaults.maximumAllowedCommandDurationSeconds,
+            unit: "s",
+            issues: &issues
+        )
+        // Parsing stays with the enum so the report cannot disagree with what
+        // the normalizer will accept.
+        validateSupportedValue(
+            key: .terminalNotifyOnCommandFinish,
+            isSupported: TerminalCommandFinishNotificationMode.parse(settings.terminal.notifyOnCommandFinish) != nil,
+            supported: TerminalCommandFinishNotificationMode.allCases.map(\.rawValue),
+            issues: &issues
+        )
+        validateSupportedValue(
+            key: .terminalAgentStatusHookConsent,
+            isSupported: AgentStatusHookConsent.parse(settings.terminal.agentStatusHookConsent) != nil,
+            supported: AgentStatusHookConsent.allCases.map(\.rawValue),
             issues: &issues
         )
         validateRange(
@@ -189,6 +218,25 @@ enum AppSettingsValidation {
             severity: .error,
             code: .valueOutOfRange,
             message: "\(key.rawValue) must be between \(minimum) and \(maximum) \(unit)."
+        ))
+    }
+
+    /// An enum-backed string setting: the file may hold any string, so the
+    /// issue lists what the app understands rather than echoing the bad value.
+    private static func validateSupportedValue(
+        key: AppSettingKey,
+        isSupported: Bool,
+        supported: [String],
+        issues: inout [AppSettingsValidationIssue]
+    ) {
+        guard !isSupported else {
+            return
+        }
+        issues.append(issue(
+            key: key,
+            severity: .error,
+            code: .unsupportedValue,
+            message: "\(key.rawValue) must be one of \(supported.joined(separator: ", "))."
         ))
     }
 

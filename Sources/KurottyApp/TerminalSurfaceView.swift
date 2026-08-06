@@ -81,6 +81,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// Live mirror of `terminal.confirmMultilinePaste`; read on every paste, so
     /// it must never touch the filesystem.
     private var confirmMultilinePasteEnabled: Bool
+    /// Live mirrors of `terminal.notifyOnCommandFinish` and
+    /// `terminal.minimumCommandDurationSeconds`; read on every OSC 133;D, so
+    /// they must never touch the filesystem.
+    private var commandFinishNotificationMode: TerminalCommandFinishNotificationMode
+    private var minimumCommandDurationSeconds: Double
     private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
@@ -116,6 +121,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         let configuredFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
@@ -2620,6 +2627,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private func apply(settings: AppSettings) {
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         let nextFont = NSFont(
             name: settings.terminal.fontName,
             size: CGFloat(settings.terminal.fontSize)
@@ -2840,7 +2849,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
         lastSubmittedCommandText = nil
-        guard shouldDeliverUserNotification else {
+        guard TerminalCommandFinishNotificationPolicy.shouldNotify(
+            mode: commandFinishNotificationMode,
+            minimumDuration: minimumCommandDurationSeconds,
+            actualDuration: context.duration,
+            isFocused: isTerminalFocusedForUser
+        ) else {
             return
         }
         notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))

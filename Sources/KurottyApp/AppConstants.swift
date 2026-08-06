@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 enum AppConstants {
     enum Application {
@@ -275,7 +276,11 @@ enum AppConstants {
         static let managedCommandMarker = "kurotty-agent-status-hook"
         static let hookCurlExecutablePath = "/usr/bin/curl"
         static let settingsKeyPath = "terminal.agentStatusHooksEnabled"
-        static let hooksEnabledDefault = false
+        /// On by default, but the default alone never edits the user's Claude
+        /// Code configuration: `AgentStatusHookConsentPolicy` still requires a
+        /// one-time yes before the first write.
+        static let hooksEnabledDefault = SettingsDefaults.agentStatusHooksEnabled
+        static let hookConsentSettingsKeyPath = "terminal.agentStatusHookConsent"
     }
 
     /// Per-project shell history derivation. Everything here is a filesystem

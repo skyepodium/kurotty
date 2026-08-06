@@ -172,8 +172,10 @@ final class TerminalCloseConfirmationTests: XCTestCase {
         XCTAssertTrue(AppSettings.default.terminal.confirmCloseRunningProcess)
     }
 
-    func testSchemaVersionIsSeventeen() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+    /// The close-confirmation key landed in schema 17; the counter has moved on
+    /// since, and what this pins is that it only ever moves forward.
+    func testSchemaVersionIsAtLeastSeventeen() {
+        XCTAssertGreaterThanOrEqual(SettingsDefaults.schemaVersion, 17)
     }
 
     func testSettingsWithoutTheKeyStillDecode() throws {
