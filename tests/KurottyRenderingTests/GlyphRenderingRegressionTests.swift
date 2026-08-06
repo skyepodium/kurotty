@@ -864,7 +864,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let source = try terminalMetalViewSource()
 
         XCTAssertTrue(source.contains("private var debugOverlayInstanceBuffer: MTLBuffer?"))
-        XCTAssertTrue(source.contains("private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect])"))
+        XCTAssertTrue(source.contains("private func makeDebugOverlayInstances(glyphDebugRects: [CGRect]) -> [GlyphInstance]"))
         XCTAssertTrue(source.contains("diagnosticCellBoundaryOverlayEnabled"))
         XCTAssertTrue(source.contains("diagnosticBaselineOverlayEnabled"))
         XCTAssertTrue(source.contains("diagnosticGlyphQuadOverlayEnabled"))
@@ -1168,16 +1168,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testPerFrameMetalInstanceBuffersReuseStorageWhenByteLengthIsStable() throws {
         let metalSource = try terminalMetalViewSource()
-        let atlasBufferSource = try functionBody(named: "rebuildAtlasBuffers", in: metalSource)
+        let uploadSource = try functionBody(named: "uploadPendingInstanceBuffersIfNeeded", in: metalSource)
 
         XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T])"))
         XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&atlasInstanceBuffer, with: instances)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&decorationInstanceBuffer, with: decorations)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&uniformsBuffer, with: &uniforms)"))
-        XCTAssertFalse(atlasBufferSource.contains("makeBuffer(bytes:"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.glyph, with: payload.glyphs)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.background, with: payload.backgrounds)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.decoration, with: payload.decorations)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.cursor, with: &cursor)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.uniforms, with: &uniforms)"))
+        XCTAssertFalse(uploadSource.contains("makeBuffer(bytes:"))
     }
 
     func testMetalViewSkipsAtlasBufferRebuildWhenRenderInputsAreUnchanged() throws {
