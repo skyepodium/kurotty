@@ -53,6 +53,7 @@ if [[ -z "${SPARKLE_GENERATE_APPCAST:-}" ]]; then
 fi
 
 source "$ROOT_DIR/scripts/iconset.sh"
+source "$ROOT_DIR/scripts/dmg-style.sh"
 
 generate_sparkle_appcast() {
   local archives_dir="$1"
@@ -217,12 +218,31 @@ rm -rf \
 mkdir -p "$DMG_ROOT"
 cp -R "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
 ln -s /Applications "$DMG_ROOT/Applications"
+render_kurotty_dmg_background "$ROOT_DIR/scripts" "$DMG_ROOT"
+prune_kurotty_dmg_background_sources "$DMG_ROOT"
 
-hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$DMG_ROOT" -fs HFS+ -format UDRW "$DMG_RW" >/dev/null
+# Finder writes .DS_Store onto the mounted read-write image, and a -srcfolder
+# image is sized to its source with no room for it. The slack compresses away
+# again in the UDZO conversion below.
+dmg_size_mb=$(( $(du -sm "$DMG_ROOT" | cut -f1) + 64 ))
+hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$DMG_ROOT" -fs HFS+ -format UDRW -size "${dmg_size_mb}m" "$DMG_RW" >/dev/null
 attach_output="$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen)"
 device="$(printf '%s\n' "$attach_output" | awk '/\/Volumes\// { print $1; exit }')"
+# The volume name can be suffixed if something is already mounted at
+# /Volumes/Kurotty, so the styling step is told the real mount point rather than
+# the name we asked for.
+mount_point="$(printf '%s\n' "$attach_output" | sed -n 's|^.*\(/Volumes/.*\)$|\1|p' | head -1)"
+if [[ -n "$mount_point" ]]; then
+  # Deliberately non-fatal: a wedged or unauthorized Finder must cost styling,
+  # not the release. See scripts/dmg-style.sh.
+  if style_kurotty_dmg_window "$mount_point"; then
+    echo "DMG styling: applied to $mount_point."
+  else
+    echo "DMG styling: not applied, shipping an unstyled DMG." >&2
+  fi
+fi
 if [[ -n "$device" ]]; then
-  hdiutil detach "$device" >/dev/null
+  detach_kurotty_dmg "$device"
 fi
 hdiutil convert "$DMG_RW" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" >/dev/null
 

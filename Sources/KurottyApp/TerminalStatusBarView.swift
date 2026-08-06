@@ -39,6 +39,7 @@ final class TerminalStatusBarView: NSView {
     private let topBorderView = NSView()
     private let agentSegmentView = TerminalStatusBarAgentSegmentView(frame: .zero)
     private let worktreeSegmentView = TerminalStatusBarWorktreeSegmentView(frame: .zero)
+    private let quotaSegmentView = TerminalStatusBarQuotaSegmentView(frame: .zero)
     private let resourceSegmentView = TerminalStatusBarResourceSegmentView(frame: .zero)
     private let sampler: TerminalResourceUsageSampler
     private let registry: AgentActivityRegistry
@@ -58,6 +59,10 @@ final class TerminalStatusBarView: NSView {
     /// The worktree state the segment currently renders, applied from the
     /// service's async result.
     private(set) var currentWorktreeSummary = TerminalStatusBarWorktreeSummary.absent
+
+    /// Per-agent quota as of the last index change. Held rather than recomputed
+    /// per render because the popover has to agree with the segment.
+    private(set) var currentQuotaSummary = AgentRateLimitQuotaSummary.empty
 
     weak var dataSource: (any TerminalStatusBarDataSource)?
     /// Resolved from `AgentStatusHookCoordinator.shared` by default; injectable
@@ -81,6 +86,8 @@ final class TerminalStatusBarView: NSView {
         configureLayout()
         configureSampler()
         observeAgentActivity()
+        observeSessionIndex()
+        refreshQuotaSegment()
     }
 
     required init?(coder: NSCoder) {
@@ -229,6 +236,7 @@ final class TerminalStatusBarView: NSView {
         }
         agentSegmentView.applyChromeTheme(theme)
         worktreeSegmentView.applyChromeTheme(theme)
+        quotaSegmentView.applyChromeTheme(theme)
         resourceSegmentView.applyChromeTheme(theme)
     }
 
@@ -247,9 +255,11 @@ final class TerminalStatusBarView: NSView {
 
         agentSegmentView.translatesAutoresizingMaskIntoConstraints = false
         worktreeSegmentView.translatesAutoresizingMaskIntoConstraints = false
+        quotaSegmentView.translatesAutoresizingMaskIntoConstraints = false
         resourceSegmentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(agentSegmentView)
         addSubview(worktreeSegmentView)
+        addSubview(quotaSegmentView)
         addSubview(resourceSegmentView)
 
         agentSegmentView.onClick = { [weak self] in
@@ -257,6 +267,9 @@ final class TerminalStatusBarView: NSView {
         }
         worktreeSegmentView.onClick = { [weak self] in
             self?.worktreeSegmentClicked()
+        }
+        quotaSegmentView.onClick = { [weak self] in
+            self?.quotaSegmentClicked()
         }
         resourceSegmentView.onClick = { [weak self] in
             self?.resourceSegmentClicked()
@@ -283,6 +296,14 @@ final class TerminalStatusBarView: NSView {
             ),
             worktreeSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
+            // Quota closes the leading group: agent, where it is working, and
+            // how much allowance it has left all describe the same session.
+            quotaSegmentView.leadingAnchor.constraint(
+                equalTo: worktreeSegmentView.trailingAnchor,
+                constant: DesignTokens.Component.StatusBar.segmentGroupGapPX
+            ),
+            quotaSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
             resourceSegmentView.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
                 constant: -(DesignTokens.Component.StatusBar.horizontalInsetPX
@@ -290,7 +311,7 @@ final class TerminalStatusBarView: NSView {
             ),
             resourceSegmentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             resourceSegmentView.leadingAnchor.constraint(
-                greaterThanOrEqualTo: worktreeSegmentView.trailingAnchor,
+                greaterThanOrEqualTo: quotaSegmentView.trailingAnchor,
                 constant: DesignTokens.Component.StatusBar.segmentGroupGapPX
             ),
         ])
@@ -314,6 +335,7 @@ final class TerminalStatusBarView: NSView {
         visibility = nextVisibility
         agentSegmentView.update(summary: agentSegmentView.currentSummary, visibility: visibility)
         worktreeSegmentView.update(summary: worktreeSegmentView.currentSummary, visibility: visibility)
+        quotaSegmentView.update(summary: quotaSegmentView.currentSummary, visibility: visibility)
         resourceSegmentView.update(usage: sampler.latestUsage, visibility: visibility)
     }
 
@@ -351,6 +373,34 @@ final class TerminalStatusBarView: NSView {
 
     @objc private func agentActivityDidChange(_ notification: Notification) {
         refreshAgentSegment()
+    }
+
+    /// Quota moves only when the session index is rescanned; it is not on the
+    /// resource sampler's two-second timer, because nothing about a five-hour
+    /// window changes that fast and the reading comes off disk, not a counter.
+    private func observeSessionIndex() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sessionIndexDidChange(_:)),
+            name: AgentSessionIndexStore.didChangeNotification,
+            object: sessionIndexStore
+        )
+    }
+
+    @objc private func sessionIndexDidChange(_ notification: Notification) {
+        refreshQuotaSegment()
+    }
+
+    /// Recomputes the quota segment from the session index.
+    func refreshQuotaSegment(now: Date = Date()) {
+        currentQuotaSummary = AgentRateLimitQuotaSummary.make(
+            records: sessionIndexStore.records,
+            now: now
+        )
+        quotaSegmentView.update(
+            summary: TerminalStatusBarQuotaComposer.summary(for: currentQuotaSummary, now: now),
+            visibility: visibility
+        )
     }
 
     /// Statuses for every pane in this window; the composer picks the
@@ -462,6 +512,15 @@ final class TerminalStatusBarView: NSView {
             GitWorktreeChangeDirectoryCommand.command(for: worktree),
             paneIdentifier: paneIdentifier
         )
+    }
+
+    private func quotaSegmentClicked() {
+        let contentView = TerminalStatusBarQuotaView(
+            summary: currentQuotaSummary,
+            now: Date(),
+            theme: chromeTheme
+        )
+        present(contentView: contentView, relativeTo: quotaSegmentView)
     }
 
     private func resourceSegmentClicked() {

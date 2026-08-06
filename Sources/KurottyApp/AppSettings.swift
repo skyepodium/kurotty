@@ -31,7 +31,8 @@ struct AppSettings: Codable, Equatable {
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
             agentStatusHookConsent: Defaults.agentStatusHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
-            commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled
+            commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
+            menuBarExtraEnabled: Defaults.menuBarExtraEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -66,6 +67,7 @@ struct AppSettings: Codable, Equatable {
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
+        static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -144,6 +146,12 @@ struct AppSettings: Codable, Equatable {
 /// per-pane progress bar is ambient status with no dismiss affordance, so the
 /// switch is the only way to refuse it, and turning it off takes down a bar that
 /// is on screen at that moment rather than waiting for the next command.
+/// `menuBarExtraEnabled` is live-applied and defaults **off** — the one chrome
+/// switch here that does. It does not govern space inside Kurotty's window; it
+/// governs a slot in the system menu bar, which is shared and finite. Kurotty
+/// is a normal Dock app, so everything the extra offers is already reachable
+/// without it. Turning it on adds the slot immediately and turning it off takes
+/// it back out, rather than waiting for a relaunch.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -185,6 +193,10 @@ struct TerminalSettings: Codable, Equatable {
     /// `notifyOnCommandFinish`: that one is about a command the user walked away
     /// from, this one is about the wait they are sitting through.
     var commandProgressIndicatorEnabled: Bool
+    /// Puts Kurotty's mark in the system menu bar with a small menu behind it.
+    /// Unrelated to `statusBarEnabled` despite the similar sound: that one is
+    /// the bar along the bottom of Kurotty's own window.
+    var menuBarExtraEnabled: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -216,6 +228,7 @@ struct TerminalSettings: Codable, Equatable {
         case agentStatusHookConsent
         case uiTextScalePercent
         case commandProgressIndicatorEnabled
+        case menuBarExtraEnabled
     }
 
     init(
@@ -239,7 +252,8 @@ struct TerminalSettings: Codable, Equatable {
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
         agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
-        commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled
+        commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
+        menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -262,6 +276,7 @@ struct TerminalSettings: Codable, Equatable {
         self.agentStatusHookConsent = agentStatusHookConsent
         self.uiTextScalePercent = uiTextScalePercent
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
+        self.menuBarExtraEnabled = menuBarExtraEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -328,6 +343,10 @@ struct TerminalSettings: Codable, Equatable {
             Bool.self,
             forKey: .commandProgressIndicatorEnabled
         ) ?? SettingsDefaults.commandProgressIndicatorEnabled
+        // Absent in schema versions below 20; those files fall back to the
+        // current default rather than failing to decode.
+        menuBarExtraEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarExtraEnabled)
+            ?? SettingsDefaults.menuBarExtraEnabled
     }
 }
 
@@ -531,6 +550,8 @@ struct AppSettingsNormalizer {
         /// Schema version that introduced
         /// `terminal.commandProgressIndicatorEnabled`.
         static let commandProgressIndicatorSchemaVersion = 19
+        /// Schema version that introduced `terminal.menuBarExtraEnabled`.
+        static let menuBarExtraSchemaVersion = 20
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -613,6 +634,14 @@ struct AppSettingsNormalizer {
             // current default; from schema 19 on, an explicit choice in either
             // direction is preserved.
             next.terminal.commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
+        }
+        if sourceSchemaVersion < Migration.menuBarExtraSchemaVersion {
+            // Settings written before schema 20 predate the menu-bar extra, so
+            // the key carries no user intent. Migrated files land on the current
+            // default, which is off — no existing install gains an icon in a
+            // menu bar it never agreed to share. From schema 20 on, an explicit
+            // choice in either direction is preserved.
+            next.terminal.menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

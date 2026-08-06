@@ -1323,7 +1323,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
         XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n            onCommandProgress?(.userDidInteract)\n        }"))
     }
 
     func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
@@ -1495,11 +1495,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        // Schema 19 added `terminal.uiTextScalePercent` and
-        // `terminal.commandProgressIndicatorEnabled`. Asserted against the value
-        // rather than against the text of its declaration, so a reformat of
-        // SettingsDefaults cannot fail a test about the menu.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        // Schema 20 added `terminal.menuBarExtraEnabled`. Asserted against the
+        // value rather than against the text of its declaration, so a reformat
+        // of SettingsDefaults cannot fail a test about the menu.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -2501,7 +2500,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("hdiutil create"))
         XCTAssertTrue(packageSource.contains("hdiutil attach"))
         XCTAssertTrue(packageSource.contains("ln -s /Applications \"$DMG_ROOT/Applications\""))
-        XCTAssertTrue(packageSource.contains("hdiutil detach"))
+        // Detaching moved into scripts/dmg-style.sh, which retries before it
+        // forces: Finder can still hold the styled volume for a moment.
+        XCTAssertTrue(packageSource.contains("detach_kurotty_dmg"))
         XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --options runtime --sign \"$SIGN_IDENTITY\" \"$APP_BUNDLE\""))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))

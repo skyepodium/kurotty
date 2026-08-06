@@ -224,6 +224,14 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 - README download links should point at `https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg` so users download the current DMG directly without hardcoding the release version.
 - Universal release packages must include both `arm64` and `x86_64` slices for `Contents/MacOS/kurotty` and `Contents/Resources/libkurotty_core.dylib`.
 - DMGs must contain `kurotty.app` and an `/Applications` symlink so users can install by dragging the app, matching standard macOS distribution UX.
+- The DMG install window is designed, not left to whatever view Finder defaults to. `scripts/generate-dmg-background.swift` renders the background at 1x and 2x from the app's own light ramp in `Sources/KurottyApp/DesignTokens.swift`; do not commit the rendered PNGs, and do not introduce a palette that is not derived from the design tokens.
+- The instruction copy and the chevrons belong in the background image. Finder can only position real files, so only `kurotty.app` and the `Applications` symlink may be placed as items.
+- The background is baked, so its copy cannot follow the system language: one image ships to every user. It is Korean only by design — the icon, chevrons and Applications folder already convey what to do — and it carries the reason the drag is necessary, which the picture cannot. Any claim in that copy must stay true of `UpdateController.swift` and `AppInstallLocation.swift`.
+- The `Applications` symlink's Finder label always renders as `Applications`, never the localized `응용 프로그램`: Finder localizes the real `/Applications` folder through its `.localized` marker, and a symlink displays its own filename. Do not rename the symlink to chase the localized label; `verify-release-artifact.sh` requires `Applications -> /Applications`.
+- `scripts/dmg-style.sh` owns the window geometry (bounds, icon size, icon positions, background file name) and is sourced by both `scripts/package-release.sh` and `scripts/verify-release-artifact.sh`. Change the numbers there, never in one caller only.
+- The install window must not scroll. Finder's AppleScript `bounds` is the window *frame*, so the frame has to exceed the background's height by the title bar (`KUROTTY_DMG_TITLEBAR_HEIGHT`) or Finder makes the window scrollable and the Applications folder can fall below the fold. Icon labels are drawn below the icon and outside its frame, so the icon row must also leave room for a label plus a bottom margin.
+- DMG styling drives Finder over AppleScript and must never be able to block a release. Any Finder step must run under a hard wall-clock timeout and every failure, including the timeout, must be non-fatal and logged as a skip. An unstyled DMG that ships beats a release workflow that hangs. `KUROTTY_SKIP_DMG_STYLING=1` skips the Finder step outright for local runs.
+- The styling assertions in `scripts/verify-release-artifact.sh` are advisory for the same reason: they warn and continue. Do not make them fatal, and do not weaken the mandatory checks around them.
 - Release code must resolve packaged resources through the installed `.app` layout first. Do not rely on SwiftPM build-directory fallbacks to prove a packaged app works; those paths do not exist after Sparkle or DMG installation.
 - `scripts/verify-release-artifact.sh` is a mandatory publication gate. It must mount the final DMG, copy `kurotty.app` into a fresh temporary directory outside the repository and SwiftPM build tree, verify the version, signatures, Universal slices, DMG layout, and run the copied executable with `--release-artifact-smoke-test`.
 - `--release-artifact-smoke-test` is an app-owned installed-layout contract. It must load the packaged SwiftPM resource bundle, icon, shell integration files, `libkurotty_core.dylib`, Sparkle framework, and bundle version without opening the normal UI. Missing or unreadable release resources must return a nonzero exit status.
@@ -243,11 +251,12 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
   - inspect `appcast.xml` and the public `https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml` to confirm the current version, versioned DMG URL, and Sparkle EdDSA signature are present.
 - After release packaging changes, verify:
   - `swift test` passes.
-  - `bash -n scripts/install-app.sh scripts/package-release.sh scripts/verify-release-artifact.sh` passes.
+  - `bash -n scripts/install-app.sh scripts/package-release.sh scripts/verify-release-artifact.sh scripts/dmg-style.sh` passes.
   - `./scripts/package-release.sh` creates `dist/kurotty-$(cat VERSION)-macos-universal.dmg` and `dist/kurotty-macos-universal.dmg`.
   - `cd dist && shasum -a 256 -c SHA256SUMS` passes.
   - `lipo -info` on the packaged app executable and `libkurotty_core.dylib` reports both `x86_64` and `arm64`.
   - Mounting the DMG shows `kurotty.app` and `Applications -> /Applications`.
+  - Opening the DMG in Finder shows the designed install window at its natural size with no scrollbar, or the packaging log explains which step was skipped.
   - `scripts/verify-icon-bundle.sh` passes on the packaged app.
   - `scripts/verify-release-artifact.sh dist/kurotty-$(cat VERSION)-macos-universal.dmg $(cat VERSION)` passes from the final DMG, not from the intermediate `.build/release-package/kurotty.app`.
 

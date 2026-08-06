@@ -372,19 +372,24 @@ struct TerminalStatusBarVisibility: Equatable, Sendable {
     /// The worktree segment is dropped whole rather than reduced to its icon:
     /// a branch glyph without a branch name locates nothing.
     let showsWorktree: Bool
+    /// The quota segment is a meter plus a percentage, and both are needed for
+    /// it to say anything, so it too is dropped whole.
+    let showsQuota: Bool
 
     init(
         showsAgentLabel: Bool,
         showsAgentDetail: Bool,
         showsCPUMetric: Bool,
         showsMemoryValue: Bool,
-        showsWorktree: Bool = false
+        showsWorktree: Bool = false,
+        showsQuota: Bool = false
     ) {
         self.showsAgentLabel = showsAgentLabel
         self.showsAgentDetail = showsAgentDetail
         self.showsCPUMetric = showsCPUMetric
         self.showsMemoryValue = showsMemoryValue
         self.showsWorktree = showsWorktree
+        self.showsQuota = showsQuota
     }
 
     static let full = TerminalStatusBarVisibility(
@@ -392,7 +397,8 @@ struct TerminalStatusBarVisibility: Equatable, Sendable {
         showsAgentDetail: true,
         showsCPUMetric: true,
         showsMemoryValue: true,
-        showsWorktree: true
+        showsWorktree: true,
+        showsQuota: true
     )
 }
 
@@ -433,6 +439,9 @@ enum TerminalStatusBarLayoutPolicy {
                 showsMemoryValue: true
             )
         }
+        // Quota shares the widest breakpoint with the agent detail and the
+        // worktree: all three are context the popovers still carry, so they go
+        // together before anything that only exists in the bar.
         return .full
     }
 }
@@ -587,5 +596,78 @@ enum TerminalStatusBarAgentComposer {
         case .done:
             return .idle
         }
+    }
+}
+
+// MARK: - Quota segment composition
+
+/// Everything the quota segment renders, condensed from the per-agent summary.
+///
+/// The bar shows exactly one number, and it is the *fullest* live window across
+/// every agent, because that is the one that stops work first. Which agent and
+/// window it belongs to is in the label and, in full, in the popover — a bar
+/// that grew a segment per window would reflow every time a plan changed.
+struct TerminalStatusBarQuotaSummary: Equatable, Sendable {
+    /// Fraction of the tightest window consumed, 0...1.
+    let usedFraction: Double
+    /// `Codex 5h`, naming what the number belongs to.
+    let label: String
+    let percentText: String
+    let severity: TerminalStatusBarSeverity
+    let tooltip: String
+
+    /// Nothing to show. The segment hides itself rather than rendering a dash:
+    /// a quota nobody reports is not a metric that is temporarily unavailable.
+    static let absent = TerminalStatusBarQuotaSummary(
+        usedFraction: 0,
+        label: "",
+        percentText: "",
+        severity: .normal,
+        tooltip: ""
+    )
+
+    var isPresent: Bool {
+        !percentText.isEmpty
+    }
+}
+
+enum TerminalStatusBarQuotaComposer {
+    /// Maps quota pressure onto the bar's existing severity ladder so an amber
+    /// quota and an amber CPU mean the same degree of trouble.
+    static func severity(for pressure: AgentRateLimitQuotaCopy.Pressure) -> TerminalStatusBarSeverity {
+        switch pressure {
+        case .comfortable:
+            return .normal
+        case .warning:
+            return .warning
+        case .exhausted:
+            return .error
+        }
+    }
+
+    static func summary(
+        for quotaSummary: AgentRateLimitQuotaSummary,
+        now: Date,
+        language: AppLanguage = AppLocalization.language
+    ) -> TerminalStatusBarQuotaSummary {
+        guard let tightest = quotaSummary.tightestWindow else {
+            return .absent
+        }
+        let windowLabel = AgentRateLimitQuotaCopy.windowLabel(minutes: tightest.window.windowMinutes)
+        let tooltip = AgentRateLimitQuotaCopy.summaryTooltip(
+            for: quotaSummary,
+            now: now,
+            language: language
+        )
+        return TerminalStatusBarQuotaSummary(
+            usedFraction: tightest.window.usedFraction,
+            label: "\(tightest.agent.shortLabel) \(windowLabel)",
+            percentText: "\(AgentRateLimitQuotaCopy.percent(tightest.window.usedFraction))"
+                + AppConstants.StatusBar.percentUnit,
+            severity: severity(
+                for: AgentRateLimitQuotaCopy.pressure(forFraction: tightest.window.usedFraction)
+            ),
+            tooltip: tooltip ?? ""
+        )
     }
 }

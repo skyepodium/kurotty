@@ -619,6 +619,16 @@ enum DesignTokens {
         /// Only ever applies to a bar the user could already see, so it reports
         /// an outcome rather than announcing one.
         static let commandProgressFailureLingerMS = 1_600
+        /// How long an indeterminate bar may sweep before it holds still.
+        ///
+        /// One minute is where a wait stops being one. Below it the user is
+        /// sitting through the command and the motion is doing its job; past
+        /// it they have gone to read the output, or to another window, and a
+        /// sweep that has repeated itself fifty times has said everything it
+        /// can. The bar stays — Kurotty has had no OSC 133 `D` and must not
+        /// imply one — but it stops claiming that progress is happening right
+        /// now, which is the part nothing backs up.
+        static let commandProgressSweepCeilingMS = 60_000
 
         static let disclosureCollapsedRotationDegrees: CGFloat = 0
         static let disclosureExpandedRotationDegrees: CGFloat = 90
@@ -677,6 +687,14 @@ enum DesignTokens {
     ///   ramp. Scaling a 1px hairline or a 6px status dot makes chrome look
     ///   broken, not larger.
     enum Component {
+        /// The menu-bar extra's glyph. Outside `Icon.SizeClass` and outside the
+        /// UI text scale on purpose: the ramp exists so chrome glyphs track the
+        /// chrome type beside them, and there is no Kurotty type beside this
+        /// one. It sits in a bar whose height macOS fixes, so a glyph that grew
+        /// with Kurotty's own scale would be clipped by a bar Kurotty does not
+        /// control. 16pt is the size the system's own extras use.
+        static let menuBarExtraSymbolPointSizePT: CGFloat = 16
+
         /// Quick Commands editor window layout.
         static let quickCommandEditorWidthPX: CGFloat = 620
         static let quickCommandEditorHeightPX: CGFloat = 460
@@ -813,6 +831,12 @@ enum DesignTokens {
         /// the bar reads as on/off state rather than as two plain buttons.
         static let sidebarToggleActiveTintAlphaRATIO: CGFloat = 0.82
         static let sidebarToggleActiveFillAlphaRATIO: CGFloat = 0.10
+        /// Hover on an already-open toggle: the same accent wash, one step
+        /// deeper. Deliberately not `terminalTabButtonHoverAlphaRATIO`, which
+        /// is a tab's chromatic hover and is stronger than this control's own
+        /// selected fill -- pointing at a toggle should not look louder than
+        /// selecting it.
+        static let sidebarToggleActiveHoverFillAlphaRATIO: CGFloat = 0.16
         /// Both bounds hold a tab title, so both move with it: a tab pinned to
         /// 120 at 175% truncates every title to two words.
         static var terminalTabMinWidthPX: CGFloat { UIScale.scaledMetric(120) }
@@ -1047,16 +1071,17 @@ enum DesignTokens {
 
         // MARK: Command progress bar
         //
-        // A hairline across the top edge of the pane's terminal, driven by OSC
-        // 133 command boundaries and OSC 9;4 reports. Ambient status: it is one
-        // step thicker than a hairline so it reads as a bar rather than a
-        // border, and it never takes layout space from the terminal grid.
-        static let commandProgressBarHeightPX: CGFloat = 2
+        // A bar across the top edge of the pane's terminal, driven by OSC 133
+        // command boundaries and OSC 9;4 reports. Ambient status: thick enough
+        // to read as a bar rather than a window border, and it never takes
+        // layout space from the terminal grid. Well inside
+        // `terminalSearchInsetPX`, so the search bar clears it.
+        static let commandProgressBarHeightPX: CGFloat = 4
         /// Unfilled remainder, on the same footing as the agent context meter's
         /// groove: low enough to read as a track rather than a second value.
         static let commandProgressTrackAlphaRATIO: CGFloat = 0.16
         /// Width of the sweeping segment, as a fraction of the pane width. Wide
-        /// enough to see at 2px tall, narrow enough that its travel reads as
+        /// enough to see at this height, narrow enough that its travel reads as
         /// motion rather than as a bar growing.
         static let commandProgressSweepWidthRATIO: CGFloat = 0.30
         /// A determinate bar never renders thinner than this, so a real report
@@ -1090,6 +1115,30 @@ enum DesignTokens {
         /// to use — percent thresholds, byte scale, process-walk bounds,
         /// sampling and kill timing — are not design tokens and live in
         /// `AppConstants.StatusBar`.
+        /// Rate-limit quota meters. A meter is a track and a fill, not a
+        /// container for type, so every geometry value here is fixed: a 4px
+        /// track scaled to 7px stops reading as a hairline rule and starts
+        /// reading as a broken progress bar. Only `rowHeightPX` moves, because
+        /// it is a slot the agent label and percentage sit in.
+        enum AgentQuota {
+            static var rowHeightPX: CGFloat { UIScale.scaledMetric(30) }
+            static let meterTrackHeightPX: CGFloat = 4
+            static let meterTrackCornerRadiusPX: CGFloat = 2
+            /// Floor on the fill so a window with a fraction of a percent spent
+            /// still shows something; a fill thinner than this anti-aliases
+            /// away and reads as zero.
+            static let meterMinimumFillWidthPX: CGFloat = 2
+            static let meterTrackAlphaRATIO: CGFloat = 0.9
+            static let sectionRowGapPX = Space.x2PX
+            static let labelMeterGapPX = Space.x1PX
+            /// Slot reserved for the right-aligned percentage so a meter does
+            /// not resize as the number crosses 10% or 100%.
+            static var percentWidthPX: CGFloat { UIScale.scaledMetric(34) }
+            /// The status bar carries the meter as a glyph-sized token beside
+            /// its number, not as a full-width bar.
+            static let statusBarMeterWidthPX: CGFloat = 22
+        }
+
         enum StatusBar {
             static var heightPX: CGFloat { UIScale.scaledMetric(24) }
             static let horizontalInsetPX = Space.x4PX

@@ -579,7 +579,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 19, which added
         // `terminal.commandProgressIndicatorEnabled`; the schema-12 keys below
         // keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -716,7 +717,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
         // Re-pointed at schema 19, which added the command progress bar key;
         // the scrollback-restore default below is unchanged.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -781,7 +783,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -829,7 +831,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 19 UI text scale
 
     func testUITextScaleDefaultsToOneHundredPercent() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }

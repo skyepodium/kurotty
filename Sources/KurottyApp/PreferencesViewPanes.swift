@@ -37,6 +37,8 @@ extension PreferencesView {
         addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
         commandProgressCheckbox.title = copy(.commandProgressCheckboxTitle)
         addRow(copy(.commandProgress), control: commandProgressCheckbox, to: textSection)
+        menuBarExtraCheckbox.title = copy(.menuBarExtraCheckboxTitle)
+        addRow(copy(.menuBarExtra), control: menuBarExtraCheckbox, to: textSection)
 
         let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
         configureNumericField(
