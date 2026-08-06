@@ -451,6 +451,12 @@ struct TerminalMouseReportingState: Equatable {
     private var anyMotionTracking = false
     var usesUTF8ExtendedCoordinates = false
     var usesSGRExtendedCoordinates = false
+    /// DEC private mode 1007. Ghostty ships this enabled and so do we: with it
+    /// off the wheel is dead in every full-screen pager, which reads as a broken
+    /// terminal rather than as a mode nobody turned on.
+    var alternateScrollEnabled = TerminalMouseReportingState.alternateScrollDefault
+
+    static let alternateScrollDefault = true
 
     var trackingMode: TerminalMouseTrackingMode {
         if anyMotionTracking {
@@ -481,6 +487,8 @@ struct TerminalMouseReportingState: Equatable {
             usesUTF8ExtendedCoordinates = enabled
         case 1006:
             usesSGRExtendedCoordinates = enabled
+        case 1007:
+            alternateScrollEnabled = enabled
         default:
             break
         }
@@ -492,6 +500,9 @@ struct TerminalMouseReportingState: Equatable {
         anyMotionTracking = false
         usesUTF8ExtendedCoordinates = false
         usesSGRExtendedCoordinates = false
+        // Alternate scroll returns to its default rather than to false: a reset
+        // is "forget what the app asked for", not "turn the wheel off".
+        alternateScrollEnabled = Self.alternateScrollDefault
     }
 }
 

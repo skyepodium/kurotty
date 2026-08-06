@@ -86,6 +86,27 @@ enum MainMenu {
         quickCommands.keyEquivalentModifierMask = [.command, .shift]
         quickCommands.target = QuickCommandsMenuActionTarget.shared
         viewMenu.addItem(quickCommands)
+        viewMenu.addItem(.separator())
+        // ⌘+ is written as the "+" equivalent so the menu renders ⌘+ rather than
+        // ⌘=. The registry additionally matches the Equal key by hardware code,
+        // which is what makes the unshifted ⌘= work and what covers non-Latin
+        // input sources.
+        let increaseFontSize = NSMenuItem(
+            title: AppLocalization.string(.increaseFontSize),
+            action: #selector(AppDelegate.increaseTerminalFontSize),
+            keyEquivalent: "+"
+        )
+        viewMenu.addItem(increaseFontSize)
+        viewMenu.addItem(NSMenuItem(
+            title: AppLocalization.string(.decreaseFontSize),
+            action: #selector(AppDelegate.decreaseTerminalFontSize),
+            keyEquivalent: "-"
+        ))
+        viewMenu.addItem(NSMenuItem(
+            title: AppLocalization.string(.resetFontSize),
+            action: #selector(AppDelegate.resetTerminalFontSize),
+            keyEquivalent: "0"
+        ))
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

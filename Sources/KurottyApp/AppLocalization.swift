@@ -122,6 +122,8 @@ enum L10nKey: String, CaseIterable {
     // process that is still running, and the two must stay free to diverge.
     case childExitTitleClean, childExitTitleCode, childExitTitleSignal
     case childExitRanFor, childExitRestart, childExitClose
+    // Terminal font zoom.
+    case increaseFontSize, decreaseFontSize, resetFontSize
 }
 
 enum AppLocalization {
@@ -252,6 +254,7 @@ enum AppLocalization {
             .childExitTitleSignal: "Session ended on signal %d",
             .childExitRanFor: "Ran for %@",
             .childExitRestart: "Restart", .childExitClose: "Close",
+            .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -343,6 +346,7 @@ enum AppLocalization {
             .childExitTitleSignal: "세션이 시그널 %d로 종료되었습니다",
             .childExitRanFor: "실행 시간 %@",
             .childExitRestart: "다시 시작", .childExitClose: "닫기",
+            .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -434,6 +438,7 @@ enum AppLocalization {
             .childExitTitleSignal: "セッションがシグナル %d で終了しました",
             .childExitRanFor: "実行時間 %@",
             .childExitRestart: "再起動", .childExitClose: "閉じる",
+            .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
         ],
     ]
 }

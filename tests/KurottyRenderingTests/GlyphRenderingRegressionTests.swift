@@ -2205,12 +2205,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("override func mouseMoved(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains("override func flagsChanged(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
-        XCTAssertFalse(surfaceSource.contains("guard event.modifierFlags.contains(.command) else"))
-        XCTAssertFalse(surfaceSource.contains("event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
+        // Link activation now requires Cmd so plain clicks and drags keep
+        // reaching selection; the modifier is what makes a link swallow a click.
+        XCTAssertTrue(surfaceSource.contains("if event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("if reportTerminalMouseEvent(.press(.left), with: event)"))
         XCTAssertTrue(interpreterSource.contains("mouseReportingState.set(decPrivateMode: value, enabled: enabled)"))
         XCTAssertTrue(surfaceSource.contains("!event.modifierFlags.contains(.shift)"))
-        XCTAssertTrue(surfaceSource.contains("if let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("let linkRanges = visibleLinkRanges("))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
