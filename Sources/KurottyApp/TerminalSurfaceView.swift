@@ -61,7 +61,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var font: NSFont
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
-    private var pendingSubmittedInputText = ""
+    private var submittedCommandRecorder = TerminalSubmittedCommandRecorder()
     private var lastSubmittedCommandText: String?
     private var debugFrameIndex: UInt64 = 0
     private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
@@ -1728,54 +1728,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     @discardableResult
     private func recordSubmittedInputText(_ text: String) -> Bool {
-        var didSubmit = false
-        for character in text {
-            if character == "\r" || character == "\n" {
-                didSubmit = captureSubmittedCommandTextIfNeeded() || didSubmit
-                continue
-            }
-            if character == "\u{7f}" {
-                if !pendingSubmittedInputText.isEmpty {
-                    pendingSubmittedInputText.removeLast()
-                }
-                continue
-            }
-            if character == "\u{15}" {
-                pendingSubmittedInputText.removeAll(keepingCapacity: true)
-                continue
-            }
-            guard character.isTerminalPrintableGrapheme else {
-                continue
-            }
-            pendingSubmittedInputText.append(character)
-            trimPendingSubmittedInputTextIfNeeded()
-        }
-        return didSubmit
-    }
-
-    @discardableResult
-    private func captureSubmittedCommandTextIfNeeded() -> Bool {
-        defer {
-            pendingSubmittedInputText.removeAll(keepingCapacity: true)
-        }
-        guard let body = TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText) else {
-            lastSubmittedCommandText = nil
+        let submitted = submittedCommandRecorder.consume(text)
+        guard let body = submitted.last else {
             return false
         }
         lastSubmittedCommandText = body
         return true
-    }
-
-    private func trimPendingSubmittedInputTextIfNeeded() {
-        let maxCharacters = AppConstants.Notifications.commandInputCaptureMaxCharacters
-        guard pendingSubmittedInputText.count > maxCharacters else {
-            return
-        }
-        let startIndex = pendingSubmittedInputText.index(
-            pendingSubmittedInputText.endIndex,
-            offsetBy: -maxCharacters
-        )
-        pendingSubmittedInputText = String(pendingSubmittedInputText[startIndex...])
     }
 
     private func recordKeyboardSelectionInputStartIfNeeded(for text: String) {
