@@ -1323,7 +1323,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
         XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
         XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n        }"))
+        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n            onCommandProgress?(.userDidInteract)\n        }"))
     }
 
     func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
@@ -1495,11 +1495,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        // Schema 19 added `terminal.uiTextScalePercent` and
-        // `terminal.commandProgressIndicatorEnabled`. Asserted against the value
-        // rather than against the text of its declaration, so a reformat of
-        // SettingsDefaults cannot fail a test about the menu.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        // Schema 20 added `terminal.menuBarExtraEnabled`. Asserted against the
+        // value rather than against the text of its declaration, so a reformat
+        // of SettingsDefaults cannot fail a test about the menu.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -2468,17 +2467,17 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let readmeSource = try readmeSource()
         let releaseWorkflowSource = try workflowSource(named: "release")
         let agentsSource = try agentsSource()
-        let versionSource = try versionSource()
-        let releaseVersion = versionSource.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        XCTAssertTrue(versionSource.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9.-]+\n?$"#, options: .regularExpression) != nil)
-        XCTAssertTrue(installSource.contains("VERSION_FILE=\"$ROOT_DIR/VERSION\""))
-        XCTAssertTrue(installSource.contains("VERSION=\"$(tr -d '[:space:]' < \"$VERSION_FILE\")\""))
+        // The version comes from the tag now, so there is no file to pin and no
+        // release number to keep out of the README.
+        XCTAssertTrue(installSource.contains("source \"$ROOT_DIR/scripts/version.sh\""))
+        XCTAssertTrue(installSource.contains("VERSION=\"$(kurotty_resolve_version"))
+        XCTAssertTrue(packageSource.contains("VERSION=\"$(kurotty_resolve_version"))
         XCTAssertTrue(installSource.contains("<string>$VERSION</string>"))
         XCTAssertTrue(packageSource.contains("BUILD_ARCHES=(arm64 x86_64)"))
         XCTAssertTrue(packageSource.contains("STRIP_TOOL=\"${STRIP_TOOL:-strip}\""))
-        XCTAssertTrue(packageSource.contains("VERSION_FILE=\"$ROOT_DIR/VERSION\""))
-        XCTAssertTrue(packageSource.contains(#"VERSION="${1:-$(tr -d '[:space:]' < "$VERSION_FILE")}""#))
+        // The version-file lines they pinned are gone; ReleaseVersionResolutionTests
+        // runs scripts/version.sh for real instead of matching its text.
+        XCTAssertTrue(packageSource.contains("source \"$ROOT_DIR/scripts/version.sh\""))
         XCTAssertTrue(packageSource.contains("source \"$ROOT_DIR/scripts/iconset.sh\""))
         XCTAssertTrue(packageSource.contains("swift build -c release --triple \"$triple\" --scratch-path \"$scratch_path\""))
         XCTAssertTrue(packageSource.contains("\"$STRIP_TOOL\" -x \"$zig_prefix/lib/libkurotty_core.dylib\""))
@@ -2501,7 +2500,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("hdiutil create"))
         XCTAssertTrue(packageSource.contains("hdiutil attach"))
         XCTAssertTrue(packageSource.contains("ln -s /Applications \"$DMG_ROOT/Applications\""))
-        XCTAssertTrue(packageSource.contains("hdiutil detach"))
+        // Detaching moved into scripts/dmg-style.sh, which retries before it
+        // forces: Finder can still hold the styled volume for a moment.
+        XCTAssertTrue(packageSource.contains("detach_kurotty_dmg"))
         XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --options runtime --sign \"$SIGN_IDENTITY\" \"$APP_BUNDLE\""))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
@@ -2529,7 +2530,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
         XCTAssertFalse(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
         XCTAssertFalse(readmeSource.contains("git tag \"v$(cat VERSION)\""))
-        XCTAssertFalse(readmeSource.contains(releaseVersion))
 
         XCTAssertTrue(releaseWorkflowSource.contains("on:"))
         XCTAssertTrue(releaseWorkflowSource.contains("tags:"))
@@ -2549,7 +2549,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(releaseWorkflowSource.contains("KUROTTY_SPARKLE_PRIVATE_KEY: ${{ secrets.KUROTTY_SPARKLE_PRIVATE_KEY }}"))
         XCTAssertTrue(releaseWorkflowSource.contains("softprops/action-gh-release"))
 
-        XCTAssertTrue(agentsSource.contains("`VERSION` is the single source of truth"))
+        XCTAssertTrue(agentsSource.contains("The git tag is the single source of truth"))
         XCTAssertTrue(agentsSource.contains("Do not hardcode future release numbers"))
         XCTAssertTrue(agentsSource.contains("stable direct-download alias `kurotty-macos-universal.dmg`"))
         XCTAssertTrue(agentsSource.contains("The installed app About panel must display the bundle `Info.plist` version"))
@@ -3128,12 +3128,6 @@ private func workflowSource(named name: String) throws -> String {
 private func agentsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("AGENTS.md")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func versionSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("VERSION")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

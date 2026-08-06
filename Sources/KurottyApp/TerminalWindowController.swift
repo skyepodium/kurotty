@@ -790,19 +790,27 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             // Everything but the "panel is open" state comes from the theme, so
             // press and focus follow the light ramp under a light theme.
             button.applyChromeTheme(chromeTheme)
-            button.normalTintColor = isOpen
-                ? chromeTheme.activeIndicator.withAlphaComponent(
-                    DesignTokens.Component.sidebarToggleActiveTintAlphaRATIO
-                )
-                : chromeTheme.textSecondary
+            // The glyph is drawn at full accent strength, not faded: it sits on
+            // a wash of its own hue, and a tint weakened toward that wash stops
+            // separating from it -- the open toggle read as an empty blue box.
+            button.normalTintColor = isOpen ? chromeTheme.activeIndicator : chromeTheme.textSecondary
             button.normalBackgroundColor = isOpen
                 ? chromeTheme.activeIndicator.withAlphaComponent(
                     DesignTokens.Component.sidebarToggleActiveFillAlphaRATIO
                 )
                 : .clear
-            button.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
-                DesignTokens.Component.terminalTabButtonHoverAlphaRATIO
-            )
+            // Hover on a closed toggle stays the theme's achromatic wash, which
+            // `applyChromeTheme` already installed: DesignTokens keeps hover
+            // achromatic and selection chromatic precisely so the two cannot be
+            // confused, and overriding it with the accent broke that rule. An
+            // open toggle deepens its existing wash instead -- same hue, one
+            // step stronger -- because it is already selected, so there is
+            // nothing left to confuse it with.
+            if isOpen {
+                button.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
+                    DesignTokens.Component.sidebarToggleActiveHoverFillAlphaRATIO
+                )
+            }
         }
     }
 

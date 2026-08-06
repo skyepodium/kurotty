@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 19
+    public static let schemaVersion = 20
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. A 2px bar across the top edge of each
     /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
@@ -27,6 +27,16 @@ public enum SettingsDefaults {
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
     public static let statusBarEnabled = true
+    /// Live-applied and **off** by default. Every other chrome switch defaults
+    /// on because the surface it governs lives inside Kurotty's own window,
+    /// where the app is entitled to spend the space. The system menu bar is
+    /// not Kurotty's space: it is shared, finite, and already contested by
+    /// everything else the user runs. Kurotty is also a normal Dock app rather
+    /// than an `LSUIElement` agent, so every row the extra offers — open,
+    /// settings, update check, quit — is already reachable from the Dock icon
+    /// and the main menu bar. Nothing is unreachable while this is off, which
+    /// is what makes off the honest default for a slot we are only borrowing.
+    public static let menuBarExtraEnabled = false
     /// Launch-only and on by default. Restoring stored scrollback only repaints
     /// the screen model; it never writes to a PTY and never runs a command, so
     /// it stays separate from the command-replay opt-in.

@@ -253,9 +253,83 @@ final class TerminalStatusBarAgentHistoryView: NSView {
     }()
 }
 
+// MARK: - Rate-limit quota
+
+/// Quota-segment popover: the same meters the sidebar section shows, one per
+/// live window, plus a plain line for each agent that records no quota on disk.
+///
+/// The "not reported" lines exist only here, not in the bar and not in the
+/// sidebar section, because they answer a question the user asks once ("why is
+/// Claude missing?") and would otherwise be permanent chrome.
+@MainActor
+final class TerminalStatusBarQuotaView: NSView {
+    private let theme: DesignTokens.ChromeTheme
+
+    init(summary: AgentRateLimitQuotaSummary, now: Date, theme: DesignTokens.ChromeTheme) {
+        self.theme = theme
+        super.init(frame: .zero)
+        configure(summary: summary, now: now)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    private func configure(summary: AgentRateLimitQuotaSummary, now: Date) {
+        let stackView = NSStackView()
+        stackView.orientation = .vertical
+        stackView.alignment = .leading
+        stackView.spacing = DesignTokens.Component.AgentQuota.sectionRowGapPX
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stackView)
+
+        stackView.addArrangedSubview(TerminalStatusBarPopoverText.header(
+            AppLocalization.string(.statusBarQuotaTitle),
+            theme: theme
+        ))
+
+        for entry in summary.entries {
+            guard entry.isReported else {
+                stackView.addArrangedSubview(TerminalStatusBarPopoverText.secondary(
+                    AgentRateLimitQuotaCopy.notReportedSummary(agent: entry.agent),
+                    theme: theme
+                ))
+                continue
+            }
+            for window in entry.windows {
+                let row = AgentQuotaMeterRowView(frame: .zero)
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.update(agent: entry.agent, window: window, now: now, theme: theme)
+                stackView.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            }
+        }
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.popoverWidthPX),
+            stackView.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
+            ),
+            stackView.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
+            ),
+            stackView.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: DesignTokens.Component.StatusBar.popoverInsetPX
+            ),
+            stackView.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: -DesignTokens.Component.StatusBar.popoverInsetPX
+            ),
+        ])
+    }
+}
+
 // MARK: - Shared popover text
 
-/// Label factories so the two popovers stay typographically identical.
+/// Label factories so the popovers stay typographically identical.
 @MainActor
 enum TerminalStatusBarPopoverText {
     static func header(_ text: String, theme: DesignTokens.ChromeTheme) -> NSTextField {

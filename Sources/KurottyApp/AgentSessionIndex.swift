@@ -86,6 +86,11 @@ struct AgentSessionRecord: Equatable, Sendable {
     /// transcript carried no token accounting; its `limit` is separately nil
     /// when neither the transcript nor the model name yields a window.
     let contextForecast: AgentContextForecast
+    /// The account-wide rate-limit windows this session last observed, when the
+    /// agent records them. Nil for every Claude Code session, which is a fact
+    /// about Claude Code rather than about the session; see
+    /// `AgentRateLimitQuota`.
+    let rateLimitQuota: AgentRateLimitQuota?
 
     init(
         agent: AgentSessionKind,
@@ -101,7 +106,8 @@ struct AgentSessionRecord: Equatable, Sendable {
         lastUserPrompt: String? = nil,
         filePath: String,
         tokenUsage: AgentTokenUsage = .zero,
-        contextForecast: AgentContextForecast = .unknown
+        contextForecast: AgentContextForecast = .unknown,
+        rateLimitQuota: AgentRateLimitQuota? = nil
     ) {
         self.agent = agent
         self.sessionID = sessionID
@@ -117,6 +123,7 @@ struct AgentSessionRecord: Equatable, Sendable {
         self.filePath = filePath
         self.tokenUsage = tokenUsage
         self.contextForecast = contextForecast
+        self.rateLimitQuota = rateLimitQuota
     }
 }
 

@@ -2,7 +2,7 @@ import AppKit
 import KurottyCore
 import QuartzCore
 
-/// The 2px bar across the top edge of a pane's terminal that says a command is
+/// The bar across the top edge of a pane's terminal that says a command is
 /// still running.
 ///
 /// Per pane, never per window: in a split, one busy pane must not imply the
@@ -26,6 +26,9 @@ final class TerminalCommandProgressBarView: NSView {
         ),
         failureLingerSeconds: DesignTokens.Motion.seconds(
             fromMS: DesignTokens.Motion.commandProgressFailureLingerMS
+        ),
+        sweepCeilingSeconds: DesignTokens.Motion.seconds(
+            fromMS: DesignTokens.Motion.commandProgressSweepCeilingMS
         )
     )
     private var presentation: TerminalCommandProgressPresentation?
@@ -100,6 +103,10 @@ final class TerminalCommandProgressBarView: NSView {
             policy.didReceive(report)
         case .commandEnded(let exitCode):
             policy.commandDidEnd(exitCode: exitCode, at: now)
+        case .alternateScreenEntered:
+            policy.alternateScreenDidActivate()
+        case .userDidInteract:
+            policy.userDidInteract()
         }
         refresh()
     }
@@ -189,15 +196,16 @@ final class TerminalCommandProgressBarView: NSView {
             applyDeterminateFill(fraction: fraction)
             setAccessibilityValue(fraction)
         case .indeterminate:
-            applyIndeterminateFill(tone: presentation.tone)
+            applyIndeterminateFill(motion: presentation.motion)
             setAccessibilityValue(nil)
         }
     }
 
-    /// A paused command is not moving, so its bar must not either: the sweep is
-    /// the claim "work is happening", and pausing withdraws exactly that claim.
-    private func applyIndeterminateFill(tone: TerminalCommandProgressPresentation.Tone) {
-        guard !prefersReducedMotion, tone != .paused else {
+    /// The policy decides whether the bar has anything to animate about; this
+    /// view only adds the accessibility setting, which the policy has no
+    /// business reading.
+    private func applyIndeterminateFill(motion: TerminalCommandProgressPresentation.Motion) {
+        guard !prefersReducedMotion, motion == .sweeping else {
             applyStaticIndeterminateFill()
             return
         }
@@ -221,9 +229,12 @@ final class TerminalCommandProgressBarView: NSView {
         )
     }
 
-    /// Reduced motion — and a paused command — get a full-width bar at a
-    /// quieter alpha instead of the sweep. Still honest: "something is running,
-    /// nobody said how far along", with no movement to make.
+    /// Every still indeterminate bar — reduced motion, a paused command, a
+    /// sweep past its ceiling — gets a full-width bar at a quieter alpha
+    /// instead. Still honest: "something is running, nobody said how far
+    /// along", with no movement to make. One presentation for all three so the
+    /// ceiling introduces no new visual state, and so a reduced-motion user
+    /// sees nothing change when it fires.
     private func applyStaticIndeterminateFill() {
         stopSweep()
         fillLayer.opacity = Float(DesignTokens.Component.commandProgressReducedMotionAlphaRATIO)

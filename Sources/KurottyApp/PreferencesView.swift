@@ -134,6 +134,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(commandProgressToggled(_:))
     )
+    lazy var menuBarExtraCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(menuBarExtraToggled(_:))
+    )
     lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
@@ -244,6 +249,13 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             },
             navDivider.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             navDivider.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // An `NSBox` separator only knows its own thickness along the axis
+            // AppKit can infer, and for a vertical rule it cannot: with only a
+            // leading edge pinned and the scroll view hung off its trailing
+            // edge, this box absorbed every spare point. In a wide tab it grew
+            // past a thousand points, which is what pushed the settings content
+            // to the far right and left a dead band beside the nav.
+            navDivider.widthAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX),
 
             detailScrollView.leadingAnchor.constraint(equalTo: navDivider.trailingAnchor),
             detailScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -585,6 +597,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    /// Live-applied: the icon appears in or leaves the menu bar as soon as the
+    /// change lands, so the checkbox is its own preview.
+    @objc private func menuBarExtraToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.menuBarExtraEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func confirmMultilinePasteToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.confirmMultilinePaste = sender.state == .on
@@ -725,6 +745,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         confirmCloseCheckbox.state = settings.terminal.confirmCloseRunningProcess ? .on : .off
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
         commandProgressCheckbox.state = settings.terminal.commandProgressIndicatorEnabled ? .on : .off
+        menuBarExtraCheckbox.state = settings.terminal.menuBarExtraEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off

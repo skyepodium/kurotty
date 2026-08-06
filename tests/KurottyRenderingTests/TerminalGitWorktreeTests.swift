@@ -533,7 +533,8 @@ final class TerminalGitWorktreeTests: XCTestCase {
         let agentSegment = try XCTUnwrap(segments.compactMap { $0 as? TerminalStatusBarAgentSegmentView }.first)
         let resourceSegment = try XCTUnwrap(segments.compactMap { $0 as? TerminalStatusBarResourceSegmentView }.first)
 
-        XCTAssertEqual(segments.count, 3)
+        // Agent, worktree, quota, resource usage.
+        XCTAssertEqual(segments.count, 4)
         XCTAssertGreaterThanOrEqual(worktreeSegment.frame.minX, agentSegment.frame.maxX)
         XCTAssertLessThanOrEqual(worktreeSegment.frame.maxX, resourceSegment.frame.minX)
     }

@@ -41,7 +41,7 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - OSC title, working-directory, color query, and terminal-generated notifications.
 - Local tmux control-mode integration: `tmux -CC` windows become native tabs and panes become native splits.
 - Sidebar panels for command history, the file explorer, and stored coding-agent sessions, plus a Command Palette and a status bar.
-- First-class support for working alongside Claude Code and Codex: live agent status, a session vault, token and context accounting, per-file change provenance, and git worktree awareness. See [Working With Coding Agents](#working-with-coding-agents).
+- First-class support for working alongside Claude Code and Codex: live agent status, a session vault, token, context, and rate-limit accounting, per-file change provenance, and git worktree awareness. See [Working With Coding Agents](#working-with-coding-agents).
 
 ### tmux
 
@@ -132,6 +132,14 @@ The context meter answers "how much room is left in this session", and each half
 - "About N turns left" is an estimate and is marked as one. It appears only when at least five growth steps were observed, and uses the median rather than the mean, because a bounded head/tail read contributes one enormous bogus step at the seam and a compacted session contributes negative ones. A turn here is one model request, not one thing you typed: a single prompt that runs a dozen tools spends a dozen of them.
 
 The usage strip above the session list shows a token total for today and a bar per day over a trailing window. It credits a whole session to the day it was last updated, which is coarse on purpose: attributing a long session across midnight would mean re-reading every transcript to move a bar by a few percent.
+
+### Rate-limit quota
+
+Above that strip, a quota section answers a different question: not what you spent, but how much of your plan's allowance is gone and when it comes back. Each live window gets a meter — `Codex 5h · Resets in 4h 12m` over a filled track — and the fullest window across every agent is condensed into the bottom status bar, where clicking it opens the same meters.
+
+The same rule as everywhere else in this feature applies: the numbers are whatever the agent wrote to disk, and nothing else. Codex records `rate_limits` beside every token event, so its quota costs no extra work — it comes off lines Kurotty was already reading. **Claude Code records no rate-limit information anywhere on disk.** Those numbers live behind your Claude account's OAuth credentials, and Kurotty does not read your credentials and does not contact Anthropic on your behalf, so a Claude row reports "does not record rate limits on disk" rather than a guess. That is a deliberate limitation, not an oversight: reading another application's stored token to make a network call is a different kind of program than the local, read-only one Kurotty's agent surfaces are.
+
+A window is named by the duration the agent reported — `5h`, `7d` — rather than sorted into a fixed set of buckets, so a plan whose windows Kurotty has never seen still gets an exact label. Readings whose reset has already passed are dropped rather than shown, because most stored transcripts describe a window that rolled over long ago.
 
 ### Which files the agent changed
 

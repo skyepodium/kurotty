@@ -80,6 +80,34 @@ enum Icon {
             .applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
         return image.withSymbolConfiguration(configuration)
     }
+
+    /// An untinted template symbol, for surfaces macOS colors itself.
+    ///
+    /// Deliberately not an overload of `symbol(_:_:tint:)`: applying
+    /// `paletteColors` bakes a color into the artwork and clears the template
+    /// flag, which is the usual way a menu-bar glyph ends up invisible on half
+    /// the menu bars it lands on. A template image is a mask instead, so the
+    /// system fills it dark on a light bar, light on a dark one, and inverts it
+    /// again while the item is held open. Every other chrome surface in Kurotty
+    /// paints its own background and therefore wants the tinted call; this one
+    /// sits on a background it does not own.
+    static func templateSymbol(
+        _ name: String,
+        pointSizePT: CGFloat,
+        weight: NSFont.Weight,
+        accessibilityDescription: String? = nil
+    ) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityDescription),
+              let configured = image.withSymbolConfiguration(
+                  NSImage.SymbolConfiguration(pointSize: pointSizePT, weight: weight)
+              )
+        else { return nil }
+        // Set rather than assumed: `NSImage(systemSymbolName:)` yields a
+        // template, but `withSymbolConfiguration` returns a fresh image and the
+        // flag is the whole contract this function exists to provide.
+        configured.isTemplate = true
+        return configured
+    }
 }
 
 /// SF Symbol names used by the surfaces in this design pass. Keeping the raw
@@ -115,6 +143,15 @@ enum IconSymbol {
     // MARK: Empty states
     static let commandHistoryEmptyState = "clock.arrow.circlepath"
     static let agentSessionEmptyState = "bubble.left.and.text.bubble.right"
+
+    // MARK: Menu bar
+    /// The menu-bar extra's mark. Drawn from the same SF Symbol vocabulary as
+    /// the rest of the chrome rather than from the app icon: the icon is a
+    /// full-color cat photograph, and a template image is a mask, so the cat
+    /// would arrive in the menu bar as a solid silhouette. `terminal` is the
+    /// system's own glyph for what this app is, which is what a monochrome mark
+    /// at menu-bar size can still say.
+    static let menuBarExtra = "terminal"
 
     // MARK: Status bar
     static let memory = "memorychip"
