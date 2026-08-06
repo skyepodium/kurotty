@@ -547,6 +547,7 @@ struct AppSettingsNormalizer {
             // the key carries no user intent. Migrated files land on the current
             // default; from schema 18 on, an explicit mode is preserved.
             next.terminal.closeOnChildExit = SettingsDefaults.closeOnChildExit
+        }
         if sourceSchemaVersion < Migration.commandFinishNotificationSchemaVersion {
             // Settings written before schema 18 predate the command-finish
             // filter, so the keys carry no user intent. Migrated files land on
