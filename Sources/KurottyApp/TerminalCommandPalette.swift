@@ -336,6 +336,8 @@ private extension TerminalCommandCategory {
             return "Panes"
         case .navigation:
             return "Navigation"
+        case .appearance:
+            return "Appearance"
         case .tmux:
             return "Tmux"
         }

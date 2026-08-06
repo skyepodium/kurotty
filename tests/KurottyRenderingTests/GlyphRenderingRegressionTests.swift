@@ -864,7 +864,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let source = try terminalMetalViewSource()
 
         XCTAssertTrue(source.contains("private var debugOverlayInstanceBuffer: MTLBuffer?"))
-        XCTAssertTrue(source.contains("private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect])"))
+        XCTAssertTrue(source.contains("private func makeDebugOverlayInstances(glyphDebugRects: [CGRect]) -> [GlyphInstance]"))
         XCTAssertTrue(source.contains("diagnosticCellBoundaryOverlayEnabled"))
         XCTAssertTrue(source.contains("diagnosticBaselineOverlayEnabled"))
         XCTAssertTrue(source.contains("diagnosticGlyphQuadOverlayEnabled"))
@@ -1168,16 +1168,16 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
     func testPerFrameMetalInstanceBuffersReuseStorageWhenByteLengthIsStable() throws {
         let metalSource = try terminalMetalViewSource()
-        let atlasBufferSource = try functionBody(named: "rebuildAtlasBuffers", in: metalSource)
+        let uploadSource = try functionBody(named: "uploadPendingInstanceBuffersIfNeeded", in: metalSource)
 
         XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T])"))
         XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&atlasInstanceBuffer, with: instances)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&decorationInstanceBuffer, with: decorations)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)"))
-        XCTAssertTrue(atlasBufferSource.contains("updateSharedBuffer(&uniformsBuffer, with: &uniforms)"))
-        XCTAssertFalse(atlasBufferSource.contains("makeBuffer(bytes:"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.glyph, with: payload.glyphs)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.background, with: payload.backgrounds)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.decoration, with: payload.decorations)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.cursor, with: &cursor)"))
+        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.uniforms, with: &uniforms)"))
+        XCTAssertFalse(uploadSource.contains("makeBuffer(bytes:"))
     }
 
     func testMetalViewSkipsAtlasBufferRebuildWhenRenderInputsAreUnchanged() throws {
@@ -1286,50 +1286,21 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("scrollRegionTop == 0 && scrollRegionBottom == screen.rows - 1"))
     }
 
-    func testNativeScrollerReflectsTerminalScrollbackOffset() throws {
+    /// The indicator's own behaviour — one view in the strip, thumb geometry,
+    /// idle fade, theming, cursor — is covered for real in
+    /// `TerminalScrollIndicatorTests`. What is left here is the surface view's
+    /// half of the contract: that it computes a scrollback range and hands it to
+    /// the coordinator.
+    func testTerminalSurfaceViewDrivesTheScrollbackIndicator() throws {
         let source = try terminalSurfaceViewSource()
-        let coordinatorSource = try terminalScrollIndicatorCoordinatorSource()
-        let tokens = try String(
-            contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift"),
-            encoding: .utf8
-        )
-        let thumbSource = try scrollIndicatorThumbViewSource()
 
         XCTAssertTrue(source.contains("private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator"))
         XCTAssertTrue(source.contains("scrollIndicatorCoordinator.install(in: self)"))
-        XCTAssertTrue(coordinatorSource.contains("private let scroller = NSScroller(frame: .zero)"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.target = self"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.action = #selector(scrollerDidChange(_:))"))
-        XCTAssertTrue(coordinatorSource.contains("@objc private func scrollerDidChange(_ sender: NSScroller)"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion"))
         XCTAssertTrue(source.contains("let maxOffset = maxScrollbackOffset()"))
         XCTAssertTrue(source.contains("private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int"))
         XCTAssertTrue(source.contains("return max(0, contentRowCount - visibleCount)"))
-        XCTAssertTrue(coordinatorSource.contains("let contentRows = visibleRows + maxScrollbackOffset"))
-        XCTAssertTrue(coordinatorSource.contains("let proportionalKnob = CGFloat(visibleRows) / CGFloat(contentRows)"))
-        XCTAssertTrue(coordinatorSource.contains("let minimumHeightKnob = DesignTokens.Component.terminalScrollerMinThumbHeightPX / trackHeight"))
-        XCTAssertTrue(coordinatorSource.contains("DesignTokens.Component.terminalScrollerMinKnobProportion"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.knobProportion = knobProportion"))
-        XCTAssertTrue(coordinatorSource.contains("scroller.doubleValue = max(0, min(1, 1 - CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
-        XCTAssertTrue(coordinatorSource.contains("private let thumbView = ScrollIndicatorThumbView(frame: .zero)"))
-        XCTAssertTrue(thumbSource.contains("private func updateAppearance()"))
-        XCTAssertTrue(thumbSource.contains("color = DesignTokens.Color.scrollerThumb"))
-        XCTAssertTrue(coordinatorSource.contains("let normalizedOffset = max(CGFloat.zero, min(CGFloat(1), CGFloat(scrollbackOffset) / CGFloat(maxScrollbackOffset)))"))
-        XCTAssertTrue(coordinatorSource.contains("thumbView.frame = NSRect("))
         XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
-        XCTAssertTrue(coordinatorSource.contains("thumbView.onDragNormalizedOffset = { [weak self] normalizedOffset in"))
         XCTAssertTrue(source.contains("private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat)"))
-        XCTAssertTrue(thumbSource.contains("override func mouseDragged(with event: NSEvent)"))
-        XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbHover"))
-        XCTAssertTrue(thumbSource.contains("DesignTokens.Color.scrollerThumbActive"))
-        XCTAssertTrue(tokens.contains("terminalScrollerWidthPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerThumbWidthPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerMinThumbHeightPX"))
-        XCTAssertTrue(tokens.contains("terminalScrollerMinKnobProportion"))
-        XCTAssertTrue(tokens.contains("scrollerThumb"))
-        XCTAssertTrue(tokens.contains("scrollerThumbHover"))
-        XCTAssertTrue(tokens.contains("scrollerThumbActive"))
     }
 
     func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
@@ -1470,7 +1441,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
             return XCTFail("missing child-exit handler boundaries")
         }
         let handler = shellSource[handlerRange.lowerBound..<nextFunctionRange.lowerBound]
-        guard let drainRange = handler.range(of: "drainOutput(master)"),
+        guard let drainRange = handler.range(of: "drainOutput(master, mode: .final)"),
               let exitRange = handler.range(of: "self?.onExit?(exitStatus)")
         else {
             return XCTFail("child exit must drain final PTY output before notifying observers")
@@ -1501,13 +1472,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("private var pendingInput = Data()"))
         XCTAssertTrue(shellSource.contains("private var pendingInputStartIndex = 0"))
-        XCTAssertTrue(shellSource.contains("private var pendingOutputStartIndex = 0"))
         XCTAssertTrue(shellSource.contains("private var isInputDrainScheduled = false"))
         XCTAssertTrue(shellSource.contains("private func enqueueInput(_ data: Data)"))
         XCTAssertTrue(shellSource.contains("private func drainInput()"))
         XCTAssertTrue(shellSource.contains("private func writeInputChunk(_ fd: Int32) -> Bool"))
         XCTAssertTrue(shellSource.contains("private func compactPendingInputIfNeeded()"))
-        XCTAssertTrue(shellSource.contains("private func compactPendingOutputIfNeeded()"))
+        // Pending output moved to TerminalPendingOutputBuffer, whose retention
+        // and drop accounting are covered by behavioural tests instead.
         XCTAssertTrue(shellSource.contains("readQueue.async { [weak self] in"))
         XCTAssertTrue(shellSource.contains("self?.enqueueInput(data)"))
         XCTAssertTrue(shellSource.contains("scheduleOutputDrain()"))
@@ -1525,9 +1496,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 17 when the running-process close confirmation
-        // was added.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 17"))
+        // Re-pointed at schema 18, which added `terminal.closeOnChildExit`,
+        // the command-finish notification keys, and the agent hook consent
+        // record.
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 18"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -1727,18 +1699,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Reload\""))
     }
 
-    func testPreferencesWindowIsCenteredActivatedAndBroughtToFront() throws {
-        let delegateSource = try appDelegateSource()
-        let controllerSource = try preferencesWindowControllerSource()
-        let preferencesSource = try preferencesViewSource()
-
-        XCTAssertTrue(delegateSource.contains("NSApp.activate(ignoringOtherApps: true)"))
-        XCTAssertTrue(delegateSource.contains("controller.window?.makeKeyAndOrderFront(nil)"))
-        XCTAssertTrue(controllerSource.contains("window.center()"))
-        XCTAssertFalse(preferencesSource.contains("button.widthAnchor.constraint(equalTo: categoryStack.widthAnchor)"))
-        XCTAssertFalse(preferencesSource.contains("stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor"))
-        XCTAssertFalse(preferencesSource.contains("NSFontManager.shared.availableFontFamilies"))
-    }
+    // The settings window this file used to assert on (centered, activated,
+    // brought to front) no longer exists: settings is a center tab, and
+    // `PreferencesSettingsTabTests` covers opening and revealing it for real.
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
@@ -1842,7 +1805,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("onClose: { [weak self] in self?.closeTab(at: index) }"))
         XCTAssertTrue(windowSource.contains("private func selectTab(at index: Int)"))
         XCTAssertTrue(windowSource.contains("private func closeTab(at index: Int)"))
-        XCTAssertTrue(windowSource.contains("if closeButton.frame.contains(location)"))
+        XCTAssertTrue(windowSource.contains("closeButtonAlpha: closeButton.alphaValue"))
         XCTAssertTrue(windowSource.contains("onClose()"))
         XCTAssertTrue(windowSource.contains("return"))
         XCTAssertTrue(windowSource.contains("@objc private func newTabButtonPressed(_ sender: NSButton)"))
@@ -2215,12 +2178,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("override func mouseMoved(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains("override func flagsChanged(with event: NSEvent)"))
         XCTAssertTrue(surfaceSource.contains(".mouseMoved"))
-        XCTAssertFalse(surfaceSource.contains("guard event.modifierFlags.contains(.command) else"))
-        XCTAssertFalse(surfaceSource.contains("event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
+        // Link activation now requires Cmd so plain clicks and drags keep
+        // reaching selection; the modifier is what makes a link swallow a click.
+        XCTAssertTrue(surfaceSource.contains("if event.modifierFlags.contains(.command), let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("if reportTerminalMouseEvent(.press(.left), with: event)"))
         XCTAssertTrue(interpreterSource.contains("mouseReportingState.set(decPrivateMode: value, enabled: enabled)"))
         XCTAssertTrue(surfaceSource.contains("!event.modifierFlags.contains(.shift)"))
-        XCTAssertTrue(surfaceSource.contains("if let link = linkRange(at: position)"))
         XCTAssertTrue(surfaceSource.contains("let linkRanges = visibleLinkRanges("))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
@@ -2308,20 +2271,20 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         let appDelegateSource = try appDelegateSource()
         let readmeSource = try readmeSource()
 
-        XCTAssertTrue(shellSource.contains("var onExit: ((Int32) -> Void)?"))
+        XCTAssertTrue(shellSource.contains("var onExit: ((TerminalChildExit) -> Void)?"))
         XCTAssertTrue(shellSource.contains("private var waitSource: DispatchSourceProcess?"))
         XCTAssertTrue(shellSource.contains("DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit"))
         XCTAssertTrue(shellSource.contains("waitpid(pid, &status, WNOHANG)"))
 
         XCTAssertTrue(surfaceSource.contains("private let notifier = TerminalNotifier.shared"))
-        XCTAssertTrue(surfaceSource.contains("private var pendingSubmittedInputText = \"\""))
+        XCTAssertTrue(surfaceSource.contains("private var submittedCommandRecorder = TerminalSubmittedCommandRecorder()"))
         XCTAssertTrue(surfaceSource.contains("private var lastSubmittedCommandText: String?"))
         XCTAssertFalse(surfaceSource.contains("backgroundTask"))
         XCTAssertFalse(surfaceSource.contains("BackgroundTask"))
         XCTAssertTrue(surfaceSource.contains("private func send(_ text: String, recordsUserActivity: Bool = true)"))
         XCTAssertTrue(surfaceSource.contains("recordUserInput(text)"))
         XCTAssertTrue(surfaceSource.contains("recordSubmittedInputText(text)"))
-        XCTAssertTrue(surfaceSource.contains("captureSubmittedCommandTextIfNeeded()"))
+        XCTAssertTrue(surfaceSource.contains("submittedCommandRecorder.consume(text)"))
         XCTAssertFalse(surfaceSource.contains("TerminalBackgroundTaskTrackingPolicy.shouldTrackSubmittedInput("))
         XCTAssertFalse(surfaceSource.contains("recordOutputForBackgroundTask(text)"))
         XCTAssertFalse(surfaceSource.contains("private func appendBackgroundTaskOutputText(_ text: String)"))
@@ -2341,14 +2304,15 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("isApplicationActive: NSApp.isActive"))
         XCTAssertTrue(surfaceSource.contains("isKeyWindow: window?.isKeyWindow == true"))
         XCTAssertTrue(surfaceSource.contains("isFirstResponder: window?.firstResponder === self"))
-        XCTAssertTrue(surfaceSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText)"))
+        let recorderSource = try terminalSubmittedCommandRecorderSource()
+        XCTAssertTrue(recorderSource.contains("TerminalSubmittedCommandSummary.notificationBody(from: pendingText)"))
         XCTAssertFalse(surfaceSource.contains("TerminalBackgroundTaskNotificationContent.make("))
         XCTAssertFalse(surfaceSource.contains("notifier.notifyBackgroundTaskCompleted(content: content)"))
         XCTAssertTrue(interpreterSource.contains("sendTerminalResponse(cursorPositionReport())"))
         XCTAssertTrue(interpreterSource.contains("sendTerminalResponse(response)"))
         XCTAssertFalse(surfaceSource.contains("notifyShellDidExit"))
         XCTAssertTrue(surfaceSource.contains("shell.onExit = { [weak self] status in"))
-        XCTAssertTrue(surfaceSource.contains("self?.tmuxControlModeDriver.transportDidExit(status: status)"))
+        XCTAssertTrue(surfaceSource.contains("transportDidExit(status: status.status.shellExitCode)"))
         XCTAssertTrue(interpreterSource.contains("handleDesktopNotificationEvent(terminalEvent)"))
         XCTAssertTrue(surfaceSource.contains("guard case .desktopNotification(let content) = event"))
         XCTAssertTrue(surfaceSource.contains("content: content.addingFallbackSubtitle(notificationSessionTitle())"))
@@ -2946,6 +2910,12 @@ private func terminalSurfaceViewSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
+private func terminalSubmittedCommandRecorderSource() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/KurottyApp/TerminalSubmittedCommandRecorder.swift")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
 private func terminalOutputInterpreterSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalOutputInterpreter.swift")
@@ -3015,18 +2985,6 @@ private func terminalTextWidthSource() throws -> String {
 private func terminalDiagnosticsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalDiagnostics.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func scrollIndicatorThumbViewSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/ScrollIndicatorThumbView.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalScrollIndicatorCoordinatorSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalScrollIndicatorCoordinator.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -3102,12 +3060,6 @@ private func settingsDefaultsSource() throws -> String {
 private func appConstantsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppConstants.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func preferencesWindowControllerSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/PreferencesWindowController.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

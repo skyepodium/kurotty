@@ -1,10 +1,14 @@
 import Foundation
+import KurottyCore
 
 protocol TerminalSession: AnyObject {
     var onOutput: ((String) -> Void)? { get set }
     var onRawOutput: ((Data) -> Void)? { get set }
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)? { get set }
-    var onExit: ((Int32) -> Void)? { get set }
+    /// Delivered on the main queue once the session's child process is gone.
+    /// Carries the `waitpid(2)` outcome rather than a flattened exit code, so
+    /// the pane can tell "the shell exited 137" from "a signal killed it".
+    var onExit: ((TerminalChildExit) -> Void)? { get set }
 
     func start(workingDirectory requestedWorkingDirectory: String)
     func write(_ text: String)

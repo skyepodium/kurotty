@@ -104,14 +104,21 @@ test "parser handles SGR reset variants and colon color parameters" {
     try std.testing.expectEqualSlices(u16, &.{ 38, 2, 0, 1, 2, 3 }, events[2].csi.params);
 }
 
-test "parser rejects overflowing CSI parameters instead of silently defaulting" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    var parser = core.Parser.init(arena.allocator());
+test "parser clamps overflowing CSI parameters instead of silently defaulting" {
+    // This used to assert `error.Overflow`, to stop an oversized parameter from
+    // silently becoming 0. Clamping keeps that guarantee — 0 is still wrong and
+    // still not what we produce — without failing the whole feed, which dropped
+    // every event in the chunk and, in production, aborted the process.
+    // Deliberately not an arena: an arena's `free` is a no-op, which is what hid
+    // the invalid free on this path for so long.
+    var parser = core.Parser.init(std.testing.allocator);
     defer parser.deinit();
 
-    try std.testing.expectError(error.Overflow, parser.feed("\x1b[999999999999m"));
+    const events = try parser.feed("\x1b[999999999999m");
+    defer parser.freeEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 1), events.len);
+    try std.testing.expectEqualSlices(u16, &.{std.math.maxInt(u16)}, events[0].csi.params);
 }
 
 test "parser preserves private cursor and report CSI sequences across fragments" {
@@ -830,4 +837,36 @@ test "ABI ignores private CSI m sequences for text style" {
     try std.testing.expectEqual(@as(u16, 0), cells[0].attrs);
     try std.testing.expectEqual(core.Color.default, cells[0].fg);
     try std.testing.expectEqual(core.Color.default, cells[0].bg);
+}
+
+test "parser clamps an oversized CSI parameter instead of aborting" {
+    // `\x1b[99999m` overflowed the u16 parameter parse. The overflow was
+    // propagated out of `feed`, whose errdefer then freed a borrowed slice as
+    // if it owned the allocation — an invalid free, reachable from any byte a
+    // child process writes.
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const events = try parser.feed("hello\x1b[99999m world");
+    defer parser.freeEvents(events);
+
+    try std.testing.expectEqual(@as(usize, 3), events.len);
+    try std.testing.expectEqualStrings("hello", events[0].printable.bytes);
+    try std.testing.expectEqual(@as(u8, 'm'), events[1].csi.final);
+    try std.testing.expectEqual(std.math.maxInt(u16), events[1].csi.params[0]);
+    try std.testing.expectEqualStrings(" world", events[2].printable.bytes);
+}
+
+test "parser survives an oversized parameter mid-stream and keeps parsing" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const first = try parser.feed("\x1b[70000;5H");
+    defer parser.freeEvents(first);
+    try std.testing.expectEqual(std.math.maxInt(u16), first[0].csi.params[0]);
+    try std.testing.expectEqual(@as(u16, 5), first[0].csi.params[1]);
+
+    const second = try parser.feed("ok");
+    defer parser.freeEvents(second);
+    try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
 }

@@ -67,6 +67,27 @@ struct TmuxBoundedOutputHistory: Equatable, Sendable {
         )
     }
 
+    /// Releases retained bytes below `offset`.
+    ///
+    /// A consumer that reads forward once (the PTY drain loop) has no use for
+    /// what it already decoded, and holding it would pin the ring at its limit
+    /// forever. Replay consumers simply never call this, so tmux history keeps
+    /// its full window.
+    mutating func discard(before offset: UInt64) {
+        guard offset > startOffset else { return }
+        trimOldestBytes(Int(min(offset, endOffset) - startOffset))
+        guard retainedByteCount > 0 else {
+            // Fully consumed. Release the chunk storage now rather than waiting
+            // for the replay-oriented compaction threshold, so an idle reader
+            // holds no bytes at all. Offsets stay absolute either way.
+            chunks.removeAll(keepingCapacity: true)
+            firstChunkIndex = 0
+            firstChunkByteOffset = 0
+            return
+        }
+        compactConsumedChunksIfNeeded()
+    }
+
     mutating func removeAll() {
         chunks.removeAll(keepingCapacity: true)
         firstChunkIndex = 0

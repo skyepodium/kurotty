@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 final class TmuxPaneSession: TerminalSession, @unchecked Sendable {
     private static let maximumUTF8ScalarBytes = 4
@@ -20,7 +21,7 @@ final class TmuxPaneSession: TerminalSession, @unchecked Sendable {
     }
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-    var onExit: ((Int32) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
 
     private let writeHandler: (String) -> Void
     private let resizeHandler: (Int, Int) -> Void
@@ -138,9 +139,12 @@ final class TmuxPaneSession: TerminalSession, @unchecked Sendable {
         return (prefix, String(decoding: prefix, as: UTF8.self))
     }
 
-    func finish(exitStatus: Int32 = 0) {
+    /// The pane's process lives inside the tmux server, so this session never
+    /// owns a child clock and reports no runtime.
+    func finish(exitStatus: TerminalChildExitStatus = .exited(code: 0)) {
+        let exit = TerminalChildExit(status: exitStatus)
         DispatchQueue.main.async { [weak self] in
-            self?.onExit?(exitStatus)
+            self?.onExit?(exit)
         }
     }
 }

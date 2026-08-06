@@ -47,6 +47,29 @@ enum DesignTokens {
 
         let windowAppearance: NSAppearance?
 
+        // MARK: Scrollback indicator
+        //
+        // The indicator floats over the terminal canvas rather than over chrome,
+        // so it has to be theme-owned like every status hue. The one fixed gray
+        // it used to carry measured 1.37:1 on the light canvas — an indicator
+        // nobody can see — so all three states are derived from the theme's own
+        // primary ink and clear the WCAG non-text floor in both ramps.
+
+        /// Thumb at rest.
+        var scrollerThumb: NSColor {
+            textPrimary.withAlphaComponent(Color.scrollerThumbRestAlphaRATIO)
+        }
+
+        /// Thumb under the pointer.
+        var scrollerThumbHover: NSColor {
+            textPrimary.withAlphaComponent(Color.scrollerThumbHoverAlphaRATIO)
+        }
+
+        /// Thumb while it is being dragged.
+        var scrollerThumbActive: NSColor {
+            textPrimary.withAlphaComponent(Color.scrollerThumbActiveAlphaRATIO)
+        }
+
         // MARK: Legacy role aliases
 
         var windowBackground: NSColor { surfaceCanvas }
@@ -123,6 +146,12 @@ enum DesignTokens {
         static let activeBorderAlphaRATIO: CGFloat = 0.40
         /// Alpha applied to `accent` for the keyboard-focus ring.
         static let focusRingAlphaRATIO: CGFloat = 0.55
+        /// Alphas applied to `textPrimary` for the three scrollback-indicator
+        /// states. The resting value is the floor: below it the thumb stops
+        /// clearing 3:1 against the canvas and the indicator reads as a smudge.
+        static let scrollerThumbRestAlphaRATIO: CGFloat = 0.50
+        static let scrollerThumbHoverAlphaRATIO: CGFloat = 0.65
+        static let scrollerThumbActiveAlphaRATIO: CGFloat = 0.80
 
         /// Dark ramp. Hex values are sRGB and are built with
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
@@ -136,7 +165,10 @@ enum DesignTokens {
             static let borderStrong = NSColor.designTokenSRGB(0x3A_3F_49)
             static let textPrimary = NSColor.designTokenSRGB(0xE6_E8_EC)
             static let textSecondary = NSColor.designTokenSRGB(0xA6_AD_BB)
-            static let textTertiary = NSColor.designTokenSRGB(0x7B_82_8F)
+            /// Lightened from `#7B828F`, which measured 3.73:1 on
+            /// `surfaceRaised` — the selected tab — and so missed the AA 4.5
+            /// floor exactly where a tab title has to be read.
+            static let textTertiary = NSColor.designTokenSRGB(0x8B_92_9F)
             static let accent = NSColor.designTokenSRGB(0x5B_9D_FF)
             static let success = NSColor.designTokenSRGB(0x4A_DE_80)
             static let warning = NSColor.designTokenSRGB(0xF5_B8_40)
@@ -164,7 +196,11 @@ enum DesignTokens {
             static let borderStrong = NSColor.designTokenSRGB(0xC3_C7_CE)
             static let textPrimary = NSColor.designTokenSRGB(0x1C_1E_22)
             static let textSecondary = NSColor.designTokenSRGB(0x5A_61_6B)
-            static let textTertiary = NSColor.designTokenSRGB(0x7C_83_8E)
+            /// Darkened from `#7C838E`, which topped out at 3.82:1 on white and
+            /// fell to 3.41:1 on `surfaceChrome`. Light chrome has no room to
+            /// spend on a quiet rank: this is the lightest value that still
+            /// clears AA 4.5 on every light surface.
+            static let textTertiary = NSColor.designTokenSRGB(0x67_6E_79)
             static let accent = NSColor.designTokenSRGB(0x0B_62_E4)
             static let success = NSColor.designTokenSRGB(0x17_72_45)
             static let warning = NSColor.designTokenSRGB(0x8A_53_00)
@@ -186,9 +222,6 @@ enum DesignTokens {
         static let paneDropTargetBackground = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.08)
         static let inputStatusBackground = Dark.surfaceRaised
         static let cyanTerminalAccent = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
-        static let scrollerThumb = NSColor(srgbRed: 207.0 / 255.0, green: 207.0 / 255.0, blue: 207.0 / 255.0, alpha: 0.72)
-        static let scrollerThumbHover = NSColor(srgbRed: 176.0 / 255.0, green: 176.0 / 255.0, blue: 176.0 / 255.0, alpha: 0.88)
-        static let scrollerThumbActive = NSColor(srgbRed: 138.0 / 255.0, green: 138.0 / 255.0, blue: 138.0 / 255.0, alpha: 0.96)
 
         // MARK: Dark-ramp aliases for chrome that has no theme at the call site
 
@@ -354,6 +387,10 @@ enum DesignTokens {
         static let prefsCaption = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
 
         static let terminalFontSizePT: CGFloat = 15
+        /// One ⌘+ / ⌘- press. Against the 8...48 bounds this gives 40 steps,
+        /// fine enough that a single press reads as an adjustment rather than
+        /// a jump.
+        static let terminalFontZoomStepPT: Double = 1
         static let codeEditorFontSizePT: CGFloat = 13
         static let codeEditorGutterFontSizePT: CGFloat = 11
     }
@@ -428,6 +465,13 @@ enum DesignTokens {
         static let disclosureRotationDurationMS = 150
         /// Full status-bar value crossfade (out + in).
         static let statusValueCrossfadeDurationMS = 120
+        /// Scrollback indicator idle fade. The one chrome fade that is not
+        /// optional: the indicator is an overlay on top of terminal output, so
+        /// an indicator that never leaves is a permanent stripe over the last
+        /// column of every line. Long enough that a paused reader still sees
+        /// where they are, short enough that it is gone before they read on.
+        static let scrollIndicatorIdleDelayMS = 900
+        static let scrollIndicatorFadeDurationMS = 220
 
         static let disclosureCollapsedRotationDegrees: CGFloat = 0
         static let disclosureExpandedRotationDegrees: CGFloat = 90
@@ -486,17 +530,17 @@ enum DesignTokens {
 
         static let commandPaletteWidthPX: CGFloat = 680
         static let commandPaletteHeightPX: CGFloat = 500
-        /// Preferences window geometry. The window is 720x560 rather than the
-        /// old 820x640 (the content never filled 820, so the extra width read
-        /// as an empty gutter); every button is the macOS regular control
-        /// height of 28.
+        /// Settings surface geometry. Settings is a center tab, not a window, so
+        /// these are the size the surface is designed against and the frame the
+        /// hosted view starts at before the tab stretches it — not a window
+        /// size. Every button is the macOS regular control height of 28.
         static let preferencesWidthPX: CGFloat = 720
-        /// Tall enough that the Terminal pane — the longest of the three, at
-        /// 816pt of cards — opens fully instead of cutting its last card in
-        /// half. The window still clamps itself to the screen when this does
-        /// not fit, and stays resizable down to `preferencesMinHeightPX`.
         static let preferencesHeightPX: CGFloat = 852
-        static let preferencesMinHeightPX: CGFloat = 420
+        /// The content column is elastic: it takes whatever width the tab gives
+        /// it and stops here. Past this width the right-aligned label column and
+        /// its control drift so far apart that the pair stops reading as one
+        /// row, which is the failure mode of a full-bleed settings page.
+        static let preferencesContentMaxWidthPX: CGFloat = 720
         static let preferencesSidebarWidthPX: CGFloat = 184
         static let preferencesControlWidthPX: CGFloat = 220
         static let preferencesStatusHeightPX: CGFloat = 16
@@ -504,6 +548,21 @@ enum DesignTokens {
         static let preferencesButtonHeightPX: CGFloat = 28
         static let preferencesTextFieldWidthPX: CGFloat = 160
         static let preferencesNumericFieldWidthPX: CGFloat = 96
+        /// Top bar of the settings tab: the page title over the nav column and
+        /// the query field over the content column, on one line, above a
+        /// hairline. Sized like a toolbar rather than a card header because it
+        /// is chrome for the whole surface.
+        static let preferencesHeaderHeightPX: CGFloat = 52
+        static let preferencesHeaderSearchWidthPX: CGFloat = 320
+        static let preferencesNavRowHeightPX: CGFloat = 32
+        static let preferencesNavInsetXPX = Space.x4PX
+        static let preferencesNavTopInsetPX = Space.x5PX
+        /// Trailing air inside the nav column, so a nav row never touches the
+        /// divider that separates it from the content.
+        static let preferencesNavTrailingInsetPX: CGFloat = 28
+        static let preferencesLabelColumnWidthPX: CGFloat = 150
+        static let preferencesColorWellSizePX: CGFloat = 34
+        static let preferencesAnsiColumnCount = 4
         /// Title-to-subtitle gap inside one settings heading. Below `Space.x1PX`
         /// on purpose: these two lines are one label pair, not two rows, and a
         /// full step would break them apart.
@@ -515,6 +574,23 @@ enum DesignTokens {
         static let preferencesSearchEmptyStateTopGapPX = Space.x6PX
         static let preferencesSearchEmptyStateGapPX = Space.x3PX
         static let preferencesSearchEmptyStateIconPointSizePT: CGFloat = 18
+        /// Theme preview card. The sample draws in the terminal's own font at
+        /// the terminal's own size, so everything below is expressed relative to
+        /// that font rather than as fixed offsets: a preview with baked-in 13pt
+        /// metrics shows nothing when the font size changes.
+        static let preferencesThemePreviewHeightPX: CGFloat = 176
+        static let preferencesThemePreviewCornerRadiusPX = Radius.mdPX
+        static let preferencesThemePreviewInsetPX = Space.x5PX
+        /// Row pitch as a multiple of the point size, matching the loose
+        /// leading a terminal grid uses.
+        static let preferencesThemePreviewLineHeightRATIO: CGFloat = 1.6
+        /// Gap between the sample prompt's two segments, in advance widths, so
+        /// it scales with the font instead of stranding the path at a fixed
+        /// offset.
+        static let preferencesThemePreviewPromptGapCELLS: CGFloat = 2
+        static let preferencesThemePreviewSwatchHeightPX = Space.x1PX
+        static let preferencesThemePreviewSwatchBottomInsetPX = Space.x4PX
+        static let preferencesThemePreviewSwatchMinWidthPX = Space.x3PX
         static let settingsEditorFontSizePT: CGFloat = 12
         static let glyphAtlasSizePX = 4096
         static let glyphSlotWidthPX = 128
@@ -602,11 +678,18 @@ enum DesignTokens {
         static let commandHistoryDisclosureBoxSizePX: CGFloat = 16
         static let commandHistoryEmptyStateIconPointSizePT: CGFloat = 18
         static let commandHistoryEmptyStateGapPX = Space.x3PX
-        /// Empty-state art and copy sit one step quieter than the text ramp
-        /// alone would make them, so an empty list never competes with a full
-        /// one. Shared by all three sidebar sections.
+        /// Empty-state art sits one step quieter than the text ramp alone would
+        /// make it, so an empty list never competes with a full one. Shared by
+        /// all three sidebar sections. The icon may take an alpha because it is
+        /// decorative: the label beside it carries the whole message, so the
+        /// glyph is exempt from the non-text contrast floor.
         static let sidebarEmptyStateIconAlphaRATIO: CGFloat = 0.66
-        static let sidebarEmptyStateLabelAlphaRATIO: CGFloat = 0.72
+        /// The label may not. Opacity multiplies straight through the contrast
+        /// ratio, so the old 0.72 turned `textTertiary` — a rank that clears AA
+        /// by design — into 2.8:1 copy that is the only text on the screen when
+        /// it appears. Quieting an empty state is now the type ramp's job
+        /// (`rowTitle` in the quietest text rank), not the compositor's.
+        static let sidebarEmptyStateLabelAlphaRATIO: CGFloat = 1
         /// One outline level has to read as one level; 6pt did not.
         static let commandHistoryOutlineIndentationPX = Space.x4PX
         static let commandHistoryDefaultExpandedGroupCount = 3
@@ -748,6 +831,23 @@ enum DesignTokens {
         /// bottom bar reads as a divider between header and terminal; a leading
         /// rail reads as "this pane".
         static let terminalPaneChromeActiveRailWidthPX: CGFloat = 2
+
+        // MARK: Child-exit banner
+        //
+        // The banner floats over the dead terminal instead of replacing it:
+        // whatever the shell printed on its way out is usually the reason the
+        // user is looking at the pane at all. Top-leading so it never lands on
+        // the search bar, which owns the top-trailing corner.
+        static let childExitBannerInsetPX = Space.x4PX
+        static let childExitBannerMaxWidthPX: CGFloat = 360
+        static let childExitBannerPaddingXPX = Space.x4PX
+        static let childExitBannerPaddingYPX = Space.x3PX
+        /// Title to detail line. One label pair, so below a full step.
+        static let childExitBannerTextGapPX: CGFloat = 2
+        static let childExitBannerTextButtonGapPX = Space.x3PX
+        static let childExitBannerButtonGapPX = Space.x2PX
+        static let childExitBannerCornerRadiusPX = Radius.mdPX
+
         static let agentActivityIndicatorSizePX: CGFloat = 12
         static let agentActivityIndicatorDotSizePX: CGFloat = 6
         static let agentActivityIndicatorRingWidthPX: CGFloat = 1.5
@@ -831,6 +931,44 @@ extension NSColor {
             green: CGFloat((hex >> greenShift) & channelMask) / maxChannelValue,
             blue: CGFloat(hex & channelMask) / maxChannelValue,
             alpha: alpha
+        )
+    }
+
+    /// Builds a color from a `#RRGGBB` string out of the user's terminal
+    /// palette, parsed by the same parser the renderer uses and placed in the
+    /// same space the renderer submits to Metal.
+    ///
+    /// A calibrated- or generic-RGB constructor renders a visibly different
+    /// value for the same hex, so any AppKit surface that has to agree with the
+    /// terminal — the settings theme preview above all — must come through
+    /// here. `nil` for anything that is not a six-digit triplet, so callers can
+    /// tell "unset" from black.
+    static func terminalPaletteSRGB(_ hex: String) -> NSColor? {
+        guard let components = ColorHexParser.components(hex) else {
+            return nil
+        }
+        return NSColor(
+            srgbRed: CGFloat(components.x),
+            green: CGFloat(components.y),
+            blue: CGFloat(components.z),
+            alpha: CGFloat(components.w)
+        )
+    }
+
+    /// The `#RRGGBB` spelling of this color in sRGB, the inverse of
+    /// `terminalPaletteSRGB`. Round-tripping through a device space instead
+    /// would rewrite the user's palette with shifted values the first time they
+    /// touched a color well.
+    var terminalPaletteHex: String {
+        guard let srgb = usingColorSpace(.sRGB) else {
+            return ColorHexParser.blackHex
+        }
+        let maxChannelValue: CGFloat = 255
+        return String(
+            format: "#%02X%02X%02X",
+            Int(round(srgb.redComponent * maxChannelValue)),
+            Int(round(srgb.greenComponent * maxChannelValue)),
+            Int(round(srgb.blueComponent * maxChannelValue))
         )
     }
 }

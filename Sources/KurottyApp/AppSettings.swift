@@ -22,10 +22,14 @@ struct AppSettings: Codable, Equatable {
             statusBarEnabled: Defaults.statusBarEnabled,
             confirmMultilinePaste: Defaults.confirmMultilinePaste,
             confirmCloseRunningProcess: Defaults.confirmCloseRunningProcess,
+            closeOnChildExit: Defaults.closeOnChildExit,
             agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
             hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
             agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled,
-            restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch
+            restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch,
+            notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
+            minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
+            agentStatusHookConsent: Defaults.agentStatusHookConsent
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -41,7 +45,7 @@ struct AppSettings: Codable, Equatable {
         static let schemaVersion = SettingsDefaults.schemaVersion
         static let fontName = SettingsDefaults.terminalFontName
         static let fontSize = SettingsDefaults.terminalFontSizePT
-        static let scrollbackLines = SettingsDefaults.maximumScrollbackRows
+        static let scrollbackLines = SettingsDefaults.defaultScrollbackRows
         static let windowWidth = SettingsDefaults.defaultWindowWidthPX
         static let windowHeight = SettingsDefaults.defaultWindowHeightPX
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
@@ -49,11 +53,15 @@ struct AppSettings: Codable, Equatable {
         static let statusBarEnabled = SettingsDefaults.statusBarEnabled
         static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         static let confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
+        static let closeOnChildExit = SettingsDefaults.closeOnChildExit
         static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
         static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
         static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
         static let perProjectHistoryEnabled = SettingsDefaults.perProjectHistoryEnabled
         static let restoreScrollbackOnLaunch = SettingsDefaults.restoreScrollbackOnLaunch
+        static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
+        static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
+        static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,9 +108,17 @@ struct AppSettings: Codable, Equatable {
 /// tab or window kills every process its shells are running, so a close that
 /// would terminate a running child process asks first. An idle shell closes
 /// without a prompt.
-/// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
-/// starts a loopback listener and writes Kurotty-marked entries into the user's
-/// agent hook configuration, so it is always an explicit opt-in.
+/// `closeOnChildExit` is live-applied and defaults to `onCleanExit`: a pane
+/// whose child left with status 0 goes away, and any other outcome — a nonzero
+/// status or a signal — keeps the pane and its scrollback behind the exit
+/// banner. It never overlaps `confirmCloseRunningProcess`: that setting guards
+/// a user-initiated close while a process still runs, this one only applies
+/// once the process has already ended, so no close is ever governed by both.
+/// `agentStatusHooksEnabled` is live-applied and defaults **on**, but on its own
+/// it never edits anything: it starts a loopback listener and expresses intent,
+/// while the first write of Kurotty-marked entries into the user's own agent
+/// hook configuration waits for the one-time answer recorded in
+/// `agentStatusHookConsent`. A denied answer leaves that file untouched forever.
 /// `statusBarEnabled` is live-applied and defaults on: the bottom status bar is
 /// passive chrome, so turning it off collapses it to zero height and stops the
 /// resource sampler entirely rather than only hiding a view.
@@ -110,6 +126,10 @@ struct AppSettings: Codable, Equatable {
 /// once while a workspace is restored. Restored scrollback is display-only —
 /// bytes go into the screen model and nothing is written to the shell — so it is
 /// deliberately independent of the command-replay opt-in.
+/// `notifyOnCommandFinish` and `minimumCommandDurationSeconds` are live-applied
+/// and gate command-finish banners together: without them every background `ls`
+/// in an unfocused pane raised one, and a user who answers that by muting
+/// Kurotty loses the OSC 9/777/1337 notifications too.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -120,6 +140,7 @@ struct TerminalSettings: Codable, Equatable {
     var statusBarEnabled: Bool
     var confirmMultilinePaste: Bool
     var confirmCloseRunningProcess: Bool
+    var closeOnChildExit: TerminalCloseOnChildExitMode
     var agentSessionIndexEnabled: Bool
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
@@ -131,6 +152,25 @@ struct TerminalSettings: Codable, Equatable {
     /// Soft-wraps editor lines to the pane width. Off means long lines scroll
     /// horizontally, which is what code with wide tables or long strings wants.
     var codeEditorWrapsLines: Bool
+    /// Raw value of `TerminalCommandFinishNotificationMode`. Kept a string for
+    /// the same reason `theme` is: an unknown value normalizes to the default
+    /// instead of making the whole settings file undecodable.
+    var notifyOnCommandFinish: String
+    /// Commands that finish faster than this never notify, in either mode.
+    var minimumCommandDurationSeconds: Double
+    /// Raw value of `AgentStatusHookConsent`: the user's one-time answer to
+    /// "may Kurotty write its hook entries into your Claude Code settings?".
+    /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
+    /// this only remembers that the question was already answered.
+    var agentStatusHookConsent: String
+
+    var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
+        TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
+    }
+
+    var agentStatusHookConsentChoice: AgentStatusHookConsent {
+        AgentStatusHookConsent.parse(agentStatusHookConsent) ?? .default
+    }
 
     private enum CodingKeys: String, CodingKey {
         case theme
@@ -142,12 +182,16 @@ struct TerminalSettings: Codable, Equatable {
         case statusBarEnabled
         case confirmMultilinePaste
         case confirmCloseRunningProcess
+        case closeOnChildExit
         case agentSessionIndexEnabled
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
         case restoreScrollbackOnLaunch
         case codeEditorFontSize
         case codeEditorWrapsLines
+        case notifyOnCommandFinish
+        case minimumCommandDurationSeconds
+        case agentStatusHookConsent
     }
 
     init(
@@ -160,12 +204,16 @@ struct TerminalSettings: Codable, Equatable {
         statusBarEnabled: Bool = SettingsDefaults.statusBarEnabled,
         confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
         confirmCloseRunningProcess: Bool = SettingsDefaults.confirmCloseRunningProcess,
+        closeOnChildExit: TerminalCloseOnChildExitMode = SettingsDefaults.closeOnChildExit,
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
         agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled,
         restoreScrollbackOnLaunch: Bool = SettingsDefaults.restoreScrollbackOnLaunch,
         codeEditorFontSize: Double = SettingsDefaults.codeEditorFontSizePT,
-        codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines
+        codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines,
+        notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
+        minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
+        agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -176,12 +224,16 @@ struct TerminalSettings: Codable, Equatable {
         self.statusBarEnabled = statusBarEnabled
         self.confirmMultilinePaste = confirmMultilinePaste
         self.confirmCloseRunningProcess = confirmCloseRunningProcess
+        self.closeOnChildExit = closeOnChildExit
         self.agentSessionIndexEnabled = agentSessionIndexEnabled
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
         self.restoreScrollbackOnLaunch = restoreScrollbackOnLaunch
         self.codeEditorFontSize = codeEditorFontSize
         self.codeEditorWrapsLines = codeEditorWrapsLines
+        self.notifyOnCommandFinish = notifyOnCommandFinish
+        self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
+        self.agentStatusHookConsent = agentStatusHookConsent
     }
 
     init(from decoder: Decoder) throws {
@@ -203,6 +255,13 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         confirmCloseRunningProcess = try container.decodeIfPresent(Bool.self, forKey: .confirmCloseRunningProcess)
             ?? SettingsDefaults.confirmCloseRunningProcess
+        // Absent in schema versions below 18. Decoded through its raw string
+        // rather than as the enum itself: a hand-edited file with an unknown
+        // mode must fall back to the default, not make the whole settings
+        // document fail to decode and reset every other key with it.
+        closeOnChildExit = TerminalCloseOnChildExitMode(
+            rawValue: try container.decodeIfPresent(String.self, forKey: .closeOnChildExit) ?? ""
+        ) ?? SettingsDefaults.closeOnChildExit
         // Absent in schema versions below 11; those files fall back to the
         // current default rather than failing to decode.
         agentSessionIndexEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentSessionIndexEnabled)
@@ -223,6 +282,14 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.codeEditorFontSizePT
         codeEditorWrapsLines = try container.decodeIfPresent(Bool.self, forKey: .codeEditorWrapsLines)
             ?? SettingsDefaults.codeEditorWrapsLines
+        // Absent in schema versions below 18; those files fall back to the
+        // current defaults rather than failing to decode.
+        notifyOnCommandFinish = try container.decodeIfPresent(String.self, forKey: .notifyOnCommandFinish)
+            ?? SettingsDefaults.notifyOnCommandFinish
+        minimumCommandDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .minimumCommandDurationSeconds)
+            ?? SettingsDefaults.minimumCommandDurationSeconds
+        agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
+            ?? SettingsDefaults.agentStatusHookConsent
     }
 }
 
@@ -372,10 +439,20 @@ extension TerminalColorSettings {
 }
 
 enum ColorHexParser {
+    static let blackHex = "#000000"
+
     static func parse(_ value: String, fallback: SIMD4<Float>) -> SIMD4<Float> {
+        components(value) ?? fallback
+    }
+
+    /// `nil` for anything that is not a six-digit triplet. The fallback-taking
+    /// overload cannot tell a malformed hex from one that happens to parse to
+    /// the fallback, which is exactly the distinction an AppKit call site needs
+    /// before it substitutes a system color.
+    static func components(_ value: String) -> SIMD4<Float>? {
         let hex = value.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
         guard hex.count == 6, let raw = Int(hex, radix: 16) else {
-            return fallback
+            return nil
         }
 
         let red = Float((raw >> 16) & 0xff) / 255
@@ -403,6 +480,14 @@ struct AppSettingsNormalizer {
         static let statusBarSchemaVersion = 15
         /// Schema version that introduced `terminal.confirmCloseRunningProcess`.
         static let closeConfirmationSchemaVersion = 17
+        /// Schema version that introduced `terminal.closeOnChildExit`.
+        static let closeOnChildExitSchemaVersion = 18
+        /// Schema version that introduced `terminal.notifyOnCommandFinish` and
+        /// `terminal.minimumCommandDurationSeconds`. It also introduced
+        /// `terminal.agentStatusHookConsent`, which is deliberately absent from
+        /// the reset below: it records an answer the user gave, not a preference
+        /// with a default worth re-applying.
+        static let commandFinishNotificationSchemaVersion = 18
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -457,6 +542,20 @@ struct AppSettingsNormalizer {
             // direction is preserved.
             next.terminal.confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
         }
+        if sourceSchemaVersion < Migration.closeOnChildExitSchemaVersion {
+            // Settings written before schema 18 predate child-exit handling, so
+            // the key carries no user intent. Migrated files land on the current
+            // default; from schema 18 on, an explicit mode is preserved.
+            next.terminal.closeOnChildExit = SettingsDefaults.closeOnChildExit
+        }
+        if sourceSchemaVersion < Migration.commandFinishNotificationSchemaVersion {
+            // Settings written before schema 18 predate the command-finish
+            // filter, so the keys carry no user intent. Migrated files land on
+            // the current defaults; from schema 18 on, an explicit choice in
+            // either direction is preserved.
+            next.terminal.notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
+            next.terminal.minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
+        }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.terminal.fontName.isEmpty {
@@ -469,6 +568,16 @@ struct AppSettingsNormalizer {
         next.terminal.scrollbackLines = min(
             SettingsDefaults.maximumScrollbackRows,
             max(SettingsDefaults.minimumScrollbackRows, next.terminal.scrollbackLines)
+        )
+        // An unrecognized mode is stored back as the canonical default so the
+        // saved file says what the app will actually do. An unreadable consent
+        // record falls back to `unasked`, which asks again rather than assuming
+        // a yes nobody gave.
+        next.terminal.notifyOnCommandFinish = next.terminal.commandFinishNotificationMode.rawValue
+        next.terminal.agentStatusHookConsent = next.terminal.agentStatusHookConsentChoice.rawValue
+        next.terminal.minimumCommandDurationSeconds = min(
+            SettingsDefaults.maximumAllowedCommandDurationSeconds,
+            max(SettingsDefaults.minimumAllowedCommandDurationSeconds, next.terminal.minimumCommandDurationSeconds)
         )
         next.window.width = min(
             SettingsDefaults.maximumWindowWidthPX,

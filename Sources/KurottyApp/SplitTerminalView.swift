@@ -527,13 +527,63 @@ final class SplitTerminalView: NSSplitView {
             }
             paneDragCoordinator.beginDraggingPane(pane, from: self.rootSplitView(), with: event)
         }
+        pane.childExitCloseRequested = { [weak self] pane in
+            self?.closeExitedPane(pane)
+        }
+        pane.restartRequested = { [weak self] pane in
+            self?.rootSplitView().restartPane(pane)
+        }
         pane.applyChromeTheme(chromeTheme)
+    }
+
+    /// Closes a pane whose child process has already ended.
+    ///
+    /// Unlike the header close button this escalates: a tab's only pane cannot
+    /// be removed on its own, and leaving a dead pane in place would be the
+    /// frozen-pane behaviour the exit banner exists to end. Nothing is killed
+    /// on this path, so the running-process confirmation cannot apply.
+    private func closeExitedPane(_ pane: TerminalPaneView) {
+        guard !rootSplitView().closePaneFromChrome(pane) else { return }
+        (window?.windowController as? TerminalWindowController)?.closeTabHostingExitedPane(pane)
+    }
+
+    /// Replaces an exited pane with a freshly launched one, in place.
+    ///
+    /// Restart is a pane swap rather than an in-place relaunch: a surface owns
+    /// its PTY, parser, screen model, and scrollback from `init`, so reusing it
+    /// would mean rebuilding all of that behind the same object. Swapping keeps
+    /// the split geometry as the only state that carries over.
+    @discardableResult
+    func restartPane(_ pane: TerminalPaneView) -> Bool {
+        for (index, subview) in arrangedSubviews.enumerated() {
+            if subview === pane {
+                let proportions = layoutProportions()?.map { CGFloat($0) }
+                let replacement = TerminalPaneView()
+                configurePane(replacement)
+                pane.stopSession()
+                removeArrangedSubview(pane)
+                pane.removeFromSuperview()
+                insertArrangedSubview(replacement, at: index)
+                // Applied after AppKit lays the new slot out; rebalancing here
+                // would spread the panes evenly and discard the user's dividers.
+                pendingSlotReplacementProportions = proportions
+                rootSplitView().refreshPaneChrome()
+                replacement.focusTerminal()
+                return true
+            }
+            if let splitView = subview as? SplitTerminalView, splitView.restartPane(pane) {
+                return true
+            }
+        }
+        return false
     }
 
     private func configureDetachedPaneForReuse(_ pane: TerminalPaneView) {
         pane.closeRequested = nil
         pane.focusChanged = nil
         pane.detachDragRequested = nil
+        pane.childExitCloseRequested = nil
+        pane.restartRequested = nil
         pane.setChromeActive(false)
         pane.setChromeVisible(false)
     }

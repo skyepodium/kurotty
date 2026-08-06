@@ -215,7 +215,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         newTab()
     }
 
+    /// Find means "find in what is on screen". On a terminal tab that is the
+    /// pane's output search; on the settings tab it is the settings query
+    /// field, which is the only search that tab has.
     func findTerminalOutput() {
+        if let item = tabView.selectedTabViewItem, let settings = settingsView(in: item) {
+            settings.findTerminalOutput()
+            return
+        }
         currentSplitView()?.showSearchInActivePane()
     }
 
@@ -536,6 +543,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             } else if let transcript = transcriptView(in: item) {
                 transcript.applyChromeTheme(theme)
             }
+            // Deliberately not the settings tab: it is the surface that caused
+            // the theme change, and it repaints itself the moment the save
+            // lands. Repainting it from here would rebuild its pane mid-edit.
         }
     }
 
@@ -799,6 +809,22 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
 
     @objc private func newTabButtonPressed(_ sender: NSButton) {
         newTab()
+    }
+
+    /// Closes the tab that hosts `pane`, for a pane whose child process has
+    /// already ended and that is its tab's only pane. Resolved from the pane
+    /// rather than from the selection: a background tab's shell can exit too,
+    /// and closing the selected tab instead would take the wrong one.
+    func closeTabHostingExitedPane(_ pane: TerminalPaneView) {
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView,
+                  splitView.containsPane(pane)
+            else {
+                continue
+            }
+            closeTab(at: index)
+            return
+        }
     }
 
     private func closeTab(_ item: NSTabViewItem) {

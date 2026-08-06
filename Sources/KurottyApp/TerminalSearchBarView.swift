@@ -59,22 +59,29 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     /// a token table of its own.
     private static func minimumWidth(
         resultCountWidth: CGFloat,
-        navigationButtonCount: Int
+        navigationButtonCount: Int,
+        optionButtonCount: Int
     ) -> CGFloat {
         let component = DesignTokens.Component.self
-        let arrangedViewCount = 3 + navigationButtonCount
+        let buttonCount = 1 + navigationButtonCount + optionButtonCount
+        let arrangedViewCount = 2 + buttonCount
         return component.terminalSearchStackLeadingInsetPX
             + component.terminalSearchStackTrailingInsetPX
             + component.terminalSearchMinimumQueryWidthPX
             + resultCountWidth
-            + component.terminalSearchButtonSidePX * CGFloat(1 + navigationButtonCount)
+            + component.terminalSearchButtonSidePX * CGFloat(buttonCount)
             + component.terminalSearchStackSpacingPX * CGFloat(arrangedViewCount - 1)
     }
 
     var onQueryChanged: ((String) -> Void)?
+    var onOptionsChanged: ((TerminalSearchOptions) -> Void)?
     var onNextMatch: (() -> Void)?
     var onPreviousMatch: (() -> Void)?
     var onClose: (() -> Void)?
+
+    /// The toggles keep their state across close and reopen: a user who searches
+    /// with regex once is usually about to do it again.
+    private(set) var searchOptions = TerminalSearchOptions.default
 
     private let queryField = NSTextField()
     private let resultCountLabel = NSTextField(labelWithString: TerminalSearchSummary.empty.displayText)
@@ -92,6 +99,16 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         symbolName: IconSymbol.close,
         accessibilityLabel: AppLocalization.string(.closeSearch),
         action: #selector(closeButtonPressed(_:))
+    )
+    private lazy var matchCaseButton = makeOptionButton(
+        symbolName: IconSymbol.matchCase,
+        accessibilityLabel: AppLocalization.string(.matchCase),
+        action: #selector(matchCaseButtonPressed(_:))
+    )
+    private lazy var regularExpressionButton = makeOptionButton(
+        symbolName: IconSymbol.regularExpression,
+        accessibilityLabel: AppLocalization.string(.useRegularExpression),
+        action: #selector(regularExpressionButtonPressed(_:))
     )
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var lastSummary = TerminalSearchSummary.empty
@@ -112,6 +129,8 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
             queryField.stringValue = query
         }
         refreshLocalization()
+        applyBorderColor()
+        applyOptionButtonAppearance()
         isHidden = false
         window?.makeFirstResponder(queryField)
         queryField.selectText(nil)
@@ -142,12 +161,40 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         refreshLocalization()
         applyResultCountColor()
         applyBorderColor()
+        applyOptionButtonAppearance()
         // Symbols are palette-tinted, not template images, so a theme change has
         // to rebuild them rather than just set `contentTintColor`.
         for button in [previousButton, nextButton, closeButton] {
             guard let symbolName = button.identifier?.rawValue else { continue }
             button.image = Icon.symbol(symbolName, .small, tint: theme.textSecondary) ?? button.image
         }
+    }
+
+    /// An engaged toggle has to read as engaged with no label next to it, so it
+    /// takes the accent-on-selection-wash pairing selected rows use elsewhere.
+    /// A regex that does not compile tints its own toggle `error`, which points
+    /// at the option responsible instead of only reddening the field.
+    private func applyOptionButtonAppearance() {
+        let isPatternBroken = !isQueryValid
+        for (button, isEngaged) in [
+            (matchCaseButton, searchOptions.isCaseSensitive),
+            (regularExpressionButton, searchOptions.usesRegularExpression),
+        ] {
+            button.applyChromeTheme(chromeTheme)
+            let engagedTint = button === regularExpressionButton && isPatternBroken
+                ? chromeTheme.error
+                : chromeTheme.accent
+            button.normalTintColor = isEngaged ? engagedTint : chromeTheme.textSecondary
+            button.hoverTintColor = isEngaged ? engagedTint : chromeTheme.textPrimary
+            button.normalBackgroundColor = isEngaged ? chromeTheme.selectionFill : .clear
+            button.setAccessibilityValue(isEngaged)
+        }
+    }
+
+    /// A regex is invalid for as long as it takes to finish typing it, so this
+    /// drives appearance only — never an alert, never a thrown error.
+    private var isQueryValid: Bool {
+        TerminalSearchPattern.isValidQuery(queryField.stringValue, options: searchOptions)
     }
 
     /// The bar borrows the focus ring the field itself gives up: `queryField`
@@ -164,6 +211,12 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
     }
 
     private func applyBorderColor() {
+        // A pattern that cannot compile outranks the focus ring: the field is
+        // where the problem is, and the user is looking at it either way.
+        if !isQueryValid {
+            layer?.borderColor = chromeTheme.error.cgColor
+            return
+        }
         layer?.borderColor = isQueryFieldFocused
             ? chromeTheme.accent.cgColor
             : chromeTheme.hairline.cgColor
@@ -187,7 +240,9 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
             (previousButton, L10nKey.previousSearchMatch),
             (nextButton, L10nKey.nextSearchMatch),
             (closeButton, L10nKey.closeSearch),
-        ] {
+            (matchCaseButton, L10nKey.matchCase),
+            (regularExpressionButton, L10nKey.useRegularExpression),
+        ] as [(NSButton, L10nKey)] {
             let label = AppLocalization.string(key)
             button.setAccessibilityLabel(label)
             button.toolTip = label
@@ -196,6 +251,8 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
 
     func controlTextDidChange(_ notification: Notification) {
         applyResultCountColor()
+        applyBorderColor()
+        applyOptionButtonAppearance()
         onQueryChanged?(queryField.stringValue)
     }
 
@@ -230,14 +287,26 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
             DesignTokens.Component.terminalSearchMinimumResultCountWidthPX,
             resultCountLabel.intrinsicContentSize.width
         )
+        // Shed controls in reverse order of urgency as the pane narrows: the
+        // option toggles are set once and forgotten, the arrows have keyboard
+        // equivalents, and the count is the last thing worth losing.
+        let showsOptions = bounds.width >= Self.minimumWidth(
+            resultCountWidth: resultCountWidth,
+            navigationButtonCount: 2,
+            optionButtonCount: 2
+        )
         let showsNavigation = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
-            navigationButtonCount: 2
+            navigationButtonCount: 2,
+            optionButtonCount: 0
         )
         let showsResultCount = bounds.width >= Self.minimumWidth(
             resultCountWidth: resultCountWidth,
-            navigationButtonCount: 0
+            navigationButtonCount: 0,
+            optionButtonCount: 0
         )
+        matchCaseButton.isHidden = !showsOptions
+        regularExpressionButton.isHidden = !showsOptions
         previousButton.isHidden = !showsNavigation
         nextButton.isHidden = !showsNavigation
         resultCountLabel.isHidden = !showsResultCount
@@ -275,7 +344,15 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         resultCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         resultCountLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [queryField, resultCountLabel, previousButton, nextButton, closeButton])
+        let stack = NSStackView(views: [
+            queryField,
+            matchCaseButton,
+            regularExpressionButton,
+            resultCountLabel,
+            previousButton,
+            nextButton,
+            closeButton,
+        ])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
@@ -333,6 +410,48 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
         button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
         return button
+    }
+
+    /// Option toggles are `ChromeIconButton`s rather than the bar's own plain
+    /// buttons: they need hover, press, and a keyboard focus ring, which is
+    /// exactly what the shared chrome control already carries.
+    private func makeOptionButton(
+        symbolName: String,
+        accessibilityLabel: String,
+        action: Selector
+    ) -> ChromeIconButton {
+        let button = ChromeIconButton(
+            symbolName: symbolName,
+            accessibilityLabel: accessibilityLabel,
+            size: .small,
+            target: self,
+            action: action
+        )
+        button.setAccessibilityRole(.checkBox)
+        button.toolTip = accessibilityLabel
+        button.widthAnchor.constraint(
+            equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX
+        ).isActive = true
+        button.heightAnchor.constraint(
+            equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX
+        ).isActive = true
+        return button
+    }
+
+    @objc private func matchCaseButtonPressed(_ sender: NSButton) {
+        searchOptions.isCaseSensitive.toggle()
+        searchOptionsChanged()
+    }
+
+    @objc private func regularExpressionButtonPressed(_ sender: NSButton) {
+        searchOptions.usesRegularExpression.toggle()
+        searchOptionsChanged()
+    }
+
+    private func searchOptionsChanged() {
+        applyOptionButtonAppearance()
+        applyBorderColor()
+        onOptionsChanged?(searchOptions)
     }
 
     @objc private func previousButtonPressed(_ sender: NSButton) {

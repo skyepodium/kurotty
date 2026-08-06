@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 enum AppConstants {
     enum Application {
@@ -48,6 +49,12 @@ enum AppConstants {
         static let maxScrollbackRows = 1_000_000
         static let minimumScrollbackRows = 1_000
         static let maximumSearchMatchCount = 50_000
+        /// How many soft-wrapped rows search will join into one logical line.
+        /// A 100MB minified file printed with no newlines is one wrapped line
+        /// as far as the terminal is concerned; joining it whole would build a
+        /// position map the size of the scrollback. Past this bound the line is
+        /// treated as ending, which can miss a match straddling the split.
+        static let maximumSearchWrappedRowJoinCount = 512
         static let searchInputDebounceNanoseconds: UInt64 = 20_000_000
         static let searchContentRefreshDebounceNanoseconds: UInt64 = 35_000_000
         static let cursorWidthPX: Float = 2
@@ -275,7 +282,11 @@ enum AppConstants {
         static let managedCommandMarker = "kurotty-agent-status-hook"
         static let hookCurlExecutablePath = "/usr/bin/curl"
         static let settingsKeyPath = "terminal.agentStatusHooksEnabled"
-        static let hooksEnabledDefault = false
+        /// On by default, but the default alone never edits the user's Claude
+        /// Code configuration: `AgentStatusHookConsentPolicy` still requires a
+        /// one-time yes before the first write.
+        static let hooksEnabledDefault = SettingsDefaults.agentStatusHooksEnabled
+        static let hookConsentSettingsKeyPath = "terminal.agentStatusHookConsent"
     }
 
     /// Per-project shell history derivation. Everything here is a filesystem
@@ -364,11 +375,22 @@ enum AppConstants {
         static let termProgram = "Kurotty"
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
         static let childExecFailureStatusCode: Int32 = 127
-        static let signalExitStatusBase: Int32 = 128
         static let ptyWriteRetryDelayMicros: useconds_t = 1_000
         static let inputDrainRetryDelaysMS = [4, 8, 16, 32, 64, 120]
         static let ptyReadBufferSizeBytes = 8192
         static let maximumUTF8ScalarBytes = 4
+        /// PTY output flow control. `outputHighWaterMarkBytes` is many read
+        /// buffers' worth, so an interactive burst never suspends the reader,
+        /// but a `yes` firehose crosses it within a frame and the child goes
+        /// back to blocking in `write(2)` where the OS wanted it.
+        static let outputHighWaterMarkBytes = 256 * 1024
+        /// Resume well below the high mark so suspend/resume does not toggle on
+        /// every chunk.
+        static let outputLowWaterMarkBytes = 64 * 1024
+        static let outputMaximumBytesPerDrain = 128 * 1024
+        /// Backstop for the undecoded byte buffer. Flow control should keep it
+        /// near zero; this only caps the damage if a consumer wedges.
+        static let pendingOutputByteLimit = 4 * 1024 * 1024
     }
 
     enum Rendering {

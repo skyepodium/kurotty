@@ -617,7 +617,7 @@ private final class RecordingTerminalSession: TerminalSession {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-    var onExit: ((Int32) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
     private(set) var writes: [String] = []
 
     func start(workingDirectory requestedWorkingDirectory: String) {}
