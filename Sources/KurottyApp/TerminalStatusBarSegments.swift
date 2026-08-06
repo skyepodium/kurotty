@@ -427,6 +427,139 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
     }
 }
 
+// MARK: - Quota segment
+
+/// Leading group: a short meter, the agent/window name, and the percentage of
+/// the fullest live rate-limit window.
+///
+/// The meter is here rather than only in the popover because the whole point of
+/// the segment is peripheral vision: a number alone requires reading, a filled
+/// track does not. It hides itself whole when no agent reports a quota, so a
+/// Claude-only user never sees a permanently empty slot.
+@MainActor
+final class TerminalStatusBarQuotaSegmentView: TerminalStatusBarSegmentView {
+    private let meterView = AgentQuotaMeterView(frame: .zero)
+    private let labelField = NSTextField(labelWithString: "")
+    private let percentField = NSTextField(labelWithString: "")
+    private var summary = TerminalStatusBarQuotaSummary.absent
+    private var visibility = TerminalStatusBarVisibility.full
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureContent()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    var currentSummary: TerminalStatusBarQuotaSummary {
+        summary
+    }
+
+    private func configureContent() {
+        applyChromeFonts()
+        // Starts hidden. `update` short-circuits on an unchanged summary, and
+        // the initial summary is `.absent`, so without this a fresh bar would
+        // carry an empty hover target until an agent first reported.
+        isHidden = true
+        labelField.lineBreakMode = .byTruncatingTail
+        labelField.isSelectable = false
+        percentField.isSelectable = false
+        percentField.alignment = .right
+
+        meterView.translatesAutoresizingMaskIntoConstraints = false
+        contentStackView.addArrangedSubview(meterView)
+        contentStackView.addArrangedSubview(labelField)
+        contentStackView.addArrangedSubview(percentField)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.iconValueGapPX, after: meterView)
+        contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.iconValueGapPX, after: labelField)
+
+        NSLayoutConstraint.activate([
+            meterView.widthAnchor.constraint(
+                equalToConstant: DesignTokens.Component.AgentQuota.statusBarMeterWidthPX
+            ),
+            meterView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.AgentQuota.meterTrackHeightPX
+            ),
+            metrics.bind(percentField.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.cpuValueMinWidthPX
+            },
+        ])
+    }
+
+    func update(summary: TerminalStatusBarQuotaSummary, visibility: TerminalStatusBarVisibility) {
+        guard summary != self.summary || visibility != self.visibility else {
+            return
+        }
+        self.summary = summary
+        self.visibility = visibility
+        applyContent()
+    }
+
+    override func applyThemeToContent() {
+        applyChromeFonts()
+        applyContent()
+    }
+
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
+        labelField.font = DesignTokens.Typography.statusBar.font
+        percentField.font = DesignTokens.Typography.statusBarNum.font
+    }
+
+    override func applyHoverState(isHovered: Bool) {
+        labelField.textColor = isHovered ? chromeTheme.textSecondary : chromeTheme.textMuted
+    }
+
+    private func applyContent() {
+        isHidden = !summary.isPresent || !visibility.showsQuota
+        guard summary.isPresent else {
+            toolTip = nil
+            return
+        }
+        labelField.stringValue = summary.label
+        labelField.textColor = chromeTheme.textMuted
+        percentField.stringValue = summary.percentText
+        percentField.textColor = Self.valueColor(for: summary.severity, theme: chromeTheme)
+        meterView.update(
+            fraction: summary.usedFraction,
+            pressure: Self.pressure(for: summary.severity),
+            theme: chromeTheme
+        )
+        toolTip = summary.tooltip.isEmpty ? nil : summary.tooltip
+        setAccessibilityLabel(summary.tooltip)
+    }
+
+    private static func valueColor(
+        for severity: TerminalStatusBarSeverity,
+        theme: DesignTokens.ChromeTheme
+    ) -> NSColor {
+        switch severity {
+        case .normal:
+            return theme.textMuted
+        case .warning:
+            return theme.warning
+        case .error:
+            return theme.error
+        }
+    }
+
+    private static func pressure(
+        for severity: TerminalStatusBarSeverity
+    ) -> AgentRateLimitQuotaCopy.Pressure {
+        switch severity {
+        case .normal:
+            return .comfortable
+        case .warning:
+            return .warning
+        case .error:
+            return .exhausted
+        }
+    }
+}
+
 // MARK: - Resource segment
 
 /// Right segment: memory and CPU with reserved monospaced-digit widths so a

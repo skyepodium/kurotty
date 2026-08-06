@@ -308,6 +308,11 @@ struct ClaudeSessionScanner: AgentSessionScanning {
             // the limit can only come from the model name, and stays unknown
             // for a model the table does not list.
             contextForecast: context.forecast(model: tokenUsage.model)
+            // `rateLimitQuota` is deliberately left nil rather than guessed.
+            // Claude Code writes no rate-limit field anywhere under
+            // `~/.claude`; the numbers exist only behind the account's OAuth
+            // credentials, which this subsystem does not read. See
+            // `AgentRateLimitQuota`.
         )
     }
 
@@ -433,9 +438,14 @@ struct CodexSessionScanner: AgentSessionScanning {
         // total: the total counts the conversation once per turn it was
         // re-sent, so it passes the window long before the window is full.
         var context = AgentContextForecastBuilder()
+        // Codex restates the account's rate-limit windows on the same
+        // `token_count` event, so this rides the existing bounded read rather
+        // than opening any new file, credential, or connection.
+        var quota = AgentRateLimitQuotaBuilder()
 
         for object in objects {
-            range.observe(timestamps.date(from: object[Field.timestamp]))
+            let recordTimestamp = timestamps.date(from: object[Field.timestamp])
+            range.observe(recordTimestamp)
             let payload = object[Field.payload] as? [String: Any]
             if let payload {
                 if let total = AgentTokenUsageParsing.codexRunningTotal(in: payload) {
@@ -446,6 +456,9 @@ struct CodexSessionScanner: AgentSessionScanning {
                 }
                 if let window = AgentTokenUsageParsing.codexContextWindow(in: payload) {
                     context.observe(transcriptContextWindow: window)
+                }
+                if let windows = AgentRateLimitQuotaParsing.codexWindows(in: payload) {
+                    quota.observe(windows: windows, timestamp: recordTimestamp)
                 }
             }
             if cwd == nil {
@@ -488,6 +501,7 @@ struct CodexSessionScanner: AgentSessionScanning {
         guard !sessionID.isEmpty else {
             return nil
         }
+        let latestTimestamp = range.latest ?? modifiedAt
         let firstUserPrompt = firstTypedPrompt ?? firstTranscriptPrompt
         let lastUserPrompt = lastTypedPrompt ?? lastTranscriptPrompt
         let title = firstUserPrompt.flatMap(AgentSessionTranscriptParsing.titleLine) ?? sessionID
@@ -498,7 +512,7 @@ struct CodexSessionScanner: AgentSessionScanning {
             title: title,
             cwd: cwd ?? "",
             gitBranch: nil,
-            updatedAt: range.latest ?? modifiedAt,
+            updatedAt: latestTimestamp,
             createdAt: range.earliest ?? range.latest ?? modifiedAt,
             messageCount: messageCount,
             isTranscriptTruncated: isTranscriptTruncated,
@@ -508,7 +522,8 @@ struct CodexSessionScanner: AgentSessionScanning {
             tokenUsage: tokenUsage,
             // Codex records the window itself, so the model table is never
             // consulted here and the limit is a measured value.
-            contextForecast: context.forecast(model: tokenUsage.model)
+            contextForecast: context.forecast(model: tokenUsage.model),
+            rateLimitQuota: quota.quota(fallbackObservedAt: latestTimestamp)
         )
     }
 

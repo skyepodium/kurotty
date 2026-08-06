@@ -29,6 +29,7 @@ final class TerminalAgentSessionPanelView: NSView {
     /// state is centered in the list region instead of the whole panel and can
     /// never be drawn over the section header or the search pill.
     private let listContainerView = NSView()
+    private let quotaSummaryView = TerminalAgentQuotaSummaryView()
     private let usageSummaryView = TerminalAgentUsageSummaryView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
@@ -65,6 +66,7 @@ final class TerminalAgentSessionPanelView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         searchPillView.applyChromeTheme(theme)
+        quotaSummaryView.applyChromeTheme(theme)
         usageSummaryView.applyChromeTheme(theme)
         DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
         applyEmptyStateIcon(tint: theme.textMuted)
@@ -154,6 +156,10 @@ final class TerminalAgentSessionPanelView: NSView {
         searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
+
+        quotaSummaryView.translatesAutoresizingMaskIntoConstraints = false
+        quotaSummaryView.applyChromeTheme(chromeTheme)
+        addSubview(quotaSummaryView)
 
         usageSummaryView.translatesAutoresizingMaskIntoConstraints = false
         usageSummaryView.applyChromeTheme(chromeTheme)
@@ -245,8 +251,17 @@ final class TerminalAgentSessionPanelView: NSView {
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
 
-            usageSummaryView.topAnchor.constraint(
+            // Quota leads the spend strip: an allowance that is nearly gone
+            // changes what the user does next, while yesterday's spend does not.
+            quotaSummaryView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
+                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+            ),
+            quotaSummaryView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            quotaSummaryView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            usageSummaryView.topAnchor.constraint(
+                equalTo: quotaSummaryView.bottomAnchor,
                 constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
             ),
             usageSummaryView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -291,8 +306,15 @@ final class TerminalAgentSessionPanelView: NSView {
     /// Recomputed whenever the index changes so the strip tracks the same data
     /// the list shows. Hidden by itself when no session reports usage.
     private func refreshUsageSummary(records: [AgentSessionRecord]) {
+        let now = Date()
+        // One clock reading for both sections: a quota window that has just
+        // reset and a day boundary must not be evaluated against two instants.
+        quotaSummaryView.update(
+            summary: AgentRateLimitQuotaSummary.make(records: records, now: now),
+            now: now
+        )
         usageSummaryView.update(
-            summary: AgentTokenUsageSummary.make(records: records, now: Date())
+            summary: AgentTokenUsageSummary.make(records: records, now: now)
         )
     }
 
