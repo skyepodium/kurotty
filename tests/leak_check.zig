@@ -37,8 +37,14 @@ fn exerciseAbiLifecycle() !void {
 
     try expectEqual(@as(usize, 5), kurotty_terminal_feed(terminal, "hello".ptr, "hello".len));
     try expectEqual(@as(u32, 0), kurotty_terminal_last_error(terminal));
+    // An oversized CSI parameter used to fault, and this asserted that fault
+    // (`AbiError.parser` == 1). The fault was the bug: it unwound through an
+    // errdefer that freed a borrowed slice, aborting the process on any output
+    // carrying such a parameter. The parameter is now clamped per ECMA-48, so
+    // the sequence is consumed, prints nothing, and reports no error. Nothing in
+    // a plain byte stream reaches `AbiError.parser` any more, which is the point.
     try expectEqual(@as(usize, 0), kurotty_terminal_feed(terminal, "\x1b[999999999999m".ptr, "\x1b[999999999999m".len));
-    try expectEqual(@as(u32, 1), kurotty_terminal_last_error(terminal));
+    try expectEqual(@as(u32, 0), kurotty_terminal_last_error(terminal));
     try expectEqual(@as(usize, 0), kurotty_terminal_feed(terminal, "\x1b[2".ptr, "\x1b[2".len));
     try expectEqual(@as(u32, 0), kurotty_terminal_last_error(terminal));
     try expectEqual(@as(usize, 5), kurotty_terminal_feed(terminal, "Jworld".ptr, "Jworld".len));
