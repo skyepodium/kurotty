@@ -22,6 +22,9 @@ final class TerminalLeftSidebarPanelView: NSView {
     private let sectionStrip = TerminalLeftSidebarSectionStripView()
     private(set) var selectedSection: TerminalLeftSidebarSection = .commandHistory
     private var chromeTheme = DesignTokens.ChromeTheme.dark
+    /// The strip's height; the item labels inside it come back from
+    /// `applyChromeTheme` on their own.
+    private let metrics = ChromeMetricBindings()
 
     init() {
         super.init(frame: .zero)
@@ -36,6 +39,7 @@ final class TerminalLeftSidebarPanelView: NSView {
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
+        metrics.reapply()
         sectionStrip.applyChromeTheme(theme)
         historyPanel.applyChromeTheme(theme)
         agentSessionPanel.applyChromeTheme(theme)
@@ -113,6 +117,9 @@ final class TerminalLeftSidebarPanelView: NSView {
         }
 
         let insetX = DesignTokens.Component.leftSidebarSectionStripInsetXPX
+        let stripHeight = metrics.bind(sectionStrip.heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.leftSidebarSectionStripHeightPX
+        }
         var constraints: [NSLayoutConstraint] = [
             sectionStrip.topAnchor.constraint(
                 equalTo: topAnchor,
@@ -120,9 +127,7 @@ final class TerminalLeftSidebarPanelView: NSView {
             ),
             sectionStrip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             sectionStrip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
-            sectionStrip.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.leftSidebarSectionStripHeightPX
-            ),
+            stripHeight,
         ]
         for panel in [historyPanel as NSView, agentSessionPanel as NSView] {
             constraints.append(contentsOf: [

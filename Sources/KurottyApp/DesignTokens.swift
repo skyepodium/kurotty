@@ -6,7 +6,7 @@ enum DesignTokens {
     /// Chrome theme = one full instance of the semantic color ramp.
     ///
     /// Every role below is theme-owned. Status colors in particular must not be
-    /// shared between themes: the dark `success` (`#4ADE80`) measures about
+    /// shared between themes: the dark `success` (`#5FD08A`) measures about
     /// 1.6:1 on a white light-theme surface, so light needs its own darker
     /// status hues. The legacy role names (`windowBackground`,
     /// `activeTabBackground`, `textMuted`, ...) are kept as computed aliases
@@ -33,6 +33,10 @@ enum DesignTokens {
         let success: NSColor
         let warning: NSColor
         let error: NSColor
+        /// Low and high stops of the single-hue sequential ramp the daily usage
+        /// strip interpolates between.
+        let usageRampLow: NSColor
+        let usageRampHigh: NSColor
 
         // MARK: Interaction fills
         /// Selected-row wash. Chromatic, derived from `accent`.
@@ -110,6 +114,8 @@ enum DesignTokens {
             success: Color.Dark.success,
             warning: Color.Dark.warning,
             error: Color.Dark.error,
+            usageRampLow: Color.Dark.usageRampLow,
+            usageRampHigh: Color.Dark.usageRampHigh,
             selectionFill: Color.Dark.selectionFill,
             hoverFill: Color.Dark.hoverFill,
             pressFill: Color.Dark.pressFill,
@@ -131,6 +137,8 @@ enum DesignTokens {
             success: Color.Light.success,
             warning: Color.Light.warning,
             error: Color.Light.error,
+            usageRampLow: Color.Light.usageRampLow,
+            usageRampHigh: Color.Light.usageRampHigh,
             selectionFill: Color.Light.selectionFill,
             hoverFill: Color.Light.hoverFill,
             pressFill: Color.Light.pressFill,
@@ -157,22 +165,32 @@ enum DesignTokens {
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
         /// the specified hex on screen.
         enum Dark {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)
-            static let surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0x1F_22_28)
-            static let surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)
-            static let hairline = NSColor.designTokenSRGB(0x2E_32_3A)
-            static let borderStrong = NSColor.designTokenSRGB(0x3A_3F_49)
-            static let textPrimary = NSColor.designTokenSRGB(0xE6_E8_EC)
-            static let textSecondary = NSColor.designTokenSRGB(0xA6_AD_BB)
-            /// Lightened from `#7B828F`, which measured 3.73:1 on
-            /// `surfaceRaised` — the selected tab — and so missed the AA 4.5
-            /// floor exactly where a tab title has to be read.
-            static let textTertiary = NSColor.designTokenSRGB(0x8B_92_9F)
-            static let accent = NSColor.designTokenSRGB(0x5B_9D_FF)
-            static let success = NSColor.designTokenSRGB(0x4A_DE_80)
-            static let warning = NSColor.designTokenSRGB(0xF5_B8_40)
-            static let error = NSColor.designTokenSRGB(0xFF_7A_7A)
+            static let surfaceCanvas = NSColor.designTokenSRGB(0x17_17_16)
+            static let surfaceChrome = NSColor.designTokenSRGB(0x1D_1D_1C)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x21_21_20)
+            static let surfaceRaised = NSColor.designTokenSRGB(0x26_26_24)
+            static let hairline = NSColor.designTokenSRGB(0x30_2F_2C)
+            static let borderStrong = NSColor.designTokenSRGB(0x3F_3E_3A)
+            static let textPrimary = NSColor.designTokenSRGB(0xED_ED_EA)
+            static let textSecondary = NSColor.designTokenSRGB(0xAD_AD_A7)
+            /// The ramp is warm-neutral: every step used to run bluer than it
+            /// ran grey (`#16181D` through `#262A31`), which read as a cold cast
+            /// over everything rather than as a ground. Lightness steps are
+            /// preserved; only the hue moved. This rank has no headroom — it is
+            /// the lightest value still clearing AA 4.5 on `surfaceRaised`, the
+            /// selected tab, where a title has to be read.
+            static let textTertiary = NSColor.designTokenSRGB(0x90_90_89)
+            static let accent = NSColor.designTokenSRGB(0x6B_A5_FF)
+            static let success = NSColor.designTokenSRGB(0x5F_D0_8A)
+            /// Sequential ramp for the daily usage strip, low -> high. One warm
+            /// hue, rising in chroma, not the `error` step: a heavy day is a
+            /// magnitude, not a fault, and reusing a status colour for it would
+            /// make the two mean the same thing. Both stops clear 3:1 against
+            /// `surfaceSidebar`, the ground the strip is drawn on.
+            static let usageRampLow = NSColor.designTokenSRGB(0x8A_7F_79)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xE0_65_5C)
+            static let warning = NSColor.designTokenSRGB(0xE0_A9_4F)
+            static let error = NSColor.designTokenSRGB(0xE8_75_6E)
 
             static let selectionFillAlphaRATIO: CGFloat = 0.24
             static let hoverFillAlphaRATIO: CGFloat = 0.06
@@ -189,20 +207,26 @@ enum DesignTokens {
         /// `success` to roughly 1.6:1 against `surfaceCanvas`.
         enum Light {
             static let surfaceCanvas = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let surfaceChrome = NSColor.designTokenSRGB(0xF1_F2_F4)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xF7_F8_FA)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF4_F4_F2)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF9_F9_F7)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let hairline = NSColor.designTokenSRGB(0xDC_DF_E4)
-            static let borderStrong = NSColor.designTokenSRGB(0xC3_C7_CE)
-            static let textPrimary = NSColor.designTokenSRGB(0x1C_1E_22)
-            static let textSecondary = NSColor.designTokenSRGB(0x5A_61_6B)
-            /// Darkened from `#7C838E`, which topped out at 3.82:1 on white and
-            /// fell to 3.41:1 on `surfaceChrome`. Light chrome has no room to
-            /// spend on a quiet rank: this is the lightest value that still
-            /// clears AA 4.5 on every light surface.
-            static let textTertiary = NSColor.designTokenSRGB(0x67_6E_79)
-            static let accent = NSColor.designTokenSRGB(0x0B_62_E4)
+            static let hairline = NSColor.designTokenSRGB(0xE9_E9_E5)
+            static let borderStrong = NSColor.designTokenSRGB(0xD5_D5_D0)
+            static let textPrimary = NSColor.designTokenSRGB(0x1A_1A_18)
+            static let textSecondary = NSColor.designTokenSRGB(0x52_52_4D)
+            /// Warm-neutral, matching the dark ramp. Light chrome has no room
+            /// to spend on a quiet rank: this is the lightest value that still
+            /// clears AA 4.5 on every light surface, and it sits far enough
+            /// below `textSecondary` that the two read as different ranks —
+            /// they were 1.2:1 apart before, which looked like one rank twice.
+            static let textTertiary = NSColor.designTokenSRGB(0x6B_6B_65)
+            static let accent = NSColor.designTokenSRGB(0x1F_63_D6)
             static let success = NSColor.designTokenSRGB(0x17_72_45)
+            /// Light counterpart of the usage ramp. On a light ground a
+            /// sequential scale runs light -> dark, so the stops darken as the
+            /// day gets heavier rather than brightening.
+            static let usageRampLow = NSColor.designTokenSRGB(0x9C_8A_82)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xA0_2D_22)
             static let warning = NSColor.designTokenSRGB(0x8A_53_00)
             static let error = NSColor.designTokenSRGB(0xC0_27_1F)
 
@@ -256,6 +280,98 @@ enum DesignTokens {
         static let ansiBright = TerminalPalette.ansiBright
     }
 
+    /// Whole-chrome text scale, as a percentage.
+    ///
+    /// Kurotty could already resize terminal *content* two ways — the terminal
+    /// font-size setting and per-window zoom — and neither touches the app's own
+    /// chrome, so the sidebar, tabs, status bar, pane headers, palette, and
+    /// settings surface were stuck at one size for every user and every display.
+    /// This is the one number that moves them, and only them: terminal and
+    /// editor content keep their own sizes.
+    ///
+    /// The scale is applied when a font or a metric is *built*, not when the
+    /// ramp is declared, which is why every scaled token in this file is a
+    /// computed `var`. A `static let` would freeze whatever the scale happened
+    /// to be the first time it was touched, and the setting would appear to
+    /// work until the first relaunch-free change.
+    ///
+    /// Ownership: `AppSettingsStore` is the only writer. It installs the value
+    /// on load and again on save, before the change notification fans out, so
+    /// every surface that re-lays itself out in response is already reading the
+    /// new scale. Nothing else may call `setPercent`, and there is nothing to
+    /// tear down: the state is one clamped `Double`.
+    enum UIScale {
+        /// The bounds live in `SettingsDefaults` beside every other clamp the
+        /// normalizer applies, so the settings file and the tokens can never
+        /// disagree about what a legal scale is. The reasoning for the range is
+        /// there too.
+        static let defaultPercent = SettingsDefaults.uiTextScalePercent
+        static let minimumPercent = SettingsDefaults.minimumUITextScalePercent
+        static let maximumPercent = SettingsDefaults.maximumUITextScalePercent
+        /// One notch of the Settings slider. Five points moves the 13pt row rung
+        /// by about two thirds of a point, which is the smallest step that reads
+        /// as a change rather than as noise.
+        static let stepPercent: Double = 5
+
+        /// Live value behind a lock rather than on the main actor.
+        /// `Typography.Role.font` and every `Component` metric are nonisolated
+        /// and have to stay that way — pinning them to `@MainActor` would force
+        /// an isolation change on call sites that are correct today, which is
+        /// exactly what this seam exists to avoid.
+        private final class Storage: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored = UIScale.defaultPercent
+
+            var percent: Double {
+                get {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    return stored
+                }
+                set {
+                    lock.lock()
+                    stored = newValue
+                    lock.unlock()
+                }
+            }
+        }
+
+        private static let storage = Storage()
+
+        static var percent: Double { storage.percent }
+
+        /// Installs the value carried by the settings file. Clamps rather than
+        /// rejects: a hand-edited file must not be able to put the chrome at 5%,
+        /// and the settings normalizer has already clamped anything that came
+        /// through it.
+        static func setPercent(_ value: Double) {
+            storage.percent = clamped(value)
+        }
+
+        /// Forwards to the settings layer so the tokens and the file on disk
+        /// can never disagree about what a legal scale is.
+        static func clamped(_ value: Double) -> Double {
+            SettingsDefaults.clampedUITextScalePercent(value)
+        }
+
+        private static var factor: CGFloat { CGFloat(percent / defaultPercent) }
+
+        /// Scales a type or glyph point size. Deliberately unrounded: snapped to
+        /// whole points, an 11pt rung would sit still for three notches of the
+        /// slider and then jump.
+        static func scaledPointSize(_ sizePT: CGFloat) -> CGFloat {
+            sizePT * factor
+        }
+
+        /// Scales a box metric that has to hold scaled type — a row height, a
+        /// header, a badge, a column reserved for a label. Rounded to a whole
+        /// point, because a row that lands on a half pixel blurs the hairline
+        /// under it.
+        static func scaledMetric(_ valuePX: CGFloat) -> CGFloat {
+            (valuePX * factor).rounded()
+        }
+    }
+
     /// The chrome type ramp.
     ///
     /// Naming note: the spec calls this scale `DesignTokens.Type`. `Type` is not
@@ -279,10 +395,13 @@ enum DesignTokens {
                 case monospacedDigit
             }
 
-            let sizePT: CGFloat
+            /// The ramp as specified, before the user's UI text scale. The
+            /// spec values are what the ramp *is*; `sizePT` is what anything
+            /// drawing with it should read.
+            let baseSizePT: CGFloat
             let weight: NSFont.Weight
-            let lineHeightPX: CGFloat
-            let tracking: CGFloat
+            let baseLineHeightPX: CGFloat
+            let baseTracking: CGFloat
             let design: FontDesign
 
             init(
@@ -292,12 +411,25 @@ enum DesignTokens {
                 tracking: CGFloat = 0,
                 design: FontDesign = .system
             ) {
-                self.sizePT = sizePT
+                baseSizePT = sizePT
                 self.weight = weight
-                self.lineHeightPX = lineHeightPX
-                self.tracking = tracking
+                baseLineHeightPX = lineHeightPX
+                baseTracking = tracking
                 self.design = design
             }
+
+            /// Point size after the UI text scale. Computed rather than stored
+            /// so the scale reaches every consumer of a role — `font`,
+            /// `symbolConfiguration`, and the handful of surfaces that read
+            /// `sizePT` to build a font of their own — without any of them
+            /// having to learn that a scale exists.
+            var sizePT: CGFloat { UIScale.scaledPointSize(baseSizePT) }
+
+            var lineHeightPX: CGFloat { UIScale.scaledMetric(baseLineHeightPX) }
+
+            /// Letter spacing is a point value like the size, so it moves with
+            /// it: fixed tracking under scaled caps reads as too tight.
+            var tracking: CGFloat { UIScale.scaledPointSize(baseTracking) }
 
             var font: NSFont {
                 switch design {
@@ -345,22 +477,22 @@ enum DesignTokens {
         }
 
         static let windowTitle = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
-        static let tabLabel = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
-        static let tabLabelSel = Role(sizePT: 12, weight: .semibold, lineHeightPX: 16)
+        static let tabLabel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
+        static let tabLabelSel = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
         /// Uppercased at the call site; tracking opens the caps back up.
-        static let sectionHeader = Role(sizePT: 11, weight: .semibold, lineHeightPX: 15, tracking: 0.55)
-        static let rowTitle = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
-        static let rowTitleSel = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
-        static let rowSecondary = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
-        static let badge = Role(sizePT: 10, weight: .medium, lineHeightPX: 14)
-        static let statusBar = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
+        static let sectionHeader = Role(sizePT: 12, weight: .semibold, lineHeightPX: 16, tracking: 0.55)
+        static let rowTitle = Role(sizePT: 13, weight: .regular, lineHeightPX: 18)
+        static let rowTitleSel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
+        static let rowSecondary = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
+        static let badge = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
+        static let statusBar = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
         static let statusBarNum = Role(
-            sizePT: 11,
+            sizePT: 12,
             weight: .medium,
-            lineHeightPX: 15,
+            lineHeightPX: 16,
             design: .monospacedDigit
         )
-        static let monoBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16, design: .monospaced)
+        static let monoBody = Role(sizePT: 13, weight: .regular, lineHeightPX: 18, design: .monospaced)
         /// Editor line-number gutter. Monospaced digits so a jump from line 9 to
         /// line 10 cannot shift the column.
         static let monoGutter = Role(
@@ -369,7 +501,7 @@ enum DesignTokens {
             lineHeightPX: 15,
             design: .monospacedDigit
         )
-        static let paneHeader = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
+        static let paneHeader = Role(sizePT: 12, weight: .medium, lineHeightPX: 16)
         /// Text inside a chrome control that is not a list row: the search
         /// query field and the editor's empty-state placeholder. One rung above
         /// `rowTitle` because an input surface is not dense data.
@@ -472,6 +604,21 @@ enum DesignTokens {
         /// where they are, short enough that it is gone before they read on.
         static let scrollIndicatorIdleDelayMS = 900
         static let scrollIndicatorFadeDurationMS = 220
+        /// How long a command has to run before its pane shows a progress bar.
+        /// 500ms sits between the two numbers that matter: below ~100ms a
+        /// response reads as instant, and at ~1s the user starts to notice the
+        /// wait. The bar has to already be on screen when that attention
+        /// arrives, and every command that finishes before a human could
+        /// perceive a delay — `ls`, `cd`, a small `git status` — stays silent.
+        static let commandProgressAppearanceDelayMS = 500
+        /// One pass of the indeterminate sweep. Matched to the agent activity
+        /// spinner so two ambient "still working" cues in the same pane do not
+        /// beat against each other.
+        static let commandProgressSweepDurationMS = 1_100
+        /// How long a failed command's bar stays up after the prompt returns.
+        /// Only ever applies to a bar the user could already see, so it reports
+        /// an outcome rather than announcing one.
+        static let commandProgressFailureLingerMS = 1_600
 
         static let disclosureCollapsedRotationDegrees: CGFloat = 0
         static let disclosureExpandedRotationDegrees: CGFloat = 90
@@ -512,6 +659,23 @@ enum DesignTokens {
         static let fullPX: CGFloat = 999
     }
 
+    /// Component metrics.
+    ///
+    /// Every metric here is one of two kinds, and which kind it is decides
+    /// whether `UIScale` touches it:
+    ///
+    /// - **Type-coupled**: the value exists because a piece of type or a glyph
+    ///   has to fit inside it — row and header heights, badge boxes, columns
+    ///   reserved for a label, glyph point sizes, panel padding around scaled
+    ///   rows. These are computed `var`s built through `UIScale.scaledMetric`
+    ///   (or `scaledPointSize` for a glyph), because a 13pt row that grows to
+    ///   20pt inside a fixed 30px box clips, which makes the type scale useless.
+    /// - **Fixed**: the value is not a container for type — strokes and
+    ///   hairlines, status dots, meters, corner radii, the `Space` rhythm steps,
+    ///   traffic-light clearance the system owns, and the geometry of
+    ///   system-drawn controls whose title font AppKit picks rather than the
+    ///   ramp. Scaling a 1px hairline or a 6px status dot makes chrome look
+    ///   broken, not larger.
     enum Component {
         /// Quick Commands editor window layout.
         static let quickCommandEditorWidthPX: CGFloat = 620
@@ -530,6 +694,10 @@ enum DesignTokens {
 
         static let commandPaletteWidthPX: CGFloat = 680
         static let commandPaletteHeightPX: CGFloat = 500
+        /// A palette row is one command name over its shortcut, so it grows with
+        /// the ramp; the window around it does not, which is the same trade the
+        /// user already accepts when they zoom any list.
+        static var commandPaletteRowHeightPX: CGFloat { UIScale.scaledMetric(34) }
         /// Settings surface geometry. Settings is a center tab, not a window, so
         /// these are the size the surface is designed against and the frame the
         /// hosted view starts at before the tab stretches it — not a window
@@ -541,26 +709,34 @@ enum DesignTokens {
         /// its control drift so far apart that the pair stops reading as one
         /// row, which is the failure mode of a full-bleed settings page.
         static let preferencesContentMaxWidthPX: CGFloat = 720
-        static let preferencesSidebarWidthPX: CGFloat = 184
-        static let preferencesControlWidthPX: CGFloat = 220
-        static let preferencesStatusHeightPX: CGFloat = 16
+        static var preferencesSidebarWidthPX: CGFloat { UIScale.scaledMetric(184) }
+        static var preferencesControlWidthPX: CGFloat { UIScale.scaledMetric(220) }
+        static var preferencesStatusHeightPX: CGFloat { UIScale.scaledMetric(16) }
+        /// Buttons, steppers, and color wells stay fixed. AppKit draws these
+        /// with the system control font, which the ramp does not own, so a
+        /// scaled box around an unscaled title is a fat bezel rather than a
+        /// larger control.
         static let preferencesButtonWidthPX: CGFloat = 84
         static let preferencesButtonHeightPX: CGFloat = 28
-        static let preferencesTextFieldWidthPX: CGFloat = 160
-        static let preferencesNumericFieldWidthPX: CGFloat = 96
+        static var preferencesTextFieldWidthPX: CGFloat { UIScale.scaledMetric(160) }
+        static var preferencesNumericFieldWidthPX: CGFloat { UIScale.scaledMetric(96) }
+        /// Reserved slot for a value a slider writes rather than a field the
+        /// user types into, so the row cannot shuffle as the readout goes from
+        /// two digits to three.
+        static var preferencesValueReadoutWidthPX: CGFloat { UIScale.scaledMetric(48) }
         /// Top bar of the settings tab: the page title over the nav column and
         /// the query field over the content column, on one line, above a
         /// hairline. Sized like a toolbar rather than a card header because it
         /// is chrome for the whole surface.
-        static let preferencesHeaderHeightPX: CGFloat = 52
-        static let preferencesHeaderSearchWidthPX: CGFloat = 320
-        static let preferencesNavRowHeightPX: CGFloat = 32
+        static var preferencesHeaderHeightPX: CGFloat { UIScale.scaledMetric(52) }
+        static var preferencesHeaderSearchWidthPX: CGFloat { UIScale.scaledMetric(320) }
+        static var preferencesNavRowHeightPX: CGFloat { UIScale.scaledMetric(32) }
         static let preferencesNavInsetXPX = Space.x4PX
         static let preferencesNavTopInsetPX = Space.x5PX
         /// Trailing air inside the nav column, so a nav row never touches the
         /// divider that separates it from the content.
         static let preferencesNavTrailingInsetPX: CGFloat = 28
-        static let preferencesLabelColumnWidthPX: CGFloat = 150
+        static var preferencesLabelColumnWidthPX: CGFloat { UIScale.scaledMetric(150) }
         static let preferencesColorWellSizePX: CGFloat = 34
         static let preferencesAnsiColumnCount = 4
         /// Title-to-subtitle gap inside one settings heading. Below `Space.x1PX`
@@ -573,7 +749,7 @@ enum DesignTokens {
         static let preferencesSearchFieldBottomGapPX = Space.x3PX
         static let preferencesSearchEmptyStateTopGapPX = Space.x6PX
         static let preferencesSearchEmptyStateGapPX = Space.x3PX
-        static let preferencesSearchEmptyStateIconPointSizePT: CGFloat = 18
+        static var preferencesSearchEmptyStateIconPointSizePT: CGFloat { UIScale.scaledPointSize(18) }
         /// Theme preview card. The sample draws in the terminal's own font at
         /// the terminal's own size, so everything below is expressed relative to
         /// that font rather than as fixed offsets: a preview with baked-in 13pt
@@ -604,42 +780,47 @@ enum DesignTokens {
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
         static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
         static let terminalDiscreteScrollRowsPerTick = 2
-        static let terminalSearchWidthPX: CGFloat = 340
+        static var terminalSearchWidthPX: CGFloat { UIScale.scaledMetric(340) }
         /// 40, down from 44: a 28pt query field with `x2` of vertical air is a
         /// floating bar, not a toolbar. The corner radius is `Radius.lgPX`
         /// rather than a one-off 10.
-        static let terminalSearchHeightPX: CGFloat = 40
+        static var terminalSearchHeightPX: CGFloat { UIScale.scaledMetric(40) }
         static let terminalSearchInsetPX: CGFloat = 12
         static let terminalSearchStackLeadingInsetPX = Space.x3PX
         static let terminalSearchStackTrailingInsetPX = Space.x2PX
         static let terminalSearchStackSpacingPX = Space.x1PX
         static let terminalSearchStackVerticalInsetPX = Space.x2PX
-        static let terminalSearchQueryHeightPX: CGFloat = 28
-        static let terminalSearchMinimumQueryWidthPX: CGFloat = 120
-        static let terminalSearchMinimumResultCountWidthPX: CGFloat = 44
-        static let terminalSearchButtonSidePX: CGFloat = 24
+        static var terminalSearchQueryHeightPX: CGFloat { UIScale.scaledMetric(28) }
+        static var terminalSearchMinimumQueryWidthPX: CGFloat { UIScale.scaledMetric(120) }
+        static var terminalSearchMinimumResultCountWidthPX: CGFloat { UIScale.scaledMetric(44) }
+        static var terminalSearchButtonSidePX: CGFloat { UIScale.scaledMetric(24) }
         /// The query field is slightly translucent so the bar reads as one
         /// floating surface rather than a field pasted onto a card.
         static let terminalSearchFieldFillAlphaRATIO: CGFloat = 0.9
-        static let terminalTabBarHeightPX: CGFloat = 38
+        static var terminalTabBarHeightPX: CGFloat { UIScale.scaledMetric(38) }
         static let terminalTopBarCornerRadiusPX: CGFloat = 0
         static let terminalTabBarHorizontalInsetPX: CGFloat = 0
+        /// Fixed: this is where macOS puts the traffic lights, not where our
+        /// type ends. Scaling it would slide the first tab away from a window
+        /// button that has not moved.
         static let terminalTrafficLightClearancePX: CGFloat = 78
         static let terminalTabBarSideButtonInsetPX = Space.x3PX
-        static let terminalTabHeightPX: CGFloat = 28
-        static let sidebarToggleSizePX: CGFloat = 26
+        static var terminalTabHeightPX: CGFloat { UIScale.scaledMetric(28) }
+        static var sidebarToggleSizePX: CGFloat { UIScale.scaledMetric(26) }
         static let sidebarDividerGrabPaddingPX = Space.x1PX
         static let sidebarToggleEdgeInsetPX = Space.x3PX
         /// An open panel keeps its toggle tinted like a selected control, so
         /// the bar reads as on/off state rather than as two plain buttons.
         static let sidebarToggleActiveTintAlphaRATIO: CGFloat = 0.82
         static let sidebarToggleActiveFillAlphaRATIO: CGFloat = 0.10
-        static let terminalTabMinWidthPX: CGFloat = 120
-        static let terminalTabMaxWidthPX: CGFloat = 240
-        static let terminalTabPlusWidthPX: CGFloat = 26
+        /// Both bounds hold a tab title, so both move with it: a tab pinned to
+        /// 120 at 175% truncates every title to two words.
+        static var terminalTabMinWidthPX: CGFloat { UIScale.scaledMetric(120) }
+        static var terminalTabMaxWidthPX: CGFloat { UIScale.scaledMetric(240) }
+        static var terminalTabPlusWidthPX: CGFloat { UIScale.scaledMetric(26) }
         /// Close affordance: a 20x20 hit target carrying a 10pt glyph. 18x18 was
         /// below the comfortable pointer target for a control this small.
-        static let terminalTabCloseWidthPX: CGFloat = 20
+        static var terminalTabCloseWidthPX: CGFloat { UIScale.scaledMetric(20) }
         /// Tab add/close hover is the one chrome hover allowed to be chromatic:
         /// it marks a tab action rather than a row.
         static let terminalTabButtonHoverAlphaRATIO: CGFloat = 0.18
@@ -658,25 +839,31 @@ enum DesignTokens {
         static let commandHistoryPanelMinWidthPX: CGFloat = 200
         static let commandHistoryPanelMaxWidthPX: CGFloat = 460
         static let commandHistoryPanelCornerRadiusPX: CGFloat = 0
-        static let commandHistoryPanelInsetXPX = Space.x4PX
-        static let commandHistoryPanelInsetYPX = Space.x4PX
+        /// Panel padding is the air between a scaled row and the panel edge, so
+        /// it grows with the rows. The intra-row gaps below stay on the `Space`
+        /// rhythm: those are the grid the chrome is drawn on, not boxes holding
+        /// type.
+        static var commandHistoryPanelInsetXPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
+        static var commandHistoryPanelInsetYPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
         static let commandHistorySectionHeaderTopGapPX = Space.x5PX
         static let commandHistorySectionHeaderBottomGapPX = Space.x2PX
         static let commandHistorySectionHeaderInsetXPX = Space.x4PX
-        static let commandHistoryGroupRowHeightPX: CGFloat = 28
-        static let commandHistoryCommandRowHeightPX: CGFloat = 26
+        static var commandHistoryGroupRowHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        static var commandHistoryCommandRowHeightPX: CGFloat { UIScale.scaledMetric(30) }
+        /// Fixed: a status dot is a mark, not a container. It reads as a dot at
+        /// 6px and as a blob at 11.
         static let commandHistoryStatusDotSizePX: CGFloat = 6
         static let commandHistoryRowInsetXPX = Space.x3PX
         /// Status dot to command text, and folder icon to group name.
         static let commandHistoryRowGapPX = Space.x3PX
-        static let commandHistoryTimeLabelMinWidthPX: CGFloat = 32
-        static let commandHistoryBadgeHeightPX: CGFloat = 16
+        static var commandHistoryTimeLabelMinWidthPX: CGFloat { UIScale.scaledMetric(32) }
+        static var commandHistoryBadgeHeightPX: CGFloat { UIScale.scaledMetric(16) }
         static let commandHistoryBadgeTextInsetXPX = Space.x2PX
-        static let commandHistoryBadgeMinWidthPX: CGFloat = 18
-        static let commandHistoryGroupIconPointSizePT: CGFloat = 12
-        static let commandHistoryDisclosurePointSizePT: CGFloat = 9
-        static let commandHistoryDisclosureBoxSizePX: CGFloat = 16
-        static let commandHistoryEmptyStateIconPointSizePT: CGFloat = 18
+        static var commandHistoryBadgeMinWidthPX: CGFloat { UIScale.scaledMetric(18) }
+        static var commandHistoryGroupIconPointSizePT: CGFloat { UIScale.scaledPointSize(12) }
+        static var commandHistoryDisclosurePointSizePT: CGFloat { UIScale.scaledPointSize(9) }
+        static var commandHistoryDisclosureBoxSizePX: CGFloat { UIScale.scaledMetric(16) }
+        static var commandHistoryEmptyStateIconPointSizePT: CGFloat { UIScale.scaledPointSize(18) }
         static let commandHistoryEmptyStateGapPX = Space.x3PX
         /// Empty-state art sits one step quieter than the text ramp alone would
         /// make it, so an empty list never competes with a full one. Shared by
@@ -702,21 +889,23 @@ enum DesignTokens {
         static let fileExplorerPanelMinWidthPX: CGFloat = 210
         static let fileExplorerPanelMaxWidthPX: CGFloat = 460
         static let fileExplorerPanelCornerRadiusPX: CGFloat = 0
-        static let fileExplorerPanelInsetXPX = Space.x4PX
-        static let fileExplorerPanelInsetYPX = Space.x4PX
+        static var fileExplorerPanelInsetXPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
+        static var fileExplorerPanelInsetYPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
         static let fileExplorerHeaderGapPX = Space.x1PX
         static let fileExplorerControlGapPX = Space.x3PX
-        static let fileExplorerRefreshButtonSizePX: CGFloat = 24
-        static let fileExplorerRowHeightPX: CGFloat = 26
+        static var fileExplorerRefreshButtonSizePX: CGFloat { UIScale.scaledMetric(24) }
+        static var fileExplorerRowHeightPX: CGFloat { UIScale.scaledMetric(26) }
         static let fileExplorerRowInsetXPX = Space.x3PX
         static let fileExplorerRowGapPX = Space.x2PX
         static let fileExplorerOutlineIndentationPX = Space.x4PX
-        static let fileExplorerRowIconPointSizePT: CGFloat = 13
+        static var fileExplorerRowIconPointSizePT: CGFloat { UIScale.scaledPointSize(13) }
         /// Fixed-width git column: a dot in a reserved slot cannot shift the row
-        /// beside it, which the old `M`/`U`/`⊘` letters did every repaint.
+        /// beside it, which the old `M`/`U`/`⊘` letters did every repaint. The
+        /// slot and its dot are both fixed — the column carries a mark, not
+        /// type, and a scaled column would only push the filename left.
         static let fileExplorerGitSlotSizePX: CGFloat = 14
         static let fileExplorerGitDotSizePX: CGFloat = 5
-        static let fileExplorerGitConflictPointSizePT: CGFloat = 10
+        static var fileExplorerGitConflictPointSizePT: CGFloat { UIScale.scaledPointSize(10) }
         static let fileExplorerFolderIconAlphaRATIO: CGFloat = 0.85
         static let fileExplorerDimmedTextAlphaRATIO: CGFloat = 0.50
         /// Agent-provenance column, sitting immediately before the git column.
@@ -733,28 +922,30 @@ enum DesignTokens {
         /// One pill shape for all three sidebar sections. A solid raised fill
         /// (not a translucent wash) is what makes it read as a control instead
         /// of a smudge over whatever happens to be behind it.
-        static let sidebarSearchPillHeightPX: CGFloat = 28
+        static var sidebarSearchPillHeightPX: CGFloat { UIScale.scaledMetric(28) }
         static let sidebarSearchPillTextInsetXPX = Space.x3PX
         static let sidebarSearchPillEdgeInsetXPX = Space.x2PX
         static let sidebarSearchIconGapPX = Space.x2PX
-        static let sidebarSearchIconPointSizePT: CGFloat = 11
-        static let sidebarSearchClearGlyphPointSizePT: CGFloat = 11
-        static let sidebarSearchClearHitSizePX: CGFloat = 20
+        static var sidebarSearchIconPointSizePT: CGFloat { UIScale.scaledPointSize(11) }
+        static var sidebarSearchClearGlyphPointSizePT: CGFloat { UIScale.scaledPointSize(11) }
+        static var sidebarSearchClearHitSizePX: CGFloat { UIScale.scaledMetric(20) }
         static let sidebarSearchPillBorderWidthPX: CGFloat = 1
         static let sidebarSearchPillFocusRingWidthPX: CGFloat = 2
         static let sidebarSearchPillFocusRingOutsetPX: CGFloat = 1
         // Agent-session sidebar. Shared metrics (search pill, badges, row
         // highlight, indentation) intentionally reuse the commandHistory*
         // tokens so both left-panel sections stay pixel-identical.
-        static let agentSessionRowHeightPX: CGFloat = 42
-        static let agentSessionRowTextGapPY: CGFloat = 2
-        static let agentSessionAgentIconPointSizePT: CGFloat = 12
-        static let agentSessionEmptyStateIconPointSizePT: CGFloat = 18
+        /// Two stacked lines of type, so it moves with both of them.
+        static var agentSessionRowHeightPX: CGFloat { UIScale.scaledMetric(42) }
+        static var agentSessionRowTextGapPY: CGFloat { UIScale.scaledMetric(2) }
+        static var agentSessionAgentIconPointSizePT: CGFloat { UIScale.scaledPointSize(12) }
+        static var agentSessionEmptyStateIconPointSizePT: CGFloat { UIScale.scaledPointSize(18) }
         static let agentSessionDefaultExpandedGroupCount = 3
         // Context-window meter on a session row. One bar, no ticks, no label:
         // the exact numbers live in the row tooltip, so the bar only has to
         // carry "roughly how full" at a glance without competing with the
-        // title beside it.
+        // title beside it. Fixed for the same reason a status dot is: the bar is
+        // a mark, and it carries the same "roughly how full" at any type size.
         static let agentContextMeterWidthPX: CGFloat = 26
         static let agentContextMeterHeightPX: CGFloat = 3
         /// Unfilled remainder. Low enough to read as a groove rather than a
@@ -769,13 +960,16 @@ enum DesignTokens {
         // Read-only agent transcript viewer. Flat inline rows: a tool run is one
         // line that expands in place, so detail rows are indented rather than
         // boxed.
-        static let agentTranscriptRowInsetXPX: CGFloat = 14
-        static let agentTranscriptRowInsetYPX: CGFloat = 4
-        static let agentTranscriptDetailInsetXPX: CGFloat = 30
-        static let agentTranscriptHeaderTopPaddingPX: CGFloat = 10
-        static let agentTranscriptBodyFontSizePT: CGFloat = 12
-        static let agentTranscriptHeaderFontSizePT: CGFloat = 10
-        static let agentTranscriptMonospacedFontSizePT: CGFloat = 11
+        static var agentTranscriptRowInsetXPX: CGFloat { UIScale.scaledMetric(14) }
+        static var agentTranscriptRowInsetYPX: CGFloat { UIScale.scaledMetric(4) }
+        static var agentTranscriptDetailInsetXPX: CGFloat { UIScale.scaledMetric(30) }
+        static var agentTranscriptHeaderTopPaddingPX: CGFloat { UIScale.scaledMetric(10) }
+        /// The transcript is a read-only chrome panel, not an editable document,
+        /// so its three rungs follow the chrome scale rather than the editor's
+        /// own font-size setting.
+        static var agentTranscriptBodyFontSizePT: CGFloat { UIScale.scaledPointSize(12) }
+        static var agentTranscriptHeaderFontSizePT: CGFloat { UIScale.scaledPointSize(10) }
+        static var agentTranscriptMonospacedFontSizePT: CGFloat { UIScale.scaledPointSize(11) }
         static let agentTranscriptDetailBackgroundAlphaRATIO: CGFloat = 0.06
         static let agentTranscriptDiffBackgroundAlphaRATIO: CGFloat = 0.10
         // Shared three-state row highlight. Command history, agent sessions,
@@ -798,7 +992,7 @@ enum DesignTokens {
         // 22pt segmented-control height, so the old control rendered squashed
         // and needed `setWidth(0…)` plus compression-resistance workarounds to
         // stay inside the panel at all.
-        static let leftSidebarSectionStripHeightPX: CGFloat = 30
+        static var leftSidebarSectionStripHeightPX: CGFloat { UIScale.scaledMetric(30) }
         static let leftSidebarSectionStripTopInsetPX = Space.x3PX
         static let leftSidebarSectionStripInsetXPX = Space.x4PX
         static let leftSidebarSectionStripBottomGapPX = Space.x3PX
@@ -811,20 +1005,23 @@ enum DesignTokens {
         static let leftSidebarSectionFocusRingOutsetPX: CGFloat = 1
         static let imagePreviewInsetPX = Space.x6PX
         /// 40, down from 44: four digits fit at 11pt with `x3` of trailing air.
-        static let codeEditorGutterWidthPX: CGFloat = 40
+        /// The gutter draws in `Typography.monoGutter`, which is a chrome rung,
+        /// so the column that holds it has to move with it even though the
+        /// editor body beside it keeps its own font-size setting.
+        static var codeEditorGutterWidthPX: CGFloat { UIScale.scaledMetric(40) }
         static let codeEditorGutterLabelTrailingPX = Space.x3PX
         static let codeEditorTextInsetXPX: CGFloat = 6
         static let codeEditorTextInsetYPX: CGFloat = 8
         /// The path bar is a real 28pt bar with a hairline bottom edge, not a
         /// label floating in a vertical inset.
-        static let codeEditorPathBarHeightPX: CGFloat = 28
+        static var codeEditorPathBarHeightPX: CGFloat { UIScale.scaledMetric(28) }
         static let codeEditorPathBarInsetXPX = Space.x4PX
         /// Off the icon ramp on purpose: the breadcrumb chevron has to sit
         /// inside 11pt type without becoming the loudest thing in the bar.
-        static let codeEditorBreadcrumbSeparatorPointSizePT: CGFloat = 8
+        static var codeEditorBreadcrumbSeparatorPointSizePT: CGFloat { UIScale.scaledPointSize(8) }
         static let paneDropTargetBorderWidthPX: CGFloat = 2
-        static let terminalPaneChromeHeightPX: CGFloat = 28
-        static let terminalPaneChromeCloseWidthPX: CGFloat = 24
+        static var terminalPaneChromeHeightPX: CGFloat { UIScale.scaledMetric(28) }
+        static var terminalPaneChromeCloseWidthPX: CGFloat { UIScale.scaledMetric(24) }
         static let terminalPaneChromeDotSizePX: CGFloat = 6
         static let terminalPaneChromeDotInsetXPX = Space.x4PX
         /// The active pane is marked on its header's leading edge. A full-width
@@ -839,7 +1036,7 @@ enum DesignTokens {
         // user is looking at the pane at all. Top-leading so it never lands on
         // the search bar, which owns the top-trailing corner.
         static let childExitBannerInsetPX = Space.x4PX
-        static let childExitBannerMaxWidthPX: CGFloat = 360
+        static var childExitBannerMaxWidthPX: CGFloat { UIScale.scaledMetric(360) }
         static let childExitBannerPaddingXPX = Space.x4PX
         static let childExitBannerPaddingYPX = Space.x3PX
         /// Title to detail line. One label pair, so below a full step.
@@ -847,6 +1044,29 @@ enum DesignTokens {
         static let childExitBannerTextButtonGapPX = Space.x3PX
         static let childExitBannerButtonGapPX = Space.x2PX
         static let childExitBannerCornerRadiusPX = Radius.mdPX
+
+        // MARK: Command progress bar
+        //
+        // A hairline across the top edge of the pane's terminal, driven by OSC
+        // 133 command boundaries and OSC 9;4 reports. Ambient status: it is one
+        // step thicker than a hairline so it reads as a bar rather than a
+        // border, and it never takes layout space from the terminal grid.
+        static let commandProgressBarHeightPX: CGFloat = 2
+        /// Unfilled remainder, on the same footing as the agent context meter's
+        /// groove: low enough to read as a track rather than a second value.
+        static let commandProgressTrackAlphaRATIO: CGFloat = 0.16
+        /// Width of the sweeping segment, as a fraction of the pane width. Wide
+        /// enough to see at 2px tall, narrow enough that its travel reads as
+        /// motion rather than as a bar growing.
+        static let commandProgressSweepWidthRATIO: CGFloat = 0.30
+        /// A determinate bar never renders thinner than this, so a real report
+        /// of 1% is still visible instead of rounding away to nothing.
+        static let commandProgressMinimumFillWidthPX: CGFloat = 2
+        /// Alpha for the static bar shown instead of the sweep when the user has
+        /// asked the system to reduce motion. Quieter than the moving segment
+        /// because a full-width bar that never moves would otherwise read as a
+        /// permanent rule across the pane.
+        static let commandProgressReducedMotionAlphaRATIO: CGFloat = 0.45
 
         static let agentActivityIndicatorSizePX: CGFloat = 12
         static let agentActivityIndicatorDotSizePX: CGFloat = 6
@@ -871,13 +1091,16 @@ enum DesignTokens {
         /// sampling and kill timing — are not design tokens and live in
         /// `AppConstants.StatusBar`.
         enum StatusBar {
-            static let heightPX: CGFloat = 24
+            static var heightPX: CGFloat { UIScale.scaledMetric(24) }
             static let horizontalInsetPX = Space.x4PX
             static let segmentGroupGapPX = Space.x4PX
             static let segmentPaddingXPX = Space.x2PX
             static let segmentCornerRadiusPX = Radius.xsPX
-            static let fontSizePT = Typography.statusBar.sizePT
-            static let iconPointSizePT: CGFloat = 11
+            /// A `var`, not a `let`: as a stored constant this would capture the
+            /// scale that happened to be installed the first time any status-bar
+            /// code ran, and then never move again.
+            static var fontSizePT: CGFloat { Typography.statusBar.sizePT }
+            static var iconPointSizePT: CGFloat { UIScale.scaledPointSize(11) }
             static let dotSizePX: CGFloat = 6
             static let hollowRingLineWidthPX: CGFloat = 1.5
             static let hollowRingAlphaRATIO: CGFloat = 0.55
@@ -886,31 +1109,36 @@ enum DesignTokens {
             static let labelDetailGapPX = Space.x2PX
             static let iconValueGapPX = Space.x1PX
             static let metricGapPX = Space.x4PX
-            static let agentLabelMaxWidthPX: CGFloat = 160
-            static let agentDetailMaxWidthPX: CGFloat = 96
+            // Every width below is a slot reserved for a label or a number, so
+            // all of them move with the type inside them.
+            static var agentLabelMaxWidthPX: CGFloat { UIScale.scaledMetric(160) }
+            static var agentDetailMaxWidthPX: CGFloat { UIScale.scaledMetric(96) }
             /// Branch names get less room than the agent label: the segment is
             /// a locator, and the full path lives in the tooltip and popover.
-            static let worktreeLabelMaxWidthPX: CGFloat = 140
-            static let worktreeRowBranchMaxWidthPX: CGFloat = 150
-            static let memoryValueMinWidthPX: CGFloat = 48
-            static let cpuValueMinWidthPX: CGFloat = 40
-            static let spinnerSizePX: CGFloat = 12
-            static let badgeHeightPX: CGFloat = 14
+            static var worktreeLabelMaxWidthPX: CGFloat { UIScale.scaledMetric(140) }
+            static var worktreeRowBranchMaxWidthPX: CGFloat { UIScale.scaledMetric(150) }
+            static var memoryValueMinWidthPX: CGFloat { UIScale.scaledMetric(48) }
+            static var cpuValueMinWidthPX: CGFloat { UIScale.scaledMetric(40) }
+            static var spinnerSizePX: CGFloat { UIScale.scaledMetric(12) }
+            static var badgeHeightPX: CGFloat { UIScale.scaledMetric(14) }
             static let badgeTextInsetXPX = Space.x1PX
             static let badgeCornerRadiusPX: CGFloat = 3
-            static let badgeFontSizePT: CGFloat = 9
+            static var badgeFontSizePT: CGFloat { UIScale.scaledPointSize(9) }
             static let hoverFillAlphaRATIO: CGFloat = 0.07
             static let pressFillAlphaRATIO: CGFloat = 0.14
-            static let popoverWidthPX: CGFloat = 320
+            static var popoverWidthPX: CGFloat { UIScale.scaledMetric(320) }
             static let popoverInsetPX = Space.x4PX
-            static let popoverRowHeightPX: CGFloat = 22
+            static var popoverRowHeightPX: CGFloat { UIScale.scaledMetric(22) }
             static let popoverRowGapPX = Space.x1PX
             static let popoverMaximumRowCount = 12
-            /// Responsive-truncation breakpoints, widest first.
-            static let agentDetailBreakpointPX: CGFloat = 560
-            static let cpuMetricBreakpointPX: CGFloat = 440
-            static let agentLabelBreakpointPX: CGFloat = 340
-            static let iconOnlyBreakpointPX: CGFloat = 240
+            /// Responsive-truncation breakpoints, widest first. These decide
+            /// when a segment stops fitting, so they move with the type that
+            /// stops fitting: pinned, the bar would keep promising a detail
+            /// label at 175% that no longer has room to render.
+            static var agentDetailBreakpointPX: CGFloat { UIScale.scaledMetric(560) }
+            static var cpuMetricBreakpointPX: CGFloat { UIScale.scaledMetric(440) }
+            static var agentLabelBreakpointPX: CGFloat { UIScale.scaledMetric(340) }
+            static var iconOnlyBreakpointPX: CGFloat { UIScale.scaledMetric(240) }
         }
     }
 }

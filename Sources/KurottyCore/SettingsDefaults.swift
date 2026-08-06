@@ -1,8 +1,13 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 18
+    public static let schemaVersion = 19
     public static let commandHistoryEnabled = true
+    /// Live-applied and on by default. A 2px bar across the top edge of each
+    /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
+    /// already tracks and by OSC 9;4 reports when a producer sends them. Per
+    /// pane, so one busy split never implies the whole window is busy.
+    public static let commandProgressIndicatorEnabled = true
     /// Live-applied. Raw value of the app-side command-finish notification mode;
     /// anything else in the file falls back to this. `unfocused` by default
     /// because a banner for a command the user is watching is pure noise, and a
@@ -85,6 +90,39 @@ public enum SettingsDefaults {
     public static let maximumWindowHeightPX = 3_000.0
     public static let minimumTerminalFontSizePT = 8.0
     public static let maximumTerminalFontSizePT = 48.0
+
+    /// Live-applied. Percentage applied to Kurotty's own chrome — the sidebar,
+    /// tabs, status bar, pane headers, command palette, and Settings — and to
+    /// the boxes that chrome type sits in. It deliberately does not touch
+    /// terminal or editor content, which already have `terminalFontSizePT`,
+    /// `codeEditorFontSizePT`, and the per-window zoom; a single number for
+    /// both would mean no way to run big output beside a compact sidebar.
+    public static let uiTextScalePercent = 100.0
+    /// Floor. The quietest rungs in the chrome ramp are 11pt (badges, the
+    /// settings caption, the editor gutter); 85% puts them at 9.35pt, which is
+    /// the last size a chrome badge is still readable at. The range stops here
+    /// instead of following Orca's 58% floor, because Kurotty's ramp already
+    /// starts four points below the one Orca zooms out from — 58% of an 11pt
+    /// badge is 6.4pt, which is not a denser sidebar, it is a blank one.
+    public static let minimumUITextScalePercent = 85.0
+    /// Ceiling. At 175% the tab bar (38 -> 67), the status bar (24 -> 42), and
+    /// a pane header (28 -> 49) still leave a default 1100x720 window with far
+    /// more terminal than chrome, and a tab still fits its scaled minimum width
+    /// three across. Past this the window is mostly chrome, and the honest fix
+    /// for someone who needs more is the system display scale.
+    public static let maximumUITextScalePercent = 175.0
+    /// The one place the range is enforced. It lives here rather than with the
+    /// design tokens because the settings normalizer has to reach it and that
+    /// layer is deliberately free of anything UI-side; the token seam forwards
+    /// to this so a hand-edited file and the Settings slider cannot end up
+    /// clamped differently. A non-finite value comes back as the default rather
+    /// than as a clamp of NaN, which compares false against everything.
+    public static func clampedUITextScalePercent(_ value: Double) -> Double {
+        guard value.isFinite else {
+            return uiTextScalePercent
+        }
+        return min(maximumUITextScalePercent, max(minimumUITextScalePercent, value))
+    }
 
     public static var shellWorkingDirectory: String {
         FileManager.default.homeDirectoryForCurrentUser.path

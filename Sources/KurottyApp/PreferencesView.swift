@@ -3,11 +3,18 @@ import KurottyCore
 
 @MainActor
 final class PreferencesView: NSView, NSTextFieldDelegate {
+    /// Aliases onto the tokens the settings surface uses.
+    ///
+    /// Anything pointing at a scaled token is a `var`, not a `let`: a stored
+    /// alias would capture whatever the UI text scale was the first time
+    /// Settings was opened and then never move again, which is the whole bug
+    /// the computed tokens exist to avoid.
     enum Layout {
-        static let navWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
-        static let navRowHeightPX = DesignTokens.Component.preferencesNavRowHeightPX
-        static let navRowWidthPX = navWidthPX
-            - DesignTokens.Component.preferencesNavTrailingInsetPX
+        static var navWidthPX: CGFloat { DesignTokens.Component.preferencesSidebarWidthPX }
+        static var navRowHeightPX: CGFloat { DesignTokens.Component.preferencesNavRowHeightPX }
+        static var navRowWidthPX: CGFloat {
+            navWidthPX - DesignTokens.Component.preferencesNavTrailingInsetPX
+        }
         static let outerInsetPX = DesignTokens.Space.x6PX
         /// Widest the content column is allowed to get. Cards are elastic
         /// below it — the surface is a tab now, not a fixed 720pt window, so
@@ -16,14 +23,16 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         static let sectionSpacingPX = DesignTokens.Space.x5PX
         static let cardPaddingPX = DesignTokens.Space.x5PX
         static let rowSpacingPX = DesignTokens.Space.x3PX
-        static let labelWidthPX = DesignTokens.Component.preferencesLabelColumnWidthPX
+        static var labelWidthPX: CGFloat { DesignTokens.Component.preferencesLabelColumnWidthPX }
         static let labelControlGapPX = DesignTokens.Space.x4PX
         /// What a card's padding, right-aligned label column, and label-control
         /// gap take out of the card's width. Subtracted from the card at layout
         /// time rather than precomputed, because the card no longer has a fixed
         /// width to precompute against.
-        static let labelColumnTotalPX = cardPaddingPX * 2 + labelWidthPX + labelControlGapPX
-        static let fieldWidthPX = DesignTokens.Component.preferencesControlWidthPX
+        static var labelColumnTotalPX: CGFloat {
+            cardPaddingPX * 2 + labelWidthPX + labelControlGapPX
+        }
+        static var fieldWidthPX: CGFloat { DesignTokens.Component.preferencesControlWidthPX }
         static let previewHeightPX = DesignTokens.Component.preferencesThemePreviewHeightPX
         static let colorWellSizePX = DesignTokens.Component.preferencesColorWellSizePX
         static let ansiColumnCount = DesignTokens.Component.preferencesAnsiColumnCount
@@ -36,9 +45,17 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     private var autosaveWorkItem: DispatchWorkItem?
     private var isUpdatingControls = false
     private var selectedCategory = PreferencesCategory.terminal
-    /// Buttons whose size constraints are already installed. Pages are rebuilt
-    /// on every category switch, but the controls themselves are long-lived.
-    var sizedButtons = Set<ObjectIdentifier>()
+    /// The UI text scale the currently built panes were laid out against. A
+    /// settings surface is chrome like any other, so it has to rebuild itself
+    /// when the scale moves — exactly as it already does for a theme switch.
+    private var builtUITextScalePercent = DesignTokens.UIScale.percent
+    /// Scaled constants on the long-lived shell: the header bar, the nav
+    /// column, the nav rows, and the status line.
+    private let metrics = ChromeMetricBindings()
+    /// Controls whose size constraints are already installed. Pages are rebuilt
+    /// on every category switch, but the controls themselves are long-lived, so
+    /// a second build must not stack a second identical constraint on them.
+    var sizedControls = Set<ObjectIdentifier>()
 
     lazy var search = PreferencesSearchController(
         placeholder: { PreferencesCopy.string(.searchPlaceholder, language: AppLocalization.language) },
@@ -112,11 +129,18 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(statusBarToggled(_:))
     )
+    lazy var commandProgressCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(commandProgressToggled(_:))
+    )
     lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
         action: #selector(openQuickCommandsEditor(_:))
     )
+    lazy var uiTextScaleSlider = NSSlider()
+    lazy var uiTextScaleValueLabel = NSTextField(labelWithString: "")
     lazy var themePopup = NSPopUpButton()
     lazy var importThemeButton = NSButton(
         title: "",
@@ -195,9 +219,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerView.topAnchor.constraint(equalTo: topAnchor),
-            headerView.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.preferencesHeaderHeightPX
-            ),
+            metrics.bind(headerView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.preferencesHeaderHeightPX
+            },
 
             headerSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
             headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -211,9 +235,13 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
                 equalTo: headerSeparator.bottomAnchor,
                 constant: DesignTokens.Component.preferencesNavTopInsetPX
             ),
-            categoryStack.widthAnchor.constraint(equalToConstant: Layout.navRowWidthPX),
+            metrics.bind(categoryStack.widthAnchor.constraint(equalToConstant: 0)) {
+                Layout.navRowWidthPX
+            },
 
-            navDivider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.navWidthPX),
+            metrics.bind(navDivider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0)) {
+                Layout.navWidthPX
+            },
             navDivider.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             navDivider.bottomAnchor.constraint(equalTo: bottomAnchor),
 
@@ -225,7 +253,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             statusLabel.leadingAnchor.constraint(equalTo: navDivider.trailingAnchor, constant: Layout.outerInsetPX),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInsetPX),
             statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Space.x4PX),
-            statusLabel.heightAnchor.constraint(equalToConstant: DesignTokens.Component.preferencesStatusHeightPX),
+            metrics.bind(statusLabel.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.preferencesStatusHeightPX
+            },
         ])
         applyChromeTheme()
     }
@@ -240,7 +270,17 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         headerView.layer?.backgroundColor = theme.surfaceChrome.cgColor
         titleLabel.textColor = theme.textPrimary
         statusLabel.textColor = theme.textTertiary
+        applyChromeMetrics()
         search.applyChromeTheme(theme)
+    }
+
+    /// The header, the nav column, and the status line are built once and
+    /// outlive every pane rebuild, so their scaled sizes have to be re-taken
+    /// here; everything inside a pane comes back with the rebuild.
+    private func applyChromeMetrics() {
+        metrics.reapply()
+        titleLabel.font = DesignTokens.Typography.prefsTitle.font
+        statusLabel.font = DesignTokens.Typography.prefsCaption.font
     }
 
     /// Top bar of the settings surface: the page title over the nav column and
@@ -273,9 +313,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
         // The field takes its designed width where there is room and gives it
         // back to the trailing inset in a narrow tab, so it never overhangs.
-        let designedWidth = queryField.widthAnchor.constraint(
-            equalToConstant: DesignTokens.Component.preferencesHeaderSearchWidthPX
-        )
+        let designedWidth = metrics.bind(queryField.widthAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.preferencesHeaderSearchWidthPX
+        }
         designedWidth.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
@@ -285,10 +325,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             ),
             titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
-            queryField.leadingAnchor.constraint(
-                equalTo: headerView.leadingAnchor,
-                constant: Layout.navWidthPX + Layout.outerInsetPX
-            ),
+            metrics.bind(
+                queryField.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 0)
+            ) {
+                Layout.navWidthPX + Layout.outerInsetPX
+            },
             queryField.trailingAnchor.constraint(
                 lessThanOrEqualTo: headerView.trailingAnchor,
                 constant: -Layout.outerInsetPX
@@ -311,8 +352,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             button.alignment = .left
             button.setButtonType(.toggle)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: Layout.navRowWidthPX).isActive = true
-            button.heightAnchor.constraint(equalToConstant: Layout.navRowHeightPX).isActive = true
+            metrics.bind(button.widthAnchor.constraint(equalToConstant: 0)) {
+                Layout.navRowWidthPX
+            }.isActive = true
+            metrics.bind(button.heightAnchor.constraint(equalToConstant: 0)) {
+                Layout.navRowHeightPX
+            }.isActive = true
             categoryStack.addArrangedSubview(button)
         }
     }
@@ -427,6 +472,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
     private func selectCategory(_ category: PreferencesCategory) {
         selectedCategory = category
+        builtUITextScalePercent = DesignTokens.UIScale.percent
         for case let button as NSButton in categoryStack.arrangedSubviews {
             button.state = button.tag == category.rawValue ? .on : .off
         }
@@ -470,6 +516,24 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    /// Live-applied: the debounced save installs the new scale into the design
+    /// tokens and every open window re-lays itself out on the change
+    /// notification, this surface included.
+    @objc func uiTextScaleChanged(_ sender: NSSlider) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.uiTextScalePercent = Self.snappedUITextScalePercent(sender.doubleValue)
+        syncControlsFromSettings()
+        scheduleAutosave()
+    }
+
+    /// Snaps a raw slider position onto the notch scale. The slider itself is
+    /// continuous rather than tick-marked: nineteen visible ticks across 220pt
+    /// reads as a ruler, and the snapping is what the user actually feels.
+    static func snappedUITextScalePercent(_ value: Double) -> Double {
+        let step = DesignTokens.UIScale.stepPercent
+        return DesignTokens.UIScale.clamped((value / step).rounded() * step)
+    }
+
     @objc func colorChanged(_ sender: NSColorWell) {
         guard !isUpdatingControls else { return }
         let hex = sender.color.terminalPaletteHex
@@ -510,6 +574,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     @objc private func statusBarToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.statusBarEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
+    /// Live-applied: every open pane hears the change, so a bar that is on
+    /// screen at that moment goes away with it instead of finishing its command.
+    @objc private func commandProgressToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.commandProgressIndicatorEnabled = sender.state == .on
         scheduleAutosave()
     }
 
@@ -652,11 +724,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
         confirmCloseCheckbox.state = settings.terminal.confirmCloseRunningProcess ? .on : .off
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
+        commandProgressCheckbox.state = settings.terminal.commandProgressIndicatorEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off
         agentStatusHooksCheckbox.state = settings.terminal.agentStatusHooksEnabled ? .on : .off
         restoreScrollbackCheckbox.state = settings.terminal.restoreScrollbackOnLaunch ? .on : .off
+        uiTextScaleSlider.doubleValue = settings.terminal.uiTextScalePercent
+        uiTextScaleValueLabel.stringValue = "\(Int(settings.terminal.uiTextScalePercent.rounded()))%"
         windowWidthField.doubleValue = settings.window.width
         windowWidthStepper.doubleValue = settings.window.width
         windowHeightField.doubleValue = settings.window.height
@@ -718,6 +793,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             settings = try store.load()
             syncControlsFromSettings()
             applyChromeTheme()
+            // Every label in a pane took its font when the pane was built, so a
+            // scale change has to rebuild it — the same reason a preset switch
+            // does. Instant, never a transition.
+            if DesignTokens.UIScale.percent != builtUITextScalePercent {
+                selectCategory(selectedCategory)
+            }
             setStatus(copy(.saved))
         } catch {
             setStatus(String(format: copy(.saveFailed), error.localizedDescription))

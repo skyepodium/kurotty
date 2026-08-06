@@ -1495,11 +1495,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 18, which added `terminal.closeOnChildExit`,
-        // the command-finish notification keys, and the agent hook consent
-        // record.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 18"))
+        // Schema 19 added `terminal.uiTextScalePercent` and
+        // `terminal.commandProgressIndicatorEnabled`. Asserted against the value
+        // rather than against the text of its declaration, so a reformat of
+        // SettingsDefaults cannot fail a test about the menu.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -1831,11 +1831,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private let topBarSeparatorView = NSView()"))
         XCTAssertTrue(windowSource.contains("topBarSeparatorView.heightAnchor.constraint"))
         XCTAssertTrue(designSource.contains("topChromeBackground"))
-        // Chrome surfaces are the semantic ramp; hex values are sRGB, not
-        // generic-RGB `calibratedRed:` components.
-        XCTAssertTrue(designSource.contains("surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)"))
-        XCTAssertTrue(designSource.contains("surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)"))
-        XCTAssertTrue(designSource.contains("surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)"))
+        // The ramp's own hex values belong to DesignTokenColorRampTests, which
+        // asserts them through resolved sRGB components rather than by matching
+        // this file's text; pinning them here made a tab-bar test fail on every
+        // palette change. The `calibratedRed:` guard stays because it is a
+        // repo-wide construction rule, not a value.
         XCTAssertFalse(designSource.contains("calibratedRed"))
         XCTAssertTrue(designSource.contains("activeTabBackground"))
         XCTAssertTrue(designSource.contains("inactiveTabBackground"))
@@ -3048,12 +3048,6 @@ private func commandPaletteWindowControllerSource() throws -> String {
 private func appSettingsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func settingsDefaultsSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/SettingsDefaults.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

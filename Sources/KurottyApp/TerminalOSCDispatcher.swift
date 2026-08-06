@@ -3,6 +3,10 @@ struct TerminalOSCDispatcher {
         case ignored
         case desktopNotification(TerminalNotificationPayload.Content)
         case shellIntegration(TerminalShellIntegration.Event)
+        /// An OSC 9;4 progress report. Progress data, never a desktop message:
+        /// the numeric OSC 9 extensions were already kept out of the
+        /// notification path, and this is where they now go instead.
+        case commandProgress(TerminalCommandProgressReport)
         case osc52(TerminalOSC52Policy.Evaluation, base64Payload: String)
     }
 
@@ -29,8 +33,16 @@ struct TerminalOSCDispatcher {
 
         switch commandNumber {
         case "9":
-            guard parts.count == 2,
-                  let payload = TerminalNotificationPayload.contentFromOSC9Payload(String(parts[1])) else {
+            guard parts.count == 2 else {
+                return .ignored
+            }
+            // Progress is tried first: `9;4;…` is a numeric extension the
+            // notification parser deliberately refuses, so asking it first would
+            // only ever return `nil` here.
+            if let report = TerminalCommandProgressReport.parse(oscPayload: String(parts[1])) {
+                return .commandProgress(report)
+            }
+            guard let payload = TerminalNotificationPayload.contentFromOSC9Payload(String(parts[1])) else {
                 return .ignored
             }
             return .desktopNotification(payload)
