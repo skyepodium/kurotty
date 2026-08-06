@@ -249,6 +249,13 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             },
             navDivider.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             navDivider.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // An `NSBox` separator only knows its own thickness along the axis
+            // AppKit can infer, and for a vertical rule it cannot: with only a
+            // leading edge pinned and the scroll view hung off its trailing
+            // edge, this box absorbed every spare point. In a wide tab it grew
+            // past a thousand points, which is what pushed the settings content
+            // to the far right and left a dead band beside the nav.
+            navDivider.widthAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX),
 
             detailScrollView.leadingAnchor.constraint(equalTo: navDivider.trailingAnchor),
             detailScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
