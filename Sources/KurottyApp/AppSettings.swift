@@ -391,10 +391,20 @@ extension TerminalColorSettings {
 }
 
 enum ColorHexParser {
+    static let blackHex = "#000000"
+
     static func parse(_ value: String, fallback: SIMD4<Float>) -> SIMD4<Float> {
+        components(value) ?? fallback
+    }
+
+    /// `nil` for anything that is not a six-digit triplet. The fallback-taking
+    /// overload cannot tell a malformed hex from one that happens to parse to
+    /// the fallback, which is exactly the distinction an AppKit call site needs
+    /// before it substitutes a system color.
+    static func components(_ value: String) -> SIMD4<Float>? {
         let hex = value.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
         guard hex.count == 6, let raw = Int(hex, radix: 16) else {
-            return fallback
+            return nil
         }
 
         let red = Float((raw >> 16) & 0xff) / 255

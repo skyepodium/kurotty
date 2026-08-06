@@ -17,13 +17,17 @@ extension PreferencesView {
         subtitleLabel.textColor = chromeTheme.textSecondary
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
-        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
         detailStack.addArrangedSubview(stack)
+        pinToContentColumn(stack)
     }
 
     /// A settings card: raised fill, hairline border, `md` radius, `x5` padding.
     /// The fill and border come from the chrome theme, so the card belongs to
     /// the same surface family as the sidebar and the tab bar.
+    ///
+    /// The card mounts itself in the detail stack rather than waiting for the
+    /// caller: its width now comes from the elastic content column, and a card
+    /// that is not in that column has nothing to take a width from.
     func section(title: String, subtitle: String) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -36,11 +40,11 @@ extension PreferencesView {
             right: Layout.cardPaddingPX
         )
         styleAsCard(stack)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX).isActive = true
+        detailStack.addArrangedSubview(stack)
+        pinToContentColumn(stack)
         let heading = sectionHeading(title, subtitle: subtitle)
-        heading.widthAnchor.constraint(equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2).isActive = true
         stack.addArrangedSubview(heading)
+        pinToCardContent(heading, in: stack)
         search.registerCard(stack, title: title)
         return stack
     }
@@ -51,7 +55,32 @@ extension PreferencesView {
     func addRow(_ label: String, control: NSView, to card: NSStackView) {
         let rowView = row(label: label, control: control)
         card.addArrangedSubview(rowView)
+        // Card-relative, so it can only be installed once the row is mounted:
+        // an anchor pair with no common ancestor is a hard AppKit exception.
+        boundWrappingCheckbox(control, in: card)
         search.registerRow(rowView, label: label, in: card)
+    }
+
+    /// Checkbox titles are full sentences and are the widest thing in a card, so
+    /// they wrap instead of truncating: a setting whose explanation ends in an
+    /// ellipsis is worse than a setting that takes two lines. The bound is
+    /// card-relative because the card itself is elastic now.
+    private func boundWrappingCheckbox(_ control: NSView, in card: NSStackView) {
+        guard let checkbox = control as? NSButton, checkbox.cell is NSButtonCell else {
+            return
+        }
+        checkbox.font = DesignTokens.Typography.prefsBody.font
+        checkbox.cell?.wraps = true
+        checkbox.cell?.lineBreakMode = .byWordWrapping
+        // A wrapping button still reports its one-line width as its intrinsic
+        // size, and that resistance ties with the column's own fill rule. Left
+        // at the default it wins the tie and the whole surface is dragged out to
+        // the longest sentence in Settings.
+        checkbox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        checkbox.widthAnchor.constraint(
+            lessThanOrEqualTo: card.widthAnchor,
+            constant: -Layout.labelColumnTotalPX
+        ).isActive = true
     }
 
     func styleAsCard(_ view: NSView) {
@@ -93,18 +122,6 @@ extension PreferencesView {
         if control is NSPopUpButton {
             control.widthAnchor.constraint(equalToConstant: Layout.fieldWidthPX).isActive = true
         }
-        // Checkbox titles are full sentences and are the widest thing in a card.
-        // At 720pt they no longer fit on one line, so they wrap instead of
-        // truncating: a setting whose explanation ends in an ellipsis is worse
-        // than a setting that takes two lines.
-        if let checkbox = control as? NSButton, checkbox.cell is NSButtonCell {
-            checkbox.font = DesignTokens.Typography.prefsBody.font
-            checkbox.cell?.wraps = true
-            checkbox.cell?.lineBreakMode = .byWordWrapping
-            checkbox.widthAnchor.constraint(
-                lessThanOrEqualToConstant: Layout.controlColumnWidthPX
-            ).isActive = true
-        }
         let stack = NSStackView(views: [label, control])
         stack.orientation = .horizontal
         stack.alignment = .centerY
@@ -112,8 +129,9 @@ extension PreferencesView {
         return stack
     }
 
-    /// Right-aligns a pane's single primary action inside its card.
-    func trailingActionRow(_ control: NSView) -> NSStackView {
+    /// Right-aligns a pane's single primary action across the full inside width
+    /// of its card.
+    func addTrailingActionRow(_ control: NSView, to card: NSStackView) {
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -121,11 +139,8 @@ extension PreferencesView {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(
-            equalToConstant: Layout.contentWidthPX - Layout.cardPaddingPX * 2
-        ).isActive = true
-        return stack
+        card.addArrangedSubview(stack)
+        pinToCardContent(stack, in: card)
     }
 
     /// The AppKit spelling of `.borderedProminent`: an accent-filled rounded
@@ -211,6 +226,9 @@ extension PreferencesView {
     func wrappingLabel(_ text: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.maximumNumberOfLines = 0
+        // Same reason as the wrapping checkboxes: a help line that refuses to be
+        // compressed sets the width of the column it sits in.
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }
 }

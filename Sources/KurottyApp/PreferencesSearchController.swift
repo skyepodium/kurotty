@@ -2,9 +2,9 @@ import AppKit
 
 /// Search across every Preferences pane.
 ///
-/// The controller owns the three things the window would otherwise scatter: the
-/// query field in the sidebar, the text index of every setting in every pane,
-/// and the rules that turn a query into hidden rows and hidden cards.
+/// The controller owns the three things the surface would otherwise scatter:
+/// the query field in the header, the text index of every setting in every
+/// pane, and the rules that turn a query into hidden rows and hidden cards.
 /// `PreferencesView` only reports what it is building and hands over the
 /// finished card and row views.
 ///
@@ -47,7 +47,6 @@ final class PreferencesSearchController {
     private var chromeTheme = DesignTokens.ChromeTheme.dark
 
     init(
-        contentWidthPX: CGFloat,
         placeholder: @escaping () -> String,
         noResultsFormat: @escaping () -> String
     ) {
@@ -55,7 +54,7 @@ final class PreferencesSearchController {
         queryField = TerminalSidebarSearchPillView(placeholder: placeholder)
         emptyStateView = NSStackView()
         configureQueryField(placeholder: placeholder)
-        configureEmptyState(contentWidthPX: contentWidthPX)
+        configureEmptyState()
     }
 
     // MARK: Query
@@ -168,6 +167,12 @@ final class PreferencesSearchController {
         cards.filter { !$0.view.isHidden }.map(\.indexCard.title)
     }
 
+    /// Laid-out widths of the visible cards, for the elastic-column tests: the
+    /// cards have no width of their own to assert against any more.
+    var visibleCardWidthsForTesting: [CGFloat] {
+        cards.filter { !$0.view.isHidden }.map(\.view.frame.width)
+    }
+
     var visibleRowLabelsForTesting: [String] {
         cards.filter { !$0.view.isHidden }.flatMap { card in
             card.indexCard.rowLabels.enumerated()
@@ -206,9 +211,12 @@ final class PreferencesSearchController {
     }
 
     /// Restrained by contract: one quiet glyph and one line of copy. A settings
-    /// window that finds nothing should look like a settings window, not like an
+    /// page that finds nothing should look like a settings page, not like an
     /// error.
-    private func configureEmptyState(contentWidthPX: CGFloat) {
+    ///
+    /// The width comes from the surface, which pins this to its elastic content
+    /// column: the empty state is as wide as the cards it replaces.
+    private func configureEmptyState() {
         applyEmptyStateIcon(tint: chromeTheme.textTertiary)
         emptyStateIconView.imageScaling = .scaleNone
 
@@ -229,7 +237,6 @@ final class PreferencesSearchController {
         emptyStateView.addArrangedSubview(emptyStateLabel)
         emptyStateView.isHidden = true
         emptyStateView.translatesAutoresizingMaskIntoConstraints = false
-        emptyStateView.widthAnchor.constraint(equalToConstant: contentWidthPX).isActive = true
     }
 
     /// Palette-tinted symbols bake their color into the image, so a theme change

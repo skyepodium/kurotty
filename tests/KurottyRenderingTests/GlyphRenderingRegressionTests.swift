@@ -1726,18 +1726,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(preferencesSource.contains("NSButton(title: \"Reload\""))
     }
 
-    func testPreferencesWindowIsCenteredActivatedAndBroughtToFront() throws {
-        let delegateSource = try appDelegateSource()
-        let controllerSource = try preferencesWindowControllerSource()
-        let preferencesSource = try preferencesViewSource()
-
-        XCTAssertTrue(delegateSource.contains("NSApp.activate(ignoringOtherApps: true)"))
-        XCTAssertTrue(delegateSource.contains("controller.window?.makeKeyAndOrderFront(nil)"))
-        XCTAssertTrue(controllerSource.contains("window.center()"))
-        XCTAssertFalse(preferencesSource.contains("button.widthAnchor.constraint(equalTo: categoryStack.widthAnchor)"))
-        XCTAssertFalse(preferencesSource.contains("stack.widthAnchor.constraint(equalTo: detailStack.widthAnchor"))
-        XCTAssertFalse(preferencesSource.contains("NSFontManager.shared.availableFontFamilies"))
-    }
+    // The settings window this file used to assert on (centered, activated,
+    // brought to front) no longer exists: settings is a center tab, and
+    // `PreferencesSettingsTabTests` covers opening and revealing it for real.
 
     func testTerminalWindowCommandsExposeTabAndSplitShortcuts() throws {
         let menuSource = try mainMenuSource()
@@ -3108,12 +3099,6 @@ private func settingsDefaultsSource() throws -> String {
 private func appConstantsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppConstants.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func preferencesWindowControllerSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/PreferencesWindowController.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

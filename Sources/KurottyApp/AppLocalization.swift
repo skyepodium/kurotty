@@ -60,7 +60,7 @@ enum L10nKey: String, CaseIterable {
     case moveToApplicationsTitle, moveToApplicationsMessage, moveToApplications, moveToApplicationsLater
     case moveToApplicationsFailedTitle, moveToApplicationsFailedMessage, translocatedMessage
     case help, copyDiagnosticsReport, diagnosticsReportCopiedTitle, diagnosticsReportCopiedMessage
-    case settingsWindow, settingsValid, errors, warnings
+    case settingsValid, errors, warnings
     case invalidSettingsJSON, settingsLoaded, settingsLoadFailed, settingsNotApplied, settingsApplying, settingsApplied, settingsApplyFailed
     case tmuxSwapPanePrevious, tmuxSwapPaneNext, tmuxRotatePanesPrevious, tmuxRotatePanesNext
     case tmuxTogglePaneZoom, tmuxNextLayout, tmuxPreviousLayout, tmuxEvenHorizontalLayout
@@ -185,7 +185,7 @@ enum AppLocalization {
             .moveToApplicationsFailedTitle: "Move Failed", .moveToApplicationsFailedMessage: "The Applications folder could not be written to: %@", .translocatedMessage: "macOS is running %@ from a randomized read-only copy, so it cannot update itself and cannot move itself either. Move the app to the Applications folder in Finder, then open it from there.",
             .help: "Help", .copyDiagnosticsReport: "Copy Diagnostics Report",
             .diagnosticsReportCopiedTitle: "Diagnostics Report Copied", .diagnosticsReportCopiedMessage: "The report is on the clipboard. It contains version, renderer, and event counts only — no terminal output, commands, or full paths.",
-            .settingsWindow: "%@ Settings", .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
+            .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
             .invalidSettingsJSON: "Settings JSON is invalid: %@", .settingsLoaded: "Loaded %@. Edits apply automatically. %@", .settingsLoadFailed: "Load failed: %@", .settingsNotApplied: "Not applied. %@", .settingsApplying: "Applying settings. %@", .settingsApplied: "Applied %@. %@", .settingsApplyFailed: "Apply failed: %@",
             .tmuxSwapPanePrevious: "Tmux: Swap Pane Previous", .tmuxSwapPaneNext: "Tmux: Swap Pane Next", .tmuxRotatePanesPrevious: "Tmux: Rotate Panes Previous", .tmuxRotatePanesNext: "Tmux: Rotate Panes Next",
             .tmuxTogglePaneZoom: "Tmux: Toggle Pane Zoom", .tmuxNextLayout: "Tmux: Next Layout", .tmuxPreviousLayout: "Tmux: Previous Layout", .tmuxEvenHorizontalLayout: "Tmux: Even Horizontal Layout",
@@ -276,7 +276,7 @@ enum AppLocalization {
             .moveToApplicationsFailedTitle: "옮기지 못했습니다", .moveToApplicationsFailedMessage: "응용 프로그램 폴더에 쓸 수 없습니다: %@", .translocatedMessage: "macOS가 %@을(를) 무작위 읽기 전용 사본으로 실행하고 있어 스스로 업데이트할 수도, 옮길 수도 없습니다. Finder에서 앱을 응용 프로그램 폴더로 옮긴 뒤 거기서 실행해 주세요.",
             .help: "도움말", .copyDiagnosticsReport: "진단 리포트 복사",
             .diagnosticsReportCopiedTitle: "진단 리포트를 복사했습니다", .diagnosticsReportCopiedMessage: "리포트가 클립보드에 있습니다. 버전, 렌더러, 이벤트 개수만 포함하며 터미널 출력, 명령어, 전체 경로는 들어 있지 않습니다.",
-            .settingsWindow: "%@ 설정", .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
+            .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
             .invalidSettingsJSON: "설정 JSON이 올바르지 않습니다: %@", .settingsLoaded: "%@을(를) 불러왔습니다. 변경 사항은 자동으로 적용됩니다. %@", .settingsLoadFailed: "불러오기 실패: %@", .settingsNotApplied: "적용되지 않았습니다. %@", .settingsApplying: "설정을 적용하는 중입니다. %@", .settingsApplied: "%@에 적용했습니다. %@", .settingsApplyFailed: "적용 실패: %@",
             .tmuxSwapPanePrevious: "Tmux: 이전 패널과 교체", .tmuxSwapPaneNext: "Tmux: 다음 패널과 교체", .tmuxRotatePanesPrevious: "Tmux: 패널을 이전 방향으로 회전", .tmuxRotatePanesNext: "Tmux: 패널을 다음 방향으로 회전",
             .tmuxTogglePaneZoom: "Tmux: 패널 확대 전환", .tmuxNextLayout: "Tmux: 다음 레이아웃", .tmuxPreviousLayout: "Tmux: 이전 레이아웃", .tmuxEvenHorizontalLayout: "Tmux: 좌우 균등 레이아웃",
@@ -367,7 +367,7 @@ enum AppLocalization {
             .moveToApplicationsFailedTitle: "移動できませんでした", .moveToApplicationsFailedMessage: "アプリケーションフォルダに書き込めません: %@", .translocatedMessage: "macOS が %@ をランダムな読み取り専用のコピーとして実行しているため、自身をアップデートすることも移動することもできません。Finder でアプリをアプリケーションフォルダに移動してから、そこで開いてください。",
             .help: "ヘルプ", .copyDiagnosticsReport: "診断レポートをコピー",
             .diagnosticsReportCopiedTitle: "診断レポートをコピーしました", .diagnosticsReportCopiedMessage: "レポートはクリップボードにあります。バージョン、レンダラー、イベント数のみを含み、ターミナル出力・コマンド・完全なパスは含まれません。",
-            .settingsWindow: "%@の設定", .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
+            .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
             .invalidSettingsJSON: "設定JSONが無効です: %@", .settingsLoaded: "%@を読み込みました。変更は自動的に適用されます。%@", .settingsLoadFailed: "読み込みに失敗しました: %@", .settingsNotApplied: "適用されていません。%@", .settingsApplying: "設定を適用しています。%@", .settingsApplied: "%@に適用しました。%@", .settingsApplyFailed: "適用に失敗しました: %@",
             .tmuxSwapPanePrevious: "Tmux: 前のペインと交換", .tmuxSwapPaneNext: "Tmux: 次のペインと交換", .tmuxRotatePanesPrevious: "Tmux: ペインを前方向に回転", .tmuxRotatePanesNext: "Tmux: ペインを次方向に回転",
             .tmuxTogglePaneZoom: "Tmux: ペインのズームを切り替え", .tmuxNextLayout: "Tmux: 次のレイアウト", .tmuxPreviousLayout: "Tmux: 前のレイアウト", .tmuxEvenHorizontalLayout: "Tmux: 左右均等レイアウト",
