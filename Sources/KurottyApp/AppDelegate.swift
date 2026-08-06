@@ -27,7 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         // Before the first window, so the first pane's PTY can already carry the
-        // hook variables when the setting is on. A no-op while it is off.
+        // hook variables when the setting is on. A no-op while it is off, and on
+        // a fresh install it asks for consent before writing anything.
         AgentStatusHookCoordinator.shared.applyStoredSetting()
         MainMenu.install(target: self)
         openNewWindow()

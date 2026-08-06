@@ -86,6 +86,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// Live mirror of `terminal.confirmMultilinePaste`; read on every paste, so
     /// it must never touch the filesystem.
     private var confirmMultilinePasteEnabled: Bool
+    /// Live mirrors of `terminal.notifyOnCommandFinish` and
+    /// `terminal.minimumCommandDurationSeconds`; read on every OSC 133;D, so
+    /// they must never touch the filesystem.
+    private var commandFinishNotificationMode: TerminalCommandFinishNotificationMode
+    private var minimumCommandDurationSeconds: Double
     private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
     /// Raised once when this surface's child process is gone. The owning pane
@@ -125,6 +130,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
@@ -2660,6 +2667,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         let nextFont = Self.terminalFont(for: settings)
         let previousDefaultStyle = terminalDefaultStyle
         let previousColorSchemeMode = terminalColorSchemeMode
@@ -2888,7 +2897,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
         lastSubmittedCommandText = nil
-        guard shouldDeliverUserNotification else {
+        guard TerminalCommandFinishNotificationPolicy.shouldNotify(
+            mode: commandFinishNotificationMode,
+            minimumDuration: minimumCommandDurationSeconds,
+            actualDuration: context.duration,
+            isFocused: isTerminalFocusedForUser
+        ) else {
             return
         }
         notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))

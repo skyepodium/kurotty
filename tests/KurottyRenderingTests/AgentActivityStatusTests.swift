@@ -321,22 +321,262 @@ final class AgentActivityStatusTests: XCTestCase {
         XCTAssertTrue(registry.history(for: Fixture.paneIdentifier).isEmpty)
     }
 
-    // MARK: - Hook setting default
+    // MARK: - Hook setting default and consent
 
-    func testHookSettingDefaultsToFalse() {
-        XCTAssertFalse(AppConstants.AgentStatus.hooksEnabledDefault)
-        XCTAssertFalse(AgentStatusHookSettings.defaultValue)
-        XCTAssertFalse(AgentStatusHookSettings.isEnabled())
-        XCTAssertTrue(AgentStatusHookSettings.isEnabled(decodedSettingValue: true))
+    func testHookSettingDefaultsToOnWhileConsentStartsUnasked() {
+        // The default says the user wants status hooks. It is not permission to
+        // edit their Claude Code configuration; that answer lives in consent.
+        XCTAssertTrue(AppConstants.AgentStatus.hooksEnabledDefault)
+        XCTAssertTrue(AgentStatusHookSettings.defaultValue)
+        XCTAssertTrue(AgentStatusHookSettings.isEnabled())
+        XCTAssertFalse(AgentStatusHookSettings.isEnabled(decodedSettingValue: false))
         XCTAssertEqual(AgentStatusHookSettings.settingsKeyPath, "terminal.agentStatusHooksEnabled")
+        XCTAssertEqual(AgentStatusHookConsent.default, .unasked)
+    }
+
+    func testConsentPolicyOnlyInstallsWithAnAnswerOrAnExistingInstall() {
+        // A fresh install: the setting is on, nothing has been asked.
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: .unasked,
+                hasExistingManagedEntries: false
+            ),
+            .askBeforeInstalling
+        )
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: .granted,
+                hasExistingManagedEntries: false
+            ),
+            .install
+        )
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: .denied,
+                hasExistingManagedEntries: false
+            ),
+            .leaveConfigurationAlone
+        )
+        // A refusal silences launch forever, but the Preferences checkbox must
+        // not become a switch that does nothing when it is turned back on.
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: .denied,
+                hasExistingManagedEntries: false,
+                isExplicitUserRequest: true
+            ),
+            .askBeforeInstalling
+        )
+        // Already installed from before consent existed: re-asking would be a
+        // question about a decision the user already made.
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: .unasked,
+                hasExistingManagedEntries: true
+            ),
+            .install
+        )
+        XCTAssertEqual(
+            AgentStatusHookConsentPolicy.decision(
+                isEnabled: false,
+                consent: .granted,
+                hasExistingManagedEntries: true
+            ),
+            .leaveConfigurationAlone
+        )
     }
 
     @MainActor
     func testCoordinatorInjectsNoEnvironmentWhileDisabled() {
-        let coordinator = AgentStatusHookCoordinator(server: AgentStatusHookServer(token: Fixture.token))
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            consentStore: Self.recordingConsentStore(initial: .granted).store,
+            requestConsent: { XCTFail("nothing may be asked while hooks are off"); return false }
+        )
 
         XCTAssertFalse(coordinator.isEnabled)
         XCTAssertTrue(coordinator.shellEnvironment(paneIdentifier: Fixture.paneIdentifier).isEmpty)
+    }
+
+    /// The whole point of the consent gate: turning hooks on for the first time
+    /// must not touch the user's file before they answer.
+    @MainActor
+    func testFirstEnableAsksAndWritesNothingWhenTheUserDeclines() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFileURL = directory.appendingPathComponent("settings.json")
+        let original = Data(#"{"model":"opus"}"#.utf8)
+        try original.write(to: settingsFileURL)
+
+        let consent = Self.recordingConsentStore(initial: .unasked)
+        var askCount = 0
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            observesSettingsChanges: false,
+            consentStore: consent.store,
+            requestConsent: {
+                askCount += 1
+                return false
+            }
+        )
+
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL)
+
+        XCTAssertEqual(askCount, 1)
+        XCTAssertFalse(coordinator.isEnabled)
+        XCTAssertEqual(try Data(contentsOf: settingsFileURL), original, "a refusal must leave the file byte-identical")
+        XCTAssertEqual(consent.recorded(), [.denied])
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: settingsFileURL.path + ".kurotty-backup"),
+            "no write means no backup either"
+        )
+    }
+
+    @MainActor
+    func testAGrantedAnswerInstallsAndIsNeverAskedAgain() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFileURL = directory.appendingPathComponent("settings.json")
+        try Data(#"{"model":"opus"}"#.utf8).write(to: settingsFileURL)
+
+        let consent = Self.recordingConsentStore(initial: .unasked)
+        var askCount = 0
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            observesSettingsChanges: false,
+            consentStore: consent.store,
+            requestConsent: {
+                askCount += 1
+                return true
+            }
+        )
+
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL)
+
+        XCTAssertEqual(askCount, 1)
+        XCTAssertTrue(coordinator.isEnabled)
+        XCTAssertEqual(consent.recorded(), [.granted])
+        XCTAssertTrue(AgentStatusHookInstaller.containsKurottyEntries(try readJSONObject(at: settingsFileURL)))
+
+        // A second pass over the same state must not re-ask.
+        coordinator.setEnabled(false, settingsFileURL: settingsFileURL)
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL)
+        XCTAssertEqual(askCount, 1)
+        XCTAssertTrue(coordinator.isEnabled)
+    }
+
+    /// A user who enabled hooks before consent existed is already installed, so
+    /// the upgrade must not interrogate them.
+    @MainActor
+    func testAnAlreadyInstalledFileIsRefreshedWithoutAsking() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFileURL = directory.appendingPathComponent("settings.json")
+        XCTAssertNoThrow(try assertSuccess(AgentStatusHookInstaller.install(at: settingsFileURL)))
+
+        let consent = Self.recordingConsentStore(initial: .unasked)
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            observesSettingsChanges: false,
+            consentStore: consent.store,
+            requestConsent: {
+                XCTFail("an existing install must not re-ask")
+                return false
+            }
+        )
+
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL)
+
+        XCTAssertTrue(coordinator.isEnabled)
+        XCTAssertTrue(consent.recorded().isEmpty)
+        XCTAssertTrue(AgentStatusHookInstaller.containsKurottyEntries(try readJSONObject(at: settingsFileURL)))
+    }
+
+    /// Every later launch stays silent after a refusal — no prompt, no write.
+    @MainActor
+    func testADeniedRecordKeepsEveryLaterLaunchSilent() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFileURL = directory.appendingPathComponent("settings.json")
+        let original = Data(#"{"model":"opus"}"#.utf8)
+        try original.write(to: settingsFileURL)
+
+        let consent = Self.recordingConsentStore(initial: .denied)
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            observesSettingsChanges: false,
+            consentStore: consent.store,
+            requestConsent: {
+                XCTFail("a refusal must not be re-litigated at launch")
+                return false
+            }
+        )
+
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL, isExplicitUserRequest: false)
+
+        XCTAssertFalse(coordinator.isEnabled)
+        XCTAssertTrue(coordinator.shellEnvironment(paneIdentifier: Fixture.paneIdentifier).isEmpty)
+        XCTAssertEqual(try Data(contentsOf: settingsFileURL), original)
+    }
+
+    /// Turning the setting back on after a refusal is a new request, not a
+    /// replay of the old answer, so it asks rather than silently doing nothing.
+    @MainActor
+    func testTurningHooksBackOnAfterARefusalAsksAgain() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settingsFileURL = directory.appendingPathComponent("settings.json")
+        try Data(#"{"model":"opus"}"#.utf8).write(to: settingsFileURL)
+
+        let consent = Self.recordingConsentStore(initial: .denied)
+        var askCount = 0
+        let coordinator = AgentStatusHookCoordinator(
+            server: AgentStatusHookServer(token: Fixture.token),
+            observesSettingsChanges: false,
+            consentStore: consent.store,
+            requestConsent: {
+                askCount += 1
+                return true
+            }
+        )
+
+        coordinator.setEnabled(true, settingsFileURL: settingsFileURL, isExplicitUserRequest: true)
+
+        XCTAssertEqual(askCount, 1)
+        XCTAssertTrue(coordinator.isEnabled)
+        XCTAssertEqual(consent.recorded(), [.granted])
+        XCTAssertTrue(AgentStatusHookInstaller.containsKurottyEntries(try readJSONObject(at: settingsFileURL)))
+    }
+
+    /// Test double for the consent record; the production store writes through
+    /// `AppSettingsStore`, which tests must never touch.
+    @MainActor
+    private static func recordingConsentStore(
+        initial: AgentStatusHookConsent
+    ) -> (store: AgentStatusHookConsentStore, recorded: () -> [AgentStatusHookConsent]) {
+        let box = ConsentBox(current: initial)
+        let store = AgentStatusHookConsentStore(
+            read: { box.current },
+            record: { consent in
+                box.current = consent
+                box.recorded.append(consent)
+            }
+        )
+        return (store, { box.recorded })
+    }
+
+    private final class ConsentBox {
+        var current: AgentStatusHookConsent
+        var recorded: [AgentStatusHookConsent] = []
+
+        init(current: AgentStatusHookConsent) {
+            self.current = current
+        }
     }
 
     // MARK: - Hook settings merge / uninstall round trip

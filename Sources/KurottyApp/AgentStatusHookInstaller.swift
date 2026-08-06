@@ -21,11 +21,13 @@ enum AgentStatusHookEvent: String, CaseIterable, Sendable {
     }
 }
 
-/// Opt-in installation of Claude Code hooks so agent status works even when the
-/// agent does not emit the OSC 9999 channel.
+/// Installation of Claude Code hooks so agent status works even when the agent
+/// does not emit the OSC 9999 channel.
 ///
-/// This modifies a file Kurotty does not own (`~/.claude/settings.json`), so it
-/// is gated by `terminal.agentStatusHooksEnabled`, which defaults to `false`.
+/// This modifies a file Kurotty does not own (`~/.claude/settings.json`). It is
+/// gated by `terminal.agentStatusHooksEnabled`, which defaults to `true`, and by
+/// the one-time consent in `AgentStatusHookConsentPolicy` — the default states
+/// intent, the consent is what permits the write.
 ///
 /// Contract:
 /// - Every other key in the file is preserved byte-for-value; only Kurotty's
@@ -258,18 +260,17 @@ enum AgentStatusHookInstaller {
     }
 }
 
-/// Resolves whether hook installation is allowed.
+/// Resolves whether the user wants hooks at all.
 ///
 /// The setting lives at `terminal.agentStatusHooksEnabled` and defaults to
-/// `false` because installation edits the user's Claude Code configuration.
-/// Until the key exists in `AppSettings`, callers pass `nil` and get the
-/// documented default; this resolver is the single place that decides.
+/// `true`. Wanting them is not permission to edit the user's Claude Code
+/// configuration: that answer lives in `AgentStatusHookConsentPolicy`, and both
+/// have to agree before anything is written.
 enum AgentStatusHookSettings {
     static let settingsKeyPath = AppConstants.AgentStatus.settingsKeyPath
     static let defaultValue = AppConstants.AgentStatus.hooksEnabledDefault
 
-    /// Integration point: pass `settings.terminal.agentStatusHooksEnabled` once
-    /// the key is added to `TerminalSettings`.
+    /// A settings file that predates the key yields `nil` and takes the default.
     static func isEnabled(decodedSettingValue: Bool? = nil) -> Bool {
         decodedSettingValue ?? defaultValue
     }
