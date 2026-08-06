@@ -639,7 +639,7 @@ final class TerminalOutputInterpreter {
             case 1004:
                 focusReportingState.set(enabled: enabled)
                 reportTerminalFocusIfNeeded()
-            case 1000, 1002, 1003, 1005, 1006:
+            case 1000, 1002, 1003, 1005, 1006, 1007:
                 mouseReportingState.set(decPrivateMode: value, enabled: enabled)
             default:
                 break

@@ -112,6 +112,31 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(registry.windowCommand(matching: try arrowEvent(keyCode: 124, modifiers: [.command, .option, .numericPad]))?.id, .focusPaneRight)
     }
 
+    func testFontZoomShortcutsMatchBothTheShiftedAndUnshiftedPlusKey() throws {
+        let registry = TerminalCommandRegistry.default
+
+        // ⌘+ arrives as Shift+Equal on a US layout, so the increase shortcut has
+        // to accept the Equal key with and without Shift.
+        XCTAssertEqual(
+            registry.windowCommand(matching: try keyEvent("=", modifiers: .command, keyCode: 24))?.action,
+            .zoomFont(.increase)
+        )
+        XCTAssertEqual(
+            registry.windowCommand(
+                matching: try keyEvent("+", modifiers: [.command, .shift], charactersIgnoringModifiers: "+", keyCode: 24)
+            )?.action,
+            .zoomFont(.increase)
+        )
+        XCTAssertEqual(
+            registry.windowCommand(matching: try keyEvent("-", modifiers: .command, keyCode: 27))?.action,
+            .zoomFont(.decrease)
+        )
+        XCTAssertEqual(
+            registry.windowCommand(matching: try keyEvent("0", modifiers: .command, keyCode: 29))?.action,
+            .zoomFont(.reset)
+        )
+    }
+
     func testShortcutLookupIgnoresCapsLockState() throws {
         let registry = TerminalCommandRegistry.default
 

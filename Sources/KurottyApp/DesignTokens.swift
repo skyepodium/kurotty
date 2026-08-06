@@ -354,6 +354,10 @@ enum DesignTokens {
         static let prefsCaption = Role(sizePT: 11, weight: .regular, lineHeightPX: 15)
 
         static let terminalFontSizePT: CGFloat = 15
+        /// One ⌘+ / ⌘- press. Against the 8...48 bounds this gives 40 steps,
+        /// fine enough that a single press reads as an adjustment rather than
+        /// a jump.
+        static let terminalFontZoomStepPT: Double = 1
         static let codeEditorFontSizePT: CGFloat = 13
         static let codeEditorGutterFontSizePT: CGFloat = 11
     }

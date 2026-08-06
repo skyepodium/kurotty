@@ -200,7 +200,7 @@ final class AIAgentActionApprovalTests: XCTestCase {
         let result = dispatcher.dispatch(
             AIAgentActionRequest.openFileURL(
                 id: "url",
-                url: try XCTUnwrap(URL(string: "ssh://example.com/repo"))
+                url: try XCTUnwrap(URL(string: "javascript:alert(1)"))
             ),
             approval: approval
         )
@@ -218,7 +218,7 @@ final class AIAgentActionApprovalTests: XCTestCase {
         )
         let asked = evaluator.evaluate(.sendText(id: "send", text: "rm -rf /tmp/example"))
         let denied = evaluator.evaluate(
-            .openFileURL(id: "url", url: try XCTUnwrap(URL(string: "ssh://example.com/repo")))
+            .openFileURL(id: "url", url: try XCTUnwrap(URL(string: "javascript:alert(1)")))
         )
 
         XCTAssertEqual(allowed.decision, .allow)

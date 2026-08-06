@@ -59,6 +59,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var keyTextAccumulator: [String]?
     private var keyboardSelectionInputStart: TerminalCellPosition?
     private var font: NSFont
+    /// The last settings this surface applied. Held so a font-zoom change can
+    /// re-run the appearance path without a second settings load per pane.
+    private var appliedSettings: AppSettings
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
     private var pendingSubmittedInputText = ""
@@ -114,12 +117,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         agentPaneIdentifier = paneIdentifier
         agentStatusChannel = AgentStatusOutputChannel(paneIdentifier: paneIdentifier)
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
-        let configuredFont = NSFont(
-            name: settings.terminal.fontName,
-            size: CGFloat(settings.terminal.fontSize)
-        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
             foreground: settings.terminal.colors.foregroundColor,
@@ -222,6 +223,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             selector: #selector(settingsDidChange(_:)),
             name: AppSettingsStore.didChangeNotification,
             object: AppSettingsStore.shared
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontZoomDidChange(_:)),
+            name: TerminalFontZoomCoordinator.didChangeNotification,
+            object: TerminalFontZoomCoordinator.shared
         )
         observeTerminalFocusChanges()
         observeInputSourceChanges()
@@ -471,13 +478,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         let position = cellPosition(for: event)
-        if let link = linkRange(at: position) {
+        // A plain left-click belongs to selection: URLs in output have to be
+        // clickable-into and drag-selectable like any other text. Requiring a
+        // modifier before a link swallows the click is what Ghostty, iTerm2 and
+        // kitty all do; ⌘ is the macOS-native one.
+        if event.modifierFlags.contains(.command), let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
             if let fileTarget = link.fileTarget {
                 openFileLinkInEditorTab(fileTarget)
             } else {
-                presentOpenLinkDialog(for: link)
+                activateLink(link)
             }
             return
         }
@@ -595,6 +606,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             cellHeightPX: CGFloat(terminalMetrics().cellSize.height)
         )
         if reportTerminalMouseWheel(with: event, rowDelta: rowDelta) {
+            return
+        }
+        if sendAlternateScrollKeysIfNeeded(with: event, rowDelta: rowDelta) {
             return
         }
         guard rowDelta != 0 else { return }
@@ -1026,6 +1040,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         apply(settings: settings)
+    }
+
+    /// The zoom resolves against the configured size, so re-applying the last
+    /// settings is all it takes; `terminalFont(for:)` picks up the new size.
+    @objc private func fontZoomDidChange(_ notification: Notification) {
+        apply(settings: appliedSettings)
     }
 
     override func layout() {
@@ -2126,7 +2146,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         return TerminalCellPosition(row: nextRow, column: nextColumn)
     }
 
+    /// The hover underline is the affordance for the ⌘-click, so it only shows
+    /// while ⌘ is down. `flagsChanged` drives this too, which is what makes the
+    /// underline appear and disappear under a stationary pointer.
     private func updateHoveredLinkRange(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command) else {
+            setHoveredLinkRange(nil)
+            return
+        }
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
     }
 
@@ -2150,6 +2177,24 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return true
         }
         sendTerminalMouseSequence(String(repeating: sequence, count: abs(rowDelta)))
+        return true
+    }
+
+    /// DEC private mode 1007. The alternate screen has no scrollback of its own,
+    /// so a claimed wheel is swallowed even when it quantizes to zero rows:
+    /// falling through would scroll the normal screen's history behind the pager.
+    private func sendAlternateScrollKeysIfNeeded(with event: NSEvent, rowDelta: Int) -> Bool {
+        let context = TerminalAlternateScroll.Context(
+            isAlternateScreenActive: isUsingAlternateScreen,
+            isAlternateScrollEnabled: mouseReportingState.alternateScrollEnabled,
+            isMouseReportingEnabled: mouseReportingState.isEnabled,
+            applicationCursorKeysEnabled: applicationCursorKeysEnabled,
+            isShiftHeld: event.modifierFlags.contains(.shift)
+        )
+        guard TerminalAlternateScroll.claimsWheel(in: context) else { return false }
+        if let sequence = TerminalAlternateScroll.keySequence(rowDelta: rowDelta, context: context) {
+            send(sequence)
+        }
         return true
     }
 
@@ -2261,9 +2306,24 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
+    /// The ⌘-click is already the user's intent, so a trusted scheme opens
+    /// straight away. Only the schemes the policy still wants a second look at
+    /// reach the confirmation sheet.
+    private func activateLink(_ link: TerminalLinkRange) {
+        guard let url = URL(string: link.urlString) else { return }
+        switch securityPolicy.userActivatedLinkDecision(for: url) {
+        case .allow:
+            NSWorkspace.shared.open(url)
+        case .ask:
+            presentOpenLinkDialog(for: link)
+        case .deny:
+            break
+        }
+    }
+
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
         guard let url = URL(string: link.urlString) else { return }
-        guard securityPolicy.linkOpenDecision(for: url) == .ask else { return }
+        guard securityPolicy.userActivatedLinkDecision(for: url) == .ask else { return }
         let alert = NSAlert()
         alert.messageText = AppLocalization.string(.openLinkQuestion)
         alert.informativeText = link.urlString
@@ -2618,12 +2678,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func apply(settings: AppSettings) {
+        appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
-        let nextFont = NSFont(
-            name: settings.terminal.fontName,
-            size: CGFloat(settings.terminal.fontSize)
-        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        let nextFont = Self.terminalFont(for: settings)
         let previousDefaultStyle = terminalDefaultStyle
         let previousColorSchemeMode = terminalColorSchemeMode
         let previousAnsiColors = terminalAnsiColors
@@ -2661,6 +2719,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         syncSizeWithView()
         updateRendererFrame()
         reportColorSchemeChangeIfNeeded(previousMode: previousColorSchemeMode)
+    }
+
+    /// The configured face at the size the zoom layer resolves to. Every font
+    /// the surface builds goes through here so ⌘+ / ⌘- / ⌘0 cannot be bypassed
+    /// by a second construction site drifting out of sync.
+    private static func terminalFont(for settings: AppSettings) -> NSFont {
+        let sizePT = CGFloat(
+            TerminalFontZoomCoordinator.shared.fontSizePT(configuredFontSizePT: settings.terminal.fontSize)
+        )
+        return NSFont(name: settings.terminal.fontName, size: sizePT)
+            ?? NSFont.monospacedSystemFont(ofSize: sizePT, weight: .regular)
     }
 
     private static func ansiColors(from settings: AppSettings) -> [SIMD4<Float>] {

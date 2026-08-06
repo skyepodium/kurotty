@@ -116,6 +116,8 @@ enum L10nKey: String, CaseIterable {
     // Agent context-window forecast.
     case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
     case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
+    // Terminal font zoom.
+    case increaseFontSize, decreaseFontSize, resetFontSize
 }
 
 enum AppLocalization {
@@ -240,6 +242,7 @@ enum AppLocalization {
             .agentContextOverLimit: "over limit",
             .agentContextLimitUnknown: "%@ used, limit unknown",
             .agentContextAccessibility: "Context %1$d%% used",
+            .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -325,6 +328,7 @@ enum AppLocalization {
             .agentContextOverLimit: "한도 초과",
             .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
             .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
+            .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -410,6 +414,7 @@ enum AppLocalization {
             .agentContextOverLimit: "上限超過",
             .agentContextLimitUnknown: "%@ 使用、上限不明",
             .agentContextAccessibility: "コンテキスト %1$d%% 使用",
+            .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
         ],
     ]
 }

@@ -90,17 +90,20 @@ final class TerminalLinkRangeTests: XCTestCase {
     }
 
     func testWrappedDisallowedSchemesRemainInactive() {
-        let sshRows = wrappedRows("ssh://example.com/", "repo")
         let remoteFileRows = wrappedRows("file://server/share/", "report.txt")
 
-        XCTAssertTrue(TerminalLinkRange.findAll(in: sshRows, startingRow: 0).isEmpty)
         XCTAssertTrue(TerminalLinkRange.findAll(in: remoteFileRows, startingRow: 0).isEmpty)
     }
 
     func testAutomaticLinksRespectURLSecurityPolicy() {
+        // ssh is allowlisted but not trusted: it is detected so it can be
+        // activated, and activation confirms. A remote file host stays inert.
         let row = cells("ssh://example.com/repo file://server/share/report.txt")
 
-        XCTAssertTrue(TerminalLinkRange.findAll(in: row, row: 0).isEmpty)
+        XCTAssertEqual(
+            TerminalLinkRange.findAll(in: row, row: 0).map(\.urlString),
+            ["ssh://example.com/repo"]
+        )
     }
 
     func testOSC8HyperlinkCellsCreateClickableRangeForVisibleLabel() {
