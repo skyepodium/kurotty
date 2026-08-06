@@ -53,6 +53,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// real Application Support directory.
     var scrollbackSnapshotCoordinator: TerminalScrollbackSnapshotCoordinator?
     var chromeTheme: DesignTokens.ChromeTheme
+    /// Scaled constants on the window shell itself — currently the two sidebar
+    /// toggles. The tab bar's own height is re-taken by `updateTabBar`, and
+    /// every panel owns its own bindings.
+    private let chromeMetrics = ChromeMetricBindings()
     private var lastAppliedWindowSettings: WindowSettings
     private var tmuxCoordinators: [TmuxNativeSessionCoordinator] = []
     var suppressesTmuxSelectionCallbacks = false
@@ -523,6 +527,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
+        // The same broadcast carries a UI-text-scale change, so anything sized
+        // from a scaled token has to re-read it here.
+        chromeMetrics.reapply()
         leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         statusBarView.applyChromeTheme(chromeTheme)
@@ -725,8 +732,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
         for button in [historyToggleButton, explorerToggleButton] {
-            button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
-            button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
+            chromeMetrics.bind(button.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.sidebarToggleSizePX
+            }.isActive = true
+            chromeMetrics.bind(button.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.sidebarToggleSizePX
+            }.isActive = true
         }
         updateSidebarToggleButtonStates()
     }

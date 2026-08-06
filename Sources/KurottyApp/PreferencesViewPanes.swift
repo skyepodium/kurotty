@@ -105,7 +105,53 @@ extension PreferencesView {
         // is found by it and stays whole.
         search.registerKeyword(importThemeButton.title, in: themeSection)
 
+        // The interface scale is Appearance rather than Window: it changes how
+        // Kurotty looks, not how big a new window opens.
+        let interfaceSection = section(
+            title: copy(.interfaceSection),
+            subtitle: copy(.interfaceSectionHelp)
+        )
+        configureUITextScaleSlider()
+        addRow(copy(.uiTextScale), control: uiTextScaleControl(), to: interfaceSection)
+
         configureCustomColors()
+    }
+
+    /// Slider plus a live percentage readout. A slider rather than the
+    /// field-and-stepper pair every other numeric setting uses, because this is
+    /// the one setting whose result the user judges by looking at the app rather
+    /// than by reading the number: dragging it re-lays the surface out under
+    /// their hand.
+    func uiTextScaleControl() -> NSStackView {
+        uiTextScaleValueLabel.font = DesignTokens.Typography.prefsCaption.font
+        uiTextScaleValueLabel.textColor = chromeTheme.textTertiary
+        uiTextScaleValueLabel.alignment = .right
+        uiTextScaleValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        if sizedControls.insert(ObjectIdentifier(uiTextScaleValueLabel)).inserted {
+            uiTextScaleValueLabel.widthAnchor.constraint(
+                equalToConstant: DesignTokens.Component.preferencesValueReadoutWidthPX
+            ).isActive = true
+        }
+        let stack = NSStackView(views: [uiTextScaleSlider, uiTextScaleValueLabel])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = DesignTokens.Space.x2PX
+        return stack
+    }
+
+    private func configureUITextScaleSlider() {
+        uiTextScaleSlider.minValue = SettingsDefaults.minimumUITextScalePercent
+        uiTextScaleSlider.maxValue = SettingsDefaults.maximumUITextScalePercent
+        uiTextScaleSlider.isContinuous = true
+        uiTextScaleSlider.target = self
+        uiTextScaleSlider.action = #selector(uiTextScaleChanged(_:))
+        uiTextScaleSlider.translatesAutoresizingMaskIntoConstraints = false
+        guard sizedControls.insert(ObjectIdentifier(uiTextScaleSlider)).inserted else {
+            return
+        }
+        uiTextScaleSlider.widthAnchor.constraint(
+            equalToConstant: DesignTokens.Component.preferencesControlWidthPX
+        ).isActive = true
     }
 
     func buildWindowPage() {

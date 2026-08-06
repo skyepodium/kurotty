@@ -1496,10 +1496,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         let settingsSource = try appSettingsSource()
         let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 18, which added `terminal.closeOnChildExit`,
-        // the command-finish notification keys, and the agent hook consent
-        // record.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 18"))
+        // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`.
+        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 19"))
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))

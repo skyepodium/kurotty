@@ -140,6 +140,60 @@ final class PreferencesNavigationTests: XCTestCase {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
         temporaryDirectory = nil
+        // Process-wide: a test that leaves the chrome at 175% resizes every
+        // surface built by every test after it.
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.defaultPercent)
+    }
+
+    // MARK: - UI text scale
+
+    /// The slider is the only control on this surface whose result the user
+    /// judges by looking at the app, so it has to reach the setting and the
+    /// readout on the same drag.
+    func testDraggingTheUITextScaleSliderUpdatesTheSettingAndTheReadout() throws {
+        let view = try makeView()
+        view.selectCategoryForTesting(.appearance)
+
+        view.uiTextScaleSlider.doubleValue = 130
+        view.uiTextScaleChanged(view.uiTextScaleSlider)
+
+        XCTAssertEqual(view.settingsForTesting.terminal.uiTextScalePercent, 130)
+        XCTAssertEqual(view.uiTextScaleValueLabel.stringValue, "130%")
+    }
+
+    /// The slider is continuous so it does not read as a ruler, so the snapping
+    /// onto the notch scale is what the user actually feels.
+    func testTheSliderSnapsOntoTheNotchScaleAndStaysInRange() {
+        let step = DesignTokens.UIScale.stepPercent
+
+        XCTAssertEqual(PreferencesView.snappedUITextScalePercent(132), 130)
+        XCTAssertEqual(PreferencesView.snappedUITextScalePercent(133), 135)
+        XCTAssertEqual(
+            PreferencesView.snappedUITextScalePercent(1_000),
+            DesignTokens.UIScale.maximumPercent
+        )
+        XCTAssertEqual(
+            PreferencesView.snappedUITextScalePercent(0),
+            DesignTokens.UIScale.minimumPercent
+        )
+        XCTAssertEqual(
+            PreferencesView.snappedUITextScalePercent(100 + step / 2 + 0.1),
+            100 + step
+        )
+    }
+
+    /// The Settings surface is chrome like any other, so it has to be findable
+    /// by name and its row has to exist where a user would look for it.
+    func testTheScaleRowLivesInAppearanceAndIsFoundByASearch() throws {
+        let view = try makeView()
+        view.selectCategoryForTesting(.appearance)
+
+        XCTAssertTrue(view.visibleCardTitlesForTesting.contains(englishCopy(.interfaceSection)))
+        XCTAssertTrue(view.visibleRowLabelsForTesting.contains(englishCopy(.uiTextScale)))
+
+        view.applySearchQueryForTesting("UI text")
+
+        XCTAssertEqual(view.visibleRowLabelsForTesting, [englishCopy(.uiTextScale)])
     }
 
     func testExactlyOneNavRowIsSelectedAndItIsTheOpenPane() throws {

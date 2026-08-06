@@ -157,7 +157,7 @@ extension PreferencesView {
         button.bezelStyle = .rounded
         button.controlSize = .regular
         button.translatesAutoresizingMaskIntoConstraints = false
-        guard sizedButtons.insert(ObjectIdentifier(button)).inserted else { return }
+        guard sizedControls.insert(ObjectIdentifier(button)).inserted else { return }
         button.heightAnchor.constraint(
             equalToConstant: DesignTokens.Component.preferencesButtonHeightPX
         ).isActive = true

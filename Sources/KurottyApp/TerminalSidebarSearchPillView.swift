@@ -28,6 +28,10 @@ final class TerminalSidebarSearchPillView: NSView {
     private let placeholderProvider: () -> String
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isFieldFocused = false
+    /// The pill's own box. Everything else here is rebuilt by
+    /// `applyAppearance()`; these constants are what would otherwise stay at
+    /// the size they were installed with.
+    private let metrics = ChromeMetricBindings()
 
     init(placeholder: @escaping () -> String) {
         placeholderProvider = placeholder
@@ -63,7 +67,16 @@ final class TerminalSidebarSearchPillView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        applyChromeMetrics()
         applyAppearance()
+    }
+
+    /// Re-takes what was sized from a token at init. This is the broadcast a
+    /// UI-text-scale change arrives on, so anything sized once has to be
+    /// re-sized here or the pill keeps its old box under new type.
+    func applyChromeMetrics() {
+        metrics.reapply()
+        textField.font = DesignTokens.Typography.rowTitle.font
     }
 
     /// Panel-relative frame accessor for layout regression tests.
@@ -114,8 +127,17 @@ final class TerminalSidebarSearchPillView: NSView {
 
         let edgeInset = DesignTokens.Component.sidebarSearchPillEdgeInsetXPX
         let textInset = DesignTokens.Component.sidebarSearchPillTextInsetXPX
+        let pillHeight = metrics.bind(heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.sidebarSearchPillHeightPX
+        }
+        let clearWidth = metrics.bind(clearButton.widthAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.sidebarSearchClearHitSizePX
+        }
+        let clearHeight = metrics.bind(clearButton.heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.sidebarSearchClearHitSizePX
+        }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarSearchPillHeightPX),
+            pillHeight,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: textInset),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -129,12 +151,8 @@ final class TerminalSidebarSearchPillView: NSView {
 
             clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -edgeInset),
             clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            clearButton.widthAnchor.constraint(
-                equalToConstant: DesignTokens.Component.sidebarSearchClearHitSizePX
-            ),
-            clearButton.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.sidebarSearchClearHitSizePX
-            ),
+            clearWidth,
+            clearHeight,
         ])
         applyAppearance()
     }

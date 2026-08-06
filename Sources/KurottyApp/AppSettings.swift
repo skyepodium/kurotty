@@ -29,7 +29,8 @@ struct AppSettings: Codable, Equatable {
             restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch,
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
-            agentStatusHookConsent: Defaults.agentStatusHookConsent
+            agentStatusHookConsent: Defaults.agentStatusHookConsent,
+            uiTextScalePercent: Defaults.uiTextScalePercent
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -62,6 +63,7 @@ struct AppSettings: Codable, Equatable {
         static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
+        static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -130,6 +132,12 @@ struct AppSettings: Codable, Equatable {
 /// and gate command-finish banners together: without them every background `ls`
 /// in an unfocused pane raised one, and a user who answers that by muting
 /// Kurotty loses the OSC 9/777/1337 notifications too.
+/// `uiTextScalePercent` is live-applied and defaults to 100: it scales Kurotty's
+/// own chrome and never terminal or editor content. It lives under `terminal`
+/// rather than in a section of its own because that is where every other
+/// app-behavior key already sits — `statusBarEnabled` and `codeEditorFontSize`
+/// are no more "terminal" than this one — and `window` is strictly the
+/// launch-size pair.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -163,6 +171,10 @@ struct TerminalSettings: Codable, Equatable {
     /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
     /// this only remembers that the question was already answered.
     var agentStatusHookConsent: String
+    /// Percentage applied to the chrome type ramp and to the boxes that hold it.
+    /// Stored as a percentage rather than as a multiplier so the settings file
+    /// and the Settings readout say the same thing.
+    var uiTextScalePercent: Double
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -192,6 +204,7 @@ struct TerminalSettings: Codable, Equatable {
         case notifyOnCommandFinish
         case minimumCommandDurationSeconds
         case agentStatusHookConsent
+        case uiTextScalePercent
     }
 
     init(
@@ -213,7 +226,8 @@ struct TerminalSettings: Codable, Equatable {
         codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines,
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
-        agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent
+        agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
+        uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -234,6 +248,7 @@ struct TerminalSettings: Codable, Equatable {
         self.notifyOnCommandFinish = notifyOnCommandFinish
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
         self.agentStatusHookConsent = agentStatusHookConsent
+        self.uiTextScalePercent = uiTextScalePercent
     }
 
     init(from decoder: Decoder) throws {
@@ -290,6 +305,10 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.minimumCommandDurationSeconds
         agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
             ?? SettingsDefaults.agentStatusHookConsent
+        // Absent in schema versions below 19; those files fall back to 100,
+        // which is the size every existing install is already running at.
+        uiTextScalePercent = try container.decodeIfPresent(Double.self, forKey: .uiTextScalePercent)
+            ?? SettingsDefaults.uiTextScalePercent
     }
 }
 
@@ -488,6 +507,8 @@ struct AppSettingsNormalizer {
         /// the reset below: it records an answer the user gave, not a preference
         /// with a default worth re-applying.
         static let commandFinishNotificationSchemaVersion = 18
+        /// Schema version that introduced `terminal.uiTextScalePercent`.
+        static let uiTextScaleSchemaVersion = 19
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -556,6 +577,14 @@ struct AppSettingsNormalizer {
             next.terminal.notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
             next.terminal.minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
         }
+        if sourceSchemaVersion < Migration.uiTextScaleSchemaVersion {
+            // Settings written before schema 19 predate the UI text scale, so
+            // the key carries no user intent. Migrated files land on 100 — the
+            // size they are already running at — rather than inheriting a
+            // number a hand-edited older file might contain; from schema 19 on,
+            // an explicit scale is preserved.
+            next.terminal.uiTextScalePercent = SettingsDefaults.uiTextScalePercent
+        }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.terminal.fontName.isEmpty {
@@ -578,6 +607,12 @@ struct AppSettingsNormalizer {
         next.terminal.minimumCommandDurationSeconds = min(
             SettingsDefaults.maximumAllowedCommandDurationSeconds,
             max(SettingsDefaults.minimumAllowedCommandDurationSeconds, next.terminal.minimumCommandDurationSeconds)
+        )
+        // Clamped through the one helper the design tokens also read, so a
+        // hand-edited file cannot put the chrome somewhere the Settings slider
+        // could not.
+        next.terminal.uiTextScalePercent = SettingsDefaults.clampedUITextScalePercent(
+            next.terminal.uiTextScalePercent
         )
         next.window.width = min(
             SettingsDefaults.maximumWindowWidthPX,
@@ -724,7 +759,9 @@ final class AppSettingsStore {
     func load() throws -> AppSettings {
         let defaultData = try encoder.encode(AppSettings.default)
         let data = try persistence.loadOrCreateDefaultData(defaultData)
-        return AppSettingsNormalizer.normalized(try decoder.decode(AppSettings.self, from: data))
+        let settings = AppSettingsNormalizer.normalized(try decoder.decode(AppSettings.self, from: data))
+        installChromeScale(settings)
+        return settings
     }
 
     func save(rawJSON: String) throws {
@@ -737,11 +774,23 @@ final class AppSettingsStore {
         let settings = AppSettingsNormalizer.normalized(settings)
         let normalizedData = try encoder.encode(settings)
         try persistence.save(normalizedData)
+        // Strictly before the notification: every observer re-reads design
+        // tokens to lay itself out again, and a scale installed afterwards
+        // would leave the whole app one change behind.
+        installChromeScale(settings)
         NotificationCenter.default.post(
             name: Self.didChangeNotification,
             object: self,
             userInfo: [Self.notificationSettingsKey: settings]
         )
+    }
+
+    /// Pushes the stored UI text scale into the design tokens. Done here rather
+    /// than in each observer because the store is the one place every path —
+    /// launch, save, and reload — already funnels through, and because the
+    /// ordering guarantee above only exists if there is a single caller.
+    private func installChromeScale(_ settings: AppSettings) {
+        DesignTokens.UIScale.setPercent(settings.terminal.uiTextScalePercent)
     }
 
     static let notificationSettingsKey = "settings"

@@ -111,6 +111,9 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         action: #selector(regularExpressionButtonPressed(_:))
     )
     private var chromeTheme = DesignTokens.ChromeTheme.dark
+    /// The bar's scaled box: its own height and preferred width, the query
+    /// field, the result-count slot, and every button side.
+    private let metrics = ChromeMetricBindings()
     private var lastSummary = TerminalSearchSummary.empty
     private var isQueryFieldFocused = false
 
@@ -152,6 +155,11 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        // The same broadcast carries a UI-text-scale change, so the bar re-takes
+        // its box and its query font here as well as its colors.
+        metrics.reapply()
+        queryField.font = NSFont.systemFont(ofSize: DesignTokens.Typography.controlLabel.sizePT)
+        resultCountLabel.font = DesignTokens.Typography.statusBarNum.font
         layer?.backgroundColor = theme.activeTabBackground.cgColor
         layer.map(DesignTokens.Elevation.floating(for: theme).apply(to:))
         queryField.textColor = theme.textPrimary
@@ -361,17 +369,21 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        let preferredWidthConstraint = widthAnchor.constraint(
-            equalToConstant: DesignTokens.Component.terminalSearchWidthPX
-        )
+        let preferredWidthConstraint = metrics.bind(widthAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.terminalSearchWidthPX
+        }
         preferredWidthConstraint.priority = .defaultHigh
-        let minimumQueryWidthConstraint = queryField.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumQueryWidthPX
-        )
+        let minimumQueryWidthConstraint = metrics.bind(
+            queryField.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        ) {
+            DesignTokens.Component.terminalSearchMinimumQueryWidthPX
+        }
         minimumQueryWidthConstraint.priority = .init(rawValue: 999)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchHeightPX),
+            metrics.bind(heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.terminalSearchHeightPX
+            },
             preferredWidthConstraint,
 
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalSearchStackLeadingInsetPX),
@@ -379,11 +391,13 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: DesignTokens.Component.terminalSearchStackVerticalInsetPX),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Component.terminalSearchStackVerticalInsetPX),
 
-            queryField.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchQueryHeightPX),
+            metrics.bind(queryField.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.terminalSearchQueryHeightPX
+            },
             minimumQueryWidthConstraint,
-            resultCountLabel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.terminalSearchMinimumResultCountWidthPX
-            ),
+            metrics.bind(resultCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.terminalSearchMinimumResultCountWidthPX
+            },
         ])
         update(summary: .empty)
         isHidden = true
@@ -407,8 +421,12 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         button.imageScaling = .scaleProportionallyDown
         button.setAccessibilityLabel(accessibilityLabel)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
-        button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX).isActive = true
+        metrics.bind(button.widthAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.terminalSearchButtonSidePX
+        }.isActive = true
+        metrics.bind(button.heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.terminalSearchButtonSidePX
+        }.isActive = true
         return button
     }
 
@@ -429,12 +447,12 @@ final class TerminalSearchBarView: NSView, NSTextFieldDelegate {
         )
         button.setAccessibilityRole(.checkBox)
         button.toolTip = accessibilityLabel
-        button.widthAnchor.constraint(
-            equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX
-        ).isActive = true
-        button.heightAnchor.constraint(
-            equalToConstant: DesignTokens.Component.terminalSearchButtonSidePX
-        ).isActive = true
+        metrics.bind(button.widthAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.terminalSearchButtonSidePX
+        }.isActive = true
+        metrics.bind(button.heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.terminalSearchButtonSidePX
+        }.isActive = true
         return button
     }
 
