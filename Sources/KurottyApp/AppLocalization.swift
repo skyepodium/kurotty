@@ -131,6 +131,10 @@ enum L10nKey: String, CaseIterable {
     // with a value, so VoiceOver reads the percentage from the role rather than
     // from a second determinate/indeterminate string.
     case commandProgressAccessibility
+    // Menu-bar extra. Only the way back into the app needs a string of its own:
+    // its other three rows are the app menu's, and a second "Settings" or
+    // "Quit" would be the same sentence maintained in two places.
+    case openApp, menuBarExtraAccessibility
 }
 
 enum AppLocalization {
@@ -267,6 +271,7 @@ enum AppLocalization {
             .childExitRestart: "Restart", .childExitClose: "Close",
             .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
             .commandProgressAccessibility: "Command running",
+            .openApp: "Open %@", .menuBarExtraAccessibility: "%@ menu",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -364,6 +369,7 @@ enum AppLocalization {
             .childExitRestart: "다시 시작", .childExitClose: "닫기",
             .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
             .commandProgressAccessibility: "명령 실행 중",
+            .openApp: "%@ 열기", .menuBarExtraAccessibility: "%@ 메뉴",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -461,6 +467,7 @@ enum AppLocalization {
             .childExitRestart: "再起動", .childExitClose: "閉じる",
             .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
             .commandProgressAccessibility: "コマンド実行中",
+            .openApp: "%@を開く", .menuBarExtraAccessibility: "%@メニュー",
         ],
     ]
 }

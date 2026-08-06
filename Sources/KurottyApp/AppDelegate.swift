@@ -7,6 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notificationBridge = KurottyNotificationBridgeServer()
     private var windowController: TerminalWindowController?
     private var commandPaletteController: CommandPaletteWindowController?
+    /// Built at launch rather than in a property initializer because its menu
+    /// rows target this delegate.
+    private var menuBarExtraController: MenuBarExtraController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Before any window: an app running from the DMG cannot update itself,
@@ -31,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // a fresh install it asks for consent before writing anything.
         AgentStatusHookCoordinator.shared.applyStoredSetting()
         MainMenu.install(target: self)
+        installMenuBarExtra()
         openNewWindow()
         restoreScrollbackFromWorkspaceSnapshot()
         if DebugOptions.showHistoryPanel {
@@ -90,6 +94,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.window?.makeKeyAndOrderFront(nil)
     }
 
+    /// The menu-bar extra's way back into the app.
+    ///
+    /// Raises the window that is already open rather than making another one: a
+    /// user clicks the extra because Kurotty is behind something else, and
+    /// answering that with a second empty window loses them the session they
+    /// were looking for. A new window is only correct when there is none —
+    /// unlike `focusExistingTerminalWindow`, which is a notification landing on
+    /// a window the user is already using and must never create one.
+    @objc func openKurotty() {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let controller = activeTerminalWindowController else {
+            showTerminalWindow(makeTerminalWindowController())
+            return
+        }
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The extra reads its own setting, so this is a no-op on the default
+    /// install: nothing asks `NSStatusBar` for a slot until the user turns it
+    /// on. After launch the controller follows the setting on its own.
+    private func installMenuBarExtra() {
+        let controller = MenuBarExtraController(actionTarget: self)
+        menuBarExtraController = controller
+        controller.applyStoredSetting()
+    }
+
     /// Settings is a center tab in a terminal window, not a window of its own.
     /// Cmd+, therefore opens or reveals that tab in the window the user is
     /// already looking at, and only makes a window when there is none left to
@@ -114,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         AppLocalization.preference = preference
         MainMenu.install(target: self)
+        menuBarExtraController?.refreshLocalization()
         activeTerminalWindowController?.refreshSettingsTabLocalization()
         commandPaletteController?.close()
         commandPaletteController = nil

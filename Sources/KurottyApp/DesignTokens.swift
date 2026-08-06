@@ -677,6 +677,14 @@ enum DesignTokens {
     ///   ramp. Scaling a 1px hairline or a 6px status dot makes chrome look
     ///   broken, not larger.
     enum Component {
+        /// The menu-bar extra's glyph. Outside `Icon.SizeClass` and outside the
+        /// UI text scale on purpose: the ramp exists so chrome glyphs track the
+        /// chrome type beside them, and there is no Kurotty type beside this
+        /// one. It sits in a bar whose height macOS fixes, so a glyph that grew
+        /// with Kurotty's own scale would be clipped by a bar Kurotty does not
+        /// control. 16pt is the size the system's own extras use.
+        static let menuBarExtraSymbolPointSizePT: CGFloat = 16
+
         /// Quick Commands editor window layout.
         static let quickCommandEditorWidthPX: CGFloat = 620
         static let quickCommandEditorHeightPX: CGFloat = 460

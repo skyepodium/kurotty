@@ -1495,11 +1495,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        // Schema 19 added `terminal.uiTextScalePercent` and
-        // `terminal.commandProgressIndicatorEnabled`. Asserted against the value
-        // rather than against the text of its declaration, so a reformat of
-        // SettingsDefaults cannot fail a test about the menu.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        // Schema 20 added `terminal.menuBarExtraEnabled`. Asserted against the
+        // value rather than against the text of its declaration, so a reformat
+        // of SettingsDefaults cannot fail a test about the menu.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))

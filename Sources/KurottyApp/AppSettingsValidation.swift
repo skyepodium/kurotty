@@ -36,6 +36,11 @@ enum AppSettingKey: String, Codable, Hashable {
     /// `terminalCloseOnChildExit`: a `Bool` decodes to one of two valid values,
     /// so there is no out-of-range state for `report(for:)` to find.
     case terminalCommandProgressIndicatorEnabled
+    /// Declared for its lifecycle contract only, like
+    /// `terminalCommandProgressIndicatorEnabled`. Named for the menu bar rather
+    /// than for a status item so it cannot be mistaken for a sibling of the
+    /// in-window bottom bar.
+    case terminalMenuBarExtraEnabled
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -86,6 +91,7 @@ enum AppSettingsValidation {
              .terminalCloseOnChildExit,
              .terminalUITextScalePercent,
              .terminalCommandProgressIndicatorEnabled,
+             .terminalMenuBarExtraEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied
