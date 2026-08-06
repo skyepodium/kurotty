@@ -77,6 +77,13 @@ final class TerminalPaneView: NSView {
         commandProgressBarView
     }
 
+    /// The pane's two top-edge overlays as laid out. Exposed so a test can
+    /// assert their real frames against each other instead of re-deriving the
+    /// constraints that produced them.
+    var topOverlayFramesForTesting: (progressBar: NSRect, searchBar: NSRect, terminal: NSRect) {
+        (commandProgressBarView.frame, searchBarView.frame, terminalSurfaceView.frame)
+    }
+
     func setTmuxDisplayTitle(_ title: String) {
         isTmuxDisplayTitleManaged = true
         if !title.isEmpty {

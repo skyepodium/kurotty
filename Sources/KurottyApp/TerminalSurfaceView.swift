@@ -1722,11 +1722,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private func send(_ text: String, recordsUserActivity: Bool = true) {
         // Only user-initiated input dismisses the selection. Synthesized
         // protocol traffic (focus reports, DSR/DA responses) must not clear it.
+        // The same flag tells the progress bar that a keystroke reached the
+        // running command, which a batch job the user is waiting on never sees.
         if recordsUserActivity {
             clearSelection()
             followLiveOutputForUserInput()
             recordKeyboardSelectionInputStartIfNeeded(for: text)
             recordUserInput(text)
+            onCommandProgress?(.userDidInteract)
         }
         shell.write(text)
     }
@@ -1854,7 +1857,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             markDirty(row: previousCursorRow)
         }
         core.feed(text)
+        let wasUsingAlternateScreen = isUsingAlternateScreen
         interpreter.interpret(text)
+        if !wasUsingAlternateScreen, isUsingAlternateScreen {
+            onCommandProgress?(.alternateScreenEntered)
+        }
         pendingMarkedTextAnchor = nil
         markDirty(row: cursorRow)
         let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput

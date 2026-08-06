@@ -13,12 +13,14 @@ final class TerminalCommandProgressTests: XCTestCase {
     private let start = Date(timeIntervalSinceReferenceDate: 1_000)
     private let appearanceDelay: TimeInterval = 0.5
     private let failureLinger: TimeInterval = 1.6
+    private let sweepCeiling: TimeInterval = 60
 
     private func makePolicy(isEnabled: Bool = true) -> TerminalCommandProgressPolicy {
         TerminalCommandProgressPolicy(
             isEnabled: isEnabled,
             appearanceDelaySeconds: appearanceDelay,
-            failureLingerSeconds: failureLinger
+            failureLingerSeconds: failureLinger,
+            sweepCeilingSeconds: sweepCeiling
         )
     }
 
@@ -129,11 +131,14 @@ final class TerminalCommandProgressTests: XCTestCase {
 
         XCTAssertEqual(
             policy.presentation(at: start.addingTimeInterval(appearanceDelay)),
-            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running)
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
         )
     }
 
-    func testTheOnlyScheduledWakeUpIsTheMomentTheBarBecomesDue() {
+    /// An indeterminate command has exactly two one-shot wake-ups ahead of it and
+    /// no repeating timer: the bar becoming due, then its sweep hitting the
+    /// ceiling.
+    func testTheScheduledWakeUpsAreTheBarBecomingDueThenTheCeiling() {
         var policy = makePolicy()
         policy.commandDidStart(at: start)
 
@@ -141,9 +146,13 @@ final class TerminalCommandProgressTests: XCTestCase {
             policy.nextPresentationChange(after: start),
             start.addingTimeInterval(appearanceDelay)
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             policy.nextPresentationChange(after: start.addingTimeInterval(appearanceDelay)),
-            "once the bar is up nothing further is pending, so nothing may wake up"
+            start.addingTimeInterval(sweepCeiling)
+        )
+        XCTAssertNil(
+            policy.nextPresentationChange(after: start.addingTimeInterval(sweepCeiling)),
+            "past the ceiling nothing further is pending, so nothing may wake up"
         )
     }
 
@@ -156,7 +165,7 @@ final class TerminalCommandProgressTests: XCTestCase {
 
         XCTAssertEqual(
             policy.presentation(at: start),
-            TerminalCommandProgressPresentation(fill: .fraction(0.25), tone: .running)
+            TerminalCommandProgressPresentation(fill: .fraction(0.25), tone: .running, motion: .still)
         )
         XCTAssertNil(policy.nextPresentationChange(after: start))
     }
@@ -165,19 +174,19 @@ final class TerminalCommandProgressTests: XCTestCase {
         let cases: [(TerminalCommandProgressReport, TerminalCommandProgressPresentation)] = [
             (
                 TerminalCommandProgressReport(state: .error, percent: 40),
-                TerminalCommandProgressPresentation(fill: .fraction(0.4), tone: .failed)
+                TerminalCommandProgressPresentation(fill: .fraction(0.4), tone: .failed, motion: .still)
             ),
             (
                 TerminalCommandProgressReport(state: .paused, percent: 60),
-                TerminalCommandProgressPresentation(fill: .fraction(0.6), tone: .paused)
+                TerminalCommandProgressPresentation(fill: .fraction(0.6), tone: .paused, motion: .still)
             ),
             (
                 TerminalCommandProgressReport(state: .indeterminate, percent: 60),
-                TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running)
+                TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
             ),
             (
                 TerminalCommandProgressReport(state: .set, percent: nil),
-                TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running)
+                TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
             ),
         ]
 
@@ -201,7 +210,7 @@ final class TerminalCommandProgressTests: XCTestCase {
         XCTAssertNil(policy.presentation(at: start))
         XCTAssertEqual(
             policy.presentation(at: start.addingTimeInterval(appearanceDelay)),
-            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running)
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
         )
     }
 
@@ -241,7 +250,7 @@ final class TerminalCommandProgressTests: XCTestCase {
 
         XCTAssertEqual(
             policy.presentation(at: end),
-            TerminalCommandProgressPresentation(fill: .fraction(1), tone: .failed)
+            TerminalCommandProgressPresentation(fill: .fraction(1), tone: .failed, motion: .still)
         )
         XCTAssertEqual(policy.nextPresentationChange(after: end), end.addingTimeInterval(failureLinger))
         XCTAssertNil(policy.presentation(at: end.addingTimeInterval(failureLinger)))
@@ -289,6 +298,181 @@ final class TerminalCommandProgressTests: XCTestCase {
         policy.isEnabled = false
 
         XCTAssertNil(policy.presentation(at: now))
+    }
+
+    // MARK: - Interactive programs
+
+    /// The bug this section exists for: an interactive program emits OSC 133 `C`
+    /// when the shell launches it and no `D` until the user quits, so the
+    /// elapsed-time bar would sweep for the whole session.
+    func testEnteringTheAlternateScreenTakesTheBarDown() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        XCTAssertNotNil(policy.presentation(at: start.addingTimeInterval(appearanceDelay)))
+
+        policy.alternateScreenDidActivate()
+
+        XCTAssertNil(policy.presentation(at: start.addingTimeInterval(appearanceDelay)))
+        XCTAssertNil(policy.presentation(at: start.addingTimeInterval(3_600)))
+        XCTAssertNil(
+            policy.nextPresentationChange(after: start),
+            "a bar that is never coming back has nothing to wake up for"
+        )
+    }
+
+    /// Nobody types at a batch job they are waiting on. This is the signal that
+    /// covers inline TUIs, which never take the alternate screen at all.
+    func testAKeystrokeDuringACommandTakesTheBarDown() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        XCTAssertNotNil(policy.presentation(at: start.addingTimeInterval(appearanceDelay)))
+
+        policy.userDidInteract()
+
+        XCTAssertNil(policy.presentation(at: start.addingTimeInterval(appearanceDelay)))
+        XCTAssertNil(policy.presentation(at: start.addingTimeInterval(3_600)))
+    }
+
+    /// A program the user has started driving does not stop being one because it
+    /// went quiet for a while.
+    func testInteractivityLatchesForTheRestOfTheCommandSpan() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        policy.userDidInteract()
+        policy.didReceive(TerminalCommandProgressReport(state: .indeterminate, percent: nil))
+
+        XCTAssertNil(
+            policy.presentation(at: start.addingTimeInterval(10)),
+            "an indeterminate report is still only the claim the user can already see"
+        )
+    }
+
+    /// The signals belong to one command span. The next prompt starts clean, or
+    /// one `vim` would mute every build for the rest of the session.
+    func testTheNextCommandGetsItsBarBack() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        policy.alternateScreenDidActivate()
+        policy.commandDidEnd(exitCode: 0, at: start.addingTimeInterval(600))
+
+        let next = start.addingTimeInterval(700)
+        policy.commandDidStart(at: next)
+
+        XCTAssertEqual(
+            policy.presentation(at: next.addingTimeInterval(appearanceDelay)),
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
+        )
+    }
+
+    /// A percentage is information the pane does not otherwise carry, so it
+    /// outlives the signal that removes a bar which only ever said "working".
+    func testADeterminatePercentageSurvivesBothInteractivitySignals() {
+        for signal in [
+            TerminalCommandProgressEvent.alternateScreenEntered,
+            TerminalCommandProgressEvent.userDidInteract,
+        ] {
+            var policy = makePolicy()
+            policy.commandDidStart(at: start)
+            policy.didReceive(TerminalCommandProgressReport(state: .set, percent: 40))
+            switch signal {
+            case .alternateScreenEntered:
+                policy.alternateScreenDidActivate()
+            default:
+                policy.userDidInteract()
+            }
+
+            XCTAssertEqual(
+                policy.presentation(at: start.addingTimeInterval(3_600)),
+                TerminalCommandProgressPresentation(fill: .fraction(0.4), tone: .running, motion: .still),
+                "\(signal) must not discard a reported percentage"
+            )
+        }
+    }
+
+    /// A failure the user never saw a bar for does not earn one on the way out,
+    /// and an interactive program's bar is exactly that: `vim` quit with `:cq`
+    /// must not flash red.
+    func testAnInteractiveCommandThatExitsNonZeroDoesNotFlashAFailureBar() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        policy.alternateScreenDidActivate()
+        let end = start.addingTimeInterval(600)
+
+        policy.commandDidEnd(exitCode: 1, at: end)
+
+        XCTAssertNil(policy.presentation(at: end))
+    }
+
+    // MARK: - Sweep ceiling
+
+    /// Past the ceiling the bar stops claiming that progress is happening right
+    /// now. It does not leave: without an OSC 133 `D` Kurotty does not know the
+    /// command ended, and a bar that vanished on a timer would be saying it did.
+    func testTheSweepCeilingStopsTheMotionAndKeepsTheBar() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+
+        XCTAssertEqual(
+            policy.presentation(at: start.addingTimeInterval(sweepCeiling - 0.01)),
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
+        )
+        XCTAssertEqual(
+            policy.presentation(at: start.addingTimeInterval(sweepCeiling)),
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .still)
+        )
+        XCTAssertEqual(
+            policy.presentation(at: start.addingTimeInterval(3_600)),
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .still)
+        )
+    }
+
+    /// A producer repeating "I am working" forever is the same forever-sweep the
+    /// elapsed-time rule produces, so the ceiling applies to it too.
+    func testAReportedIndeterminateStateIsAlsoCapped() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        policy.didReceive(TerminalCommandProgressReport(state: .indeterminate, percent: nil))
+
+        XCTAssertEqual(policy.presentation(at: start)?.motion, .sweeping)
+        XCTAssertEqual(policy.presentation(at: start.addingTimeInterval(sweepCeiling))?.motion, .still)
+    }
+
+    /// A percentage carries real information for as long as the producer keeps
+    /// sending it, and it has no motion to withdraw in the first place.
+    func testADeterminateReportIsNotSubjectToTheCeiling() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+        policy.didReceive(TerminalCommandProgressReport(state: .set, percent: 70))
+
+        let expected = TerminalCommandProgressPresentation(
+            fill: .fraction(0.7),
+            tone: .running,
+            motion: .still
+        )
+        XCTAssertEqual(policy.presentation(at: start.addingTimeInterval(sweepCeiling)), expected)
+        XCTAssertEqual(policy.presentation(at: start.addingTimeInterval(86_400)), expected)
+        XCTAssertNil(
+            policy.nextPresentationChange(after: start),
+            "a determinate bar changes when the producer says so, not on a timer"
+        )
+    }
+
+    /// The regression this whole change risks: a real batch command must still
+    /// raise a real sweeping bar.
+    func testAnOrdinarySlowCommandStillRaisesASweepingBar() {
+        var policy = makePolicy()
+        policy.commandDidStart(at: start)
+
+        XCTAssertNil(policy.presentation(at: start))
+        XCTAssertEqual(
+            policy.presentation(at: start.addingTimeInterval(appearanceDelay)),
+            TerminalCommandProgressPresentation(fill: .indeterminate, tone: .running, motion: .sweeping)
+        )
+        XCTAssertEqual(
+            policy.presentation(at: start.addingTimeInterval(30))?.motion,
+            .sweeping,
+            "half a minute into a build the sweep is still doing its job"
+        )
     }
 
     // MARK: - Rendering and reduced motion
@@ -384,6 +568,26 @@ final class TerminalCommandProgressTests: XCTestCase {
         XCTAssertFalse(view.isSweepingForTesting)
     }
 
+    /// The view must route both take-down events into the policy, not just hold
+    /// them: a sweeping bar has a live `CABasicAnimation` that has to be removed.
+    @MainActor
+    func testEachInteractivitySignalTakesDownASweepingBarView() {
+        for signal in [
+            TerminalCommandProgressEvent.alternateScreenEntered,
+            TerminalCommandProgressEvent.userDidInteract,
+        ] {
+            let view = makeBarView()
+            view.handle(.commandStarted)
+            view.handle(.reported(TerminalCommandProgressReport(state: .indeterminate, percent: nil)))
+            XCTAssertTrue(view.isSweepingForTesting, "\(signal) needs a sweeping bar to take down")
+
+            view.handle(signal)
+
+            XCTAssertTrue(view.isHidden, "\(signal) must take the bar down")
+            XCTAssertFalse(view.isSweepingForTesting, "\(signal) must stop the animation")
+        }
+    }
+
     @MainActor
     private func makeBarView() -> TerminalCommandProgressBarView {
         let view = TerminalCommandProgressBarView(
@@ -396,6 +600,121 @@ final class TerminalCommandProgressTests: XCTestCase {
         )
         view.prefersReducedMotion = false
         return view
+    }
+
+    // MARK: - Surface signals
+
+    /// The surface is where the two take-down signals actually originate, so
+    /// they are asserted from real PTY bytes and a real keystroke rather than
+    /// from a hand-made event.
+    private final class StubSession: TerminalSession {
+        var onOutput: ((String) -> Void)?
+        var onRawOutput: ((Data) -> Void)?
+        var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
+        var onExit: ((TerminalChildExit) -> Void)?
+
+        func start(workingDirectory: String) {}
+        func write(_ text: String) {}
+        func foregroundProcessName() -> String? { "zsh" }
+        func canReceiveTerminalResponseWithoutEcho() -> Bool { true }
+        func resize(columns: Int, rows: Int) {}
+        func stop() {}
+    }
+
+    private enum SurfaceFixture {
+        static let frame = NSRect(x: 0, y: 0, width: 500, height: 120)
+        static let enterAlternateScreen = "\u{1b}[?1049h"
+        static let leaveAlternateScreen = "\u{1b}[?1049l"
+        static let typedCharacter = "y"
+    }
+
+    @MainActor
+    private func makeSurface() -> (TerminalSurfaceView, () -> [TerminalCommandProgressEvent]) {
+        let surface = TerminalSurfaceView(frame: SurfaceFixture.frame, session: StubSession())
+        var events: [TerminalCommandProgressEvent] = []
+        surface.onCommandProgress = { events.append($0) }
+        return (surface, { events })
+    }
+
+    @MainActor
+    func testTheSurfaceReportsAlternateScreenEntryOnceOnTheRisingEdge() {
+        let (surface, events) = makeSurface()
+
+        surface.consumeTmuxRestoreOutputForTesting(Data(SurfaceFixture.enterAlternateScreen.utf8))
+        surface.consumeTmuxRestoreOutputForTesting(Data("drawing".utf8))
+
+        XCTAssertEqual(events(), [.alternateScreenEntered])
+    }
+
+    /// Only the transition into the alternate screen is a signal. Leaving it is
+    /// the program handing the pane back, which raises nothing.
+    @MainActor
+    func testLeavingTheAlternateScreenReportsNothing() {
+        let (surface, events) = makeSurface()
+        surface.consumeTmuxRestoreOutputForTesting(Data(SurfaceFixture.enterAlternateScreen.utf8))
+
+        surface.consumeTmuxRestoreOutputForTesting(Data(SurfaceFixture.leaveAlternateScreen.utf8))
+
+        XCTAssertEqual(events(), [.alternateScreenEntered])
+    }
+
+    @MainActor
+    func testOrdinaryOutputReportsNoInteractivitySignal() {
+        let (surface, events) = makeSurface()
+
+        surface.consumeTmuxRestoreOutputForTesting(Data("building...\r\nstill building\r\n".utf8))
+
+        XCTAssertEqual(events(), [])
+    }
+
+    @MainActor
+    func testTypedTextReportsUserInteractionButProtocolTrafficDoesNot() {
+        let (surface, events) = makeSurface()
+
+        // A device-status query the program asked for: the surface answers on
+        // the same PTY, and that answer is not the user doing anything.
+        surface.consumeTmuxRestoreOutputForTesting(Data("\u{1b}[6n".utf8))
+        XCTAssertEqual(events(), [], "a synthesized reply is not user input")
+
+        surface.sendText(SurfaceFixture.typedCharacter)
+
+        XCTAssertEqual(events(), [.userDidInteract])
+    }
+
+    // MARK: - Pane layout
+
+    /// The bar sits on the pane's top edge as the user sees it — below the
+    /// header, above the terminal grid — and the extra height must not push it
+    /// into either neighbour.
+    @MainActor
+    func testTheBarSitsOnTheTerminalTopEdgeWithoutTouchingTheHeaderOrSearchBar() {
+        let pane = TerminalPaneView(
+            frame: NSRect(x: 0, y: 0, width: 600, height: 400),
+            session: StubSession()
+        )
+        pane.showSearch()
+        pane.layoutSubtreeIfNeeded()
+
+        let (progressBar, searchBar, terminal) = pane.topOverlayFramesForTesting
+
+        XCTAssertEqual(progressBar.height, DesignTokens.Component.commandProgressBarHeightPX)
+        XCTAssertEqual(progressBar.width, terminal.width, "the bar spans the pane's terminal")
+        // Unflipped AppKit coordinates: the top edge is `maxY`.
+        XCTAssertEqual(progressBar.maxY, terminal.maxY, "the bar hangs off the terminal's top edge")
+        XCTAssertLessThanOrEqual(
+            terminal.maxY,
+            pane.bounds.maxY,
+            "the terminal, and therefore the bar, starts below the pane header"
+        )
+        XCTAssertFalse(
+            searchBar.isEmpty,
+            "an unlaid-out search bar would make the overlap assertion vacuous"
+        )
+        XCTAssertLessThanOrEqual(
+            searchBar.maxY,
+            progressBar.minY,
+            "the search bar clears the bar entirely rather than overlapping it"
+        )
     }
 
     // MARK: - Setting
