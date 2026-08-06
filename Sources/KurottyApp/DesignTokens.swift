@@ -6,7 +6,7 @@ enum DesignTokens {
     /// Chrome theme = one full instance of the semantic color ramp.
     ///
     /// Every role below is theme-owned. Status colors in particular must not be
-    /// shared between themes: the dark `success` (`#4ADE80`) measures about
+    /// shared between themes: the dark `success` (`#5FD08A`) measures about
     /// 1.6:1 on a white light-theme surface, so light needs its own darker
     /// status hues. The legacy role names (`windowBackground`,
     /// `activeTabBackground`, `textMuted`, ...) are kept as computed aliases
@@ -33,6 +33,10 @@ enum DesignTokens {
         let success: NSColor
         let warning: NSColor
         let error: NSColor
+        /// Low and high stops of the single-hue sequential ramp the daily usage
+        /// strip interpolates between.
+        let usageRampLow: NSColor
+        let usageRampHigh: NSColor
 
         // MARK: Interaction fills
         /// Selected-row wash. Chromatic, derived from `accent`.
@@ -110,6 +114,8 @@ enum DesignTokens {
             success: Color.Dark.success,
             warning: Color.Dark.warning,
             error: Color.Dark.error,
+            usageRampLow: Color.Dark.usageRampLow,
+            usageRampHigh: Color.Dark.usageRampHigh,
             selectionFill: Color.Dark.selectionFill,
             hoverFill: Color.Dark.hoverFill,
             pressFill: Color.Dark.pressFill,
@@ -131,6 +137,8 @@ enum DesignTokens {
             success: Color.Light.success,
             warning: Color.Light.warning,
             error: Color.Light.error,
+            usageRampLow: Color.Light.usageRampLow,
+            usageRampHigh: Color.Light.usageRampHigh,
             selectionFill: Color.Light.selectionFill,
             hoverFill: Color.Light.hoverFill,
             pressFill: Color.Light.pressFill,
@@ -157,22 +165,32 @@ enum DesignTokens {
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
         /// the specified hex on screen.
         enum Dark {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)
-            static let surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0x1F_22_28)
-            static let surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)
-            static let hairline = NSColor.designTokenSRGB(0x2E_32_3A)
-            static let borderStrong = NSColor.designTokenSRGB(0x3A_3F_49)
-            static let textPrimary = NSColor.designTokenSRGB(0xE6_E8_EC)
-            static let textSecondary = NSColor.designTokenSRGB(0xA6_AD_BB)
-            /// Lightened from `#7B828F`, which measured 3.73:1 on
-            /// `surfaceRaised` — the selected tab — and so missed the AA 4.5
-            /// floor exactly where a tab title has to be read.
-            static let textTertiary = NSColor.designTokenSRGB(0x8B_92_9F)
-            static let accent = NSColor.designTokenSRGB(0x5B_9D_FF)
-            static let success = NSColor.designTokenSRGB(0x4A_DE_80)
-            static let warning = NSColor.designTokenSRGB(0xF5_B8_40)
-            static let error = NSColor.designTokenSRGB(0xFF_7A_7A)
+            static let surfaceCanvas = NSColor.designTokenSRGB(0x17_17_16)
+            static let surfaceChrome = NSColor.designTokenSRGB(0x1D_1D_1C)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x21_21_20)
+            static let surfaceRaised = NSColor.designTokenSRGB(0x26_26_24)
+            static let hairline = NSColor.designTokenSRGB(0x30_2F_2C)
+            static let borderStrong = NSColor.designTokenSRGB(0x3F_3E_3A)
+            static let textPrimary = NSColor.designTokenSRGB(0xED_ED_EA)
+            static let textSecondary = NSColor.designTokenSRGB(0xAD_AD_A7)
+            /// The ramp is warm-neutral: every step used to run bluer than it
+            /// ran grey (`#16181D` through `#262A31`), which read as a cold cast
+            /// over everything rather than as a ground. Lightness steps are
+            /// preserved; only the hue moved. This rank has no headroom — it is
+            /// the lightest value still clearing AA 4.5 on `surfaceRaised`, the
+            /// selected tab, where a title has to be read.
+            static let textTertiary = NSColor.designTokenSRGB(0x90_90_89)
+            static let accent = NSColor.designTokenSRGB(0x6B_A5_FF)
+            static let success = NSColor.designTokenSRGB(0x5F_D0_8A)
+            /// Sequential ramp for the daily usage strip, low -> high. One warm
+            /// hue, rising in chroma, not the `error` step: a heavy day is a
+            /// magnitude, not a fault, and reusing a status colour for it would
+            /// make the two mean the same thing. Both stops clear 3:1 against
+            /// `surfaceSidebar`, the ground the strip is drawn on.
+            static let usageRampLow = NSColor.designTokenSRGB(0x8A_7F_79)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xE0_65_5C)
+            static let warning = NSColor.designTokenSRGB(0xE0_A9_4F)
+            static let error = NSColor.designTokenSRGB(0xE8_75_6E)
 
             static let selectionFillAlphaRATIO: CGFloat = 0.24
             static let hoverFillAlphaRATIO: CGFloat = 0.06
@@ -189,20 +207,26 @@ enum DesignTokens {
         /// `success` to roughly 1.6:1 against `surfaceCanvas`.
         enum Light {
             static let surfaceCanvas = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let surfaceChrome = NSColor.designTokenSRGB(0xF1_F2_F4)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xF7_F8_FA)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF4_F4_F2)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF9_F9_F7)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let hairline = NSColor.designTokenSRGB(0xDC_DF_E4)
-            static let borderStrong = NSColor.designTokenSRGB(0xC3_C7_CE)
-            static let textPrimary = NSColor.designTokenSRGB(0x1C_1E_22)
-            static let textSecondary = NSColor.designTokenSRGB(0x5A_61_6B)
-            /// Darkened from `#7C838E`, which topped out at 3.82:1 on white and
-            /// fell to 3.41:1 on `surfaceChrome`. Light chrome has no room to
-            /// spend on a quiet rank: this is the lightest value that still
-            /// clears AA 4.5 on every light surface.
-            static let textTertiary = NSColor.designTokenSRGB(0x67_6E_79)
-            static let accent = NSColor.designTokenSRGB(0x0B_62_E4)
+            static let hairline = NSColor.designTokenSRGB(0xE9_E9_E5)
+            static let borderStrong = NSColor.designTokenSRGB(0xD5_D5_D0)
+            static let textPrimary = NSColor.designTokenSRGB(0x1A_1A_18)
+            static let textSecondary = NSColor.designTokenSRGB(0x52_52_4D)
+            /// Warm-neutral, matching the dark ramp. Light chrome has no room
+            /// to spend on a quiet rank: this is the lightest value that still
+            /// clears AA 4.5 on every light surface, and it sits far enough
+            /// below `textSecondary` that the two read as different ranks —
+            /// they were 1.2:1 apart before, which looked like one rank twice.
+            static let textTertiary = NSColor.designTokenSRGB(0x6B_6B_65)
+            static let accent = NSColor.designTokenSRGB(0x1F_63_D6)
             static let success = NSColor.designTokenSRGB(0x17_72_45)
+            /// Light counterpart of the usage ramp. On a light ground a
+            /// sequential scale runs light -> dark, so the stops darken as the
+            /// day gets heavier rather than brightening.
+            static let usageRampLow = NSColor.designTokenSRGB(0x9C_8A_82)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xA0_2D_22)
             static let warning = NSColor.designTokenSRGB(0x8A_53_00)
             static let error = NSColor.designTokenSRGB(0xC0_27_1F)
 
@@ -360,7 +384,7 @@ enum DesignTokens {
             lineHeightPX: 16,
             design: .monospacedDigit
         )
-        static let monoBody = Role(sizePT: 12, weight: .regular, lineHeightPX: 16, design: .monospaced)
+        static let monoBody = Role(sizePT: 13, weight: .regular, lineHeightPX: 18, design: .monospaced)
         /// Editor line-number gutter. Monospaced digits so a jump from line 9 to
         /// line 10 cannot shift the column.
         static let monoGutter = Role(

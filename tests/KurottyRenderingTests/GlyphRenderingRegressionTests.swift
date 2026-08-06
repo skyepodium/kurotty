@@ -1831,11 +1831,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private let topBarSeparatorView = NSView()"))
         XCTAssertTrue(windowSource.contains("topBarSeparatorView.heightAnchor.constraint"))
         XCTAssertTrue(designSource.contains("topChromeBackground"))
-        // Chrome surfaces are the semantic ramp; hex values are sRGB, not
-        // generic-RGB `calibratedRed:` components.
-        XCTAssertTrue(designSource.contains("surfaceChrome = NSColor.designTokenSRGB(0x1B_1E_24)"))
-        XCTAssertTrue(designSource.contains("surfaceCanvas = NSColor.designTokenSRGB(0x16_18_1D)"))
-        XCTAssertTrue(designSource.contains("surfaceRaised = NSColor.designTokenSRGB(0x26_2A_31)"))
+        // The ramp's own hex values belong to DesignTokenColorRampTests, which
+        // asserts them through resolved sRGB components rather than by matching
+        // this file's text; pinning them here made a tab-bar test fail on every
+        // palette change. The `calibratedRed:` guard stays because it is a
+        // repo-wide construction rule, not a value.
         XCTAssertFalse(designSource.contains("calibratedRed"))
         XCTAssertTrue(designSource.contains("activeTabBackground"))
         XCTAssertTrue(designSource.contains("inactiveTabBackground"))

@@ -118,7 +118,7 @@ final class DesignTokenScaleTests: XCTestCase {
             ("badge", DesignTokens.Typography.badge, 11, .medium),
             ("statusBar", DesignTokens.Typography.statusBar, 12, .regular),
             ("statusBarNum", DesignTokens.Typography.statusBarNum, 12, .medium),
-            ("monoBody", DesignTokens.Typography.monoBody, 12, .regular),
+            ("monoBody", DesignTokens.Typography.monoBody, 13, .regular),
             ("paneHeader", DesignTokens.Typography.paneHeader, 12, .medium),
         ]
         for (name, role, sizePT, weight) in expected {

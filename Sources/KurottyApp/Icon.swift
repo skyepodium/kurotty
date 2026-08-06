@@ -88,12 +88,20 @@ enum IconSymbol {
     static let disclosureExpanded = "chevron.down"
     static let sidebarLeading = "sidebar.leading"
     static let sidebarTrailing = "sidebar.trailing"
+    /// Split glyphs read as "where the new pane lands": 2x1 puts it to the
+    /// right, 1x2 puts it below. Matching what cmux uses, since a user coming
+    /// from either app should not have to relearn the pair.
+    static let splitRight = "square.split.2x1"
+    static let splitDown = "square.split.1x2"
     static let refresh = "arrow.clockwise"
     static let search = "magnifyingglass"
     static let clearSearch = "xmark.circle.fill"
     /// Filled, because the icon is what carries the outline level: a group name
     /// is the same type rank as the rows under it.
-    static let folder = "folder.fill"
+    /// Outline, not `folder.fill`. A filled glyph at this size next to a
+    /// disclosure chevron reads as a second, heavier mark competing with the
+    /// row title; the outline sits back and lets the name lead.
+    static let folder = "folder"
     static let remove = "minus"
 
     // MARK: Empty states

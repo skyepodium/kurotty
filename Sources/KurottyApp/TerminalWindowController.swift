@@ -15,12 +15,32 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         target: nil,
         action: nil
     )
+    // The explorer toggle wore `sidebar.trailing`, a bar-divided rectangle
+    // that is nearly the same mark as `square.split.2x1` next to it. The panel
+    // it opens is a file tree, so the folder says what it does and leaves the
+    // divided-rectangle language to the split buttons alone.
     private let explorerToggleButton = ChromeIconButton(
-        symbolName: IconSymbol.sidebarTrailing,
+        symbolName: IconSymbol.folder,
         accessibilityLabel: AppLocalization.string(.fileExplorer),
         target: nil,
         action: nil
     )
+    private let splitRightButton = ChromeIconButton(
+        symbolName: IconSymbol.splitRight,
+        accessibilityLabel: AppLocalization.string(.splitVertically),
+        target: nil,
+        action: nil
+    )
+    private let splitDownButton = ChromeIconButton(
+        symbolName: IconSymbol.splitDown,
+        accessibilityLabel: AppLocalization.string(.splitHorizontally),
+        target: nil,
+        action: nil
+    )
+    /// Trailing chrome group. The split pair sits inboard of the explorer
+    /// toggle so the panel control stays in the corner where it has always
+    /// been, and adding a button never moves it.
+    private let trailingChromeStackView = NSStackView()
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
     // Left sidebar split chrome; layout and handlers live in
@@ -353,7 +373,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         rootView.addSubview(tabBarView)
         terminalContentHostView.addSubview(tabView)
         tabBarView.addSubview(historyToggleButton)
-        tabBarView.addSubview(explorerToggleButton)
+        trailingChromeStackView.orientation = .horizontal
+        trailingChromeStackView.alignment = .centerY
+        trailingChromeStackView.spacing = DesignTokens.Component.terminalTabBarSideButtonInsetPX
+        trailingChromeStackView.translatesAutoresizingMaskIntoConstraints = false
+        trailingChromeStackView.setViews(
+            [splitRightButton, splitDownButton, explorerToggleButton],
+            in: .leading
+        )
+        tabBarView.addSubview(trailingChromeStackView)
         tabBarView.addSubview(tabStackView)
         tabBarView.addSubview(topBarSeparatorView)
         configureSidebarToggleButtons()
@@ -377,18 +405,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
                 constant: DesignTokens.Component.terminalTrafficLightClearancePX
             ),
             historyToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
-            explorerToggleButton.trailingAnchor.constraint(
+            trailingChromeStackView.trailingAnchor.constraint(
                 equalTo: tabBarView.trailingAnchor,
                 constant: -DesignTokens.Component.terminalTabBarHorizontalInsetPX
             ),
-            explorerToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
+            trailingChromeStackView.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
 
             tabStackView.leadingAnchor.constraint(
                 equalTo: historyToggleButton.trailingAnchor,
                 constant: DesignTokens.Component.terminalTabBarSideButtonInsetPX
             ),
             tabStackView.trailingAnchor.constraint(
-                lessThanOrEqualTo: explorerToggleButton.leadingAnchor,
+                lessThanOrEqualTo: trailingChromeStackView.leadingAnchor,
                 constant: -DesignTokens.Component.terminalTabBarSideButtonInsetPX
             ),
             tabStackView.topAnchor.constraint(equalTo: tabBarView.topAnchor),
@@ -724,7 +752,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         explorerToggleButton.target = self
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
-        for button in [historyToggleButton, explorerToggleButton] {
+        splitRightButton.toolTip = AppLocalization.string(.splitVertically)
+        splitRightButton.target = self
+        splitRightButton.action = #selector(splitRightButtonPressed(_:))
+
+        splitDownButton.toolTip = AppLocalization.string(.splitHorizontally)
+        splitDownButton.target = self
+        splitDownButton.action = #selector(splitDownButtonPressed(_:))
+
+        for button in [historyToggleButton, explorerToggleButton, splitRightButton, splitDownButton] {
             button.widthAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
             button.heightAnchor.constraint(equalToConstant: DesignTokens.Component.sidebarToggleSizePX).isActive = true
         }
@@ -763,6 +799,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
 
     @objc private func explorerToggleButtonPressed(_ sender: NSButton) {
         toggleFileExplorerPanel()
+    }
+
+    @objc private func splitRightButtonPressed(_ sender: NSButton) {
+        splitVertically()
+    }
+
+    @objc private func splitDownButtonPressed(_ sender: NSButton) {
+        splitHorizontally()
     }
 
     private func makeTabItemView(title: String, index: Int, isSelected: Bool) -> NSView {

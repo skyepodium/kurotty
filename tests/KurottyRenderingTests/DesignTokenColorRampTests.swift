@@ -278,7 +278,7 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// Ramp colors must be built in sRGB; a generic-RGB (`calibratedRed:`)
     /// color of the same nominal components resolves to different sRGB values.
     func testRampColorsResolveToTheSpecifiedSRGBHex() throws {
-        let expectedDarkCanvasHex: [CGFloat] = [0x16, 0x18, 0x1D]
+        let expectedDarkCanvasHex: [CGFloat] = [0x17, 0x17, 0x16]
         let maxChannelValue: CGFloat = 255
         let tolerance: CGFloat = 0.5 / maxChannelValue
         let canvas = try XCTUnwrap(DesignTokens.ChromeTheme.dark.surfaceCanvas.usingColorSpace(.sRGB))
