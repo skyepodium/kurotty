@@ -821,6 +821,12 @@ enum DesignTokens {
         /// the bar reads as on/off state rather than as two plain buttons.
         static let sidebarToggleActiveTintAlphaRATIO: CGFloat = 0.82
         static let sidebarToggleActiveFillAlphaRATIO: CGFloat = 0.10
+        /// Hover on an already-open toggle: the same accent wash, one step
+        /// deeper. Deliberately not `terminalTabButtonHoverAlphaRATIO`, which
+        /// is a tab's chromatic hover and is stronger than this control's own
+        /// selected fill -- pointing at a toggle should not look louder than
+        /// selecting it.
+        static let sidebarToggleActiveHoverFillAlphaRATIO: CGFloat = 0.16
         /// Both bounds hold a tab title, so both move with it: a tab pinned to
         /// 120 at 175% truncates every title to two words.
         static var terminalTabMinWidthPX: CGFloat { UIScale.scaledMetric(120) }
