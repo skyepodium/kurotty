@@ -172,8 +172,10 @@ final class TerminalCloseConfirmationTests: XCTestCase {
         XCTAssertTrue(AppSettings.default.terminal.confirmCloseRunningProcess)
     }
 
-    func testSchemaVersionIsSeventeen() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 17)
+    /// The key was introduced at schema 17. Later schemas keep it, so this
+    /// pins the introduction boundary rather than the current version.
+    func testSchemaVersionIsAtLeastSeventeen() {
+        XCTAssertGreaterThanOrEqual(SettingsDefaults.schemaVersion, 17)
     }
 
     func testSettingsWithoutTheKeyStillDecode() throws {

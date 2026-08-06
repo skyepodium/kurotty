@@ -33,6 +33,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
     private var searchQuery = ""
+    /// Survives close and reopen of the bar, because the toggles in the bar do.
+    private var searchOptions = TerminalSearchOptions.default
     private var searchResults = TerminalSearchResults.empty
     private var currentSearchMatchIndex: Int?
     private var searchGeneration: UInt64 = 0
@@ -59,9 +61,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var keyTextAccumulator: [String]?
     private var keyboardSelectionInputStart: TerminalCellPosition?
     private var font: NSFont
+    /// The last settings this surface applied. Held so a font-zoom change can
+    /// re-run the appearance path without a second settings load per pane.
+    private var appliedSettings: AppSettings
     private var pendingOutputText = ""
     private var isOutputFlushScheduled = false
-    private var pendingSubmittedInputText = ""
+    private var submittedCommandRecorder = TerminalSubmittedCommandRecorder()
     private var lastSubmittedCommandText: String?
     private var debugFrameIndex: UInt64 = 0
     private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)
@@ -81,8 +86,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// Live mirror of `terminal.confirmMultilinePaste`; read on every paste, so
     /// it must never touch the filesystem.
     private var confirmMultilinePasteEnabled: Bool
+    /// Live mirrors of `terminal.notifyOnCommandFinish` and
+    /// `terminal.minimumCommandDurationSeconds`; read on every OSC 133;D, so
+    /// they must never touch the filesystem.
+    private var commandFinishNotificationMode: TerminalCommandFinishNotificationMode
+    private var minimumCommandDurationSeconds: Double
     private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
+    /// Raised once when this surface's child process is gone. The owning pane
+    /// decides what to show and whether to close; the surface only reports.
+    var onChildExit: ((TerminalChildExit) -> Void)?
     var onSearchSummaryChange: ((TerminalSearchSummary) -> Void)?
     var closeSearchRequested: (() -> Void)?
     private lazy var tmuxControlModeDriver = TmuxControlModeDriver { [weak self] command in
@@ -114,12 +127,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         agentPaneIdentifier = paneIdentifier
         agentStatusChannel = AgentStatusOutputChannel(paneIdentifier: paneIdentifier)
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
-        let configuredFont = NSFont(
-            name: settings.terminal.fontName,
-            size: CGFloat(settings.terminal.fontSize)
-        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
             foreground: settings.terminal.colors.foregroundColor,
@@ -196,7 +209,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         }
         shell.onExit = { [weak self] status in
             DispatchQueue.main.async {
-                self?.tmuxControlModeDriver.transportDidExit(status: status)
+                guard let self else { return }
+                // The tmux transport only speaks exit codes, so the signal case
+                // is flattened here and nowhere else; `onChildExit` keeps the
+                // full outcome for the pane that owns the exit banner.
+                self.tmuxControlModeDriver.transportDidExit(status: status.status.shellExitCode)
+                self.onChildExit?(status)
             }
         }
         shell.onRuntimeEvent = { [weak self] event in
@@ -222,6 +240,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             selector: #selector(settingsDidChange(_:)),
             name: AppSettingsStore.didChangeNotification,
             object: AppSettingsStore.shared
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontZoomDidChange(_:)),
+            name: TerminalFontZoomCoordinator.didChangeNotification,
+            object: TerminalFontZoomCoordinator.shared
         )
         observeTerminalFocusChanges()
         observeInputSourceChanges()
@@ -377,13 +401,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     func updateSearchQuery(_ query: String) {
         searchQuery = query
+        restartSearch()
+    }
+
+    func updateSearchOptions(_ options: TerminalSearchOptions) {
+        guard options != searchOptions else { return }
+        searchOptions = options
+        restartSearch()
+    }
+
+    private func restartSearch() {
         searchResults = .empty
         currentSearchMatchIndex = nil
         publishSearchSummary()
         markFullDamage()
         updateRendererFrame()
         scheduleSearch(
-            query: query,
+            query: searchQuery,
             preserving: nil,
             delayNanoseconds: AppConstants.Terminal.searchInputDebounceNanoseconds
         )
@@ -471,13 +505,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         let position = cellPosition(for: event)
-        if let link = linkRange(at: position) {
+        // A plain left-click belongs to selection: URLs in output have to be
+        // clickable-into and drag-selectable like any other text. Requiring a
+        // modifier before a link swallows the click is what Ghostty, iTerm2 and
+        // kitty all do; ⌘ is the macOS-native one.
+        if event.modifierFlags.contains(.command), let link = linkRange(at: position) {
             clearSelection()
             setHoveredLinkRange(link)
             if let fileTarget = link.fileTarget {
                 openFileLinkInEditorTab(fileTarget)
             } else {
-                presentOpenLinkDialog(for: link)
+                activateLink(link)
             }
             return
         }
@@ -595,6 +633,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             cellHeightPX: CGFloat(terminalMetrics().cellSize.height)
         )
         if reportTerminalMouseWheel(with: event, rowDelta: rowDelta) {
+            return
+        }
+        if sendAlternateScrollKeysIfNeeded(with: event, rowDelta: rowDelta) {
             return
         }
         guard rowDelta != 0 else { return }
@@ -1026,6 +1067,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         apply(settings: settings)
+    }
+
+    /// The zoom resolves against the configured size, so re-applying the last
+    /// settings is all it takes; `terminalFont(for:)` picks up the new size.
+    @objc private func fontZoomDidChange(_ notification: Notification) {
+        apply(settings: appliedSettings)
     }
 
     override func layout() {
@@ -1728,54 +1775,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     @discardableResult
     private func recordSubmittedInputText(_ text: String) -> Bool {
-        var didSubmit = false
-        for character in text {
-            if character == "\r" || character == "\n" {
-                didSubmit = captureSubmittedCommandTextIfNeeded() || didSubmit
-                continue
-            }
-            if character == "\u{7f}" {
-                if !pendingSubmittedInputText.isEmpty {
-                    pendingSubmittedInputText.removeLast()
-                }
-                continue
-            }
-            if character == "\u{15}" {
-                pendingSubmittedInputText.removeAll(keepingCapacity: true)
-                continue
-            }
-            guard character.isTerminalPrintableGrapheme else {
-                continue
-            }
-            pendingSubmittedInputText.append(character)
-            trimPendingSubmittedInputTextIfNeeded()
-        }
-        return didSubmit
-    }
-
-    @discardableResult
-    private func captureSubmittedCommandTextIfNeeded() -> Bool {
-        defer {
-            pendingSubmittedInputText.removeAll(keepingCapacity: true)
-        }
-        guard let body = TerminalSubmittedCommandSummary.notificationBody(from: pendingSubmittedInputText) else {
-            lastSubmittedCommandText = nil
+        let submitted = submittedCommandRecorder.consume(text)
+        guard let body = submitted.last else {
             return false
         }
         lastSubmittedCommandText = body
         return true
-    }
-
-    private func trimPendingSubmittedInputTextIfNeeded() {
-        let maxCharacters = AppConstants.Notifications.commandInputCaptureMaxCharacters
-        guard pendingSubmittedInputText.count > maxCharacters else {
-            return
-        }
-        let startIndex = pendingSubmittedInputText.index(
-            pendingSubmittedInputText.endIndex,
-            offsetBy: -maxCharacters
-        )
-        pendingSubmittedInputText = String(pendingSubmittedInputText[startIndex...])
     }
 
     private func recordKeyboardSelectionInputStartIfNeeded(for text: String) {
@@ -2126,7 +2131,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         return TerminalCellPosition(row: nextRow, column: nextColumn)
     }
 
+    /// The hover underline is the affordance for the ⌘-click, so it only shows
+    /// while ⌘ is down. `flagsChanged` drives this too, which is what makes the
+    /// underline appear and disappear under a stationary pointer.
     private func updateHoveredLinkRange(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command) else {
+            setHoveredLinkRange(nil)
+            return
+        }
         setHoveredLinkRange(linkRange(at: cellPosition(for: event)))
     }
 
@@ -2150,6 +2162,24 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return true
         }
         sendTerminalMouseSequence(String(repeating: sequence, count: abs(rowDelta)))
+        return true
+    }
+
+    /// DEC private mode 1007. The alternate screen has no scrollback of its own,
+    /// so a claimed wheel is swallowed even when it quantizes to zero rows:
+    /// falling through would scroll the normal screen's history behind the pager.
+    private func sendAlternateScrollKeysIfNeeded(with event: NSEvent, rowDelta: Int) -> Bool {
+        let context = TerminalAlternateScroll.Context(
+            isAlternateScreenActive: isUsingAlternateScreen,
+            isAlternateScrollEnabled: mouseReportingState.alternateScrollEnabled,
+            isMouseReportingEnabled: mouseReportingState.isEnabled,
+            applicationCursorKeysEnabled: applicationCursorKeysEnabled,
+            isShiftHeld: event.modifierFlags.contains(.shift)
+        )
+        guard TerminalAlternateScroll.claimsWheel(in: context) else { return false }
+        if let sequence = TerminalAlternateScroll.keySequence(rowDelta: rowDelta, context: context) {
+            send(sequence)
+        }
         return true
     }
 
@@ -2261,9 +2291,24 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
+    /// The ⌘-click is already the user's intent, so a trusted scheme opens
+    /// straight away. Only the schemes the policy still wants a second look at
+    /// reach the confirmation sheet.
+    private func activateLink(_ link: TerminalLinkRange) {
+        guard let url = URL(string: link.urlString) else { return }
+        switch securityPolicy.userActivatedLinkDecision(for: url) {
+        case .allow:
+            NSWorkspace.shared.open(url)
+        case .ask:
+            presentOpenLinkDialog(for: link)
+        case .deny:
+            break
+        }
+    }
+
     private func presentOpenLinkDialog(for link: TerminalLinkRange) {
         guard let url = URL(string: link.urlString) else { return }
-        guard securityPolicy.linkOpenDecision(for: url) == .ask else { return }
+        guard securityPolicy.userActivatedLinkDecision(for: url) == .ask else { return }
         let alert = NSAlert()
         alert.messageText = AppLocalization.string(.openLinkQuestion)
         alert.informativeText = link.urlString
@@ -2353,6 +2398,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         searchGeneration &+= 1
         let generation = searchGeneration
         guard isSearchPresentationActive, !query.isEmpty else { return }
+        let options = searchOptions
 
         searchTask = Task { [weak self] in
             if delayNanoseconds > 0 {
@@ -2364,7 +2410,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 return
             }
             let matchingTask = Task.detached(priority: .userInitiated) {
-                TerminalSearchMatcher.scan(query: query, in: snapshot)
+                TerminalSearchMatcher.scan(query: query, options: options, in: snapshot)
             }
             let scanResult = await withTaskCancellationHandler(
                 operation: { await matchingTask.value },
@@ -2618,12 +2664,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func apply(settings: AppSettings) {
+        appliedSettings = settings
         hideMouseCursorWhileTypingEnabled = settings.terminal.hideMouseCursorWhileTyping
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
-        let nextFont = NSFont(
-            name: settings.terminal.fontName,
-            size: CGFloat(settings.terminal.fontSize)
-        ) ?? NSFont.monospacedSystemFont(ofSize: CGFloat(settings.terminal.fontSize), weight: .regular)
+        commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
+        minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        let nextFont = Self.terminalFont(for: settings)
         let previousDefaultStyle = terminalDefaultStyle
         let previousColorSchemeMode = terminalColorSchemeMode
         let previousAnsiColors = terminalAnsiColors
@@ -2661,6 +2707,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         syncSizeWithView()
         updateRendererFrame()
         reportColorSchemeChangeIfNeeded(previousMode: previousColorSchemeMode)
+    }
+
+    /// The configured face at the size the zoom layer resolves to. Every font
+    /// the surface builds goes through here so ⌘+ / ⌘- / ⌘0 cannot be bypassed
+    /// by a second construction site drifting out of sync.
+    private static func terminalFont(for settings: AppSettings) -> NSFont {
+        let sizePT = CGFloat(
+            TerminalFontZoomCoordinator.shared.fontSizePT(configuredFontSizePT: settings.terminal.fontSize)
+        )
+        return NSFont(name: settings.terminal.fontName, size: sizePT)
+            ?? NSFont.monospacedSystemFont(ofSize: sizePT, weight: .regular)
     }
 
     private static func ansiColors(from settings: AppSettings) -> [SIMD4<Float>] {
@@ -2840,7 +2897,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
         lastSubmittedCommandText = nil
-        guard shouldDeliverUserNotification else {
+        guard TerminalCommandFinishNotificationPolicy.shouldNotify(
+            mode: commandFinishNotificationMode,
+            minimumDuration: minimumCommandDurationSeconds,
+            actualDuration: context.duration,
+            isFocused: isTerminalFocusedForUser
+        ) else {
             return
         }
         notifier.notifyCommandFinished(content: TerminalCommandCompletionNotificationContent.make(from: context))

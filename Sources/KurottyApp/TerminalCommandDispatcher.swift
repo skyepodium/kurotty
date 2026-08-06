@@ -126,6 +126,10 @@ enum TerminalCommandDispatcher {
             controller.toggleFileExplorerPanel()
         case .toggleAgentSessionPanel:
             controller.toggleAgentSessionPanel()
+        case let .zoomFont(step):
+            // The zoom is app-wide, so it does not route through the controller
+            // the way the pane and tab commands do.
+            TerminalFontZoomCoordinator.shared.apply(step)
         case let .tmuxSwapPane(direction):
             controller.swapTmuxPane(direction)
         case let .tmuxRotateWindow(direction):

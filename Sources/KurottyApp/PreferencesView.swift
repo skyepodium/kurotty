@@ -4,33 +4,29 @@ import KurottyCore
 @MainActor
 final class PreferencesView: NSView, NSTextFieldDelegate {
     enum Layout {
-        static let sidebarWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
-        /// The window minus the category sidebar minus the outer inset on both
-        /// sides. Cards fill this width exactly so their left edges line up with
-        /// the pane heading above them.
-        static let contentWidthPX = DesignTokens.Component.preferencesWidthPX
-            - DesignTokens.Component.preferencesSidebarWidthPX
-            - DesignTokens.Space.x6PX * 2
+        static let navWidthPX = DesignTokens.Component.preferencesSidebarWidthPX
+        static let navRowHeightPX = DesignTokens.Component.preferencesNavRowHeightPX
+        static let navRowWidthPX = navWidthPX
+            - DesignTokens.Component.preferencesNavTrailingInsetPX
         static let outerInsetPX = DesignTokens.Space.x6PX
-        static let categoryListLeadingPX = DesignTokens.Space.x4PX
-        static let categoryListTopPX = DesignTokens.Space.x5PX
+        /// Widest the content column is allowed to get. Cards are elastic
+        /// below it — the surface is a tab now, not a fixed 720pt window, so
+        /// nothing may assume a width.
+        static let contentMaxWidthPX = DesignTokens.Component.preferencesContentMaxWidthPX
         static let sectionSpacingPX = DesignTokens.Space.x5PX
         static let cardPaddingPX = DesignTokens.Space.x5PX
         static let rowSpacingPX = DesignTokens.Space.x3PX
-        static let labelWidthPX: CGFloat = 150
+        static let labelWidthPX = DesignTokens.Component.preferencesLabelColumnWidthPX
         static let labelControlGapPX = DesignTokens.Space.x4PX
-        /// What is left inside a card once the right-aligned label column and
-        /// its gap are taken.
-        static let controlColumnWidthPX = contentWidthPX
-            - cardPaddingPX * 2
-            - labelWidthPX
-            - labelControlGapPX
+        /// What a card's padding, right-aligned label column, and label-control
+        /// gap take out of the card's width. Subtracted from the card at layout
+        /// time rather than precomputed, because the card no longer has a fixed
+        /// width to precompute against.
+        static let labelColumnTotalPX = cardPaddingPX * 2 + labelWidthPX + labelControlGapPX
         static let fieldWidthPX = DesignTokens.Component.preferencesControlWidthPX
-        static let previewHeightPX: CGFloat = 176
-        static let colorWellSizePX: CGFloat = 34
-        static let categoryButtonHeightPX: CGFloat = 32
-        static let categoryListTrailingInsetPX: CGFloat = 28
-        static let ansiColumnCount = 4
+        static let previewHeightPX = DesignTokens.Component.preferencesThemePreviewHeightPX
+        static let colorWellSizePX = DesignTokens.Component.preferencesColorWellSizePX
+        static let ansiColumnCount = DesignTokens.Component.preferencesAnsiColumnCount
     }
 
     private static let autosaveDelay: TimeInterval = 0.25
@@ -45,11 +41,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     var sizedButtons = Set<ObjectIdentifier>()
 
     lazy var search = PreferencesSearchController(
-        contentWidthPX: Layout.contentWidthPX,
         placeholder: { PreferencesCopy.string(.searchPlaceholder, language: AppLocalization.language) },
         noResultsFormat: { PreferencesCopy.string(.searchNoResults, language: AppLocalization.language) }
     )
 
+    private lazy var headerView = NSView()
+    private lazy var titleLabel = NSTextField(labelWithString: "")
+    private lazy var headerSeparator = NSBox()
+    private lazy var navDivider = NSBox()
     private lazy var categoryStack = NSStackView()
     private lazy var detailScrollView = NSScrollView()
     lazy var detailStack = NSStackView()
@@ -125,6 +124,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         action: #selector(importThemePressed(_:))
     )
     lazy var customColorsStack = NSStackView()
+    /// The palette card outlives the pane it sits in, so its column constraint
+    /// is retired and reinstalled on every Appearance build.
+    var customColorsWidthConstraint: NSLayoutConstraint?
     lazy var previewView = PreferencesThemePreviewView()
     lazy var foregroundWell = NSColorWell()
     lazy var backgroundWell = NSColorWell()
@@ -141,9 +143,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         configure()
         reloadFromDisk()
         // The chrome theme is derived from the settings that were just read, so
-        // the window shell has to be repainted here: `configure()` had nothing
-        // but the defaults to paint with, which left a light-theme settings
-        // window on a dark canvas.
+        // the surface has to be repainted here: `configure()` had nothing but
+        // the defaults to paint with, which left a light-theme settings page on
+        // a dark canvas.
         applyChromeTheme()
         indexEveryPane()
     }
@@ -154,9 +156,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         configure()
         reloadFromDisk()
         // The chrome theme is derived from the settings that were just read, so
-        // the window shell has to be repainted here: `configure()` had nothing
-        // but the defaults to paint with, which left a light-theme settings
-        // window on a dark canvas.
+        // the surface has to be repainted here: `configure()` had nothing but
+        // the defaults to paint with, which left a light-theme settings page on
+        // a dark canvas.
         applyChromeTheme()
         indexEveryPane()
     }
@@ -165,10 +167,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         fatalError("init(coder:) is not supported")
     }
 
-    /// Chrome theme in effect for the settings window. Preferences used to paint
-    /// its cards with the generic system control background regardless of the
-    /// terminal theme, which is why it was the one surface that never matched
-    /// the rest of the app.
+    /// Chrome theme in effect for the settings surface. Preferences used to
+    /// paint its cards with the generic system control background regardless of
+    /// the terminal theme, which is why it was the one surface that never
+    /// matched the rest of the app.
     var chromeTheme: DesignTokens.ChromeTheme {
         DesignTokens.ChromeTheme.theme(for: settings)
     }
@@ -177,34 +179,50 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
 
-        configureSidebar()
+        configureHeader()
+        configureNav()
         configureDetailArea()
         configureStatusBar()
 
-        let divider = NSBox()
-        divider.boxType = .separator
-        divider.translatesAutoresizingMaskIntoConstraints = false
-
+        addSubview(headerView)
+        addSubview(headerSeparator)
         addSubview(categoryStack)
-        addSubview(divider)
+        addSubview(navDivider)
         addSubview(detailScrollView)
         addSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            categoryStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.categoryListLeadingPX),
-            categoryStack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.categoryListTopPX),
-            categoryStack.widthAnchor.constraint(equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX),
+            headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerView.topAnchor.constraint(equalTo: topAnchor),
+            headerView.heightAnchor.constraint(
+                equalToConstant: DesignTokens.Component.preferencesHeaderHeightPX
+            ),
 
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.sidebarWidthPX),
-            divider.topAnchor.constraint(equalTo: topAnchor),
-            divider.bottomAnchor.constraint(equalTo: bottomAnchor),
+            headerSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerSeparator.topAnchor.constraint(equalTo: headerView.bottomAnchor),
 
-            detailScrollView.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
+            categoryStack.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: DesignTokens.Component.preferencesNavInsetXPX
+            ),
+            categoryStack.topAnchor.constraint(
+                equalTo: headerSeparator.bottomAnchor,
+                constant: DesignTokens.Component.preferencesNavTopInsetPX
+            ),
+            categoryStack.widthAnchor.constraint(equalToConstant: Layout.navRowWidthPX),
+
+            navDivider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.navWidthPX),
+            navDivider.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
+            navDivider.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            detailScrollView.leadingAnchor.constraint(equalTo: navDivider.trailingAnchor),
             detailScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            detailScrollView.topAnchor.constraint(equalTo: topAnchor),
+            detailScrollView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             detailScrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -DesignTokens.Space.x3PX),
 
-            statusLabel.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: Layout.outerInsetPX),
+            statusLabel.leadingAnchor.constraint(equalTo: navDivider.trailingAnchor, constant: Layout.outerInsetPX),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.outerInsetPX),
             statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DesignTokens.Space.x4PX),
             statusLabel.heightAnchor.constraint(equalToConstant: DesignTokens.Component.preferencesStatusHeightPX),
@@ -212,29 +230,79 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         applyChromeTheme()
     }
 
-    /// Repaints the window shell, the cards, and the system controls for the
+    /// Repaints the surface, the cards, and the system controls for the
     /// active terminal theme. Called on load and after every save so a theme
     /// change in the Appearance pane is reflected immediately.
     private func applyChromeTheme() {
         let theme = chromeTheme
         appearance = theme.windowAppearance
         layer?.backgroundColor = theme.surfaceCanvas.cgColor
+        headerView.layer?.backgroundColor = theme.surfaceChrome.cgColor
+        titleLabel.textColor = theme.textPrimary
         statusLabel.textColor = theme.textTertiary
         search.applyChromeTheme(theme)
     }
 
-    private func configureSidebar() {
+    /// Top bar of the settings surface: the page title over the nav column and
+    /// the query field over the content column, above one hairline that runs
+    /// the full width.
+    ///
+    /// Search moved out of the nav list to get here. A query reaches settings in
+    /// every pane, so a field parked inside one column read as a filter on that
+    /// column rather than on the surface.
+    private func configureHeader() {
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.wantsLayer = true
+        headerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+
+        titleLabel.stringValue = copy(.settingsTitle)
+        titleLabel.font = DesignTokens.Typography.prefsTitle.font
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        headerSeparator.boxType = .separator
+        headerSeparator.translatesAutoresizingMaskIntoConstraints = false
+        navDivider.boxType = .separator
+        navDivider.translatesAutoresizingMaskIntoConstraints = false
+
+        search.onCategoryRequested = { [weak self] category in
+            self?.selectCategory(category)
+        }
+        let queryField = search.queryField
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(queryField)
+
+        // The field takes its designed width where there is room and gives it
+        // back to the trailing inset in a narrow tab, so it never overhangs.
+        let designedWidth = queryField.widthAnchor.constraint(
+            equalToConstant: DesignTokens.Component.preferencesHeaderSearchWidthPX
+        )
+        designedWidth.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(
+                equalTo: headerView.leadingAnchor,
+                constant: DesignTokens.Component.preferencesNavInsetXPX
+            ),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            queryField.leadingAnchor.constraint(
+                equalTo: headerView.leadingAnchor,
+                constant: Layout.navWidthPX + Layout.outerInsetPX
+            ),
+            queryField.trailingAnchor.constraint(
+                lessThanOrEqualTo: headerView.trailingAnchor,
+                constant: -Layout.outerInsetPX
+            ),
+            queryField.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            designedWidth,
+        ])
+    }
+
+    private func configureNav() {
         categoryStack.orientation = .vertical
         categoryStack.alignment = .leading
         categoryStack.spacing = DesignTokens.Space.x1PX
         categoryStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let headingLabel = NSTextField(labelWithString: copy(.settingsTitle))
-        headingLabel.font = DesignTokens.Typography.prefsTitle.font
-        categoryStack.addArrangedSubview(headingLabel)
-        categoryStack.setCustomSpacing(Layout.sectionSpacingPX, after: headingLabel)
-
-        configureSearchField()
 
         for category in PreferencesCategory.allCases {
             let button = NSButton(title: title(for: category), target: self, action: #selector(categorySelected(_:)))
@@ -243,29 +311,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
             button.alignment = .left
             button.setButtonType(.toggle)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(
-                equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX
-            ).isActive = true
-            button.heightAnchor.constraint(equalToConstant: Layout.categoryButtonHeightPX).isActive = true
+            button.widthAnchor.constraint(equalToConstant: Layout.navRowWidthPX).isActive = true
+            button.heightAnchor.constraint(equalToConstant: Layout.navRowHeightPX).isActive = true
             categoryStack.addArrangedSubview(button)
         }
-    }
-
-    /// The query field sits above the category list, at the category buttons'
-    /// width: searching is a way into the list, not a fourth category.
-    private func configureSearchField() {
-        search.onCategoryRequested = { [weak self] category in
-            self?.selectCategory(category)
-        }
-        let queryField = search.queryField
-        categoryStack.addArrangedSubview(queryField)
-        queryField.widthAnchor.constraint(
-            equalToConstant: Layout.sidebarWidthPX - Layout.categoryListTrailingInsetPX
-        ).isActive = true
-        categoryStack.setCustomSpacing(
-            DesignTokens.Component.preferencesSearchFieldBottomGapPX,
-            after: queryField
-        )
     }
 
     /// Builds each pane once at open so search can reach a setting in a pane the
@@ -280,8 +329,8 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     }
 
     /// Cmd+F reaches the key window's responder chain before it reaches the app
-    /// delegate's terminal search, so in the Settings window "find" means find a
-    /// setting.
+    /// delegate's terminal search, so while the settings tab is selected "find"
+    /// means find a setting.
     @objc func findTerminalOutput() {
         search.focusQueryField()
     }
@@ -307,14 +356,61 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         documentView.addSubview(detailStack)
         detailScrollView.documentView = documentView
 
+        // The content column is elastic with a ceiling: `fill` is the growth
+        // rule and yields to the maximum, so the same cards read correctly in a
+        // half-width tab and on a 6K display.
+        let fill = detailStack.widthAnchor.constraint(equalTo: documentView.widthAnchor)
+        fill.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             documentView.widthAnchor.constraint(equalTo: detailScrollView.contentView.widthAnchor),
             documentView.heightAnchor.constraint(greaterThanOrEqualTo: detailScrollView.contentView.heightAnchor),
             detailStack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            detailStack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
+            detailStack.trailingAnchor.constraint(lessThanOrEqualTo: documentView.trailingAnchor),
+            detailStack.widthAnchor.constraint(
+                lessThanOrEqualToConstant: Layout.contentMaxWidthPX + Layout.outerInsetPX * 2
+            ),
+            fill,
             detailStack.topAnchor.constraint(equalTo: documentView.topAnchor),
             detailStack.bottomAnchor.constraint(lessThanOrEqualTo: documentView.bottomAnchor),
         ])
+
+        // The empty state stays arranged for the surface's whole life. A pane
+        // switch tears every card down, and a view that left the hierarchy
+        // would take its width constraint with it.
+        detailStack.addArrangedSubview(search.emptyStateView)
+        pinToContentColumn(search.emptyStateView)
+    }
+
+    /// Pins `view` to the content column, which is the detail stack minus its
+    /// own insets. Everything the panes add goes through here instead of
+    /// carrying a width of its own: a settings surface hosted in a tab has no
+    /// fixed width to hard-code.
+    func pinToContentColumn(_ view: NSView) {
+        contentColumnWidthConstraint(for: view).isActive = true
+    }
+
+    /// The same constraint, unactivated, for the one card that outlives a pane
+    /// build. The custom palette is torn out of the stack on every switch, and
+    /// a constraint to a stack the view has left is one Auto Layout will not
+    /// honour, so its owner retires the old constraint before installing this.
+    func contentColumnWidthConstraint(for view: NSView) -> NSLayoutConstraint {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view.widthAnchor.constraint(
+            equalTo: detailStack.widthAnchor,
+            constant: -Layout.outerInsetPX * 2
+        )
+    }
+
+    /// Pins `view` to the inside of `card` — the card's width less its padding
+    /// on both sides. Card-relative rather than column-relative so a card can
+    /// never disagree with the heading that sits in it.
+    func pinToCardContent(_ view: NSView, in card: NSStackView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(
+            equalTo: card.widthAnchor,
+            constant: -Layout.cardPaddingPX * 2
+        ).isActive = true
     }
 
     private func configureStatusBar() {
@@ -334,9 +430,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         for case let button as NSButton in categoryStack.arrangedSubviews {
             button.state = button.tag == category.rawValue ? .on : .off
         }
-        detailStack.arrangedSubviews.forEach {
-            detailStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
+        for view in detailStack.arrangedSubviews where view !== search.emptyStateView {
+            detailStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
 
         search.beginRecording(category)
@@ -348,6 +444,9 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         case .window:
             buildWindowPage()
         }
+        // Re-arranging a view that is already in the stack moves it to the end,
+        // which puts the empty state back below the rebuilt cards without ever
+        // detaching it.
         detailStack.addArrangedSubview(search.emptyStateView)
         search.endRecording()
         // `syncControlsFromSettings` re-applies the filter, so the rebuilt pane
@@ -373,7 +472,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
 
     @objc func colorChanged(_ sender: NSColorWell) {
         guard !isUpdatingControls else { return }
-        let hex = sender.color.hexRGB
+        let hex = sender.color.terminalPaletteHex
         switch sender.tag {
         case 0: settings.terminal.colors.foreground = hex
         case 1: settings.terminal.colors.background = hex
@@ -568,13 +667,17 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
                 ofPresetName: TerminalThemePreset.canonicalName(settings.terminal.theme)
             )
         )
-        foregroundWell.color = NSColor(hexRGB: settings.terminal.colors.foreground) ?? .textColor
-        backgroundWell.color = NSColor(hexRGB: settings.terminal.colors.background) ?? .textBackgroundColor
-        cursorWell.color = NSColor(hexRGB: settings.terminal.colors.cursor) ?? .controlAccentColor
+        foregroundWell.color = NSColor.terminalPaletteSRGB(settings.terminal.colors.foreground) ?? .textColor
+        backgroundWell.color = NSColor.terminalPaletteSRGB(settings.terminal.colors.background) ?? .textBackgroundColor
+        cursorWell.color = NSColor.terminalPaletteSRGB(settings.terminal.colors.cursor) ?? .controlAccentColor
         for (index, well) in ansiWells.enumerated() where settings.terminal.colors.ansi.indices.contains(index) {
-            well.color = NSColor(hexRGB: settings.terminal.colors.ansi[index]) ?? .gray
+            well.color = NSColor.terminalPaletteSRGB(settings.terminal.colors.ansi[index]) ?? .gray
         }
         previewView.colors = settings.terminal.colors
+        // The preview is a preview of the terminal, font included: leaving it on
+        // a fixed family and size made every font change look like a no-op.
+        previewView.fontName = settings.terminal.fontName
+        previewView.fontSizePT = settings.terminal.fontSize
         // The custom palette card is gated by the selected theme and by the
         // active query. One owner decides its `isHidden` so the two rules cannot
         // fight: the filter reads the gate through `isCustomPaletteAvailable`.
@@ -637,6 +740,21 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         PreferencesCopy.string(key, language: AppLocalization.language)
     }
 
+    /// Retranslates the whole surface in place after a language switch. The
+    /// header and the nav rows are built once, so they are re-titled here; every
+    /// label inside a pane comes back translated with the rebuild.
+    func refreshLocalization() {
+        titleLabel.stringValue = copy(.settingsTitle)
+        for case let button as NSButton in categoryStack.arrangedSubviews {
+            guard let category = PreferencesCategory(rawValue: button.tag) else { continue }
+            button.title = title(for: category)
+        }
+        // The query field's placeholder is re-read while the theme is applied,
+        // which is also what repaints the header for the current ramp.
+        applyChromeTheme()
+        selectCategory(selectedCategory)
+    }
+
     // MARK: Test hooks
 
     var selectedCategoryForTesting: PreferencesCategory { selectedCategory }
@@ -658,6 +776,34 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     var visibleCardTitlesForTesting: [String] { search.visibleCardTitlesForTesting }
 
     var visibleRowLabelsForTesting: [String] { search.visibleRowLabelsForTesting }
+
+    var visibleCardWidthsForTesting: [CGFloat] { search.visibleCardWidthsForTesting }
+
+    /// Width the detail area actually offers, which is not the surface width
+    /// minus the nav: a legacy (non-overlay) scroller quietly takes a slice of
+    /// it, and whether the user has one is a system setting.
+    var detailAreaWidthForTesting: CGFloat { detailScrollView.contentView.bounds.width }
+
+    /// Which nav rows are switched on. Selection is the nav's only state, so
+    /// this is what "the surface is showing pane X" means to a test.
+    var selectedNavTitlesForTesting: [String] {
+        categoryStack.arrangedSubviews
+            .compactMap { $0 as? NSButton }
+            .filter { $0.state == .on }
+            .map(\.title)
+    }
+
+    /// Drives a nav row the way a click does, target-action included, so the
+    /// tests exercise the same path the user does.
+    func clickNavRowForTesting(_ category: PreferencesCategory) {
+        guard let button = categoryStack.arrangedSubviews
+            .compactMap({ $0 as? NSButton })
+            .first(where: { $0.tag == category.rawValue })
+        else {
+            return
+        }
+        button.performClick(nil)
+    }
 
     var searchFieldIsFocusedForTesting: Bool { search.isQueryFieldFocusedForTesting }
 
@@ -701,27 +847,4 @@ enum PreferencesThemePopup {
 
 private final class FlippedPreferencesDocumentView: NSView {
     override var isFlipped: Bool { true }
-}
-
-private extension NSColor {
-    convenience init?(hexRGB: String) {
-        let value = hexRGB.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
-        guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
-        self.init(
-            calibratedRed: CGFloat((raw >> 16) & 0xff) / 255,
-            green: CGFloat((raw >> 8) & 0xff) / 255,
-            blue: CGFloat(raw & 0xff) / 255,
-            alpha: 1
-        )
-    }
-
-    var hexRGB: String {
-        guard let rgb = usingColorSpace(.deviceRGB) else { return "#000000" }
-        return String(
-            format: "#%02X%02X%02X",
-            Int(round(rgb.redComponent * 255)),
-            Int(round(rgb.greenComponent * 255)),
-            Int(round(rgb.blueComponent * 255))
-        )
-    }
 }

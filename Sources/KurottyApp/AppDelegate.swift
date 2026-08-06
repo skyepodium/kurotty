@@ -6,7 +6,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateController = UpdateController()
     private let notificationBridge = KurottyNotificationBridgeServer()
     private var windowController: TerminalWindowController?
-    private var preferencesController: PreferencesWindowController?
     private var commandPaletteController: CommandPaletteWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,7 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         // Before the first window, so the first pane's PTY can already carry the
-        // hook variables when the setting is on. A no-op while it is off.
+        // hook variables when the setting is on. A no-op while it is off, and on
+        // a fresh install it asks for consent before writing anything.
         AgentStatusHookCoordinator.shared.applyStoredSetting()
         MainMenu.install(target: self)
         openNewWindow()
@@ -90,12 +90,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.window?.makeKeyAndOrderFront(nil)
     }
 
+    /// Settings is a center tab in a terminal window, not a window of its own.
+    /// Cmd+, therefore opens or reveals that tab in the window the user is
+    /// already looking at, and only makes a window when there is none left to
+    /// put it in.
     @objc func openPreferences() {
-        let controller = preferencesController ?? PreferencesWindowController()
-        preferencesController = controller
         NSApp.activate(ignoringOtherApps: true)
-        controller.showWindow(nil)
+        guard let controller = activeTerminalWindowController else {
+            let controller = makeTerminalWindowController()
+            showTerminalWindow(controller)
+            controller.openSettingsTab()
+            return
+        }
         controller.window?.makeKeyAndOrderFront(nil)
+        controller.openSettingsTab()
     }
 
     @objc func changeLanguage(_ sender: NSMenuItem) {
@@ -106,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         AppLocalization.preference = preference
         MainMenu.install(target: self)
-        preferencesController?.refreshLocalization()
+        activeTerminalWindowController?.refreshSettingsTabLocalization()
         commandPaletteController?.close()
         commandPaletteController = nil
     }
@@ -287,6 +295,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleFileExplorerPanel() {
         activeTerminalWindowController?.toggleFileExplorerPanel()
+    }
+
+    // The font zoom is app-wide, so unlike the pane and tab commands it stays
+    // available with no terminal window key.
+    @objc func increaseTerminalFontSize() {
+        TerminalFontZoomCoordinator.shared.apply(.increase)
+    }
+
+    @objc func decreaseTerminalFontSize() {
+        TerminalFontZoomCoordinator.shared.apply(.decrease)
+    }
+
+    @objc func resetTerminalFontSize() {
+        TerminalFontZoomCoordinator.shared.apply(.reset)
     }
 
     private var activeTerminalWindowController: TerminalWindowController? {

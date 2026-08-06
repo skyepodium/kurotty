@@ -30,10 +30,13 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-    var onExit: ((Int32) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
 
     private var master: Int32 = -1
     private var childPid: pid_t = -1
+    /// Set when the child is forked and read once when it is reaped, so the
+    /// exit banner can say how long the session ran.
+    private var childStartDate: Date?
     private var readSource: DispatchSourceRead?
     private var waitSource: DispatchSourceProcess?
     private let readQueue = DispatchQueue(label: "dev.kurotty.shell-session.read", qos: .userInteractive)
@@ -48,10 +51,31 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     /// reaching into `readQueue` state.
     private var publishedQueuedInputByteCount = 0
     private let queuedInputLock = NSLock()
-    private var pendingOutput = Data()
-    private var pendingOutputStartIndex = 0
+    /// Undecoded PTY bytes. Touched only on `readQueue`.
+    private var pendingOutput = TerminalPendingOutputBuffer(
+        byteLimit: AppConstants.Shell.pendingOutputByteLimit
+    )
     private var readBuffer = [UInt8](repeating: 0, count: AppConstants.Shell.ptyReadBufferSizeBytes)
     private var ptyReadTraceSequence: UInt64 = 0
+
+    /// Flow control for the read source.
+    ///
+    /// `outputBackpressureLock` guards every field below plus `readSource`
+    /// itself, because the suspend/resume calls have to stay balanced: the
+    /// decision is made on `readQueue` (a drain just delivered bytes) or on the
+    /// main queue (the surface just consumed them), and computing the action on
+    /// one queue while applying it on another is how the balance is lost.
+    /// Dispatch traps on an over-resume and never runs the cancel handler of a
+    /// source that is still suspended.
+    private let outputBackpressureLock = NSLock()
+    private let outputBackpressurePolicy = TerminalOutputBackpressurePolicy.default
+    private var outputReaderState = TerminalOutputBackpressurePolicy.ReaderState.reading
+    /// Bytes handed to the main queue that the surface has not consumed yet.
+    /// This is the real backlog: `pendingOutput` empties on every drain, while
+    /// undelivered main-queue work is what grows without bound when the child
+    /// outruns the renderer.
+    private var undeliveredOutputByteCount = 0
+    private var outputBackpressureCounters = TerminalOutputBackpressureDiagnostics()
 
     /// Agent-status hook variables for this pane's PTY, resolved by the owner
     /// from `AgentStatusHookCoordinator.shared.shellEnvironment(paneIdentifier:)`.
@@ -127,9 +151,22 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
 
         master = fd
         childPid = pid
+        childStartDate = Date()
         setNonBlocking(fd)
         observeMaster(fd)
         observeChildExit(pid)
+    }
+
+    /// Test seam: drives the reader from an already-open descriptor.
+    ///
+    /// The backpressure path is otherwise only reachable behind `forkpty`, and
+    /// asserting on flow control should not require spawning a login shell.
+    func attachOutputReaderForTesting(fileDescriptor: Int32) {
+        guard !isStarted else { return }
+        isStarted = true
+        master = fileDescriptor
+        setNonBlocking(fileDescriptor)
+        observeMaster(fileDescriptor)
     }
 
     func write(_ text: String) {
@@ -223,9 +260,20 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
 
     func stop() {
         isStopping = true
-        if let readSource {
-            readSource.cancel()
-            self.readSource = nil
+        outputBackpressureLock.lock()
+        // A suspended source never runs its cancel handler, so the file
+        // descriptor would leak and the source would trap on deallocation.
+        // Balance the suspension before cancelling.
+        if outputReaderState == .suspended {
+            readSource?.resume()
+            outputReaderState = .reading
+        }
+        let source = readSource
+        readSource = nil
+        outputBackpressureLock.unlock()
+
+        if let source {
+            source.cancel()
         } else if master >= 0 {
             close(master)
         }
@@ -341,8 +389,14 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         source.setCancelHandler {
             close(fd)
         }
+        // Resumed under the lock so that `readSource` is only ever touched with
+        // it held: every state transition then happens atomically with the
+        // Dispatch call it describes, which is what keeps the pair balanced.
+        outputBackpressureLock.lock()
         readSource = source
+        outputReaderState = .reading
         source.resume()
+        outputBackpressureLock.unlock()
     }
 
     private func observeChildExit(_ pid: pid_t) {
@@ -362,14 +416,17 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         childPid = -1
         waitSource?.cancel()
         waitSource = nil
-        let exitStatus = Self.normalizedExitStatus(status)
+        let exitStatus = TerminalChildExit(
+            status: TerminalChildExitStatus(waitpidStatus: status),
+            runtimeSeconds: childStartDate.map { -$0.timeIntervalSinceNow }
+        )
         guard !isStopping else { return }
 
         // The process source and PTY read source share readQueue, but either may
         // be delivered first. Drain once after waitpid so output already buffered
         // by the kernel is enqueued on the main queue before the exit callback.
         if master >= 0 {
-            drainOutput(master)
+            drainOutput(master, mode: .final)
         }
         DispatchQueue.main.async { [weak self] in
             self?.onExit?(exitStatus)
@@ -392,9 +449,38 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         }
     }
 
-    private func drainOutput(_ fd: Int32) {
+    /// Whether a drain pass answers to flow control.
+    private enum OutputDrainMode {
+        /// Normal reads: stop at the high-water mark and let the child block in
+        /// `write(2)` until the surface catches up.
+        case backpressured
+        /// The post-`waitpid` read. The child is gone, so what is left is
+        /// bounded by the kernel buffer and must not be lost to a byte cap or
+        /// to a suspension that nothing will lift.
+        case final
+    }
+
+    private func drainOutput(_ fd: Int32, mode: OutputDrainMode = .backpressured) {
+        if mode == .backpressured, isOutputReaderSuspended {
+            // `scheduleOutputDrain` and its retries reach this path directly,
+            // bypassing the read source. Honour the suspension here or the
+            // source's suspend/resume would only throttle idle sessions.
+            return
+        }
+
         var didRead = false
+        var bytesReadThisDrain = 0
+        let undeliveredByteCountAtStart = currentUndeliveredOutputByteCount()
         while true {
+            if mode == .backpressured,
+               !outputBackpressurePolicy.allowsAdditionalRead(
+                   pendingBytes: undeliveredByteCountAtStart + bytesReadThisDrain,
+                   bytesReadThisDrain: bytesReadThisDrain
+               ) {
+                // Leave the rest in the kernel buffer. The read source is
+                // level-triggered, so it fires again once the reader resumes.
+                break
+            }
             let count = readBuffer.withUnsafeMutableBytes { rawBuffer -> Int in
                 guard let baseAddress = rawBuffer.baseAddress else { return 0 }
                 return Darwin.read(fd, baseAddress, rawBuffer.count)
@@ -404,6 +490,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
                 emitRuntimePtyRead(byteCount: chunk.count)
                 onRawOutput?(chunk)
                 pendingOutput.append(chunk)
+                bytesReadThisDrain += count
                 didRead = true
                 continue
             }
@@ -413,10 +500,92 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
             break
         }
 
-        guard didRead, let text = takeDecodedOutput(), !text.isEmpty else { return }
+        guard didRead else { return }
+        let text = takeDecodedOutput()
+        publishDroppedOutputByteCount(pendingOutput.droppedByteCount)
+        guard let text, !text.isEmpty else { return }
+
+        // Account in UTF-8 bytes, the unit the child produced and the surface
+        // will re-encode, so the mark is comparable to the read buffer size.
+        let deliveredByteCount = text.utf8.count
+        applyOutputBackpressure(pendingByteCountDelta: deliveredByteCount)
         DispatchQueue.main.async { [weak self] in
             self?.onOutput?(text)
+            // Acknowledged only once the surface has taken the text, so the
+            // measured backlog is main-queue saturation rather than how fast
+            // the reader can call `async`.
+            self?.applyOutputBackpressure(pendingByteCountDelta: -deliveredByteCount)
         }
+    }
+
+    /// Snapshot of the reader's flow-control state. Safe from any thread.
+    var outputBackpressureDiagnostics: TerminalOutputBackpressureDiagnostics {
+        outputBackpressureLock.lock()
+        defer { outputBackpressureLock.unlock() }
+        var diagnostics = outputBackpressureCounters
+        diagnostics.isReaderSuspended = outputReaderState == .suspended
+        diagnostics.pendingByteCount = undeliveredOutputByteCount
+        return diagnostics
+    }
+
+    private var isOutputReaderSuspended: Bool {
+        outputBackpressureLock.lock()
+        defer { outputBackpressureLock.unlock() }
+        return outputReaderState == .suspended
+    }
+
+    private func currentUndeliveredOutputByteCount() -> Int {
+        outputBackpressureLock.lock()
+        defer { outputBackpressureLock.unlock() }
+        return undeliveredOutputByteCount
+    }
+
+    /// Updates the backlog and suspends or resumes the read source to match.
+    ///
+    /// The mutation and the Dispatch call are made together under the lock so
+    /// that concurrent deliveries and acknowledgements cannot interleave into
+    /// an unbalanced suspend/resume pair.
+    private func applyOutputBackpressure(pendingByteCountDelta: Int) {
+        outputBackpressureLock.lock()
+        defer { outputBackpressureLock.unlock() }
+
+        undeliveredOutputByteCount = max(0, undeliveredOutputByteCount + pendingByteCountDelta)
+        outputBackpressureCounters.peakPendingByteCount = max(
+            outputBackpressureCounters.peakPendingByteCount,
+            undeliveredOutputByteCount
+        )
+
+        guard let readSource else { return }
+        let action = outputBackpressurePolicy.action(
+            pendingBytes: undeliveredOutputByteCount,
+            state: outputReaderState
+        )
+        switch action {
+        case .none:
+            return
+        case .suspendReader:
+            readSource.suspend()
+            outputReaderState = .suspended
+            outputBackpressureCounters.suspendCount += 1
+        case .resumeReader:
+            readSource.resume()
+            outputReaderState = .reading
+            outputBackpressureCounters.resumeCount += 1
+        }
+        if DebugOptions.ptyLog {
+            NSLog("Kurotty PTY backpressure: action=%@ %@", "\(action)", outputBackpressureCounters.description)
+        }
+    }
+
+    private func publishDroppedOutputByteCount(_ count: Int) {
+        outputBackpressureLock.lock()
+        let didChange = outputBackpressureCounters.droppedByteCount != count
+        outputBackpressureCounters.droppedByteCount = count
+        outputBackpressureLock.unlock()
+        guard didChange else { return }
+        // Dropping PTY bytes corrupts escape-sequence state, so it is reported
+        // unconditionally rather than behind a debug flag.
+        NSLog("Kurotty PTY backpressure dropped output: droppedBytes=%d", count)
     }
 
     private func emitRuntimePtyRead(byteCount: Int) {
@@ -435,49 +604,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     }
 
     private func takeDecodedOutput() -> String? {
-        let pendingBytes = pendingOutput[pendingOutputStartIndex...]
-        if let text = String(data: Data(pendingBytes), encoding: .utf8) {
-            consumePendingOutput(pendingBytes.count)
-            return text
-        }
-
-        let count = pendingBytes.count
-        guard count > AppConstants.Shell.maximumUTF8ScalarBytes else { return nil }
-        for validCount in stride(
-            from: count - 1,
-            through: max(0, count - AppConstants.Shell.maximumUTF8ScalarBytes),
-            by: -1
-        ) {
-            let prefix = pendingBytes.prefix(validCount)
-            if let text = String(data: prefix, encoding: .utf8) {
-                consumePendingOutput(validCount)
-                return text
-            }
-        }
-        let decodableCount = count - AppConstants.Shell.maximumUTF8ScalarBytes
-        let text = String(decoding: pendingBytes.prefix(decodableCount), as: UTF8.self)
-        consumePendingOutput(decodableCount)
-        return text
-    }
-
-    private func consumePendingOutput(_ count: Int) {
-        pendingOutputStartIndex += count
-        compactPendingOutputIfNeeded()
-    }
-
-    private func compactPendingOutputIfNeeded() {
-        guard pendingOutputStartIndex > 0 else { return }
-        guard pendingOutputStartIndex >= pendingOutput.count / 2 || pendingOutputStartIndex == pendingOutput.count else { return }
-        pendingOutput = Data(pendingOutput[pendingOutputStartIndex...])
-        pendingOutputStartIndex = 0
-    }
-
-    private static func normalizedExitStatus(_ status: Int32) -> Int32 {
-        let signal = status & 0x7f
-        if signal != 0 {
-            return AppConstants.Shell.signalExitStatusBase + signal
-        }
-        return (status >> 8) & 0xff
+        pendingOutput.takeDecodedText()
     }
 }
 

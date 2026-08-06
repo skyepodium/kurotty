@@ -1,8 +1,9 @@
 import Foundation
+import KurottyCore
 
 private enum UnsupportedTerminalSessionConstants {
     static let unknownPlatformName = "this platform"
-    static let exitStatus: Int32 = 1
+    static let exitStatus = TerminalChildExit(status: .exited(code: 1))
 
     static func message(platformName: String) -> String {
         "Terminal sessions are not supported on \(platformName).\n"
@@ -13,7 +14,7 @@ final class UnsupportedTerminalSession: TerminalSession {
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-    var onExit: ((Int32) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
 
     private let platformName: String
 

@@ -45,9 +45,22 @@ final class TerminalTabItemView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// The close button is hidden by alpha on an unselected, unhovered tab, but
+    /// it keeps its frame. Hit-testing the frame alone therefore closed tabs the
+    /// user could not see the button on — and because tracking is
+    /// `.activeInKeyWindow`, hover never fires in a background window, so the
+    /// first click on another window's tab closed it instead of focusing it.
+    nonisolated static func closesTab(atLocation location: CGPoint, closeButtonFrame: CGRect, closeButtonAlpha: CGFloat) -> Bool {
+        closeButtonAlpha > 0 && closeButtonFrame.contains(location)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        if closeButton.frame.contains(location) {
+        if Self.closesTab(
+            atLocation: location,
+            closeButtonFrame: closeButton.frame,
+            closeButtonAlpha: closeButton.alphaValue
+        ) {
             onClose()
             return
         }

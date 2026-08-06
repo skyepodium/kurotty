@@ -46,6 +46,7 @@ enum L10nKey: String, CaseIterable {
     case shell, newWindow, newTab, closePaneOrTab, splitVertically, splitHorizontally, previousTab, nextTab
     case commandPalette, findTerminalOutput, findTerminalOutputPlaceholder
     case previousSearchMatch, nextSearchMatch, closeSearch
+    case matchCase, useRegularExpression
     case edit, cut, copy, paste
     case language, systemDefault, english, korean, japanese
     case searchCommands, command, requiresConfirmation
@@ -55,11 +56,14 @@ enum L10nKey: String, CaseIterable {
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     // Close confirmation for a tab or window whose shell still runs a process.
     case closeRunningProcessTitle, closeRunningProcessMessage, closeRunningProcessConfirm
+    // One-time consent before Kurotty edits the user's Claude Code settings.
+    case agentStatusHookConsentTitle, agentStatusHookConsentMessage
+    case agentStatusHookConsentAllow, agentStatusHookConsentDeny
     case updateUnavailableTitle, updateUnavailableMessage, ok
     case moveToApplicationsTitle, moveToApplicationsMessage, moveToApplications, moveToApplicationsLater
     case moveToApplicationsFailedTitle, moveToApplicationsFailedMessage, translocatedMessage
     case help, copyDiagnosticsReport, diagnosticsReportCopiedTitle, diagnosticsReportCopiedMessage
-    case settingsWindow, settingsValid, errors, warnings
+    case settingsValid, errors, warnings
     case invalidSettingsJSON, settingsLoaded, settingsLoadFailed, settingsNotApplied, settingsApplying, settingsApplied, settingsApplyFailed
     case tmuxSwapPanePrevious, tmuxSwapPaneNext, tmuxRotatePanesPrevious, tmuxRotatePanesNext
     case tmuxTogglePaneZoom, tmuxNextLayout, tmuxPreviousLayout, tmuxEvenHorizontalLayout
@@ -116,6 +120,13 @@ enum L10nKey: String, CaseIterable {
     // Agent context-window forecast.
     case agentContextLabel, agentContextOfLimit, agentContextTurnsLeft
     case agentContextOverLimit, agentContextLimitUnknown, agentContextAccessibility
+    // Child-exit banner. `childExitClose` is its own key rather than a reuse of
+    // `closeRunningProcessConfirm`: that string belongs to an alert about a
+    // process that is still running, and the two must stay free to diverge.
+    case childExitTitleClean, childExitTitleCode, childExitTitleSignal
+    case childExitRanFor, childExitRestart, childExitClose
+    // Terminal font zoom.
+    case increaseFontSize, decreaseFontSize, resetFontSize
 }
 
 enum AppLocalization {
@@ -162,6 +173,7 @@ enum AppLocalization {
             .splitVertically: "Split Vertically", .splitHorizontally: "Split Horizontally", .previousTab: "Previous Tab", .nextTab: "Next Tab",
             .commandPalette: "Command Palette", .findTerminalOutput: "Find Terminal Output", .findTerminalOutputPlaceholder: "Find",
             .previousSearchMatch: "Previous Match", .nextSearchMatch: "Next Match", .closeSearch: "Close Search",
+            .matchCase: "Match Case", .useRegularExpression: "Use Regular Expression",
             .edit: "Edit", .cut: "Cut", .copy: "Copy", .paste: "Paste",
             .language: "Language", .systemDefault: "Follow System Language", .english: "English", .korean: "Korean", .japanese: "Japanese",
             .searchCommands: "Search commands", .command: "Command", .requiresConfirmation: "Requires confirmation",
@@ -173,12 +185,16 @@ enum AppLocalization {
             .closeRunningProcessTitle: "Close and end the running process?",
             .closeRunningProcessMessage: "Closing will terminate: %@. Unsaved work in that process is lost.",
             .closeRunningProcessConfirm: "Close",
+            .agentStatusHookConsentTitle: "Let Kurotty add its status hooks to your Claude Code settings?",
+            .agentStatusHookConsentMessage: "Kurotty would add its own entries to %@ so agents can report working, waiting, and done. Your other settings and hooks are kept, the previous file is backed up, and Kurotty asks only this once.",
+            .agentStatusHookConsentAllow: "Add Hooks",
+            .agentStatusHookConsentDeny: "Don't Add",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
             .moveToApplicationsTitle: "Move to Applications?", .moveToApplicationsMessage: "%@ is running from a read-only or temporary location, so it cannot update itself. Moving it to the Applications folder and relaunching fixes that.", .moveToApplications: "Move and Relaunch", .moveToApplicationsLater: "Not Now",
             .moveToApplicationsFailedTitle: "Move Failed", .moveToApplicationsFailedMessage: "The Applications folder could not be written to: %@", .translocatedMessage: "macOS is running %@ from a randomized read-only copy, so it cannot update itself and cannot move itself either. Move the app to the Applications folder in Finder, then open it from there.",
             .help: "Help", .copyDiagnosticsReport: "Copy Diagnostics Report",
             .diagnosticsReportCopiedTitle: "Diagnostics Report Copied", .diagnosticsReportCopiedMessage: "The report is on the clipboard. It contains version, renderer, and event counts only — no terminal output, commands, or full paths.",
-            .settingsWindow: "%@ Settings", .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
+            .settingsValid: "Settings valid.", .errors: "Errors", .warnings: "Warnings",
             .invalidSettingsJSON: "Settings JSON is invalid: %@", .settingsLoaded: "Loaded %@. Edits apply automatically. %@", .settingsLoadFailed: "Load failed: %@", .settingsNotApplied: "Not applied. %@", .settingsApplying: "Applying settings. %@", .settingsApplied: "Applied %@. %@", .settingsApplyFailed: "Apply failed: %@",
             .tmuxSwapPanePrevious: "Tmux: Swap Pane Previous", .tmuxSwapPaneNext: "Tmux: Swap Pane Next", .tmuxRotatePanesPrevious: "Tmux: Rotate Panes Previous", .tmuxRotatePanesNext: "Tmux: Rotate Panes Next",
             .tmuxTogglePaneZoom: "Tmux: Toggle Pane Zoom", .tmuxNextLayout: "Tmux: Next Layout", .tmuxPreviousLayout: "Tmux: Previous Layout", .tmuxEvenHorizontalLayout: "Tmux: Even Horizontal Layout",
@@ -240,6 +256,12 @@ enum AppLocalization {
             .agentContextOverLimit: "over limit",
             .agentContextLimitUnknown: "%@ used, limit unknown",
             .agentContextAccessibility: "Context %1$d%% used",
+            .childExitTitleClean: "Session ended",
+            .childExitTitleCode: "Session ended with exit code %d",
+            .childExitTitleSignal: "Session ended on signal %d",
+            .childExitRanFor: "Ran for %@",
+            .childExitRestart: "Restart", .childExitClose: "Close",
+            .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -247,6 +269,7 @@ enum AppLocalization {
             .splitVertically: "좌우로 분할", .splitHorizontally: "상하로 분할", .previousTab: "이전 탭", .nextTab: "다음 탭",
             .commandPalette: "명령 팔레트", .findTerminalOutput: "터미널 출력 찾기", .findTerminalOutputPlaceholder: "찾기",
             .previousSearchMatch: "이전 일치 항목", .nextSearchMatch: "다음 일치 항목", .closeSearch: "검색 닫기",
+            .matchCase: "대소문자 구분", .useRegularExpression: "정규 표현식 사용",
             .edit: "편집", .cut: "오려두기", .copy: "복사", .paste: "붙여넣기",
             .language: "언어", .systemDefault: "시스템 언어 따라가기", .english: "영어", .korean: "한국어", .japanese: "일본어",
             .searchCommands: "명령 검색", .command: "명령", .requiresConfirmation: "확인 필요",
@@ -258,12 +281,16 @@ enum AppLocalization {
             .closeRunningProcessTitle: "실행 중인 프로세스를 종료하고 닫을까요?",
             .closeRunningProcessMessage: "닫으면 다음 프로세스가 종료됩니다: %@. 해당 프로세스에서 저장하지 않은 작업은 사라집니다.",
             .closeRunningProcessConfirm: "닫기",
+            .agentStatusHookConsentTitle: "Kurotty가 Claude Code 설정에 상태 훅을 추가해도 될까요?",
+            .agentStatusHookConsentMessage: "에이전트가 작업 중·입력 대기·완료 상태를 보고할 수 있도록 %@ 파일에 Kurotty 항목을 추가합니다. 다른 설정과 훅은 그대로 유지되고, 이전 파일은 백업되며, 이 질문은 한 번만 표시됩니다.",
+            .agentStatusHookConsentAllow: "훅 추가",
+            .agentStatusHookConsentDeny: "추가 안 함",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
             .moveToApplicationsTitle: "응용 프로그램 폴더로 옮길까요?", .moveToApplicationsMessage: "%@이(가) 읽기 전용이거나 임시 위치에서 실행 중이라 스스로 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮기고 다시 실행하면 해결됩니다.", .moveToApplications: "옮기고 다시 실행", .moveToApplicationsLater: "나중에",
             .moveToApplicationsFailedTitle: "옮기지 못했습니다", .moveToApplicationsFailedMessage: "응용 프로그램 폴더에 쓸 수 없습니다: %@", .translocatedMessage: "macOS가 %@을(를) 무작위 읽기 전용 사본으로 실행하고 있어 스스로 업데이트할 수도, 옮길 수도 없습니다. Finder에서 앱을 응용 프로그램 폴더로 옮긴 뒤 거기서 실행해 주세요.",
             .help: "도움말", .copyDiagnosticsReport: "진단 리포트 복사",
             .diagnosticsReportCopiedTitle: "진단 리포트를 복사했습니다", .diagnosticsReportCopiedMessage: "리포트가 클립보드에 있습니다. 버전, 렌더러, 이벤트 개수만 포함하며 터미널 출력, 명령어, 전체 경로는 들어 있지 않습니다.",
-            .settingsWindow: "%@ 설정", .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
+            .settingsValid: "설정이 유효합니다.", .errors: "오류", .warnings: "경고",
             .invalidSettingsJSON: "설정 JSON이 올바르지 않습니다: %@", .settingsLoaded: "%@을(를) 불러왔습니다. 변경 사항은 자동으로 적용됩니다. %@", .settingsLoadFailed: "불러오기 실패: %@", .settingsNotApplied: "적용되지 않았습니다. %@", .settingsApplying: "설정을 적용하는 중입니다. %@", .settingsApplied: "%@에 적용했습니다. %@", .settingsApplyFailed: "적용 실패: %@",
             .tmuxSwapPanePrevious: "Tmux: 이전 패널과 교체", .tmuxSwapPaneNext: "Tmux: 다음 패널과 교체", .tmuxRotatePanesPrevious: "Tmux: 패널을 이전 방향으로 회전", .tmuxRotatePanesNext: "Tmux: 패널을 다음 방향으로 회전",
             .tmuxTogglePaneZoom: "Tmux: 패널 확대 전환", .tmuxNextLayout: "Tmux: 다음 레이아웃", .tmuxPreviousLayout: "Tmux: 이전 레이아웃", .tmuxEvenHorizontalLayout: "Tmux: 좌우 균등 레이아웃",
@@ -325,6 +352,12 @@ enum AppLocalization {
             .agentContextOverLimit: "한도 초과",
             .agentContextLimitUnknown: "%@ 사용, 한도 알 수 없음",
             .agentContextAccessibility: "컨텍스트 %1$d%% 사용",
+            .childExitTitleClean: "세션이 종료되었습니다",
+            .childExitTitleCode: "세션이 종료 코드 %d로 끝났습니다",
+            .childExitTitleSignal: "세션이 시그널 %d로 종료되었습니다",
+            .childExitRanFor: "실행 시간 %@",
+            .childExitRestart: "다시 시작", .childExitClose: "닫기",
+            .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -332,6 +365,7 @@ enum AppLocalization {
             .splitVertically: "左右に分割", .splitHorizontally: "上下に分割", .previousTab: "前のタブ", .nextTab: "次のタブ",
             .commandPalette: "コマンドパレット", .findTerminalOutput: "ターミナル出力を検索", .findTerminalOutputPlaceholder: "検索",
             .previousSearchMatch: "前の一致", .nextSearchMatch: "次の一致", .closeSearch: "検索を閉じる",
+            .matchCase: "大文字と小文字を区別", .useRegularExpression: "正規表現を使用",
             .edit: "編集", .cut: "カット", .copy: "コピー", .paste: "ペースト",
             .language: "言語", .systemDefault: "システム言語に従う", .english: "英語", .korean: "韓国語", .japanese: "日本語",
             .searchCommands: "コマンドを検索", .command: "コマンド", .requiresConfirmation: "確認が必要",
@@ -343,12 +377,16 @@ enum AppLocalization {
             .closeRunningProcessTitle: "実行中のプロセスを終了して閉じますか？",
             .closeRunningProcessMessage: "閉じると次のプロセスが終了します: %@。そのプロセスの保存していない作業は失われます。",
             .closeRunningProcessConfirm: "閉じる",
+            .agentStatusHookConsentTitle: "KurottyのステータスフックをClaude Codeの設定に追加しますか？",
+            .agentStatusHookConsentMessage: "エージェントが作業中・入力待ち・完了を報告できるよう、%@ にKurottyの項目を追加します。他の設定とフックはそのまま残り、以前のファイルはバックアップされ、この確認は一度だけです。",
+            .agentStatusHookConsentAllow: "フックを追加",
+            .agentStatusHookConsentDeny: "追加しない",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
             .moveToApplicationsTitle: "アプリケーションフォルダに移動しますか？", .moveToApplicationsMessage: "%@ は読み取り専用または一時的な場所から実行されているため、自身をアップデートできません。アプリケーションフォルダに移動して再起動すると解決します。", .moveToApplications: "移動して再起動", .moveToApplicationsLater: "後で",
             .moveToApplicationsFailedTitle: "移動できませんでした", .moveToApplicationsFailedMessage: "アプリケーションフォルダに書き込めません: %@", .translocatedMessage: "macOS が %@ をランダムな読み取り専用のコピーとして実行しているため、自身をアップデートすることも移動することもできません。Finder でアプリをアプリケーションフォルダに移動してから、そこで開いてください。",
             .help: "ヘルプ", .copyDiagnosticsReport: "診断レポートをコピー",
             .diagnosticsReportCopiedTitle: "診断レポートをコピーしました", .diagnosticsReportCopiedMessage: "レポートはクリップボードにあります。バージョン、レンダラー、イベント数のみを含み、ターミナル出力・コマンド・完全なパスは含まれません。",
-            .settingsWindow: "%@の設定", .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
+            .settingsValid: "設定は有効です。", .errors: "エラー", .warnings: "警告",
             .invalidSettingsJSON: "設定JSONが無効です: %@", .settingsLoaded: "%@を読み込みました。変更は自動的に適用されます。%@", .settingsLoadFailed: "読み込みに失敗しました: %@", .settingsNotApplied: "適用されていません。%@", .settingsApplying: "設定を適用しています。%@", .settingsApplied: "%@に適用しました。%@", .settingsApplyFailed: "適用に失敗しました: %@",
             .tmuxSwapPanePrevious: "Tmux: 前のペインと交換", .tmuxSwapPaneNext: "Tmux: 次のペインと交換", .tmuxRotatePanesPrevious: "Tmux: ペインを前方向に回転", .tmuxRotatePanesNext: "Tmux: ペインを次方向に回転",
             .tmuxTogglePaneZoom: "Tmux: ペインのズームを切り替え", .tmuxNextLayout: "Tmux: 次のレイアウト", .tmuxPreviousLayout: "Tmux: 前のレイアウト", .tmuxEvenHorizontalLayout: "Tmux: 左右均等レイアウト",
@@ -410,6 +448,12 @@ enum AppLocalization {
             .agentContextOverLimit: "上限超過",
             .agentContextLimitUnknown: "%@ 使用、上限不明",
             .agentContextAccessibility: "コンテキスト %1$d%% 使用",
+            .childExitTitleClean: "セッションが終了しました",
+            .childExitTitleCode: "セッションが終了コード %d で終了しました",
+            .childExitTitleSignal: "セッションがシグナル %d で終了しました",
+            .childExitRanFor: "実行時間 %@",
+            .childExitRestart: "再起動", .childExitClose: "閉じる",
+            .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
         ],
     ]
 }

@@ -4,6 +4,7 @@ enum TerminalCommandCategory: String, CaseIterable {
     case tabs
     case panes
     case navigation
+    case appearance
     case tmux
 }
 
@@ -22,6 +23,9 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case toggleCommandHistoryPanel = "history.togglePanel"
     case toggleFileExplorerPanel = "explorer.togglePanel"
     case toggleAgentSessionPanel = "sessions.togglePanel"
+    case increaseFontSize = "terminal.increaseFontSize"
+    case decreaseFontSize = "terminal.decreaseFontSize"
+    case resetFontSize = "terminal.resetFontSize"
     case tmuxSwapPanePrevious = "tmux.swapPane.previous"
     case tmuxSwapPaneNext = "tmux.swapPane.next"
     case tmuxRotateWindowPrevious = "tmux.rotateWindow.previous"
@@ -46,6 +50,7 @@ enum TerminalWindowCommandAction: Equatable {
     case toggleCommandHistoryPanel
     case toggleFileExplorerPanel
     case toggleAgentSessionPanel
+    case zoomFont(TerminalFontZoomStep)
     case tmuxSwapPane(TmuxPaneSwapDirection)
     case tmuxRotateWindow(TmuxRotationDirection)
     case tmuxToggleZoom
@@ -244,6 +249,15 @@ struct TerminalCommandRegistry {
 
     private static let arrowShortcutExtras: NSEvent.ModifierFlags = [.option, .numericPad, .function]
 
+    /// Matched by hardware key code rather than by character: on a US layout
+    /// ⌘+ arrives as Shift+Equal, so a character match would need two entries
+    /// for one command, and non-Latin input sources report neither character.
+    private enum ZoomKeyCode {
+        static let equal: UInt16 = 24
+        static let minus: UInt16 = 27
+        static let zero: UInt16 = 29
+    }
+
     private static func defaultWindowCommands(language: AppLanguage) -> [TerminalCommand] { [
         TerminalCommand(
             id: .newTab,
@@ -308,6 +322,30 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "a", modifiers: [.command, .shift]),
             action: .toggleAgentSessionPanel,
             searchTokens: ["agent sessions", "ai sessions", "claude code sessions", "codex sessions", "resume session", "session vault"]
+        ),
+        TerminalCommand(
+            id: .increaseFontSize,
+            title: AppLocalization.string(.increaseFontSize, language: language),
+            category: .appearance,
+            shortcut: TerminalCommandShortcut(keyCode: ZoomKeyCode.equal, modifiers: .command, allowedExtraModifiers: .shift),
+            action: .zoomFont(.increase),
+            searchTokens: ["zoom in", "bigger text", "larger font", "font size up"]
+        ),
+        TerminalCommand(
+            id: .decreaseFontSize,
+            title: AppLocalization.string(.decreaseFontSize, language: language),
+            category: .appearance,
+            shortcut: TerminalCommandShortcut(keyCode: ZoomKeyCode.minus, modifiers: .command, allowedExtraModifiers: .shift),
+            action: .zoomFont(.decrease),
+            searchTokens: ["zoom out", "smaller text", "smaller font", "font size down"]
+        ),
+        TerminalCommand(
+            id: .resetFontSize,
+            title: AppLocalization.string(.resetFontSize, language: language),
+            category: .appearance,
+            shortcut: TerminalCommandShortcut(keyCode: ZoomKeyCode.zero, modifiers: .command, allowedExtraModifiers: .shift),
+            action: .zoomFont(.reset),
+            searchTokens: ["reset zoom", "actual size", "default font size", "restore font size"]
         ),
         TerminalCommand(
             id: .focusPaneLeft,

@@ -1,8 +1,23 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 17
+    public static let schemaVersion = 18
     public static let commandHistoryEnabled = true
+    /// Live-applied. Raw value of the app-side command-finish notification mode;
+    /// anything else in the file falls back to this. `unfocused` by default
+    /// because a banner for a command the user is watching is pure noise, and a
+    /// user who mutes the app loses every OSC notification with it.
+    public static let notifyOnCommandFinish = "unfocused"
+    /// Live-applied. Commands shorter than this never raise a banner: the point
+    /// of the notification is "you walked away and it finished", and a command
+    /// that returns in a second was never worth walking away from. A completion
+    /// that reports no duration at all is treated as too short.
+    public static let minimumCommandDurationSeconds = 10.0
+    /// Bounds on what `terminal.minimumCommandDurationSeconds` may contain. Zero
+    /// means "notify for every command"; the upper bound is an hour, past which
+    /// the mode switch is the honest way to say "never".
+    public static let minimumAllowedCommandDurationSeconds = 0.0
+    public static let maximumAllowedCommandDurationSeconds = 3_600.0
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
@@ -28,6 +43,13 @@ public enum SettingsDefaults {
     /// running child process (an editor, ssh, a build) asks first. A pane whose
     /// shell is idle closes without a prompt.
     public static let confirmCloseRunningProcess = true
+    /// Live-applied. What a pane does once its own child process has already
+    /// ended. `onCleanExit` matches the shell contract users expect: `exit`
+    /// takes the pane with it, while a crash or a nonzero status keeps the
+    /// pane and its scrollback on screen behind the exit banner. Unrelated to
+    /// `confirmCloseRunningProcess`, which only guards a close the user asks
+    /// for while a process is still running.
+    public static let closeOnChildExit = TerminalCloseOnChildExitMode.onCleanExit
     /// On by default. Indexing reads the user's AI agent transcripts, so the
     /// Settings checkbox must always be able to turn it off; when disabled no
     /// scan runs at all and no index is retained.
@@ -38,14 +60,23 @@ public enum SettingsDefaults {
     /// Next-session. Derives a per-project `HISTFILE` for new shells. An
     /// inherited `HISTFILE` always wins regardless of this setting.
     public static let perProjectHistoryEnabled = true
-    /// Off by default. Turning it on starts a loopback listener and writes
-    /// Kurotty-marked entries into the user's agent hook configuration, so it
-    /// must be an explicit opt-in.
-    public static let agentStatusHooksEnabled = false
+    /// On by default, because agent status is most of what the status bar is
+    /// for and agents that do not emit OSC 9999 need the hook to report at all.
+    /// The default only expresses intent: writing Kurotty's entries into the
+    /// user's own `~/.claude/settings.json` still waits for the one-time consent
+    /// recorded in `agentStatusHookConsent`.
+    public static let agentStatusHooksEnabled = true
+    /// Raw value of the app-side hook consent record. `unasked` means the first
+    /// install attempt must ask; the answer is stored so it is asked once, ever.
+    public static let agentStatusHookConsent = "unasked"
     public static let terminalFontName = "Menlo"
     public static let terminalFontSizePT = 15.0
     public static let maximumScrollbackRows = 1_000_000
     public static let minimumScrollbackRows = 1_000
+    /// Rows a new install keeps, well below `maximumScrollbackRows`: scrollback
+    /// is held in memory and there is no PTY backpressure, so defaulting to the
+    /// cap hands every fresh pane a multi-gigabyte ceiling nobody asked for.
+    public static let defaultScrollbackRows = 10_000
     public static let defaultWindowWidthPX = 1100.0
     public static let defaultWindowHeightPX = 720.0
     public static let minimumWindowWidthPX = 320.0

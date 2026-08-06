@@ -73,6 +73,51 @@ struct TerminalRenderScissorRect: Equatable, CustomStringConvertible {
     }
 }
 
+/// Slot bookkeeping for the renderer's rotating `.storageModeShared` instance buffers.
+///
+/// A shared buffer stays readable by the GPU until its command buffer completes, so
+/// memcpying next frame's instances into the buffer the previous frame is still
+/// sampling produces torn glyph quads. The renderer therefore keeps one buffer set per
+/// slot and asks this type which slot the next frame may write.
+///
+/// Rotation only advances when the CPU actually has new bytes: re-encoding an unchanged
+/// payload reuses the slot the previous frame read, and concurrent GPU *reads* of the
+/// same buffer are safe. Because a slot value repeats only after `slotCount` advances,
+/// and each advance happens on a distinct frame, pairing this with a
+/// `DispatchSemaphore(value: slotCount)` guarantees the frame that last used a slot has
+/// completed before the slot is handed out again.
+struct TerminalRenderBufferRotation: Equatable {
+    struct Acquisition: Equatable {
+        let slot: Int
+        let requiresUpload: Bool
+    }
+
+    let slotCount: Int
+    private(set) var currentSlot: Int
+    private var residentRevisions: [UInt64?]
+
+    init(slotCount: Int) {
+        let count = max(1, slotCount)
+        self.slotCount = count
+        // Start one slot behind so the first acquisition lands on slot 0.
+        self.currentSlot = count - 1
+        self.residentRevisions = Array(repeating: nil, count: count)
+    }
+
+    mutating func acquireSlot(forPayloadRevision revision: UInt64) -> Acquisition {
+        if residentRevisions[currentSlot] == revision {
+            return Acquisition(slot: currentSlot, requiresUpload: false)
+        }
+        currentSlot = (currentSlot + 1) % slotCount
+        residentRevisions[currentSlot] = revision
+        return Acquisition(slot: currentSlot, requiresUpload: true)
+    }
+
+    func residentRevision(inSlot slot: Int) -> UInt64? {
+        residentRevisions[slot]
+    }
+}
+
 enum TerminalDrawPassFullRedrawReason: Equatable, CustomStringConvertible {
     case none
     case cpuFallbackActive
@@ -517,12 +562,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private let solidPipeline: MTLRenderPipelineState?
     private var vertexBuffer: MTLBuffer?
     private var atlasVertexBuffer: MTLBuffer?
-    private var atlasInstanceBuffer: MTLBuffer?
-    private var backgroundInstanceBuffer: MTLBuffer?
-    private var decorationInstanceBuffer: MTLBuffer?
-    private var cursorInstanceBuffer: MTLBuffer?
-    private var debugOverlayInstanceBuffer: MTLBuffer?
-    private var uniformsBuffer: MTLBuffer?
+    private var instanceBufferSets = [TerminalInstanceBufferSet](
+        repeating: TerminalInstanceBufferSet(),
+        count: TerminalMetalView.maxBuffersInFlight
+    )
+    private var bufferRotation = TerminalRenderBufferRotation(slotCount: TerminalMetalView.maxBuffersInFlight)
+    private var pendingInstancePayload: TerminalInstancePayload?
+    private var pendingInstancePayloadRevision: UInt64 = 0
     private var texture: MTLTexture?
     private var atlasTexture: MTLTexture?
     private var atlasPixels: [UInt8] = []
@@ -561,6 +607,21 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     private var terminalFrame = TerminalFrame(cells: [], backgrounds: [], decorations: [], defaultForeground: DesignTokens.Color.terminalForeground, defaultBackground: DesignTokens.Color.terminalDefaultBackground, dirtyRows: [], dirtyRects: [], isFullDamage: true, cursorColumn: 0, cursorRow: 0, cursorBlinkOn: true, markedTextColumn: 0, markedText: "", markedTextSelectedRange: .none, columns: 1, visibleRows: 1, cellSize: .zero, padding: .zero)
     private var lastDamageDiagnostics = TerminalRenderDamageDiagnostics.empty
     private var lastPixelProbeDiagnostics: [TerminalPixelProbe] = []
+
+    /// Number of frames the CPU may run ahead of the GPU, and therefore the number of
+    /// instance buffer sets. Three keeps the encoder busy without letting the CPU stage
+    /// a frame whose buffers a still-executing command buffer might be reading.
+    static let maxBuffersInFlight = 3
+    private let inFlightSemaphore = DispatchSemaphore(value: TerminalMetalView.maxBuffersInFlight)
+
+    // Encoding reads whichever slot the last upload rotated into; uploads are the only
+    // writers and they run inside the semaphore-guarded region of draw(in:).
+    private var atlasInstanceBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].glyph }
+    private var backgroundInstanceBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].background }
+    private var decorationInstanceBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].decoration }
+    private var cursorInstanceBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].cursor }
+    private var debugOverlayInstanceBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].debugOverlay }
+    private var uniformsBuffer: MTLBuffer? { instanceBufferSets[bufferRotation.currentSlot].uniforms }
 
     override var isOpaque: Bool {
         true
@@ -710,6 +771,20 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         else {
             return
         }
+
+        // Throttle the CPU to maxBuffersInFlight frames so the instance buffers this
+        // frame is about to write are provably not being read by a live command buffer.
+        // Every exit below the wait must release the permit exactly once: the completion
+        // handler releases committed frames, the defer releases abandoned ones.
+        inFlightSemaphore.wait()
+        var frameCommitted = false
+        defer {
+            if !frameCommitted {
+                inFlightSemaphore.signal()
+            }
+        }
+        uploadPendingInstanceBuffersIfNeeded()
+
         configureRenderPassDescriptor(descriptor)
         logFrameStartIfNeeded(descriptor: descriptor)
 
@@ -760,8 +835,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         consumePendingDamage()
         let presentedCompletionHandler = Self.makePresentedCompletionHandler(onPresented)
         commandBuffer.present(drawable)
+        commandBuffer.addCompletedHandler(Self.makeFrameFenceCompletionHandler(inFlightSemaphore))
         commandBuffer.addCompletedHandler(presentedCompletionHandler)
         commandBuffer.commit()
+        frameCommitted = true
         renderFrameIndex &+= 1
     }
 
@@ -1047,6 +1124,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         lastEncodedCursorRowPixelRect = terminalFrame.cursorRow >= 0
             ? cursorRowPixelRect(forRow: terminalFrame.cursorRow)
             : nil
+    }
+
+    // Runs on a Metal callback thread once the GPU is done with the frame's buffers,
+    // which is the point where the rotation slot it used becomes writable again.
+    nonisolated private static func makeFrameFenceCompletionHandler(
+        _ semaphore: DispatchSemaphore
+    ) -> MTLCommandBufferHandler {
+        { _ in semaphore.signal() }
     }
 
     nonisolated private static func makePresentedCompletionHandler(
@@ -1419,7 +1504,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 column += character.terminalColumnWidth
             }
         }
-        updateSharedBuffer(&atlasInstanceBuffer, with: instances)
 
         let backgroundRuns = mergedBackgroundRuns()
         if DebugOptions.backgroundRuns {
@@ -1441,7 +1525,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 color: background.color
             ))
         }
-        updateSharedBuffer(&backgroundInstanceBuffer, with: backgrounds)
 
         var decorations: [GlyphInstance] = []
         decorations.reserveCapacity(terminalFrame.decorations.count)
@@ -1492,13 +1575,12 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 color: decoration.color
             ))
         }
-        updateSharedBuffer(&decorationInstanceBuffer, with: decorations)
 
         let visibleCursorColor = TerminalCursorPresentationPolicy.visibleColor(
             preferred: cursorColor,
             frame: terminalFrame
         )
-        var cursor = solidInstance(
+        let cursor = solidInstance(
             column: max(0, terminalCursorColumn),
             row: max(0, terminalFrame.cursorRow),
             width: 1,
@@ -1507,16 +1589,45 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             color: visibleCursorColor,
             overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))
         )
-        updateSharedBuffer(&cursorInstanceBuffer, with: &cursor)
-        rebuildDebugOverlayBuffer(glyphDebugRects: glyphDebugRects)
         lastPixelProbeDiagnostics = pixelProbes
 
-        var uniforms = TerminalUniforms(
-            viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
-            useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
-        )
-        updateSharedBuffer(&uniformsBuffer, with: &uniforms)
+        stagePendingInstancePayload(TerminalInstancePayload(
+            glyphs: instances,
+            backgrounds: backgrounds,
+            decorations: decorations,
+            cursor: cursor,
+            debugOverlays: makeDebugOverlayInstances(glyphDebugRects: glyphDebugRects),
+            uniforms: TerminalUniforms(
+                viewport: SIMD2<Float>(Float(drawableSize.width), Float(drawableSize.height)),
+                useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
+            )
+        ))
         lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)
+    }
+
+    private func stagePendingInstancePayload(_ payload: TerminalInstancePayload) {
+        pendingInstancePayload = payload
+        // A fresh revision is what tells draw(in:) to rotate onto a slot no in-flight
+        // frame owns; frames that re-encode the same revision reuse their slot.
+        pendingInstancePayloadRevision &+= 1
+    }
+
+    /// Copies the staged instance payload into the next rotation slot. Must only be
+    /// called from draw(in:) after the in-flight semaphore has been acquired.
+    private func uploadPendingInstanceBuffersIfNeeded() {
+        guard let payload = pendingInstancePayload else { return }
+        let acquisition = bufferRotation.acquireSlot(forPayloadRevision: pendingInstancePayloadRevision)
+        guard acquisition.requiresUpload else { return }
+        var set = instanceBufferSets[acquisition.slot]
+        updateSharedBuffer(&set.glyph, with: payload.glyphs)
+        updateSharedBuffer(&set.background, with: payload.backgrounds)
+        updateSharedBuffer(&set.decoration, with: payload.decorations)
+        updateSharedBuffer(&set.debugOverlay, with: payload.debugOverlays)
+        var cursor = payload.cursor
+        updateSharedBuffer(&set.cursor, with: &cursor)
+        var uniforms = payload.uniforms
+        updateSharedBuffer(&set.uniforms, with: &uniforms)
+        instanceBufferSets[acquisition.slot] = set
     }
 
     private func atlasBuffersNeedRebuild(for frame: TerminalFrame) -> Bool {
@@ -1656,14 +1767,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             width: CGFloat(entry.cellWidthPixels),
             height: CGFloat(entry.cellHeightPixels)
         )
-        let dirtyRect = diagnosticDirtyRectPixels(for: cellRect.union(glyphRect))
-        pixelProbes.append(TerminalPixelProbe.make(
-            cellRect: cellRect,
-            glyphRect: glyphRect,
-            dirtyRect: dirtyRect,
-            scissorRect: DebugOptions.noScissor ? nil : dirtyRect,
-            backingScale: backingScale
-        ))
+        // The probe only feeds logRenderingDiagnosticsIfNeeded, and building one costs a
+        // freshly mapped [CGRect] of the frame's dirty rects per glyph — tens of thousands
+        // of dead allocations on a full-damage frame when the log is off.
+        if diagnosticRenderingLogEnabled {
+            let dirtyRect = diagnosticDirtyRectPixels(for: cellRect.union(glyphRect))
+            pixelProbes.append(TerminalPixelProbe.make(
+                cellRect: cellRect,
+                glyphRect: glyphRect,
+                dirtyRect: dirtyRect,
+                scissorRect: DebugOptions.noScissor ? nil : dirtyRect,
+                backingScale: backingScale
+            ))
+        }
         if diagnosticGlyphQuadOverlayEnabled {
             let origin = physicalPixelsToPoints(CGPoint(
                 x: CGFloat(cellOrigin.x + entry.bearingXPixels),
@@ -1732,8 +1848,8 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         ), color: color)
     }
 
-    private func rebuildDebugOverlayBuffer(glyphDebugRects: [CGRect]) {
-        guard self.device != nil else { return }
+    private func makeDebugOverlayInstances(glyphDebugRects: [CGRect]) -> [GlyphInstance] {
+        guard self.device != nil else { return [] }
         var overlays: [GlyphInstance] = []
         let onePixel = physicalPixelsToPoints(1)
         if diagnosticCellBoundaryOverlayEnabled {
@@ -1785,7 +1901,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 overlays.append(debugSolidInstance(rect: CGRect(x: rect.maxX - onePixel, y: rect.minY, width: onePixel, height: rect.height), color: color))
             }
         }
-        updateSharedBuffer(&debugOverlayInstanceBuffer, with: overlays)
+        return overlays
     }
 
     private func debugSolidInstance(rect pointRect: CGRect, color: SIMD4<Float>) -> GlyphInstance {
@@ -2685,6 +2801,28 @@ private struct GlyphInstance {
 private struct TerminalUniforms {
     let viewport: SIMD2<Float>
     let useLinearGlyphSampling: UInt32
+}
+
+/// One rotation slot's worth of GPU-visible instance buffers.
+private struct TerminalInstanceBufferSet {
+    var glyph: MTLBuffer?
+    var background: MTLBuffer?
+    var decoration: MTLBuffer?
+    var cursor: MTLBuffer?
+    var debugOverlay: MTLBuffer?
+    var uniforms: MTLBuffer?
+}
+
+/// CPU-side instance data staged by `rebuildAtlasBuffers`. Model updates arrive far more
+/// often than frames, so the bytes are held here and copied into a rotation slot inside
+/// draw(in:) — the only place the renderer knows no in-flight frame owns that slot.
+private struct TerminalInstancePayload {
+    var glyphs: [GlyphInstance]
+    var backgrounds: [GlyphInstance]
+    var decorations: [GlyphInstance]
+    var cursor: GlyphInstance
+    var debugOverlays: [GlyphInstance]
+    var uniforms: TerminalUniforms
 }
 
 private struct CachedAtlasGlyph {

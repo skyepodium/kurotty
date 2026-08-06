@@ -365,6 +365,8 @@ final class TmuxNativeSessionCoordinator {
             pane.closeRequested = nil
             pane.focusChanged = nil
             pane.detachDragRequested = nil
+            pane.childExitCloseRequested = nil
+            pane.restartRequested = nil
             pane.removeFromSuperview()
         }
         sessions.values.forEach { $0.finish() }
