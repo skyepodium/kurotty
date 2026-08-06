@@ -619,6 +619,16 @@ enum DesignTokens {
         /// Only ever applies to a bar the user could already see, so it reports
         /// an outcome rather than announcing one.
         static let commandProgressFailureLingerMS = 1_600
+        /// How long an indeterminate bar may sweep before it holds still.
+        ///
+        /// One minute is where a wait stops being one. Below it the user is
+        /// sitting through the command and the motion is doing its job; past
+        /// it they have gone to read the output, or to another window, and a
+        /// sweep that has repeated itself fifty times has said everything it
+        /// can. The bar stays — Kurotty has had no OSC 133 `D` and must not
+        /// imply one — but it stops claiming that progress is happening right
+        /// now, which is the part nothing backs up.
+        static let commandProgressSweepCeilingMS = 60_000
 
         static let disclosureCollapsedRotationDegrees: CGFloat = 0
         static let disclosureExpandedRotationDegrees: CGFloat = 90
@@ -1047,16 +1057,17 @@ enum DesignTokens {
 
         // MARK: Command progress bar
         //
-        // A hairline across the top edge of the pane's terminal, driven by OSC
-        // 133 command boundaries and OSC 9;4 reports. Ambient status: it is one
-        // step thicker than a hairline so it reads as a bar rather than a
-        // border, and it never takes layout space from the terminal grid.
-        static let commandProgressBarHeightPX: CGFloat = 2
+        // A bar across the top edge of the pane's terminal, driven by OSC 133
+        // command boundaries and OSC 9;4 reports. Ambient status: thick enough
+        // to read as a bar rather than a window border, and it never takes
+        // layout space from the terminal grid. Well inside
+        // `terminalSearchInsetPX`, so the search bar clears it.
+        static let commandProgressBarHeightPX: CGFloat = 4
         /// Unfilled remainder, on the same footing as the agent context meter's
         /// groove: low enough to read as a track rather than a second value.
         static let commandProgressTrackAlphaRATIO: CGFloat = 0.16
         /// Width of the sweeping segment, as a fraction of the pane width. Wide
-        /// enough to see at 2px tall, narrow enough that its travel reads as
+        /// enough to see at this height, narrow enough that its travel reads as
         /// motion rather than as a bar growing.
         static let commandProgressSweepWidthRATIO: CGFloat = 0.30
         /// A determinate bar never renders thinner than this, so a real report
