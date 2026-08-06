@@ -64,6 +64,7 @@ The most important boundary is ownership of terminal state.
 | Zig parser/grid/metrics/damage migration path | `CoreBridge` plus `src/*.zig` | Loaded dynamically when `libkurotty_core.dylib` is present. Swift remains the mutation owner today. |
 | Notifications | `TerminalOSCDispatcher`, `KurottyNotificationBridgeServer`, `TerminalNotifier` | Converts OSC or external bridge payloads into macOS notifications. |
 | Settings and layout snapshots | `AppSettingsStore`, `WorkspaceSnapshotCoordinator` | Settings are normalized and live-applied where supported; workspace snapshots are currently layout-only. |
+| Coding-agent status, session index, provenance | `AgentActivityRegistry`, `AgentSessionIndexStore`, `AgentStatusHookCoordinator` | Status is pushed over OSC 9999 or an authenticated loopback post; everything else is read-only observation of agent transcripts. See [Coding-agent integration](#coding-agent-integration). |
 
 `CoreBridge` exposes diagnostics that make this ownership explicit. When the Zig library is loaded, Zig participates in feed, metrics, damage, and row-copy APIs, but Swift still owns parser mutation, screen mutation, and render mutation for the visible terminal surface.
 
@@ -210,7 +211,7 @@ This lets Zig evolve behind a stable C boundary while Swift keeps UI responsiven
 
 ## OSC, shell integration, and notifications
 
-Notifications are modeled as typed events with explicit source semantics. Kurotty does not have a Codex path, Grok path, or Claude path. A producer is supported because it emits a standard terminal protocol, not because its name appears in the source code.
+Notifications are modeled as typed events with explicit source semantics. The notification pipeline has no Codex path, Grok path, or Claude path: a producer is supported because it emits a standard terminal protocol, not because its name appears in the source code. Agent-specific knowledge is confined to the transcript and hook surfaces described in [Coding-agent integration](#coding-agent-integration), where the on-disk formats are genuinely per-product; it never leaks into notification source selection.
 
 ### Producer and consumer boundary
 
@@ -364,6 +365,42 @@ Verification is layered because no single fixture proves the full path:
 
 Compatibility must not be claimed from a synthetic notification alone. When a producer-specific report is being investigated, capture whether it emitted explicit OSC/bridge data or only BEL, then verify the resulting fields at the installed-app boundary.
 
+## Coding-agent integration
+
+Kurotty carries agent-aware surfaces for Claude Code and Codex. They divide into two subsystems with different trust properties, and the split is the point: one accepts pushed status over an explicit protocol, the other reads files the agents already wrote.
+
+| Concern | Owner | Trust boundary |
+| --- | --- | --- |
+| Live agent state per pane | `AgentStatusOSCParser`, `AgentStatusHookServer`, `AgentActivityRegistry` | Accepted only from OSC 9999 or an authenticated loopback post. Never inferred from titles, process names, or rendered rows. |
+| Claude Code hook entries | `AgentStatusHookInstaller`, `AgentStatusHookCoordinator` | Writes a file Kurotty does not own; opt-in, marker-scoped, backed up before every write. |
+| Stored session index | `AgentSessionScanner`, `AgentSessionIndexStore` | Read-only over `~/.claude/projects` and `~/.codex/sessions`. Metadata is held in memory only; no transcript content enters Kurotty storage. |
+| Token and context accounting | `AgentTokenUsage`, `AgentContextForecast` | Derived from transcript fields only. No API call and no network. |
+| Per-file provenance | `AgentFileProvenance` | Derived from the same bounded transcript read as the index. |
+| Worktree awareness | `TerminalGitWorktreeService` | Shells out to `git` off the main actor; pure parsers over process output. |
+
+### Status channel
+
+Two independent inputs feed one registry.
+
+- **OSC 9999.** `ESC ] 9999 ; <json> BEL` (or `ESC \`). `AgentStatusOSCParser` is a value type owned per pane and sits on the pane output path, so it holds no shared mutable state. It always strips the sequence from the visible stream, including malformed, oversized, and unknown-state payloads, and reassembles chunk-split sequences through a bounded carry buffer that discards to the next terminator on overflow. Unknown `state` values are ignored rather than mapped to a nearest match. Always on.
+- **Loopback hook.** `AgentStatusHookServer` binds `127.0.0.1` on an OS-assigned port with a per-launch 256-bit token required in `X-Kurotty-Hook-Token` and compared in constant time. Admission rules live in `AgentStatusHookRequestPolicy` as pure value transformations so they are testable without a socket. Request and body sizes are capped; the payload is parsed as data only and is never executed or logged. Gated by `terminal.agentStatusHooksEnabled`, default off.
+
+`AgentActivityStalenessPolicy` gives every state a maximum age and resolves an expired sample to `nil` rather than to an "unknown" case, so absence is the display contract and a killed agent cannot leave a stuck indicator.
+
+`AgentStatusHookInstaller` writes `UserPromptSubmit`, `Notification`, and `Stop` entries into `~/.claude/settings.json`. It installs no tool-use hook and ignores Claude Code's hook stdin payload, so no conversation content crosses the boundary; the emitted command posts a fixed body assembled from PTY environment variables and no-ops outside Kurotty. Entries are identified by a command marker so uninstall cannot remove a user's own hook, and the file is backed up before any write. There is no Codex equivalent.
+
+### Session index and derived views
+
+`AgentSessionIndexStore` runs every scan on a detached task and publishes on the main actor, mirroring `TerminalCommandHistoryStore`. Each `AgentSessionScanning` implementation splits a pure `parse(contents:...)` from the filesystem walk so schema handling is testable against injected trees rather than the developer's home directory. Reads are bounded by `AgentSessionTranscriptReader`: whole file up to 512 KB, otherwise a head plus tail window, with the record flagged truncated so message counts present as lower bounds. Unchanged files are reused from a modification-date and size keyed cache, which also caches the provenance touches so a rescan re-parses nothing.
+
+`AgentContextForecast` keeps measured and inferred values separable. Occupancy is the last request's prompt plus reply; the window is transcript-recorded for Codex and model-table-resolved for Claude, with the source retained; an unlisted model yields `nil` and every surface above reports the limit as unknown instead of substituting a default. Turn estimates use median growth over at least five samples, which absorbs both the read-window seam and compaction.
+
+`AgentFileProvenance` joins writes back to the preceding user prompt. Its ceiling follows from the bounded read: a file can go unattributed, and a write immediately after the head/tail seam can carry the head window's last prompt rather than the prompt that caused it. Neither error crosses sessions — the touch, the session, and the agent all come from the same transcript.
+
+### Action boundary
+
+No agent surface has an execute path. `AgentSessionResumeCommand` and `GitWorktreeChangeDirectoryCommand` both build a command string that is inserted at the prompt without a trailing newline; `AgentSessionTranscriptController` and `AgentSessionTranscriptView` own a file URL and a decoder and hold no PTY, session, or writer.
+
 ## Settings and workspace snapshots
 
 `AppSettings` is a portable Codable settings model. The settings path is normalized through `AppSettingsNormalizer` and checked by `AppSettingsValidation`.
@@ -371,6 +408,7 @@ Compatibility must not be claimed from a synthetic notification alone. When a pr
 Settings have explicit lifecycle semantics:
 
 - live-applied: terminal theme, font, scrollback, colors, and window dimensions
+- live-applied: `terminal.agentSessionIndexEnabled` (default on) and `terminal.agentStatusHooksEnabled` (default off). Turning the index off drops every indexed record immediately; turning hooks off stops the listener and removes Kurotty's marked hook entries.
 - launch-only: schema version and shell working directory for new shell sessions
 
 Workspace snapshots are intentionally layout-only today. `TerminalWindowController` asks panes and split views for descriptors, then `WorkspaceSnapshotCoordinator` writes window, tab, split, and pane layout metadata. It does not persist live shell processes or terminal scrollback.

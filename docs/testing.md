@@ -35,6 +35,11 @@ Run these from the repository root when changing the runtime integration surface
 | AI redaction and context snapshots | `swift test --filter AIContextLayerTests` |
 | AI command context bridge | `swift test --filter AICommandContextBridgeTests` |
 | AI action approval decisions and audit records | `swift test --filter AIAgentActionApprovalTests` |
+| Agent status channel, staleness policy, and registry bounds | `swift test --filter AgentActivityStatusTests` |
+| Agent session scanning, resume commands, and hermetic index scans | `swift test --filter AgentSessionIndexTests`<br>`swift test --filter AgentSessionIndexStoreHermeticTests`<br>`swift test --filter AgentSessionTranscriptTests` |
+| Token accounting and context-window forecasting | `swift test --filter AgentTokenUsageTests`<br>`swift test --filter AgentContextForecastTests`<br>`swift test --filter AgentContextForecastScannerTests` |
+| Per-file agent provenance and its bounds | `swift test --filter AgentFileProvenanceTests` |
+| Git worktree porcelain parsing, containment, and session attribution | `swift test --filter TerminalGitWorktreeTests` |
 | Zig parser/grid/scrollback/PTY foundations | `zig build test` |
 | One-million-line Zig scrollback stress gate | `zig build stress-scrollback` |
 | Documentation whitespace check | `git diff --check -- docs/architecture.md docs/testing.md DESIGN.md` |
@@ -55,6 +60,7 @@ Use this smaller set for `feature/non-ui-runtime-next-slice` changes. Run only t
 | Command UX | `swift test --filter TerminalCommandRegistryTests`<br>`swift test --filter TerminalCommandPaletteTests`<br>`swift test --filter CommandPaletteWindowControllerTests`<br>`swift test --filter TerminalCommandHistoryNavigatorTests` |
 | Browser chrome and workspace restore UX | `swift build`<br>`swift test --filter WorkspaceSnapshotTests`<br>`swift test --filter WorkspaceSnapshotCoordinatorTests`<br>`swift test --filter GlyphRenderingRegressionTests/testTerminalWindowChromeDoesNotReserveToolbarRowAboveTerminal` |
 | AI agent action API | `swift build`<br>`swift test --filter AIContextLayerTests`<br>`swift test --filter AICommandContextBridgeTests`<br>`swift test --filter AIAgentActionApprovalTests` |
+| Coding-agent surfaces | `swift build`<br>`swift test --filter AgentActivityStatusTests`<br>`swift test --filter AgentSessionIndexTests`<br>`swift test --filter AgentFileProvenanceTests`<br>`swift test --filter AgentContextForecastTests`<br>`swift test --filter TerminalGitWorktreeTests` |
 | Documentation-only changes | `git diff --check -- docs/architecture.md docs/testing.md DESIGN.md` |
 
 Run `swift build` before the filtered Swift tests when source files changed. For documentation-only edits, run the documentation whitespace check first, then run the filtered Swift commands when the Swift test target compiles. A compile failure is a branch verification blocker, not a documentation pass.
