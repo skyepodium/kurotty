@@ -92,10 +92,16 @@ final class TerminalOSCDispatcherTests: XCTestCase {
         XCTAssertEqual(context.span.reference.spanID, 1)
     }
 
-    func testOSC9ProgressExtensionIsIgnoredInsteadOfBecomingNotification() {
+    func testOSC9ProgressExtensionIsProgressInsteadOfBecomingNotification() {
         var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
 
-        XCTAssertEqual(dispatcher.dispatch("9;4;1;50", origin: .local), .ignored)
+        // Numeric OSC 9 extensions are progress data, never desktop messages.
+        // They used to be dropped; they now drive the pane's progress bar, and
+        // the one thing that must never change is that they do not notify.
+        XCTAssertEqual(
+            dispatcher.dispatch("9;4;1;50", origin: .local),
+            .commandProgress(TerminalCommandProgressReport(state: .set, percent: 50))
+        )
         XCTAssertEqual(
             dispatcher.dispatch("9;Build finished", origin: .local),
             .desktopNotification(

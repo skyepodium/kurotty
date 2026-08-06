@@ -8,15 +8,44 @@ import AppKit
 /// day over a trailing window, one series, no legend, and no axes: the strip is
 /// read against its own peak, and the exact values are on the bars' tooltips.
 ///
-/// Only the current day is accent-colored. Every other bar is recessive ink, so
-/// the accent still means "this one" the way it does everywhere else in the
-/// chrome rather than becoming a series color.
+/// Colour carries magnitude, not identity. Height is relative to the window's
+/// own peak, so the tallest bar is full height whether it cost ten thousand
+/// tokens or ten million; the ramp restores the absolute reading, warming from
+/// recessive ink toward a saturated warm stop as the day gets heavier. It is a
+/// single-hue sequential scale and deliberately not the `error` step: a heavy
+/// day is a magnitude, not a fault.
+///
+/// Today is therefore marked by position rather than colour — an accent rule
+/// under its slot — because with the fill carrying magnitude, colour alone can
+/// no longer say "this one".
 final class TerminalAgentUsageSummaryView: NSView {
+    /// Interpolates the theme's single-hue usage ramp. `ratio` is the day's
+    /// share of the window's peak, so 0 lands on the low stop and 1 on the
+    /// high one. Interpolating in sRGB is safe here because both stops share a
+    /// hue — there is no midpoint to go muddy.
+    static func rampColor(forRatio ratio: CGFloat, theme: DesignTokens.ChromeTheme) -> NSColor {
+        let clamped = min(1, max(0, ratio))
+        guard
+            let low = theme.usageRampLow.usingColorSpace(.sRGB),
+            let high = theme.usageRampHigh.usingColorSpace(.sRGB)
+        else {
+            return theme.usageRampHigh
+        }
+        return NSColor(
+            srgbRed: low.redComponent + (high.redComponent - low.redComponent) * clamped,
+            green: low.greenComponent + (high.greenComponent - low.greenComponent) * clamped,
+            blue: low.blueComponent + (high.blueComponent - low.blueComponent) * clamped,
+            alpha: 1
+        )
+    }
+
     private enum Layout {
         static let barCornerRadiusPX: CGFloat = 1.5
         static let barGapPX: CGFloat = 2
         static let stripHeightPX: CGFloat = 28
         static let minimumBarHeightPX: CGFloat = 2
+        static let todayRuleHeightPX: CGFloat = 2
+        static let todayRuleGapPX: CGFloat = 1
     }
 
     private let titleLabel = NSTextField(labelWithString: "")
@@ -47,19 +76,26 @@ final class TerminalAgentUsageSummaryView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        applyChromeFonts()
         titleLabel.textColor = theme.textTertiary
         totalLabel.textColor = theme.textPrimary
         breakdownLabel.textColor = theme.textTertiary
         stripView.update(summary: summary, theme: theme)
     }
 
-    private func configureSubviews() {
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
         titleLabel.font = DesignTokens.Typography.sectionHeader.font
-        titleLabel.stringValue = AppLocalization.string(.agentUsageToday)
         // Monospaced digits: the number changes while the session runs and the
         // label beside it must not shift when a digit gets wider.
         totalLabel.font = DesignTokens.Typography.statusBarNum.font
         breakdownLabel.font = DesignTokens.Typography.rowSecondary.font
+    }
+
+    private func configureSubviews() {
+        applyChromeFonts()
+        titleLabel.stringValue = AppLocalization.string(.agentUsageToday)
         breakdownLabel.lineBreakMode = .byTruncatingTail
 
         for label in [titleLabel, totalLabel, breakdownLabel] {
@@ -143,19 +179,24 @@ final class TerminalAgentUsageSummaryView: NSView {
                     height: height
                 )
                 let isToday = index == days.count - 1
-                let color = if day.totalTokens == 0 {
-                    theme.hairline
-                } else if isToday {
-                    theme.accent
-                } else {
-                    theme.textTertiary.withAlphaComponent(0.55)
-                }
+                let color = day.totalTokens == 0
+                    ? theme.hairline
+                    : TerminalAgentUsageSummaryView.rampColor(forRatio: ratio, theme: theme)
                 color.setFill()
                 NSBezierPath(
                     roundedRect: rect,
                     xRadius: Layout.barCornerRadiusPX,
                     yRadius: Layout.barCornerRadiusPX
                 ).fill()
+                if isToday {
+                    theme.accent.setFill()
+                    NSBezierPath(rect: NSRect(
+                        x: rect.minX,
+                        y: bounds.height - Layout.todayRuleHeightPX,
+                        width: barWidth,
+                        height: Layout.todayRuleHeightPX
+                    )).fill()
+                }
                 addToolTip(
                     rect,
                     owner: AgentSessionUsageCopy.dayTooltip(for: day) as NSString,

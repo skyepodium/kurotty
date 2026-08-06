@@ -22,13 +22,21 @@ enum Icon {
         /// 20pt / regular. Empty-state art.
         case large
 
-        var pointSizePT: CGFloat {
+        /// The spec sizes, before the user's UI text scale.
+        var basePointSizePT: CGFloat {
             switch self {
             case .micro: return 9
             case .small: return 11
             case .regular: return 13
             case .large: return 20
             }
+        }
+
+        /// A chrome glyph sits beside chrome type, so it follows the same
+        /// scale: an 11pt magnifier next to a 19pt query field reads as a
+        /// rendering bug, not as a smaller icon.
+        var pointSizePT: CGFloat {
+            DesignTokens.UIScale.scaledPointSize(basePointSizePT)
         }
 
         var weight: NSFont.Weight {
@@ -88,12 +96,20 @@ enum IconSymbol {
     static let disclosureExpanded = "chevron.down"
     static let sidebarLeading = "sidebar.leading"
     static let sidebarTrailing = "sidebar.trailing"
+    /// Split glyphs read as "where the new pane lands": 2x1 puts it to the
+    /// right, 1x2 puts it below. Matching what cmux uses, since a user coming
+    /// from either app should not have to relearn the pair.
+    static let splitRight = "square.split.2x1"
+    static let splitDown = "square.split.1x2"
     static let refresh = "arrow.clockwise"
     static let search = "magnifyingglass"
     static let clearSearch = "xmark.circle.fill"
     /// Filled, because the icon is what carries the outline level: a group name
     /// is the same type rank as the rows under it.
-    static let folder = "folder.fill"
+    /// Outline, not `folder.fill`. A filled glyph at this size next to a
+    /// disclosure chevron reads as a second, heavier mark competing with the
+    /// row title; the outline sits back and lets the name lead.
+    static let folder = "folder"
     static let remove = "minus"
 
     // MARK: Empty states

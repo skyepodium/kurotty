@@ -220,6 +220,13 @@ final class TerminalStatusBarView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         topBorderView.layer?.backgroundColor = theme.borderHairline.cgColor
+        // The bar's own height is re-taken here rather than left to
+        // `refreshPanes`: this is the broadcast a UI-text-scale change arrives
+        // on, and `setEnabled` short-circuits when the enablement has not
+        // changed, so nothing else would re-read the token.
+        if heightConstraint?.constant != 0 {
+            heightConstraint?.constant = DesignTokens.Component.StatusBar.heightPX
+        }
         agentSegmentView.applyChromeTheme(theme)
         worktreeSegmentView.applyChromeTheme(theme)
         resourceSegmentView.applyChromeTheme(theme)

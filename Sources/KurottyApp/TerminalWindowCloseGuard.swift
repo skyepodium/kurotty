@@ -44,6 +44,9 @@ extension TerminalWindowController {
     }
 
     private func presentCloseConfirmation(processNames: [String]) -> Bool {
+        if let resolved = TerminalCloseConfirmation.resolvedWithoutPresenting(processNames: processNames) {
+            return resolved
+        }
         let alert = NSAlert()
         alert.messageText = AppLocalization.string(.closeRunningProcessTitle)
         alert.informativeText = AppLocalization.format(

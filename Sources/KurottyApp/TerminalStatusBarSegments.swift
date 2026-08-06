@@ -19,6 +19,11 @@ class TerminalStatusBarSegmentView: NSView {
     private(set) var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isHovered = false
     private var isPressed = false
+    /// Every constant a segment or its subclasses take from a scaled token.
+    /// Constraints are the one part of a segment a re-theme cannot refresh on
+    /// its own, so they are registered here and replayed from
+    /// `applyChromeTheme`.
+    let metrics = ChromeMetricBindings()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -41,6 +46,9 @@ class TerminalStatusBarSegmentView: NSView {
         contentStackView.spacing = 0
         contentStackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentStackView)
+        let segmentHeight = metrics.bind(heightAnchor.constraint(equalToConstant: 0)) {
+            DesignTokens.Component.StatusBar.heightPX
+        }
         NSLayoutConstraint.activate([
             contentStackView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
@@ -51,12 +59,13 @@ class TerminalStatusBarSegmentView: NSView {
                 constant: -DesignTokens.Component.StatusBar.segmentPaddingXPX
             ),
             contentStackView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.heightPX),
+            segmentHeight,
         ])
     }
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        metrics.reapply()
         updateBackground()
         applyThemeToContent()
     }
@@ -247,23 +256,15 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
 
         glyphView.imageScaling = .scaleProportionallyDown
 
-        labelField.font = DesignTokens.Typography.statusBar.font
+        applyChromeFonts()
         labelField.lineBreakMode = .byTruncatingTail
         labelField.isSelectable = false
         labelField.cell?.truncatesLastVisibleLine = true
 
-        detailField.font = NSFont.monospacedDigitSystemFont(
-            ofSize: DesignTokens.Typography.statusBar.sizePT,
-            weight: DesignTokens.Typography.statusBar.weight
-        )
         detailField.lineBreakMode = .byTruncatingTail
         detailField.isSelectable = false
         detailField.cell?.truncatesLastVisibleLine = true
 
-        badgeField.font = NSFont.monospacedDigitSystemFont(
-            ofSize: DesignTokens.Component.StatusBar.badgeFontSizePT,
-            weight: DesignTokens.Typography.badge.weight
-        )
         badgeField.isSelectable = false
         badgeField.translatesAutoresizingMaskIntoConstraints = false
         badgeContainer.addSubview(badgeField)
@@ -283,17 +284,27 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
         NSLayoutConstraint.activate([
             dotView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.dotSizePX),
             dotView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.dotSizePX),
-            glyphView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            glyphView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            spinnerView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.spinnerSizePX),
-            spinnerView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.spinnerSizePX),
-            labelField.widthAnchor.constraint(
-                lessThanOrEqualToConstant: DesignTokens.Component.StatusBar.agentLabelMaxWidthPX
-            ),
-            detailField.widthAnchor.constraint(
-                lessThanOrEqualToConstant: DesignTokens.Component.StatusBar.agentDetailMaxWidthPX
-            ),
-            badgeContainer.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.badgeHeightPX),
+            metrics.bind(glyphView.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(glyphView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(spinnerView.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.spinnerSizePX
+            },
+            metrics.bind(spinnerView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.spinnerSizePX
+            },
+            metrics.bind(labelField.widthAnchor.constraint(lessThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.agentLabelMaxWidthPX
+            },
+            metrics.bind(detailField.widthAnchor.constraint(lessThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.agentDetailMaxWidthPX
+            },
+            metrics.bind(badgeContainer.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.badgeHeightPX
+            },
             badgeField.leadingAnchor.constraint(
                 equalTo: badgeContainer.leadingAnchor,
                 constant: DesignTokens.Component.StatusBar.badgeTextInsetXPX
@@ -318,7 +329,22 @@ final class TerminalStatusBarAgentSegmentView: TerminalStatusBarSegmentView {
     }
 
     override func applyThemeToContent() {
+        applyChromeFonts()
         applyContent()
+    }
+
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
+        labelField.font = DesignTokens.Typography.statusBar.font
+        detailField.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Typography.statusBar.sizePT,
+            weight: DesignTokens.Typography.statusBar.weight
+        )
+        badgeField.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Component.StatusBar.badgeFontSizePT,
+            weight: DesignTokens.Typography.badge.weight
+        )
     }
 
     override func applyHoverState(isHovered: Bool) {
@@ -430,8 +456,8 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
             iconView.imageScaling = .scaleProportionallyDown
         }
 
+        applyChromeFonts()
         for valueField in [memoryValueField, cpuValueField] {
-            valueField.font = DesignTokens.Typography.statusBarNum.font
             valueField.alignment = .right
             valueField.isSelectable = false
             valueField.wantsLayer = true
@@ -446,18 +472,26 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
         contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.iconValueGapPX, after: cpuIconView)
 
         NSLayoutConstraint.activate([
-            memoryIconView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            memoryIconView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            cpuIconView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            cpuIconView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
+            metrics.bind(memoryIconView.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(memoryIconView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(cpuIconView.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(cpuIconView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
             // Reserved widths: the digits change every two seconds and must not
             // move anything around them.
-            memoryValueField.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.StatusBar.memoryValueMinWidthPX
-            ),
-            cpuValueField.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.StatusBar.cpuValueMinWidthPX
-            ),
+            metrics.bind(memoryValueField.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.memoryValueMinWidthPX
+            },
+            metrics.bind(cpuValueField.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.cpuValueMinWidthPX
+            },
         ])
     }
 
@@ -472,7 +506,16 @@ final class TerminalStatusBarResourceSegmentView: TerminalStatusBarSegmentView {
     }
 
     override func applyThemeToContent() {
+        applyChromeFonts()
         applyContent(animatesValues: false)
+    }
+
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
+        for valueField in [memoryValueField, cpuValueField] {
+            valueField.font = DesignTokens.Typography.statusBarNum.font
+        }
     }
 
     override func applyHoverState(isHovered: Bool) {

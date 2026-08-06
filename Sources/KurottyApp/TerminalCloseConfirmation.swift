@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+import AppKit
 
 /// Decides whether closing a tab or window needs a confirmation because a
 /// pane's shell still runs a child process (an editor, ssh, a build).
@@ -15,6 +15,29 @@ enum TerminalCloseConfirmation {
     /// Cap on names shown in the confirmation dialog. The decision counts every
     /// process; the dialog does not need to list a whole build tree.
     static let maximumDisplayedProcessNameCount = 4
+
+    /// Answers the confirmation instead of raising a modal.
+    ///
+    /// `NSAlert.runModal()` blocks until someone clicks. Under XCTest nobody
+    /// can, so a close that hit a live child wedged the whole run: three test
+    /// processes were observed stuck at 0% CPU for over half an hour, which
+    /// reads as "the suite is slow" rather than "the suite is hung".
+    ///
+    /// A test that wants to exercise the guard sets this explicitly; leaving it
+    /// unset resolves to "allow the close", because a test calling a close
+    /// wants the close. `XCTestCase` is absent from the shipped app, so the
+    /// fallback below cannot change what a user sees.
+    @MainActor static var presenterOverride: (([String]) -> Bool)?
+
+    @MainActor static var isRunningUnderTest: Bool {
+        NSClassFromString("XCTestCase") != nil
+    }
+
+    /// The answer to use without presenting, or `nil` to present for real.
+    @MainActor static func resolvedWithoutPresenting(processNames: [String]) -> Bool? {
+        if let presenterOverride { return presenterOverride(processNames) }
+        return isRunningUnderTest ? true : nil
+    }
 
     struct Decision: Equatable {
         /// Distinct running child process names, first-seen order.

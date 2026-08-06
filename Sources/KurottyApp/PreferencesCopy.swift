@@ -16,8 +16,10 @@ enum PreferencesCopy {
         case agentStatusHooks, agentStatusHooksCheckboxTitle
         case restoreScrollback, restoreScrollbackCheckboxTitle
         case statusBar, statusBarCheckboxTitle
+        case commandProgress, commandProgressCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
+        case interfaceSection, interfaceSectionHelp, uiTextScale
         case themeKurotty, themeLightty, themeCustom, customColors, customColorsHelp
         case importThemeButtonTitle, themeImported, themeImportFailed
         case themeImportUnrecognized, themeImportIncomplete
@@ -59,11 +61,13 @@ enum PreferencesCopy {
             .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let agents report status through Kurotty's local hook (asks once before editing your Claude Code settings)",
             .restoreScrollback: "Restore scrollback", .restoreScrollbackCheckboxTitle: "Restore each pane's scrollback text at launch (display only, applies next launch)",
             .statusBar: "Status bar", .statusBarCheckboxTitle: "Show the bottom status bar with agent state and pane resource usage",
+            .commandProgress: "Command progress", .commandProgressCheckboxTitle: "Show a progress bar at the top of a pane while a command runs",
             .quickCommandsSection: "Quick Commands", .quickCommandsSectionHelp: "Named commands offered in the command palette and the terminal context menu.",
             .quickCommands: "Quick Commands", .quickCommandsButtonTitle: "Edit Quick Commands…",
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "Custom",
+            .interfaceSection: "Interface", .interfaceSectionHelp: "Scales Kurotty's own sidebar, tabs, status bar, and this window. Terminal text keeps its own size.", .uiTextScale: "UI text size",
             .customColors: "Custom colors", .customColorsHelp: "Changing any color keeps the full palette as a custom theme.",
             .importThemeButtonTitle: "Import Theme…",
             .themeImported: "Imported \"%@\" as the custom theme.",
@@ -91,12 +95,14 @@ enum PreferencesCopy {
             .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
             .restoreScrollback: "스크롤백 복원", .restoreScrollbackCheckboxTitle: "실행 시 각 패널의 스크롤백 텍스트를 복원 (표시 전용, 다음 실행부터 적용)",
             .statusBar: "상태 표시줄", .statusBarCheckboxTitle: "에이전트 상태와 패널 리소스 사용량을 보여주는 하단 상태 표시줄 표시",
+            .commandProgress: "명령 진행 표시", .commandProgressCheckboxTitle: "명령이 실행되는 동안 패널 상단에 진행 막대 표시",
             .agentStatusHooks: "에이전트 상태 훅", .agentStatusHooksCheckboxTitle: "Kurotty의 로컬 훅으로 에이전트가 상태를 보고하도록 허용 (Claude Code 설정을 수정하기 전에 한 번 확인)",
             .quickCommandsSection: "빠른 명령", .quickCommandsSectionHelp: "명령 팔레트와 터미널 컨텍스트 메뉴에 표시되는 이름 붙인 명령입니다.",
             .quickCommands: "빠른 명령", .quickCommandsButtonTitle: "빠른 명령 편집…",
             .appearanceTitle: "모양", .appearanceSubtitle: "기본 테마를 선택하거나 직접 색상 팔레트를 만들 수 있습니다.",
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "커스텀",
+            .interfaceSection: "인터페이스", .interfaceSectionHelp: "Kurotty의 사이드바, 탭, 상태 표시줄과 이 창의 크기를 조절합니다. 터미널 글자 크기는 그대로 유지됩니다.", .uiTextScale: "UI 글자 크기",
             .customColors: "커스텀 색상", .customColorsHelp: "색상을 하나라도 변경하면 전체 팔레트를 커스텀 테마로 보관합니다.",
             .importThemeButtonTitle: "테마 가져오기…",
             .themeImported: "\"%@\"을(를) 커스텀 테마로 가져왔습니다.",
@@ -124,12 +130,14 @@ enum PreferencesCopy {
             .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
             .restoreScrollback: "スクロールバックを復元", .restoreScrollbackCheckboxTitle: "起動時に各ペインのスクロールバックを復元 (表示のみ、次回起動から適用)",
             .statusBar: "ステータスバー", .statusBarCheckboxTitle: "エージェント状態とペインのリソース使用量を表示する下部ステータスバーを表示",
+            .commandProgress: "コマンドの進行状況", .commandProgressCheckboxTitle: "コマンドの実行中にペイン上部へ進行バーを表示",
             .agentStatusHooks: "エージェント状態フック", .agentStatusHooksCheckboxTitle: "Kurottyのローカルフック経由でエージェントが状態を報告できるようにする（Claude Codeの設定を変更する前に一度だけ確認）",
             .quickCommandsSection: "クイックコマンド", .quickCommandsSectionHelp: "コマンドパレットとターミナルのコンテキストメニューに表示される名前付きコマンドです。",
             .quickCommands: "クイックコマンド", .quickCommandsButtonTitle: "クイックコマンドを編集…",
             .appearanceTitle: "外観", .appearanceSubtitle: "組み込みテーマを選ぶか、独自のカラーパレットを作成できます。",
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "カスタム",
+            .interfaceSection: "インターフェース", .interfaceSectionHelp: "Kurotty自身のサイドバー、タブ、ステータスバー、そしてこの画面の大きさを調整します。ターミナルの文字サイズはそのままです。", .uiTextScale: "UIの文字サイズ",
             .customColors: "カスタムカラー", .customColorsHelp: "いずれかの色を変更すると、パレット全体をカスタムテーマとして保持します。",
             .importThemeButtonTitle: "テーマを読み込む…",
             .themeImported: "\"%@\"をカスタムテーマとして読み込みました。",
