@@ -46,15 +46,11 @@ final class TerminalStatusBarWorktreeSegmentView: TerminalStatusBarSegmentView {
         badgeContainer.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         badgeContainer.layer?.cornerRadius = DesignTokens.Component.StatusBar.badgeCornerRadiusPX
 
-        labelField.font = DesignTokens.Typography.statusBar.font
+        applyChromeFonts()
         labelField.lineBreakMode = .byTruncatingTail
         labelField.isSelectable = false
         labelField.cell?.truncatesLastVisibleLine = true
 
-        badgeField.font = NSFont.monospacedDigitSystemFont(
-            ofSize: DesignTokens.Component.StatusBar.badgeFontSizePT,
-            weight: DesignTokens.Typography.badge.weight
-        )
         badgeField.isSelectable = false
         badgeField.translatesAutoresizingMaskIntoConstraints = false
         badgeContainer.addSubview(badgeField)
@@ -66,12 +62,18 @@ final class TerminalStatusBarWorktreeSegmentView: TerminalStatusBarSegmentView {
         contentStackView.setCustomSpacing(DesignTokens.Component.StatusBar.labelDetailGapPX, after: labelField)
 
         NSLayoutConstraint.activate([
-            glyphView.widthAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            glyphView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.iconPointSizePT),
-            labelField.widthAnchor.constraint(
-                lessThanOrEqualToConstant: DesignTokens.Component.StatusBar.worktreeLabelMaxWidthPX
-            ),
-            badgeContainer.heightAnchor.constraint(equalToConstant: DesignTokens.Component.StatusBar.badgeHeightPX),
+            metrics.bind(glyphView.widthAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(glyphView.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.iconPointSizePT
+            },
+            metrics.bind(labelField.widthAnchor.constraint(lessThanOrEqualToConstant: 0)) {
+                DesignTokens.Component.StatusBar.worktreeLabelMaxWidthPX
+            },
+            metrics.bind(badgeContainer.heightAnchor.constraint(equalToConstant: 0)) {
+                DesignTokens.Component.StatusBar.badgeHeightPX
+            },
             badgeField.leadingAnchor.constraint(
                 equalTo: badgeContainer.leadingAnchor,
                 constant: DesignTokens.Component.StatusBar.badgeTextInsetXPX
@@ -97,11 +99,22 @@ final class TerminalStatusBarWorktreeSegmentView: TerminalStatusBarSegmentView {
     }
 
     override func applyThemeToContent() {
+        applyChromeFonts()
         applyContent()
     }
 
     override func applyHoverState(isHovered: Bool) {
         labelField.textColor = isHovered ? chromeTheme.textPrimary : chromeTheme.textSecondary
+    }
+
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
+        labelField.font = DesignTokens.Typography.statusBar.font
+        badgeField.font = NSFont.monospacedDigitSystemFont(
+            ofSize: DesignTokens.Component.StatusBar.badgeFontSizePT,
+            weight: DesignTokens.Typography.badge.weight
+        )
     }
 
     private func applyContent() {

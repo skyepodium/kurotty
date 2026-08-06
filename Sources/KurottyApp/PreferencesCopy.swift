@@ -18,6 +18,7 @@ enum PreferencesCopy {
         case statusBar, statusBarCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
+        case interfaceSection, interfaceSectionHelp, uiTextScale
         case themeKurotty, themeLightty, themeCustom, customColors, customColorsHelp
         case importThemeButtonTitle, themeImported, themeImportFailed
         case themeImportUnrecognized, themeImportIncomplete
@@ -64,6 +65,7 @@ enum PreferencesCopy {
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "Custom",
+            .interfaceSection: "Interface", .interfaceSectionHelp: "Scales Kurotty's own sidebar, tabs, status bar, and this window. Terminal text keeps its own size.", .uiTextScale: "UI text size",
             .customColors: "Custom colors", .customColorsHelp: "Changing any color keeps the full palette as a custom theme.",
             .importThemeButtonTitle: "Import Theme…",
             .themeImported: "Imported \"%@\" as the custom theme.",
@@ -97,6 +99,7 @@ enum PreferencesCopy {
             .appearanceTitle: "모양", .appearanceSubtitle: "기본 테마를 선택하거나 직접 색상 팔레트를 만들 수 있습니다.",
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "커스텀",
+            .interfaceSection: "인터페이스", .interfaceSectionHelp: "Kurotty의 사이드바, 탭, 상태 표시줄과 이 창의 크기를 조절합니다. 터미널 글자 크기는 그대로 유지됩니다.", .uiTextScale: "UI 글자 크기",
             .customColors: "커스텀 색상", .customColorsHelp: "색상을 하나라도 변경하면 전체 팔레트를 커스텀 테마로 보관합니다.",
             .importThemeButtonTitle: "테마 가져오기…",
             .themeImported: "\"%@\"을(를) 커스텀 테마로 가져왔습니다.",
@@ -130,6 +133,7 @@ enum PreferencesCopy {
             .appearanceTitle: "外観", .appearanceSubtitle: "組み込みテーマを選ぶか、独自のカラーパレットを作成できます。",
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeCustom: "カスタム",
+            .interfaceSection: "インターフェース", .interfaceSectionHelp: "Kurotty自身のサイドバー、タブ、ステータスバー、そしてこの画面の大きさを調整します。ターミナルの文字サイズはそのままです。", .uiTextScale: "UIの文字サイズ",
             .customColors: "カスタムカラー", .customColorsHelp: "いずれかの色を変更すると、パレット全体をカスタムテーマとして保持します。",
             .importThemeButtonTitle: "テーマを読み込む…",
             .themeImported: "\"%@\"をカスタムテーマとして読み込みました。",

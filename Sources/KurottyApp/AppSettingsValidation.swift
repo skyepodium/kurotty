@@ -31,6 +31,7 @@ enum AppSettingKey: String, Codable, Hashable {
     /// already been coerced to the default by the decoder and there is no
     /// out-of-range state left for `report(for:)` to find.
     case terminalCloseOnChildExit
+    case terminalUITextScalePercent
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -79,6 +80,7 @@ enum AppSettingsValidation {
              .terminalColorsCursor,
              .terminalColorsAnsi,
              .terminalCloseOnChildExit,
+             .terminalUITextScalePercent,
              .windowWidth,
              .windowHeight:
             return .liveApplied
@@ -125,6 +127,14 @@ enum AppSettingsValidation {
             minimum: SettingsDefaults.minimumAllowedCommandDurationSeconds,
             maximum: SettingsDefaults.maximumAllowedCommandDurationSeconds,
             unit: "s",
+            issues: &issues
+        )
+        validateRange(
+            key: .terminalUITextScalePercent,
+            value: settings.terminal.uiTextScalePercent,
+            minimum: SettingsDefaults.minimumUITextScalePercent,
+            maximum: SettingsDefaults.maximumUITextScalePercent,
+            unit: "%",
             issues: &issues
         )
         // Parsing stays with the enum so the report cannot disagree with what

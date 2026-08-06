@@ -222,7 +222,7 @@ final class CommandPaletteWindowController: NSWindowController {
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.usesAlternatingRowBackgroundColors = false
-        tableView.rowHeight = 34
+        tableView.rowHeight = DesignTokens.Component.commandPaletteRowHeightPX
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self

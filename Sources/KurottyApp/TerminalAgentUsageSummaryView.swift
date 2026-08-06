@@ -76,19 +76,26 @@ final class TerminalAgentUsageSummaryView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
+        applyChromeFonts()
         titleLabel.textColor = theme.textTertiary
         totalLabel.textColor = theme.textPrimary
         breakdownLabel.textColor = theme.textTertiary
         stripView.update(summary: summary, theme: theme)
     }
 
-    private func configureSubviews() {
+    /// Re-read on every re-theme, not just at build: the ramp these come from
+    /// moves with the UI text scale.
+    private func applyChromeFonts() {
         titleLabel.font = DesignTokens.Typography.sectionHeader.font
-        titleLabel.stringValue = AppLocalization.string(.agentUsageToday)
         // Monospaced digits: the number changes while the session runs and the
         // label beside it must not shift when a digit gets wider.
         totalLabel.font = DesignTokens.Typography.statusBarNum.font
         breakdownLabel.font = DesignTokens.Typography.rowSecondary.font
+    }
+
+    private func configureSubviews() {
+        applyChromeFonts()
+        titleLabel.stringValue = AppLocalization.string(.agentUsageToday)
         breakdownLabel.lineBreakMode = .byTruncatingTail
 
         for label in [titleLabel, totalLabel, breakdownLabel] {

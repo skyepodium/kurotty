@@ -22,13 +22,21 @@ enum Icon {
         /// 20pt / regular. Empty-state art.
         case large
 
-        var pointSizePT: CGFloat {
+        /// The spec sizes, before the user's UI text scale.
+        var basePointSizePT: CGFloat {
             switch self {
             case .micro: return 9
             case .small: return 11
             case .regular: return 13
             case .large: return 20
             }
+        }
+
+        /// A chrome glyph sits beside chrome type, so it follows the same
+        /// scale: an 11pt magnifier next to a 19pt query field reads as a
+        /// rendering bug, not as a smaller icon.
+        var pointSizePT: CGFloat {
+            DesignTokens.UIScale.scaledPointSize(basePointSizePT)
         }
 
         var weight: NSFont.Weight {

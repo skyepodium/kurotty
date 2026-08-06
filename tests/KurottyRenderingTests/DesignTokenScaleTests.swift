@@ -8,6 +8,14 @@ import XCTest
 /// each call site.
 @MainActor
 final class DesignTokenScaleTests: XCTestCase {
+    /// The UI text scale is process-wide state that the tokens read on every
+    /// build, so a test that moves it has to put it back or it leaks into every
+    /// test that runs after it.
+    override func tearDown() {
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.defaultPercent)
+        super.tearDown()
+    }
+
     // MARK: - Spacing
 
     func testSpacingScaleIsTheSixDocumentedSteps() {
@@ -106,7 +114,12 @@ final class DesignTokenScaleTests: XCTestCase {
 
     // MARK: - Type ramp
 
+    /// Pins the ramp as specified. `baseSizePT` is the spec and is independent
+    /// of the UI text scale; `sizePT` is what call sites read, and at 100% the
+    /// two have to agree — a ramp whose unscaled and default sizes differ is a
+    /// ramp nobody can reason about.
     func testTypeRampRolesMatchTheSpecifiedSizesAndWeights() {
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.defaultPercent)
         let expected: [(String, DesignTokens.Typography.Role, CGFloat, NSFont.Weight)] = [
             ("windowTitle", DesignTokens.Typography.windowTitle, 13, .semibold),
             ("tabLabel", DesignTokens.Typography.tabLabel, 13, .medium),
@@ -122,11 +135,177 @@ final class DesignTokenScaleTests: XCTestCase {
             ("paneHeader", DesignTokens.Typography.paneHeader, 12, .medium),
         ]
         for (name, role, sizePT, weight) in expected {
-            XCTAssertEqual(role.sizePT, sizePT, "\(name) size")
+            XCTAssertEqual(role.baseSizePT, sizePT, "\(name) spec size")
+            XCTAssertEqual(role.sizePT, sizePT, "\(name) size at 100%")
             XCTAssertEqual(role.weight, weight, "\(name) weight")
             XCTAssertGreaterThan(role.lineHeightPX, role.sizePT, "\(name) needs leading")
         }
     }
+
+    // MARK: - UI text scale
+
+    func testScaleMultipliesEveryRungOfTheRampAndTheFontItBuilds() {
+        DesignTokens.UIScale.setPercent(150)
+
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.sizePT, 19.5, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.badge.sizePT, 16.5, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.prefsTitle.sizePT, 30, accuracy: 0.001)
+        // The font is what actually reaches the screen, so the multiply has to
+        // survive as far as `NSFont`, not only as far as the token.
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.font.pointSize, 19.5, accuracy: 0.001)
+        XCTAssertEqual(
+            DesignTokens.Typography.statusBarNum.font.pointSize,
+            18,
+            accuracy: 0.001
+        )
+        // The spec is untouched: only the reading of it moves.
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.baseSizePT, 13)
+    }
+
+    /// Tracking is a point value like the size, so scaled caps must not keep
+    /// the letter spacing they had at 100%.
+    func testScaleMovesTrackingWithTheTypeItSeparates() {
+        DesignTokens.UIScale.setPercent(150)
+
+        XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.825, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.tracking, 0)
+    }
+
+    func testScaleClampsToTheDocumentedRangeAndRejectsNonFiniteValues() {
+        XCTAssertEqual(DesignTokens.UIScale.clamped(50), DesignTokens.UIScale.minimumPercent)
+        XCTAssertEqual(DesignTokens.UIScale.clamped(1_000), DesignTokens.UIScale.maximumPercent)
+        XCTAssertEqual(DesignTokens.UIScale.clamped(120), 120)
+        XCTAssertEqual(DesignTokens.UIScale.clamped(.nan), DesignTokens.UIScale.defaultPercent)
+        XCTAssertEqual(DesignTokens.UIScale.clamped(.infinity), DesignTokens.UIScale.defaultPercent)
+
+        // The installer clamps too, so a value that got past the settings file
+        // still cannot reach the tokens.
+        DesignTokens.UIScale.setPercent(10)
+        XCTAssertEqual(DesignTokens.UIScale.percent, DesignTokens.UIScale.minimumPercent)
+    }
+
+    /// The floor exists because the ramp's quietest rung is 11pt. If the floor
+    /// ever drops far enough to push that rung below 9pt the sidebar stops
+    /// being readable, which is the whole reason the range is not Orca's.
+    func testTheFloorKeepsTheQuietestRungReadable() {
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.minimumPercent)
+
+        XCTAssertGreaterThanOrEqual(DesignTokens.Typography.badge.sizePT, 9)
+        XCTAssertGreaterThanOrEqual(DesignTokens.Typography.prefsCaption.sizePT, 9)
+        XCTAssertGreaterThanOrEqual(DesignTokens.Typography.monoGutter.sizePT, 9)
+    }
+
+    /// A box that holds type has to grow with it or the type clips; a stroke, a
+    /// status dot, a radius, or a spacing step does not, because none of them
+    /// contains anything.
+    func testTypeCoupledMetricsGrowWithTheScaleAndFixedOnesDoNot() {
+        let component = DesignTokens.Component.self
+        // Read through closures, not values: the whole point of the change is
+        // that these tokens are computed, so a test that snapshots them once
+        // would pass no matter what the scale did.
+        let typeCoupled: [(String, () -> CGFloat)] = [
+            ("historyCommandRow", { component.commandHistoryCommandRowHeightPX }),
+            ("historyBadge", { component.commandHistoryBadgeHeightPX }),
+            ("agentSessionRow", { component.agentSessionRowHeightPX }),
+            ("explorerRow", { component.fileExplorerRowHeightPX }),
+            ("searchPill", { component.sidebarSearchPillHeightPX }),
+            ("sectionStrip", { component.leftSidebarSectionStripHeightPX }),
+            ("tabBar", { component.terminalTabBarHeightPX }),
+            ("tab", { component.terminalTabHeightPX }),
+            ("paneHeader", { component.terminalPaneChromeHeightPX }),
+            ("statusBar", { component.StatusBar.heightPX }),
+            ("statusBarBadge", { component.StatusBar.badgeHeightPX }),
+            ("prefsHeader", { component.preferencesHeaderHeightPX }),
+            ("prefsNavRow", { component.preferencesNavRowHeightPX }),
+            ("prefsLabelColumn", { component.preferencesLabelColumnWidthPX }),
+            ("historyPanelInsetX", { component.commandHistoryPanelInsetXPX }),
+            ("paletteRow", { component.commandPaletteRowHeightPX }),
+            ("searchBar", { component.terminalSearchHeightPX }),
+            ("editorPathBar", { component.codeEditorPathBarHeightPX }),
+        ]
+        let fixed: [(String, () -> CGFloat)] = [
+            ("hairline", { component.hairlinePX }),
+            ("historyStatusDot", { component.commandHistoryStatusDotSizePX }),
+            ("statusBarDot", { component.StatusBar.dotSizePX }),
+            ("paneHeaderDot", { component.terminalPaneChromeDotSizePX }),
+            ("gitDot", { component.fileExplorerGitDotSizePX }),
+            ("rowHighlightRadius", { component.sidebarRowHighlightCornerRadiusPX }),
+            ("selectionRail", { component.sidebarRowSelectionRailWidthPX }),
+            ("tabTopRail", { component.terminalTabTopRailHeightPX }),
+            ("searchPillFocusRing", { component.sidebarSearchPillFocusRingWidthPX }),
+            ("trafficLightClearance", { component.terminalTrafficLightClearancePX }),
+            ("prefsButtonHeight", { component.preferencesButtonHeightPX }),
+            ("contextMeterHeight", { component.agentContextMeterHeightPX }),
+            ("spacingStep", { DesignTokens.Space.x4PX }),
+            ("radiusStep", { DesignTokens.Radius.mdPX }),
+        ]
+        let before = (typeCoupled + fixed).map { ($0.0, $0.1()) }
+
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.maximumPercent)
+
+        let previous = Dictionary(uniqueKeysWithValues: before)
+        for (name, read) in typeCoupled {
+            XCTAssertGreaterThan(
+                read(),
+                previous[name]!,
+                "\(name) holds type and has to grow with it"
+            )
+        }
+        for (name, read) in fixed {
+            XCTAssertEqual(
+                read(),
+                previous[name]!,
+                "\(name) contains no type and must not move"
+            )
+        }
+    }
+
+    /// The line that decides whether a metric scales is "does type sit inside
+    /// it", so a row height at 175% must still clear the row title it holds.
+    func testAScaledRowStillClearsTheTypeItHolds() {
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.maximumPercent)
+
+        XCTAssertGreaterThan(
+            DesignTokens.Component.commandHistoryCommandRowHeightPX,
+            DesignTokens.Typography.rowTitle.sizePT
+        )
+        XCTAssertGreaterThan(
+            DesignTokens.Component.sidebarSearchPillHeightPX,
+            DesignTokens.Typography.rowTitle.lineHeightPX
+        )
+        XCTAssertGreaterThan(
+            DesignTokens.Component.StatusBar.heightPX,
+            DesignTokens.Typography.statusBar.lineHeightPX
+        )
+        XCTAssertGreaterThan(
+            DesignTokens.Component.commandHistoryBadgeHeightPX,
+            DesignTokens.Typography.badge.sizePT
+        )
+    }
+
+    /// Chrome glyphs sit beside chrome type, so the icon ramp follows the same
+    /// scale while keeping its spec sizes.
+    func testIconRampFollowsTheScaleWithoutLosingItsSpec() {
+        DesignTokens.UIScale.setPercent(150)
+
+        XCTAssertEqual(Icon.SizeClass.small.pointSizePT, 16.5, accuracy: 0.001)
+        XCTAssertEqual(Icon.SizeClass.regular.pointSizePT, 19.5, accuracy: 0.001)
+        XCTAssertEqual(Icon.SizeClass.small.basePointSizePT, 11)
+        XCTAssertEqual(Icon.SizeClass.regular.basePointSizePT, 13)
+    }
+
+    /// Terminal and editor content have their own sizes and their own zoom, so
+    /// the chrome scale must not reach them.
+    func testTerminalAndEditorContentSizesIgnoreTheChromeScale() {
+        let terminalBefore = DesignTokens.Typography.terminalFontSizePT
+        let editorBefore = DesignTokens.Typography.codeEditorFontSizePT
+
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.maximumPercent)
+
+        XCTAssertEqual(DesignTokens.Typography.terminalFontSizePT, terminalBefore)
+        XCTAssertEqual(DesignTokens.Typography.codeEditorFontSizePT, editorBefore)
+    }
+
 
     func testOnlySectionHeaderCarriesTracking() {
         XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.55)

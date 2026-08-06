@@ -574,11 +574,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 12 pane-behavior keys
 
     func testSchemaTwelveKeysHaveTheirDocumentedDefaults() {
-        // Re-pointed at schema 18, which added `terminal.closeOnChildExit`,
-        // `terminal.notifyOnCommandFinish` and
-        // `terminal.minimumCommandDurationSeconds`; the schema-12 keys below
-        // keep their documented defaults.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
+        // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
+        // the schema-12 keys below keep their documented defaults.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -712,10 +710,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// Restoring stored scrollback only repaints the screen model, so unlike
     /// command replay it is safe to default on.
     func testScrollbackRestoreDefaultsOn() {
-        // Re-pointed at schema 18, which added the child-exit and
-        // command-finish notification keys; the scrollback-restore default
-        // below is unchanged.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
+        // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
+        // the scrollback-restore default below is unchanged.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -780,7 +777,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -823,6 +820,131 @@ final class AppSettingsBehaviorTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
 
         XCTAssertEqual(decoded.terminal.statusBarEnabled, SettingsDefaults.statusBarEnabled)
+    }
+
+    // MARK: - Schema 19 UI text scale
+
+    func testUITextScaleDefaultsToOneHundredPercent() {
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
+        XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
+        XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
+    }
+
+    /// The bounds are deliberately not Orca's 58%–249%: the ramp's quietest
+    /// rung is 11pt, so a floor much below 85% is a sidebar nobody can read.
+    func testUITextScaleBoundsBracketOneHundred() {
+        XCTAssertEqual(SettingsDefaults.minimumUITextScalePercent, 85)
+        XCTAssertEqual(SettingsDefaults.maximumUITextScalePercent, 175)
+        XCTAssertLessThan(SettingsDefaults.minimumUITextScalePercent, SettingsDefaults.uiTextScalePercent)
+        XCTAssertGreaterThan(SettingsDefaults.maximumUITextScalePercent, SettingsDefaults.uiTextScalePercent)
+    }
+
+    @MainActor
+    func testUITextScaleSurvivesASaveLoadRoundTrip() throws {
+        defer { DesignTokens.UIScale.setPercent(SettingsDefaults.uiTextScalePercent) }
+        let store = AppSettingsStore(settingsURL: settingsURL())
+        var settings = AppSettings.default
+        settings.terminal.uiTextScalePercent = 130
+
+        try store.save(settings)
+
+        XCTAssertEqual(try store.load().terminal.uiTextScalePercent, 130)
+    }
+
+    /// A hand-edited file must not be able to put the chrome somewhere the
+    /// Settings slider could not reach.
+    @MainActor
+    func testOutOfRangeUITextScaleIsClampedOnTheWayThroughTheStore() throws {
+        defer { DesignTokens.UIScale.setPercent(SettingsDefaults.uiTextScalePercent) }
+        let store = AppSettingsStore(settingsURL: settingsURL())
+        var settings = AppSettings.default
+
+        settings.terminal.uiTextScalePercent = 5
+        try store.save(settings)
+        XCTAssertEqual(
+            try store.load().terminal.uiTextScalePercent,
+            SettingsDefaults.minimumUITextScalePercent
+        )
+
+        settings.terminal.uiTextScalePercent = 900
+        try store.save(settings)
+        XCTAssertEqual(
+            try store.load().terminal.uiTextScalePercent,
+            SettingsDefaults.maximumUITextScalePercent
+        )
+    }
+
+    /// The whole point of the setting is that it is live: every observer of the
+    /// change notification re-reads design tokens to lay itself out again, so
+    /// the scale has to already be installed by the time the notification
+    /// arrives, not after the last observer has run.
+    @MainActor
+    func testSavingInstallsTheScaleBeforeTheChangeNotificationFansOut() throws {
+        defer { DesignTokens.UIScale.setPercent(SettingsDefaults.uiTextScalePercent) }
+        let store = AppSettingsStore(settingsURL: settingsURL())
+        var settings = AppSettings.default
+        settings.terminal.uiTextScalePercent = 140
+
+        var scaleSeenByObserver: Double?
+        var rowTitleSeenByObserver: CGFloat?
+        let token = NotificationCenter.default.addObserver(
+            forName: AppSettingsStore.didChangeNotification,
+            object: store,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                scaleSeenByObserver = DesignTokens.UIScale.percent
+                rowTitleSeenByObserver = DesignTokens.Typography.rowTitle.sizePT
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        try store.save(settings)
+
+        XCTAssertEqual(scaleSeenByObserver, 140)
+        XCTAssertEqual(rowTitleSeenByObserver ?? 0, 18.2, accuracy: 0.001)
+    }
+
+    /// A file written before schema 19 predates the key, so migration lands it
+    /// on 100 — the size that install is already running at.
+    func testSettingsWrittenBeforeSchemaNineteenNormalizeToOneHundredPercent() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 18
+        settings.terminal.uiTextScalePercent = 160
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertEqual(normalized.terminal.uiTextScalePercent, SettingsDefaults.uiTextScalePercent)
+    }
+
+    func testCurrentSchemaPreservesAnExplicitUITextScale() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.uiTextScalePercent = 125
+
+        XCTAssertEqual(AppSettingsNormalizer.normalized(settings).terminal.uiTextScalePercent, 125)
+    }
+
+    func testDecodingASettingsFileWithoutTheUITextScaleKeyUsesTheDefault() throws {
+        let json = """
+        {
+          "schemaVersion": 18,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          },
+          "window": { "width": 1100, "height": 720 },
+          "shell": { "workingDirectory": "/tmp" }
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.terminal.uiTextScalePercent, SettingsDefaults.uiTextScalePercent)
     }
 
     private func customColorsJSON() -> String {
