@@ -2500,7 +2500,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("hdiutil create"))
         XCTAssertTrue(packageSource.contains("hdiutil attach"))
         XCTAssertTrue(packageSource.contains("ln -s /Applications \"$DMG_ROOT/Applications\""))
-        XCTAssertTrue(packageSource.contains("hdiutil detach"))
+        // Detaching moved into scripts/dmg-style.sh, which retries before it
+        // forces: Finder can still hold the styled volume for a moment.
+        XCTAssertTrue(packageSource.contains("detach_kurotty_dmg"))
         XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --options runtime --sign \"$SIGN_IDENTITY\" \"$APP_BUNDLE\""))
         XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
