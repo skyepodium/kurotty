@@ -1,4 +1,5 @@
 import AppKit
+import KurottyCore
 
 final class TerminalPaneView: NSView {
     private let chromeView = PaneChromeView()
@@ -22,6 +23,7 @@ final class TerminalPaneView: NSView {
     /// owns the session's I/O; this reference is read-only.
     private let session: any TerminalSession
     private let searchBarView = TerminalSearchBarView()
+    private let childExitBannerView = TerminalChildExitBannerView()
     private var chromeHeightConstraint: NSLayoutConstraint?
     private var agentActivityWidthConstraint: NSLayoutConstraint?
     private var agentActivityTitleGapConstraint: NSLayoutConstraint?
@@ -37,6 +39,19 @@ final class TerminalPaneView: NSView {
     var closeRequested: ((TerminalPaneView) -> Void)?
     var focusChanged: ((TerminalPaneView) -> Void)?
     var detachDragRequested: ((TerminalPaneView, NSEvent) -> Void)?
+    /// Close of a pane whose child process has already ended, from the exit
+    /// banner or from `terminal.closeOnChildExit`. Separate from
+    /// `closeRequested` because a dead pane that is its tab's last one has to
+    /// take the tab with it, while the header close button stops at the pane.
+    var childExitCloseRequested: ((TerminalPaneView) -> Void)?
+    /// Replace this pane with a freshly launched one.
+    var restartRequested: ((TerminalPaneView) -> Void)?
+
+    /// Whether the exit banner is on screen. Read by tests, which have no other
+    /// way to observe an overlay that owns no model state of its own.
+    var isChildExitBannerVisibleForTesting: Bool {
+        !childExitBannerView.isHidden
+    }
 
     var terminalSurface: TerminalSurfaceView {
         terminalSurfaceView
@@ -165,6 +180,19 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(terminalSurfaceView)
         addSubview(searchBarView)
+        addSubview(childExitBannerView)
+
+        terminalSurfaceView.onChildExit = { [weak self] exit in
+            self?.handleChildExit(exit)
+        }
+        childExitBannerView.onRestart = { [weak self] in
+            guard let self else { return }
+            self.restartRequested?(self)
+        }
+        childExitBannerView.onClose = { [weak self] in
+            guard let self else { return }
+            self.childExitCloseRequested?(self)
+        }
 
         searchBarView.onQueryChanged = { [weak self] query in
             self?.terminalSurfaceView.updateSearchQuery(query)
@@ -267,6 +295,20 @@ final class TerminalPaneView: NSView {
             greaterThanOrEqualTo: terminalSurfaceView.leadingAnchor,
             constant: DesignTokens.Component.terminalSearchInsetPX
         ).isActive = true
+        NSLayoutConstraint.activate([
+            childExitBannerView.leadingAnchor.constraint(
+                equalTo: terminalSurfaceView.leadingAnchor,
+                constant: DesignTokens.Component.childExitBannerInsetPX
+            ),
+            childExitBannerView.topAnchor.constraint(
+                equalTo: terminalSurfaceView.topAnchor,
+                constant: DesignTokens.Component.childExitBannerInsetPX
+            ),
+            childExitBannerView.trailingAnchor.constraint(
+                lessThanOrEqualTo: terminalSurfaceView.trailingAnchor,
+                constant: -DesignTokens.Component.childExitBannerInsetPX
+            ),
+        ])
         setChromeVisible(false)
         updateChromeAppearance()
         updateAgentActivityIndicator()
@@ -322,8 +364,42 @@ final class TerminalPaneView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.windowBackground.cgColor
         searchBarView.applyChromeTheme(theme)
+        childExitBannerView.applyChromeTheme(theme)
         agentActivityIndicatorView.applyChromeTheme(theme)
         updateChromeAppearance()
+    }
+
+    /// The pane's child process is gone: decide between closing the pane and
+    /// keeping it behind the exit banner.
+    ///
+    /// The banner goes up first in every case. When the policy says close, the
+    /// owner may still refuse — a tab's last pane cannot be removed on its own
+    /// — and the already-visible banner is what the user is left with instead
+    /// of a frozen, unexplained pane.
+    ///
+    /// The setting is read here rather than mirrored, matching
+    /// `confirmCloseRunningProcess`: both are one-shot decisions taken at the
+    /// moment of a close, so the current value always applies with no restart.
+    private func handleChildExit(_ exit: TerminalChildExit) {
+        // A pane already detached from its container has nothing left to
+        // explain and no owner to ask. tmux teardown reaches here that way: it
+        // removes the pane and then reaps its session, and the exit callback
+        // lands one main-queue hop later.
+        guard superview != nil else { return }
+        childExitBannerView.present(exit: exit)
+        let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        let action = TerminalChildExitPolicy.action(
+            mode: settings.terminal.closeOnChildExit,
+            status: exit.status
+        )
+        guard action == .closePane else { return }
+        childExitCloseRequested?(self)
+    }
+
+    /// Releases the pane's PTY resources. Called when the pane is discarded
+    /// while its view tree is torn down separately, such as a restart swap.
+    func stopSession() {
+        session.stop()
     }
 
     func beginDraggingPane(_ pane: TerminalPaneView, with event: NSEvent) {

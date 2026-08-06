@@ -30,10 +30,13 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     var onOutput: ((String) -> Void)?
     var onRawOutput: ((Data) -> Void)?
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
-    var onExit: ((Int32) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
 
     private var master: Int32 = -1
     private var childPid: pid_t = -1
+    /// Set when the child is forked and read once when it is reaped, so the
+    /// exit banner can say how long the session ran.
+    private var childStartDate: Date?
     private var readSource: DispatchSourceRead?
     private var waitSource: DispatchSourceProcess?
     private let readQueue = DispatchQueue(label: "dev.kurotty.shell-session.read", qos: .userInteractive)
@@ -127,6 +130,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
 
         master = fd
         childPid = pid
+        childStartDate = Date()
         setNonBlocking(fd)
         observeMaster(fd)
         observeChildExit(pid)
@@ -362,7 +366,10 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         childPid = -1
         waitSource?.cancel()
         waitSource = nil
-        let exitStatus = Self.normalizedExitStatus(status)
+        let exitStatus = TerminalChildExit(
+            status: TerminalChildExitStatus(waitpidStatus: status),
+            runtimeSeconds: childStartDate.map { -$0.timeIntervalSinceNow }
+        )
         guard !isStopping else { return }
 
         // The process source and PTY read source share readQueue, but either may
@@ -470,14 +477,6 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         guard pendingOutputStartIndex >= pendingOutput.count / 2 || pendingOutputStartIndex == pendingOutput.count else { return }
         pendingOutput = Data(pendingOutput[pendingOutputStartIndex...])
         pendingOutputStartIndex = 0
-    }
-
-    private static func normalizedExitStatus(_ status: Int32) -> Int32 {
-        let signal = status & 0x7f
-        if signal != 0 {
-            return AppConstants.Shell.signalExitStatusBase + signal
-        }
-        return (status >> 8) & 0xff
     }
 }
 

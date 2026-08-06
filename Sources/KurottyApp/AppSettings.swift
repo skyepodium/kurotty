@@ -22,6 +22,7 @@ struct AppSettings: Codable, Equatable {
             statusBarEnabled: Defaults.statusBarEnabled,
             confirmMultilinePaste: Defaults.confirmMultilinePaste,
             confirmCloseRunningProcess: Defaults.confirmCloseRunningProcess,
+            closeOnChildExit: Defaults.closeOnChildExit,
             agentSessionIndexEnabled: Defaults.agentSessionIndexEnabled,
             hideMouseCursorWhileTyping: Defaults.hideMouseCursorWhileTyping,
             agentStatusHooksEnabled: Defaults.agentStatusHooksEnabled,
@@ -49,6 +50,7 @@ struct AppSettings: Codable, Equatable {
         static let statusBarEnabled = SettingsDefaults.statusBarEnabled
         static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         static let confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
+        static let closeOnChildExit = SettingsDefaults.closeOnChildExit
         static let agentSessionIndexEnabled = SettingsDefaults.agentSessionIndexEnabled
         static let hideMouseCursorWhileTyping = SettingsDefaults.hideMouseCursorWhileTyping
         static let agentStatusHooksEnabled = SettingsDefaults.agentStatusHooksEnabled
@@ -100,6 +102,12 @@ struct AppSettings: Codable, Equatable {
 /// tab or window kills every process its shells are running, so a close that
 /// would terminate a running child process asks first. An idle shell closes
 /// without a prompt.
+/// `closeOnChildExit` is live-applied and defaults to `onCleanExit`: a pane
+/// whose child left with status 0 goes away, and any other outcome — a nonzero
+/// status or a signal — keeps the pane and its scrollback behind the exit
+/// banner. It never overlaps `confirmCloseRunningProcess`: that setting guards
+/// a user-initiated close while a process still runs, this one only applies
+/// once the process has already ended, so no close is ever governed by both.
 /// `agentStatusHooksEnabled` is live-applied and defaults **off**: turning it on
 /// starts a loopback listener and writes Kurotty-marked entries into the user's
 /// agent hook configuration, so it is always an explicit opt-in.
@@ -120,6 +128,7 @@ struct TerminalSettings: Codable, Equatable {
     var statusBarEnabled: Bool
     var confirmMultilinePaste: Bool
     var confirmCloseRunningProcess: Bool
+    var closeOnChildExit: TerminalCloseOnChildExitMode
     var agentSessionIndexEnabled: Bool
     var hideMouseCursorWhileTyping: Bool
     var agentStatusHooksEnabled: Bool
@@ -142,6 +151,7 @@ struct TerminalSettings: Codable, Equatable {
         case statusBarEnabled
         case confirmMultilinePaste
         case confirmCloseRunningProcess
+        case closeOnChildExit
         case agentSessionIndexEnabled
         case hideMouseCursorWhileTyping
         case agentStatusHooksEnabled
@@ -160,6 +170,7 @@ struct TerminalSettings: Codable, Equatable {
         statusBarEnabled: Bool = SettingsDefaults.statusBarEnabled,
         confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
         confirmCloseRunningProcess: Bool = SettingsDefaults.confirmCloseRunningProcess,
+        closeOnChildExit: TerminalCloseOnChildExitMode = SettingsDefaults.closeOnChildExit,
         agentSessionIndexEnabled: Bool = SettingsDefaults.agentSessionIndexEnabled,
         hideMouseCursorWhileTyping: Bool = SettingsDefaults.hideMouseCursorWhileTyping,
         agentStatusHooksEnabled: Bool = SettingsDefaults.agentStatusHooksEnabled,
@@ -176,6 +187,7 @@ struct TerminalSettings: Codable, Equatable {
         self.statusBarEnabled = statusBarEnabled
         self.confirmMultilinePaste = confirmMultilinePaste
         self.confirmCloseRunningProcess = confirmCloseRunningProcess
+        self.closeOnChildExit = closeOnChildExit
         self.agentSessionIndexEnabled = agentSessionIndexEnabled
         self.hideMouseCursorWhileTyping = hideMouseCursorWhileTyping
         self.agentStatusHooksEnabled = agentStatusHooksEnabled
@@ -203,6 +215,13 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         confirmCloseRunningProcess = try container.decodeIfPresent(Bool.self, forKey: .confirmCloseRunningProcess)
             ?? SettingsDefaults.confirmCloseRunningProcess
+        // Absent in schema versions below 18. Decoded through its raw string
+        // rather than as the enum itself: a hand-edited file with an unknown
+        // mode must fall back to the default, not make the whole settings
+        // document fail to decode and reset every other key with it.
+        closeOnChildExit = TerminalCloseOnChildExitMode(
+            rawValue: try container.decodeIfPresent(String.self, forKey: .closeOnChildExit) ?? ""
+        ) ?? SettingsDefaults.closeOnChildExit
         // Absent in schema versions below 11; those files fall back to the
         // current default rather than failing to decode.
         agentSessionIndexEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentSessionIndexEnabled)
@@ -403,6 +422,8 @@ struct AppSettingsNormalizer {
         static let statusBarSchemaVersion = 15
         /// Schema version that introduced `terminal.confirmCloseRunningProcess`.
         static let closeConfirmationSchemaVersion = 17
+        /// Schema version that introduced `terminal.closeOnChildExit`.
+        static let closeOnChildExitSchemaVersion = 18
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -456,6 +477,12 @@ struct AppSettingsNormalizer {
             // current default; from schema 17 on, an explicit choice in either
             // direction is preserved.
             next.terminal.confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
+        }
+        if sourceSchemaVersion < Migration.closeOnChildExitSchemaVersion {
+            // Settings written before schema 18 predate child-exit handling, so
+            // the key carries no user intent. Migrated files land on the current
+            // default; from schema 18 on, an explicit mode is preserved.
+            next.terminal.closeOnChildExit = SettingsDefaults.closeOnChildExit
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

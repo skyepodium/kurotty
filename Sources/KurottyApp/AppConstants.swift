@@ -364,7 +364,6 @@ enum AppConstants {
         static let termProgram = "Kurotty"
         static let prompt = "%F{cyan}%n%f %F{green}%~%f "
         static let childExecFailureStatusCode: Int32 = 127
-        static let signalExitStatusBase: Int32 = 128
         static let ptyWriteRetryDelayMicros: useconds_t = 1_000
         static let inputDrainRetryDelaysMS = [4, 8, 16, 32, 64, 120]
         static let ptyReadBufferSizeBytes = 8192
