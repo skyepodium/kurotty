@@ -33,6 +33,8 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var selectionFocus: TerminalCellPosition?
     private var selectionGestureState = TerminalSelectionGestureState()
     private var searchQuery = ""
+    /// Survives close and reopen of the bar, because the toggles in the bar do.
+    private var searchOptions = TerminalSearchOptions.default
     private var searchResults = TerminalSearchResults.empty
     private var currentSearchMatchIndex: Int?
     private var searchGeneration: UInt64 = 0
@@ -385,13 +387,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     func updateSearchQuery(_ query: String) {
         searchQuery = query
+        restartSearch()
+    }
+
+    func updateSearchOptions(_ options: TerminalSearchOptions) {
+        guard options != searchOptions else { return }
+        searchOptions = options
+        restartSearch()
+    }
+
+    private func restartSearch() {
         searchResults = .empty
         currentSearchMatchIndex = nil
         publishSearchSummary()
         markFullDamage()
         updateRendererFrame()
         scheduleSearch(
-            query: query,
+            query: searchQuery,
             preserving: nil,
             delayNanoseconds: AppConstants.Terminal.searchInputDebounceNanoseconds
         )
@@ -2319,6 +2331,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         searchGeneration &+= 1
         let generation = searchGeneration
         guard isSearchPresentationActive, !query.isEmpty else { return }
+        let options = searchOptions
 
         searchTask = Task { [weak self] in
             if delayNanoseconds > 0 {
@@ -2330,7 +2343,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 return
             }
             let matchingTask = Task.detached(priority: .userInitiated) {
-                TerminalSearchMatcher.scan(query: query, in: snapshot)
+                TerminalSearchMatcher.scan(query: query, options: options, in: snapshot)
             }
             let scanResult = await withTaskCancellationHandler(
                 operation: { await matchingTask.value },

@@ -84,6 +84,210 @@ final class TerminalSearchTests: XCTestCase {
         ])
     }
 
+    func testMatcherFindsMatchSplitAcrossOneSoftWrap() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "needle",
+            in: [wrappedRow("abcdneed", columns: 8), row("le xyz", columns: 8)]
+        )
+
+        XCTAssertEqual(matches, [
+            TerminalSearchMatch(row: 0, startColumn: 4, endRow: 1, endColumn: 2),
+        ])
+    }
+
+    func testMatcherFindsMatchSpanningThreeSoftWrappedRows() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "needle",
+            in: [wrappedRow("xxn", columns: 3), wrappedRow("eed", columns: 3), row("le", columns: 3)]
+        )
+
+        XCTAssertEqual(matches, [
+            TerminalSearchMatch(row: 0, startColumn: 2, endRow: 2, endColumn: 2),
+        ])
+    }
+
+    func testMatcherKeepsMatchEndingOnTheWrapBoundaryOnOneRow() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "needle",
+            in: [wrappedRow("abneedle", columns: 8), row("xyz", columns: 8)]
+        )
+
+        XCTAssertEqual(matches, [
+            TerminalSearchMatch(row: 0, startColumn: 2, endColumn: 8),
+        ])
+    }
+
+    func testMatcherKeepsMatchStartingOnTheWrapBoundaryOnOneRow() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "needle",
+            in: [wrappedRow("abcdefgh", columns: 8), row("needle!", columns: 8)]
+        )
+
+        XCTAssertEqual(matches, [
+            TerminalSearchMatch(row: 1, startColumn: 0, endColumn: 6),
+        ])
+    }
+
+    /// The joining is soft-wrap only. Two rows the shell printed as two lines
+    /// are two lines, and running them together would invent matches.
+    func testMatcherDoesNotJoinRowsSeparatedByHardNewline() {
+        let hardBreak = [row("abcdneed", columns: 8), row("le xyz", columns: 8)]
+
+        XCTAssertEqual(TerminalSearchMatcher.findAll(query: "needle", in: hardBreak), [])
+    }
+
+    func testWrappedMatchHighlightsEveryRowItCovers() {
+        let results = TerminalSearchResults(matches: TerminalSearchMatcher.findAll(
+            query: "needle",
+            in: [wrappedRow("xxn", columns: 3), wrappedRow("eed", columns: 3), row("le", columns: 3)]
+        ))
+        func highlight(_ row: Int, _ column: Int) -> TerminalSearchHighlightKind? {
+            results.highlight(
+                at: TerminalCellPosition(row: row, column: column),
+                currentMatch: nil
+            )
+        }
+
+        XCTAssertNil(highlight(0, 1))
+        XCTAssertEqual(highlight(0, 2), .match)
+        XCTAssertEqual(highlight(1, 0), .match)
+        XCTAssertEqual(highlight(1, 2), .match)
+        XCTAssertEqual(highlight(2, 0), .match)
+        XCTAssertEqual(highlight(2, 1), .match)
+        XCTAssertNil(highlight(2, 2))
+    }
+
+    func testWrappedLineMatchesStillHonourTheMatchCap() {
+        let scanResult = TerminalSearchMatcher.scan(
+            query: "ab",
+            in: TerminalSearchSnapshot(
+                scrollbackRows: BoundedScrollbackRows(),
+                screenRows: [wrappedRow("abab", columns: 4), row("ab", columns: 4)]
+            ),
+            maximumMatchCount: 2
+        )
+
+        XCTAssertEqual(scanResult.matches, [
+            TerminalSearchMatch(row: 0, startColumn: 0, endColumn: 2),
+            TerminalSearchMatch(row: 0, startColumn: 2, endColumn: 4),
+        ])
+        XCTAssertTrue(scanResult.isTruncated)
+    }
+
+    /// A line with no newline in it can be as long as the scrollback, so the
+    /// join is bounded. Everything up to the bound still matches as one line.
+    func testWrappedLineJoinStopsAtItsRowBound() {
+        let rows = [
+            wrappedRow("ab", columns: 2),
+            wrappedRow("cd", columns: 2),
+            wrappedRow("ef", columns: 2),
+            row("gh", columns: 2),
+        ]
+
+        XCTAssertEqual(
+            TerminalSearchMatcher.scan(
+                query: "cdef",
+                in: TerminalSearchSnapshot(
+                    scrollbackRows: BoundedScrollbackRows(),
+                    screenRows: rows
+                ),
+                maximumWrappedRowJoinCount: 2
+            ).matches,
+            []
+        )
+        XCTAssertEqual(
+            TerminalSearchMatcher.scan(
+                query: "cdef",
+                in: TerminalSearchSnapshot(
+                    scrollbackRows: BoundedScrollbackRows(),
+                    screenRows: rows
+                ),
+                maximumWrappedRowJoinCount: 4
+            ).matches,
+            [TerminalSearchMatch(row: 1, startColumn: 0, endRow: 2, endColumn: 2)]
+        )
+    }
+
+    func testCaseSensitiveOptionNarrowsResultsOnTheSameRows() {
+        let rows = [row("Needle needle")]
+
+        XCTAssertEqual(TerminalSearchMatcher.findAll(query: "needle", in: rows).count, 2)
+        XCTAssertEqual(
+            TerminalSearchMatcher.findAll(
+                query: "needle",
+                options: TerminalSearchOptions(isCaseSensitive: true),
+                in: rows
+            ),
+            [TerminalSearchMatch(row: 0, startColumn: 7, endColumn: 13)]
+        )
+    }
+
+    func testRegularExpressionOptionChangesHowMetacharactersAreRead() {
+        let rows = [row("a.c abc")]
+
+        XCTAssertEqual(
+            TerminalSearchMatcher.findAll(query: "a.c", in: rows),
+            [TerminalSearchMatch(row: 0, startColumn: 0, endColumn: 3)]
+        )
+        XCTAssertEqual(
+            TerminalSearchMatcher.findAll(
+                query: "a.c",
+                options: TerminalSearchOptions(usesRegularExpression: true),
+                in: rows
+            ),
+            [
+                TerminalSearchMatch(row: 0, startColumn: 0, endColumn: 3),
+                TerminalSearchMatch(row: 0, startColumn: 4, endColumn: 7),
+            ]
+        )
+    }
+
+    func testRegularExpressionMatchesAcrossASoftWrapToo() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "ne+dle",
+            options: TerminalSearchOptions(usesRegularExpression: true),
+            in: [wrappedRow("abcdneee", columns: 8), row("dle xyz", columns: 8)]
+        )
+
+        XCTAssertEqual(matches, [
+            TerminalSearchMatch(row: 0, startColumn: 4, endRow: 1, endColumn: 3),
+        ])
+    }
+
+    /// Half a pattern is what every regex looks like while it is being typed.
+    func testUnparsableRegularExpressionMatchesNothingInsteadOfFailing() {
+        let scanResult = TerminalSearchMatcher.scan(
+            query: "(unclosed",
+            options: TerminalSearchOptions(usesRegularExpression: true),
+            in: TerminalSearchSnapshot(
+                scrollbackRows: BoundedScrollbackRows(),
+                screenRows: [row("(unclosed group")]
+            )
+        )
+
+        XCTAssertEqual(scanResult.matches, [])
+        XCTAssertFalse(scanResult.isTruncated)
+        XCTAssertFalse(TerminalSearchPattern.isValidQuery(
+            "(unclosed",
+            options: TerminalSearchOptions(usesRegularExpression: true)
+        ))
+        XCTAssertTrue(TerminalSearchPattern.isValidQuery(
+            "(unclosed",
+            options: .default
+        ))
+    }
+
+    /// A pattern that can match nothing must not stall the scan on it.
+    func testZeroWidthRegularExpressionMatchesAreSteppedOver() {
+        let matches = TerminalSearchMatcher.findAll(
+            query: "x*",
+            options: TerminalSearchOptions(usesRegularExpression: true),
+            in: [row("abxc")]
+        )
+
+        XCTAssertEqual(matches, [TerminalSearchMatch(row: 0, startColumn: 2, endColumn: 3)])
+    }
+
     func testMatcherCapsCommonResultsAroundCurrentViewportAndReportsTruncation() {
         let rows = (0..<6).map { _ in row("x", columns: 4) }
         let scanResult = TerminalSearchMatcher.scan(
@@ -347,16 +551,84 @@ final class TerminalSearchTests: XCTestCase {
         let stack = try XCTUnwrap(searchBar.subviews.compactMap { $0 as? NSStackView }.first)
         let queryField = try XCTUnwrap(searchBarQueryField(in: searchBar))
         let resultLabel = try XCTUnwrap(searchBarResultLabel(in: searchBar))
-        let previousButton = try XCTUnwrap(stack.arrangedSubviews.dropFirst(2).first)
-        let nextButton = try XCTUnwrap(stack.arrangedSubviews.dropFirst(3).first)
-        let closeButton = try XCTUnwrap(stack.arrangedSubviews.last)
+        let previousButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .previousSearchMatch))
+        let nextButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .nextSearchMatch))
+        let matchCaseButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .matchCase))
+        let regexButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .useRegularExpression))
+        let closeButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .closeSearch))
 
         XCTAssertTrue(resultLabel.isHidden)
         XCTAssertTrue(previousButton.isHidden)
         XCTAssertTrue(nextButton.isHidden)
+        XCTAssertTrue(matchCaseButton.isHidden)
+        XCTAssertTrue(regexButton.isHidden)
         XCTAssertFalse(queryField.isHidden)
         XCTAssertFalse(closeButton.isHidden)
         XCTAssertLessThanOrEqual(stack.frame.maxX, searchBar.bounds.maxX - 6)
+    }
+
+    @MainActor
+    func testSearchBarOptionTogglesReportBothOptionsAndKeepTheirState() throws {
+        let searchBar = TerminalSearchBarView(frame: NSRect(x: 0, y: 0, width: 340, height: 40))
+        searchBar.layout()
+        var reported: [TerminalSearchOptions] = []
+        searchBar.onOptionsChanged = { reported.append($0) }
+        let matchCaseButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .matchCase))
+        let regexButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .useRegularExpression))
+
+        XCTAssertEqual(searchBar.searchOptions, .default)
+        matchCaseButton.performClick(nil)
+        regexButton.performClick(nil)
+
+        XCTAssertEqual(reported, [
+            TerminalSearchOptions(isCaseSensitive: true),
+            TerminalSearchOptions(isCaseSensitive: true, usesRegularExpression: true),
+        ])
+        XCTAssertEqual(matchCaseButton.accessibilityValue() as? Bool, true)
+
+        matchCaseButton.performClick(nil)
+
+        XCTAssertEqual(
+            searchBar.searchOptions,
+            TerminalSearchOptions(isCaseSensitive: false, usesRegularExpression: true)
+        )
+        XCTAssertEqual(matchCaseButton.accessibilityValue() as? Bool, false)
+    }
+
+    @MainActor
+    func testSearchBarShowsAnUnfinishedRegexAsInvalidAndRecoversWhenItParses() throws {
+        let theme = DesignTokens.ChromeTheme.dark
+        let searchBar = TerminalSearchBarView(frame: NSRect(x: 0, y: 0, width: 340, height: 40))
+        searchBar.applyChromeTheme(theme)
+        searchBar.layout()
+        let queryField = try XCTUnwrap(searchBarQueryField(in: searchBar))
+        let regexButton = try XCTUnwrap(searchBarButton(in: searchBar, labelled: .useRegularExpression))
+        regexButton.performClick(nil)
+
+        queryField.stringValue = "(unclosed"
+        searchBar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+
+        XCTAssertEqual(searchBar.layer?.borderColor, theme.error.cgColor)
+        XCTAssertEqual(regexButton.contentTintColor, theme.error)
+
+        queryField.stringValue = "(closed)"
+        searchBar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+
+        XCTAssertEqual(searchBar.layer?.borderColor, theme.hairline.cgColor)
+        XCTAssertEqual(regexButton.contentTintColor, theme.accent)
+    }
+
+    @MainActor
+    func testSearchBarLeavesAnUnfinishedRegexAloneWhileRegexIsOff() throws {
+        let theme = DesignTokens.ChromeTheme.dark
+        let searchBar = TerminalSearchBarView(frame: NSRect(x: 0, y: 0, width: 340, height: 40))
+        searchBar.applyChromeTheme(theme)
+        let queryField = try XCTUnwrap(searchBarQueryField(in: searchBar))
+
+        queryField.stringValue = "(unclosed"
+        searchBar.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+
+        XCTAssertEqual(searchBar.layer?.borderColor, theme.hairline.cgColor)
     }
 
     private func row(_ text: String, columns: Int = 40) -> [TerminalScreenCell] {
@@ -376,6 +648,14 @@ final class TerminalSearchTests: XCTestCase {
         return cells
     }
 
+    /// A row the terminal filled to the edge and continued on the next one. The
+    /// marker lives on the last cell, exactly as `TerminalScreen` writes it.
+    private func wrappedRow(_ text: String, columns: Int) -> [TerminalScreenCell] {
+        var cells = row(text, columns: columns)
+        cells[columns - 1].wrapsToNextRow = true
+        return cells
+    }
+
     @MainActor
     private func searchBarQueryField(in searchBar: TerminalSearchBarView) -> NSTextField? {
         searchBar.subviews
@@ -383,6 +663,19 @@ final class TerminalSearchTests: XCTestCase {
             .flatMap { $0.arrangedSubviews }
             .compactMap { $0 as? NSTextField }
             .first(where: { $0.isEditable })
+    }
+
+    @MainActor
+    private func searchBarButton(
+        in searchBar: TerminalSearchBarView,
+        labelled key: L10nKey
+    ) -> NSButton? {
+        let label = AppLocalization.string(key)
+        return searchBar.subviews
+            .compactMap { $0 as? NSStackView }
+            .flatMap { $0.arrangedSubviews }
+            .compactMap { $0 as? NSButton }
+            .first(where: { $0.accessibilityLabel() == label })
     }
 
     @MainActor
