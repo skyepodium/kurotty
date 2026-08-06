@@ -472,6 +472,21 @@ enum DesignTokens {
         /// where they are, short enough that it is gone before they read on.
         static let scrollIndicatorIdleDelayMS = 900
         static let scrollIndicatorFadeDurationMS = 220
+        /// How long a command has to run before its pane shows a progress bar.
+        /// 500ms sits between the two numbers that matter: below ~100ms a
+        /// response reads as instant, and at ~1s the user starts to notice the
+        /// wait. The bar has to already be on screen when that attention
+        /// arrives, and every command that finishes before a human could
+        /// perceive a delay — `ls`, `cd`, a small `git status` — stays silent.
+        static let commandProgressAppearanceDelayMS = 500
+        /// One pass of the indeterminate sweep. Matched to the agent activity
+        /// spinner so two ambient "still working" cues in the same pane do not
+        /// beat against each other.
+        static let commandProgressSweepDurationMS = 1_100
+        /// How long a failed command's bar stays up after the prompt returns.
+        /// Only ever applies to a bar the user could already see, so it reports
+        /// an outcome rather than announcing one.
+        static let commandProgressFailureLingerMS = 1_600
 
         static let disclosureCollapsedRotationDegrees: CGFloat = 0
         static let disclosureExpandedRotationDegrees: CGFloat = 90
@@ -847,6 +862,29 @@ enum DesignTokens {
         static let childExitBannerTextButtonGapPX = Space.x3PX
         static let childExitBannerButtonGapPX = Space.x2PX
         static let childExitBannerCornerRadiusPX = Radius.mdPX
+
+        // MARK: Command progress bar
+        //
+        // A hairline across the top edge of the pane's terminal, driven by OSC
+        // 133 command boundaries and OSC 9;4 reports. Ambient status: it is one
+        // step thicker than a hairline so it reads as a bar rather than a
+        // border, and it never takes layout space from the terminal grid.
+        static let commandProgressBarHeightPX: CGFloat = 2
+        /// Unfilled remainder, on the same footing as the agent context meter's
+        /// groove: low enough to read as a track rather than a second value.
+        static let commandProgressTrackAlphaRATIO: CGFloat = 0.16
+        /// Width of the sweeping segment, as a fraction of the pane width. Wide
+        /// enough to see at 2px tall, narrow enough that its travel reads as
+        /// motion rather than as a bar growing.
+        static let commandProgressSweepWidthRATIO: CGFloat = 0.30
+        /// A determinate bar never renders thinner than this, so a real report
+        /// of 1% is still visible instead of rounding away to nothing.
+        static let commandProgressMinimumFillWidthPX: CGFloat = 2
+        /// Alpha for the static bar shown instead of the sweep when the user has
+        /// asked the system to reduce motion. Quieter than the moving segment
+        /// because a full-width bar that never moves would otherwise read as a
+        /// permanent rule across the pane.
+        static let commandProgressReducedMotionAlphaRATIO: CGFloat = 0.45
 
         static let agentActivityIndicatorSizePX: CGFloat = 12
         static let agentActivityIndicatorDotSizePX: CGFloat = 6

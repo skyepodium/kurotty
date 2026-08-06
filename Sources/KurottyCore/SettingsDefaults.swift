@@ -1,8 +1,13 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 18
+    public static let schemaVersion = 19
     public static let commandHistoryEnabled = true
+    /// Live-applied and on by default. A 2px bar across the top edge of each
+    /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
+    /// already tracks and by OSC 9;4 reports when a producer sends them. Per
+    /// pane, so one busy split never implies the whole window is busy.
+    public static let commandProgressIndicatorEnabled = true
     /// Live-applied. Raw value of the app-side command-finish notification mode;
     /// anything else in the file falls back to this. `unfocused` by default
     /// because a banner for a command the user is watching is pure noise, and a

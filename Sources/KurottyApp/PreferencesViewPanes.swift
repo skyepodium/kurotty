@@ -35,6 +35,8 @@ extension PreferencesView {
         addRow(copy(.confirmClose), control: confirmCloseCheckbox, to: textSection)
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
         addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
+        commandProgressCheckbox.title = copy(.commandProgressCheckboxTitle)
+        addRow(copy(.commandProgress), control: commandProgressCheckbox, to: textSection)
 
         let editorSection = section(title: copy(.editorSection), subtitle: copy(.editorSectionHelp))
         configureNumericField(

@@ -29,7 +29,8 @@ struct AppSettings: Codable, Equatable {
             restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch,
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
-            agentStatusHookConsent: Defaults.agentStatusHookConsent
+            agentStatusHookConsent: Defaults.agentStatusHookConsent,
+            commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -62,6 +63,7 @@ struct AppSettings: Codable, Equatable {
         static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
+        static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -130,6 +132,10 @@ struct AppSettings: Codable, Equatable {
 /// and gate command-finish banners together: without them every background `ls`
 /// in an unfocused pane raised one, and a user who answers that by muting
 /// Kurotty loses the OSC 9/777/1337 notifications too.
+/// `commandProgressIndicatorEnabled` is live-applied and defaults **on**: the
+/// per-pane progress bar is ambient status with no dismiss affordance, so the
+/// switch is the only way to refuse it, and turning it off takes down a bar that
+/// is on screen at that moment rather than waiting for the next command.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -163,6 +169,10 @@ struct TerminalSettings: Codable, Equatable {
     /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
     /// this only remembers that the question was already answered.
     var agentStatusHookConsent: String
+    /// Shows the per-pane command progress bar. Independent of
+    /// `notifyOnCommandFinish`: that one is about a command the user walked away
+    /// from, this one is about the wait they are sitting through.
+    var commandProgressIndicatorEnabled: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -192,6 +202,7 @@ struct TerminalSettings: Codable, Equatable {
         case notifyOnCommandFinish
         case minimumCommandDurationSeconds
         case agentStatusHookConsent
+        case commandProgressIndicatorEnabled
     }
 
     init(
@@ -213,7 +224,8 @@ struct TerminalSettings: Codable, Equatable {
         codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines,
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
-        agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent
+        agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
+        commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -234,6 +246,7 @@ struct TerminalSettings: Codable, Equatable {
         self.notifyOnCommandFinish = notifyOnCommandFinish
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
         self.agentStatusHookConsent = agentStatusHookConsent
+        self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -290,6 +303,12 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.minimumCommandDurationSeconds
         agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
             ?? SettingsDefaults.agentStatusHookConsent
+        // Absent in schema versions below 19; those files fall back to the
+        // current default rather than failing to decode.
+        commandProgressIndicatorEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .commandProgressIndicatorEnabled
+        ) ?? SettingsDefaults.commandProgressIndicatorEnabled
     }
 }
 
@@ -488,6 +507,9 @@ struct AppSettingsNormalizer {
         /// the reset below: it records an answer the user gave, not a preference
         /// with a default worth re-applying.
         static let commandFinishNotificationSchemaVersion = 18
+        /// Schema version that introduced
+        /// `terminal.commandProgressIndicatorEnabled`.
+        static let commandProgressIndicatorSchemaVersion = 19
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -555,6 +577,13 @@ struct AppSettingsNormalizer {
             // either direction is preserved.
             next.terminal.notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
             next.terminal.minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
+        }
+        if sourceSchemaVersion < Migration.commandProgressIndicatorSchemaVersion {
+            // Settings written before schema 19 predate the command progress
+            // bar, so the key carries no user intent. Migrated files land on the
+            // current default; from schema 19 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

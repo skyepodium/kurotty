@@ -112,6 +112,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(statusBarToggled(_:))
     )
+    lazy var commandProgressCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(commandProgressToggled(_:))
+    )
     lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
@@ -513,6 +518,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    /// Live-applied: every open pane hears the change, so a bar that is on
+    /// screen at that moment goes away with it instead of finishing its command.
+    @objc private func commandProgressToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.commandProgressIndicatorEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func confirmMultilinePasteToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.confirmMultilinePaste = sender.state == .on
@@ -652,6 +665,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
         confirmCloseCheckbox.state = settings.terminal.confirmCloseRunningProcess ? .on : .off
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
+        commandProgressCheckbox.state = settings.terminal.commandProgressIndicatorEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off

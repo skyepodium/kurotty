@@ -127,6 +127,10 @@ enum L10nKey: String, CaseIterable {
     case childExitRanFor, childExitRestart, childExitClose
     // Terminal font zoom.
     case increaseFontSize, decreaseFontSize, resetFontSize
+    // Per-pane command progress bar. One key: the bar is a progress indicator
+    // with a value, so VoiceOver reads the percentage from the role rather than
+    // from a second determinate/indeterminate string.
+    case commandProgressAccessibility
 }
 
 enum AppLocalization {
@@ -262,6 +266,7 @@ enum AppLocalization {
             .childExitRanFor: "Ran for %@",
             .childExitRestart: "Restart", .childExitClose: "Close",
             .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
+            .commandProgressAccessibility: "Command running",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -358,6 +363,7 @@ enum AppLocalization {
             .childExitRanFor: "실행 시간 %@",
             .childExitRestart: "다시 시작", .childExitClose: "닫기",
             .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
+            .commandProgressAccessibility: "명령 실행 중",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -454,6 +460,7 @@ enum AppLocalization {
             .childExitRanFor: "実行時間 %@",
             .childExitRestart: "再起動", .childExitClose: "閉じる",
             .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
+            .commandProgressAccessibility: "コマンド実行中",
         ],
     ]
 }

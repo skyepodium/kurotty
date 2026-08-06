@@ -31,6 +31,10 @@ enum AppSettingKey: String, Codable, Hashable {
     /// already been coerced to the default by the decoder and there is no
     /// out-of-range state left for `report(for:)` to find.
     case terminalCloseOnChildExit
+    /// Declared for its lifecycle contract only, like
+    /// `terminalCloseOnChildExit`: a `Bool` decodes to one of two valid values,
+    /// so there is no out-of-range state for `report(for:)` to find.
+    case terminalCommandProgressIndicatorEnabled
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -79,6 +83,7 @@ enum AppSettingsValidation {
              .terminalColorsCursor,
              .terminalColorsAnsi,
              .terminalCloseOnChildExit,
+             .terminalCommandProgressIndicatorEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied

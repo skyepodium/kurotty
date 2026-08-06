@@ -1495,11 +1495,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        let settingsDefaultsSource = try settingsDefaultsSource()
-        // Re-pointed at schema 18, which added `terminal.closeOnChildExit`,
-        // the command-finish notification keys, and the agent hook consent
-        // record.
-        XCTAssertTrue(settingsDefaultsSource.contains("public static let schemaVersion = 18"))
+        // Re-pointed at schema 19, which added
+        // `terminal.commandProgressIndicatorEnabled`. Asserted against the value
+        // rather than against the text of the declaration.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -3048,12 +3047,6 @@ private func commandPaletteWindowControllerSource() throws -> String {
 private func appSettingsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func settingsDefaultsSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/SettingsDefaults.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 

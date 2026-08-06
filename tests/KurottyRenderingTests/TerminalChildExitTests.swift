@@ -206,7 +206,9 @@ final class TerminalChildExitTests: XCTestCase {
     // MARK: - Settings schema 18
 
     func testDefaultModeIsOnCleanExit() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 18)
+        // Schema 19 today; `closeOnChildExit` arrived in 18 and its default is
+        // unchanged by the keys added since.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 19)
         XCTAssertEqual(SettingsDefaults.closeOnChildExit, .onCleanExit)
         XCTAssertEqual(AppSettings.default.terminal.closeOnChildExit, .onCleanExit)
     }

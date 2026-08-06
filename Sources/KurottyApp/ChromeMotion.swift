@@ -1,14 +1,16 @@
 import AppKit
 import QuartzCore
 
-/// The three places in Kurotty chrome that are allowed to move.
+/// The few places in Kurotty chrome that are allowed to move.
 ///
 /// Motion here is deliberately scarce. Row hover, press, and selection fills,
 /// tab add/remove/reorder, text content updates, terminal rendering, search bar
 /// appearance, focus rings, theme switches, badge counts, and preferences pane
 /// switching must all be instant: a fade on a hover fill makes a list feel
 /// laggy, and animated chrome competes with the terminal for attention. Only a
-/// state change the user cannot otherwise follow gets animated.
+/// state change the user cannot otherwise follow gets animated — the command
+/// progress sweep is the one case where the movement *is* the information,
+/// because "still running" has nothing else to show.
 ///
 /// The durations themselves are design tokens and live in
 /// `DesignTokens.Motion`; this enum is the behaviour that reads them.
@@ -59,6 +61,66 @@ enum ChromeMotion {
                 view.animator().alphaValue = 1
             }
         }
+    }
+
+    /// Whether the user has asked the system to reduce motion.
+    ///
+    /// Read at the moment a decision is made rather than cached: the setting is
+    /// live, and macOS posts
+    /// `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` when it
+    /// flips, so a chrome view that observes that notification and re-asks here
+    /// is always current.
+    static var prefersReducedMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// Sweeps a pane's command progress bar across its track, forever, until
+    /// `stopCommandProgressSweep` removes it.
+    ///
+    /// Core Animation owns every frame. A `Timer` repainting on the main queue
+    /// would run for the whole life of a twenty-minute build, competing with the
+    /// terminal it is reporting on — the one surface in the app that must never
+    /// lose main-queue time.
+    ///
+    /// `prefersReducedMotion` is a parameter, not a read inside the body, so the
+    /// suppression is exercisable without changing a system-wide accessibility
+    /// setting. When it is on, nothing is added at all: the caller renders a
+    /// static bar instead, and there is no animation left anywhere to leak
+    /// through.
+    static func startCommandProgressSweep(
+        on layer: CALayer,
+        fromX: CGFloat,
+        toX: CGFloat,
+        prefersReducedMotion: Bool = ChromeMotion.prefersReducedMotion
+    ) {
+        guard !prefersReducedMotion else {
+            return
+        }
+        let animation = CABasicAnimation(keyPath: Sweep.positionKeyPath)
+        animation.fromValue = fromX
+        animation.toValue = toX
+        animation.duration = DesignTokens.Motion.seconds(
+            fromMS: DesignTokens.Motion.commandProgressSweepDurationMS
+        )
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.repeatCount = .greatestFiniteMagnitude
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: Sweep.animationKey)
+    }
+
+    static func stopCommandProgressSweep(on layer: CALayer) {
+        layer.removeAnimation(forKey: Sweep.animationKey)
+    }
+
+    /// Whether `layer` is currently sweeping. Exposed because an animation a
+    /// caller added is not otherwise observable by name.
+    static func isCommandProgressSweeping(_ layer: CALayer) -> Bool {
+        layer.animation(forKey: Sweep.animationKey) != nil
+    }
+
+    private enum Sweep {
+        static let animationKey = "dev.kurotty.commandProgress.sweep"
+        static let positionKeyPath = "position.x"
     }
 
     /// Turns off implicit CALayer animation for the properties that AppKit
