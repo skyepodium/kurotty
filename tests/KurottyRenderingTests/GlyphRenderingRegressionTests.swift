@@ -1470,7 +1470,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
             return XCTFail("missing child-exit handler boundaries")
         }
         let handler = shellSource[handlerRange.lowerBound..<nextFunctionRange.lowerBound]
-        guard let drainRange = handler.range(of: "drainOutput(master)"),
+        guard let drainRange = handler.range(of: "drainOutput(master, mode: .final)"),
               let exitRange = handler.range(of: "self?.onExit?(exitStatus)")
         else {
             return XCTFail("child exit must drain final PTY output before notifying observers")
@@ -1501,13 +1501,13 @@ final class GlyphRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("private var pendingInput = Data()"))
         XCTAssertTrue(shellSource.contains("private var pendingInputStartIndex = 0"))
-        XCTAssertTrue(shellSource.contains("private var pendingOutputStartIndex = 0"))
         XCTAssertTrue(shellSource.contains("private var isInputDrainScheduled = false"))
         XCTAssertTrue(shellSource.contains("private func enqueueInput(_ data: Data)"))
         XCTAssertTrue(shellSource.contains("private func drainInput()"))
         XCTAssertTrue(shellSource.contains("private func writeInputChunk(_ fd: Int32) -> Bool"))
         XCTAssertTrue(shellSource.contains("private func compactPendingInputIfNeeded()"))
-        XCTAssertTrue(shellSource.contains("private func compactPendingOutputIfNeeded()"))
+        // Pending output moved to TerminalPendingOutputBuffer, whose retention
+        // and drop accounting are covered by behavioural tests instead.
         XCTAssertTrue(shellSource.contains("readQueue.async { [weak self] in"))
         XCTAssertTrue(shellSource.contains("self?.enqueueInput(data)"))
         XCTAssertTrue(shellSource.contains("scheduleOutputDrain()"))
