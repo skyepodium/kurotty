@@ -149,7 +149,7 @@ enum ChromeMotion {
 ///
 /// The two lists are peers, not a navigation stack, so there is no horizontal
 /// slide: sliding would claim a spatial relationship that does not exist. The
-/// underline travels, and the lists trade places through opacity only.
+/// selection pill travels, and the lists trade places through opacity only.
 ///
 /// `TerminalLeftSidebarPanelView` drives this from its section-strip action.
 @MainActor
@@ -157,15 +157,15 @@ enum SidebarMotion {
     /// Animates a section switch.
     ///
     /// - Parameters:
-    ///   - underline: the selection underline under the section strip.
-    ///   - toFrame: the underline's frame for the newly selected section; both
+    ///   - selectionPill: the raised pill behind the selected section tab.
+    ///   - toFrame: the pill's frame for the newly selected section; both
     ///     x-position and width animate.
     ///   - outgoing: the list leaving the screen. Faded 1 → 0 over the first
     ///     half of the switch, then hidden.
     ///   - incoming: the list arriving. Unhidden immediately at alpha 0 and
     ///     faded 0 → 1 over the second half.
     static func animateSectionChange(
-        underline: NSView?,
+        selectionPill: NSView?,
         toFrame: NSRect,
         outgoing: NSView?,
         incoming: NSView?,
@@ -174,11 +174,11 @@ enum SidebarMotion {
         let totalDuration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.sectionSwitchDurationMS)
         let fadeDuration = DesignTokens.Motion.seconds(fromMS: DesignTokens.Motion.sectionListFadeDurationMS)
 
-        if let underline {
+        if let selectionPill {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = totalDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                underline.animator().frame = toFrame
+                selectionPill.animator().frame = toFrame
             }
         }
 

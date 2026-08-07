@@ -1,7 +1,7 @@
 import AppKit
 
 /// Sidebar split behavior for the terminal window: drag-to-resize for the
-/// command-history (left) and file-explorer (right) panes.
+/// file-explorer and command-history panes.
 ///
 /// A `.thin` divider is only a hairline wide, which is far too small a target
 /// to grab reliably, so `effectiveRect` widens the hit area without changing
@@ -9,55 +9,141 @@ import AppKit
 /// constraints alone: an autolayout `NSSplitView` clamps the drag itself, and
 /// leaving it to low-priority width constraints makes the divider feel like it
 /// sticks at the limits instead of stopping cleanly.
+///
+/// Nothing below names a side except `sidebarColumnOrder`. Which pane is
+/// leading is one array; every limit, divider lookup, insertion point, and
+/// default-width restore reads its side from that array rather than repeating
+/// the arrangement. That is the whole reason the swap was a one-line change,
+/// and it is what keeps a future re-ordering from being another audit of this
+/// file.
 extension TerminalWindowController: NSSplitViewDelegate {
+    /// Which sidebar a pane or a divider belongs to.
+    ///
+    /// Named by *content*, never by side. Panes are added and removed as the
+    /// sidebars toggle, so a divider's index says nothing about which one it
+    /// is: with one panel hidden the other's divider *is* divider 0. Reading
+    /// the index as "0 means left" clamped one sidebar to the other's limits,
+    /// which is how the explorer ended up owning everything right of 460pt.
+    enum SidebarColumn: CaseIterable {
+        case explorer
+        case history
+    }
+
+    /// The sidebar columns in window order, leading to trailing, with the
+    /// terminal between them.
+    ///
+    /// The explorer leads because it is the panel that is read constantly and
+    /// the history panel is the one consulted occasionally; the frequently used
+    /// tree belongs on the side the eye already returns to. Reversing this
+    /// array is the entire swap.
+    static let sidebarColumnOrder: [SidebarColumn] = [.explorer, .history]
+
+    /// Widths for one column. Grouped so a limit can never be read from the
+    /// wrong pane's token by picking the wrong branch of a ternary.
+    struct SidebarColumnWidths {
+        let minimumPX: CGFloat
+        let defaultPX: CGFloat
+        let maximumPX: CGFloat
+    }
+
+    static func sidebarColumnWidths(for column: SidebarColumn) -> SidebarColumnWidths {
+        switch column {
+        case .explorer:
+            return SidebarColumnWidths(
+                minimumPX: DesignTokens.Component.fileExplorerPanelMinWidthPX,
+                defaultPX: DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
+                maximumPX: DesignTokens.Component.fileExplorerPanelMaxWidthPX
+            )
+        case .history:
+            return SidebarColumnWidths(
+                minimumPX: DesignTokens.Component.commandHistoryPanelMinWidthPX,
+                defaultPX: DesignTokens.Component.commandHistoryPanelDefaultWidthPX,
+                maximumPX: DesignTokens.Component.commandHistoryPanelMaxWidthPX
+            )
+        }
+    }
+
+    /// `true` when the column sits before the terminal.
+    static func isLeadingSidebarColumn(_ column: SidebarColumn) -> Bool {
+        sidebarColumnOrder.first == column
+    }
+
+    /// The panel view that hosts a column.
+    func sidebarPanel(for column: SidebarColumn) -> NSView {
+        switch column {
+        case .explorer:
+            return fileExplorerPanel
+        case .history:
+            return leftSidebarPanel
+        }
+    }
+
+    /// The column a panel hosts, or `nil` for the terminal host and anything
+    /// else that is not a sidebar.
+    func sidebarColumn(for panel: NSView) -> SidebarColumn? {
+        SidebarColumn.allCases.first { sidebarPanel(for: $0) === panel }
+    }
+
     private var sidebarSplitPanes: [NSView] {
         commandHistorySplitView.arrangedSubviews
     }
 
-    /// Which sidebar a divider belongs to.
+    /// Which sidebar owns a divider, resolved by pane identity.
     ///
-    /// Panes are added and removed as the sidebars toggle, so a divider's index
-    /// says nothing about which one it is: with the history panel hidden the
-    /// explorer's divider *is* divider 0. Reading the index as "0 means left"
-    /// clamped the explorer's divider to the history panel's limits, which is
-    /// how the explorer ended up owning everything right of 460pt.
-    private enum SidebarDivider {
-        case history
-        case explorer
-        case other
-    }
-
-    private func sidebarDivider(at dividerIndex: Int) -> SidebarDivider {
+    /// A leading sidebar owns the divider immediately *after* it; a trailing
+    /// sidebar owns the divider immediately *before* it. The terminal sits
+    /// between the two, so no divider can satisfy both tests.
+    private func sidebarDivider(at dividerIndex: Int) -> SidebarColumn? {
         let panes = sidebarSplitPanes
         guard dividerIndex >= 0, dividerIndex + 1 < panes.count else {
-            return .other
+            return nil
         }
-        if panes[dividerIndex] === leftSidebarPanel {
-            return .history
+        if let column = sidebarColumn(for: panes[dividerIndex]),
+           Self.isLeadingSidebarColumn(column) {
+            return column
         }
-        if panes[dividerIndex + 1] === fileExplorerPanel {
-            return .explorer
+        if let column = sidebarColumn(for: panes[dividerIndex + 1]),
+           !Self.isLeadingSidebarColumn(column) {
+            return column
         }
-        return .other
+        return nil
     }
 
-    /// A divider's position is the trailing edge of the pane before it, so the
-    /// explorer gets whatever is left once the divider itself is subtracted.
-    private func explorerDividerPosition(forWidth explorerWidth: CGFloat) -> CGFloat {
-        commandHistorySplitView.bounds.width
-            - explorerWidth
+    /// The divider index a column's divider currently sits at, or `nil` when
+    /// the column is hidden.
+    private func dividerIndex(for column: SidebarColumn) -> Int? {
+        let panes = sidebarSplitPanes
+        guard let paneIndex = panes.firstIndex(of: sidebarPanel(for: column)) else {
+            return nil
+        }
+        let index = Self.isLeadingSidebarColumn(column) ? paneIndex : paneIndex - 1
+        guard index >= 0, index + 1 < panes.count else {
+            return nil
+        }
+        return index
+    }
+
+    /// A divider's position is the trailing edge of the pane before it, so a
+    /// *trailing* column gets whatever is left once the divider is subtracted.
+    /// A leading column's divider position is simply its own width.
+    private func dividerPosition(for column: SidebarColumn, width: CGFloat) -> CGFloat {
+        guard !Self.isLeadingSidebarColumn(column) else {
+            return width
+        }
+        return commandHistorySplitView.bounds.width
+            - width
             - commandHistorySplitView.dividerThickness
     }
 
-    /// Where the terminal column starts, so the explorer's divider knows how
-    /// much room is left for it. Zero when the history panel is hidden.
+    /// Where the terminal column starts, so a trailing sidebar's divider knows
+    /// how much room is left for it.
     private var terminalColumnLeadingEdge: CGFloat {
         terminalContentHostView.frame.minX
     }
 
-    /// Where the terminal column ends, so the history divider knows how far
-    /// right it may travel. This is the explorer's divider when the explorer is
-    /// shown and the split view's trailing edge when it is not.
+    /// Where the terminal column ends, so a leading sidebar's divider knows how
+    /// far it may travel. This is the trailing sidebar's divider when that
+    /// panel is shown and the split view's trailing edge when it is not.
     private var terminalColumnTrailingEdge: CGFloat {
         terminalContentHostView.frame.maxX
     }
@@ -67,31 +153,26 @@ extension TerminalWindowController: NSSplitViewDelegate {
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        guard splitView === commandHistorySplitView else {
+        guard splitView === commandHistorySplitView,
+              let column = sidebarDivider(at: dividerIndex)
+        else {
             return proposedMinimumPosition
         }
-        switch sidebarDivider(at: dividerIndex) {
-        case .history:
-            // Position is the history panel's trailing edge.
-            return DesignTokens.Component.commandHistoryPanelMinWidthPX
-        case .explorer:
-            // Keep the explorer no wider than its maximum, which means the
-            // divider cannot move further left than that — and no further left
-            // than leaves the terminal its own floor. On a window too narrow to
-            // satisfy both, the explorer's minimum still wins, matching how
-            // `resizeSubviewsWithOldSize` refuses to take a sidebar below it.
-            let widest = explorerDividerPosition(
-                forWidth: DesignTokens.Component.fileExplorerPanelMaxWidthPX
-            )
-            let terminalFloor = terminalColumnLeadingEdge
-                + DesignTokens.Component.terminalColumnMinWidthPX
-            let narrowest = explorerDividerPosition(
-                forWidth: DesignTokens.Component.fileExplorerPanelMinWidthPX
-            )
-            return min(max(widest, terminalFloor), narrowest)
-        case .other:
-            return proposedMinimumPosition
+        let widths = Self.sidebarColumnWidths(for: column)
+        guard !Self.isLeadingSidebarColumn(column) else {
+            // Position is the leading panel's own trailing edge.
+            return widths.minimumPX
         }
+        // A trailing panel grows leftwards, so its maximum is this divider's
+        // *minimum* position — and it may not move further left than leaves the
+        // terminal its own floor. On a window too narrow to satisfy both, the
+        // panel's minimum still wins, matching how `resizeSubviewsWithOldSize`
+        // refuses to take a sidebar below it.
+        let widest = dividerPosition(for: column, width: widths.maximumPX)
+        let terminalFloor = terminalColumnLeadingEdge
+            + DesignTokens.Component.terminalColumnMinWidthPX
+        let narrowest = dividerPosition(for: column, width: widths.minimumPX)
+        return min(max(widest, terminalFloor), narrowest)
     }
 
     func splitView(
@@ -99,32 +180,28 @@ extension TerminalWindowController: NSSplitViewDelegate {
         constrainMaxCoordinate proposedMaximumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        guard splitView === commandHistorySplitView else {
+        guard splitView === commandHistorySplitView,
+              let column = sidebarDivider(at: dividerIndex)
+        else {
             return proposedMaximumPosition
         }
-        switch sidebarDivider(at: dividerIndex) {
-        case .history:
-            // The explorer's divider already refuses to squeeze the terminal;
-            // this one did not, so dragging the history panel to its maximum
-            // took the terminal below its floor -- 88pt in a 760pt window, and
-            // still only 130pt at 900pt, against a 240pt minimum. The terminal
-            // sits between the two dividers, so this one's ceiling is the
-            // terminal's trailing edge less its floor and the divider itself.
-            let widest = DesignTokens.Component.commandHistoryPanelMaxWidthPX
-            let terminalCeiling = terminalColumnTrailingEdge
-                - DesignTokens.Component.terminalColumnMinWidthPX
-                - commandHistorySplitView.dividerThickness
-            let narrowest = DesignTokens.Component.commandHistoryPanelMinWidthPX
-            // On a window too narrow to satisfy both, the history panel's own
-            // minimum wins, the same order the explorer's case uses.
-            return max(min(widest, terminalCeiling), narrowest)
-        case .explorer:
-            return explorerDividerPosition(
-                forWidth: DesignTokens.Component.fileExplorerPanelMinWidthPX
-            )
-        case .other:
-            return proposedMaximumPosition
+        let widths = Self.sidebarColumnWidths(for: column)
+        guard Self.isLeadingSidebarColumn(column) else {
+            return dividerPosition(for: column, width: widths.minimumPX)
         }
+        // The trailing panel's divider already refuses to squeeze the terminal;
+        // the leading one did not, so dragging it to its maximum took the
+        // terminal below its floor -- 88pt in a 760pt window, and still only
+        // 130pt at 900pt, against a 240pt minimum. The terminal sits between the
+        // two dividers, so this one's ceiling is the terminal's trailing edge
+        // less its floor and the divider itself.
+        let widest = widths.maximumPX
+        let terminalCeiling = terminalColumnTrailingEdge
+            - DesignTokens.Component.terminalColumnMinWidthPX
+            - commandHistorySplitView.dividerThickness
+        // On a window too narrow to satisfy both, the panel's own minimum wins,
+        // the same order the trailing case uses.
+        return max(min(widest, terminalCeiling), widths.minimumPX)
     }
 
     func splitView(
@@ -177,9 +254,10 @@ extension TerminalWindowController: NSSplitViewDelegate {
             guard !splitView.arrangedSubviews.contains(panel) else {
                 return
             }
-            // The history panel is always the leading pane and the explorer the
-            // trailing one; the terminal host stays in the middle.
-            if panel === leftSidebarPanel {
+            // The terminal host stays in the middle, so a leading column goes in
+            // front of everything and a trailing one behind it.
+            let isLeading = sidebarColumn(for: panel).map(Self.isLeadingSidebarColumn) ?? false
+            if isLeading {
                 splitView.insertArrangedSubview(panel, at: 0)
             } else {
                 splitView.addArrangedSubview(panel)
@@ -193,26 +271,43 @@ extension TerminalWindowController: NSSplitViewDelegate {
             // Put the divider at the panel's default width instead.
             openSidebarPanelAtDefaultWidth(panel)
         }
+        rebalanceSidebarColumns()
         splitView.needsLayout = true
         splitView.needsDisplay = true
     }
 
+    /// Re-runs the column distribution against the split view's current width.
+    ///
+    /// The terminal's floor lived only in `resizeSubviewsWithOldSize`, and
+    /// AppKit calls that when the split view's *size* changes — not when a
+    /// divider moves and not when a pane is inserted. `setPosition` writes
+    /// frames straight through, and `adjustSubviews()` is the default
+    /// distribution that deliberately bypasses the delegate, so neither one
+    /// re-ran the rule. The floor was therefore enforced on window resize and
+    /// nowhere else: opening both sidebars in a 760pt window left the terminal
+    /// at 208pt against its 240pt minimum and nothing ever took it back. It
+    /// only looked correct while the panel that could give was also the panel
+    /// whose own divider constraint happened to be doing the arithmetic.
+    private func rebalanceSidebarColumns() {
+        guard commandHistorySplitView.bounds.width > 0 else {
+            return
+        }
+        splitView(
+            commandHistorySplitView,
+            resizeSubviewsWithOldSize: commandHistorySplitView.bounds.size
+        )
+    }
+
     /// Places a newly revealed panel at its designed width.
     private func openSidebarPanelAtDefaultWidth(_ panel: NSView) {
-        let splitView = commandHistorySplitView
-        guard splitView.arrangedSubviews.contains(panel) else {
+        guard commandHistorySplitView.arrangedSubviews.contains(panel),
+              let column = sidebarColumn(for: panel),
+              let dividerIndex = dividerIndex(for: column)
+        else {
             return
         }
-        if panel === leftSidebarPanel {
-            splitView.setPosition(
-                DesignTokens.Component.commandHistoryPanelDefaultWidthPX,
-                ofDividerAt: 0
-            )
-            return
-        }
-        let dividerIndex = max(0, splitView.arrangedSubviews.count - 2)
-        splitView.setPosition(
-            explorerDividerPosition(forWidth: DesignTokens.Component.fileExplorerPanelDefaultWidthPX),
+        commandHistorySplitView.setPosition(
+            dividerPosition(for: column, width: Self.sidebarColumnWidths(for: column).defaultPX),
             ofDividerAt: dividerIndex
         )
     }
@@ -237,11 +332,11 @@ extension TerminalWindowController: NSSplitViewDelegate {
 
         let dividerTotal = splitView.dividerThickness * CGFloat(panes.count - 1)
         let available = max(0, splitView.bounds.width - dividerTotal)
-        var widths = panes.map { pane -> CGFloat in
+        var widths = panes.enumerated().map { index, pane -> CGFloat in
             pane === terminalContentHostView
                 ? 0
-                : min(max(pane.frame.width, sidebarMinimumWidth(at: panes.firstIndex(of: pane) ?? 0, in: panes)),
-                      sidebarMaximumWidth(at: panes.firstIndex(of: pane) ?? 0, in: panes))
+                : min(max(pane.frame.width, sidebarMinimumWidth(at: index, in: panes)),
+                      sidebarMaximumWidth(at: index, in: panes))
         }
         widths[terminalIndex] = available - widths.enumerated()
             .filter { $0.offset != terminalIndex }
@@ -296,16 +391,21 @@ extension TerminalWindowController: NSSplitViewDelegate {
         }
     }
 
+    /// Floors and ceilings by pane identity. The terminal host is not a sidebar
+    /// and answers to its own floor; returning a sidebar's limit for it was how
+    /// "anything that is not the left panel is the explorer" survived this file.
     private func sidebarMinimumWidth(at index: Int, in panes: [NSView]) -> CGFloat {
-        panes[index] === leftSidebarPanel
-            ? DesignTokens.Component.commandHistoryPanelMinWidthPX
-            : DesignTokens.Component.fileExplorerPanelMinWidthPX
+        guard let column = sidebarColumn(for: panes[index]) else {
+            return DesignTokens.Component.terminalColumnMinWidthPX
+        }
+        return Self.sidebarColumnWidths(for: column).minimumPX
     }
 
     private func sidebarMaximumWidth(at index: Int, in panes: [NSView]) -> CGFloat {
-        panes[index] === leftSidebarPanel
-            ? DesignTokens.Component.commandHistoryPanelMaxWidthPX
-            : DesignTokens.Component.fileExplorerPanelMaxWidthPX
+        guard let column = sidebarColumn(for: panes[index]) else {
+            return .greatestFiniteMagnitude
+        }
+        return Self.sidebarColumnWidths(for: column).maximumPX
     }
 
     /// Only the terminal host should absorb leftover width, so every sidebar
@@ -323,29 +423,26 @@ extension TerminalWindowController: NSSplitViewDelegate {
     /// The split view's autosaved frames remember a pane that was hidden as
     /// zero-width, so a freshly shown panel can come back with no width at all.
     /// Push the divider back out to the panel's default width in that case.
+    ///
+    /// The autosave name is versioned (`AppConstants.CommandHistory
+    /// .splitViewAutosaveName`) precisely so this never has to reason about a
+    /// width recorded for a different arrangement: swapping the sides bumped the
+    /// version, so the frames this reads are always frames of the current order.
     func restoreSidebarWidthIfCollapsed(_ panel: NSView) {
-        let splitView = commandHistorySplitView
-        guard splitView.arrangedSubviews.contains(panel) else {
+        guard commandHistorySplitView.arrangedSubviews.contains(panel),
+              let column = sidebarColumn(for: panel),
+              let dividerIndex = dividerIndex(for: column)
+        else {
             return
         }
-        let isLeading = panel === leftSidebarPanel
-        let minimumWidth = isLeading
-            ? DesignTokens.Component.commandHistoryPanelMinWidthPX
-            : DesignTokens.Component.fileExplorerPanelMinWidthPX
-        guard panel.frame.width < minimumWidth else {
+        let widths = Self.sidebarColumnWidths(for: column)
+        guard panel.frame.width < widths.minimumPX else {
             return
         }
-        let defaultWidth = isLeading
-            ? DesignTokens.Component.commandHistoryPanelDefaultWidthPX
-            : DesignTokens.Component.fileExplorerPanelDefaultWidthPX
-        if isLeading {
-            splitView.setPosition(defaultWidth, ofDividerAt: 0)
-        } else {
-            let dividerIndex = max(0, splitView.arrangedSubviews.count - 2)
-            splitView.setPosition(
-                explorerDividerPosition(forWidth: defaultWidth),
-                ofDividerAt: dividerIndex
-            )
-        }
+        commandHistorySplitView.setPosition(
+            dividerPosition(for: column, width: widths.defaultPX),
+            ofDividerAt: dividerIndex
+        )
+        rebalanceSidebarColumns()
     }
 }

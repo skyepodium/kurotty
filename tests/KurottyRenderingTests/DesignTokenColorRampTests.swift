@@ -242,6 +242,59 @@ final class DesignTokenColorRampTests: XCTestCase {
         }
     }
 
+    /// The explorer's directory glyph is a meaningful graphic, not decoration.
+    ///
+    /// Fill and tint are the two channels that say "this row is a directory";
+    /// nothing else in the row says it, and the filename beside it certainly
+    /// does not. That puts the tint under WCAG 1.4.11 at 3:1 rather than under
+    /// the redundant-graphic exemption the empty-state art gets. It is drawn at
+    /// `fileExplorerFolderIconAlphaRATIO`, so what has to clear the floor is the
+    /// *composite* over each surface the row can sit on — including
+    /// `surfaceRaised`, which is the selected row's pill.
+    func testExplorerDirectoryIconTintClearsNonTextContrastOnEverySurface() throws {
+        let tintAlpha = DesignTokens.Component.fileExplorerFolderIconAlphaRATIO
+        for (themeName, theme) in themes() {
+            let tint = theme.accent.withAlphaComponent(tintAlpha)
+            for surface in surfaces(of: theme) {
+                let ratio = try contrastRatio(
+                    try composited(tint, over: surface.color),
+                    surface.color
+                )
+                XCTAssertGreaterThanOrEqual(
+                    ratio,
+                    WCAG.nonTextRATIO,
+                    "\(themeName) directory icon on \(surface.name) measured \(ratio):1"
+                )
+            }
+        }
+    }
+
+    /// A directory and a file have to be told apart by the glyph column, so the
+    /// two tints cannot be the same ink at two strengths. The shapes differ as
+    /// well — filled against outline — which is what carries the distinction
+    /// for a user who cannot separate the hues; this measures the other channel.
+    func testExplorerDirectoryAndFileIconTintsAreDistinguishable() throws {
+        let tintAlpha = DesignTokens.Component.fileExplorerFolderIconAlphaRATIO
+        let separationRATIO = 1.3
+        for (themeName, theme) in themes() {
+            let directory = try composited(
+                theme.accent.withAlphaComponent(tintAlpha),
+                over: theme.surfaceChrome
+            )
+            let file = theme.textTertiary
+            let ratio = try contrastRatio(directory, file)
+            XCTAssertGreaterThanOrEqual(
+                ratio,
+                separationRATIO,
+                "\(themeName) directory and file glyph tints measured \(ratio):1 apart"
+            )
+        }
+        // Filled against outline: the silhouette difference, stated once so a
+        // future edit that quietly re-outlines the folder fails here.
+        XCTAssertNotEqual(FileExplorerIcon.folderSymbolName, IconSymbol.folder)
+        XCTAssertEqual(FileExplorerIcon.folderSymbolName, IconSymbol.folderFilled)
+    }
+
     /// An empty sidebar section is the one moment its copy is the only text on
     /// screen, so it cannot be the least readable text in the app.
     ///

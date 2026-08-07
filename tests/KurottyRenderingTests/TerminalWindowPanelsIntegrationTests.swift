@@ -163,11 +163,11 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertEqual(
             splitView.arrangedSubviews,
             [
-                controller.leftSidebarPanel,
-                controller.terminalContentHostView,
                 controller.fileExplorerPanel,
+                controller.terminalContentHostView,
+                controller.leftSidebarPanel,
             ],
-            "the history panel stays leading and the explorer trailing across toggles"
+            "the explorer stays leading and the history panel trailing across toggles"
         )
         XCTAssertGreaterThanOrEqual(
             controller.leftSidebarPanel.frame.width,
