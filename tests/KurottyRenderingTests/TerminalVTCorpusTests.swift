@@ -12,8 +12,8 @@ import XCTest
 /// `TerminalOutputInterpreter`: screen contents, cursor, styles. Each test names
 /// the Zig case it came from so the two can be compared.
 ///
-/// Cases the Swift interpreter does not implement are skipped with the observed
-/// behaviour recorded, not quietly weakened.
+/// Where the two parsers disagree on purpose — an ESC inside an OSC, BEL
+/// inside a DCS — the Swift case says so and cites what it follows instead.
 final class TerminalVTCorpusTests: XCTestCase {
     // MARK: - Fixtures
 
@@ -35,7 +35,10 @@ final class TerminalVTCorpusTests: XCTestCase {
             interpreter.host = TerminalOutputInterpreterHost(
                 sendTerminalResponse: { responses.terminalResponses.append($0) },
                 respondToOscQuery: { _ in },
-                dispatchTerminalIntegrationOsc: { _ in .ignored },
+                dispatchTerminalIntegrationOsc: {
+                    responses.oscCommands.append($0)
+                    return .ignored
+                },
                 publishTitle: {},
                 handleTerminalIntegrationEvent: { _ in },
                 handleDesktopNotificationEvent: { _ in },
@@ -481,84 +484,220 @@ final class TerminalVTCorpusTests: XCTestCase {
         )
     }
 
-    // MARK: - Gaps the port exposed
+    // MARK: - String-control envelopes and parser bounds
     //
-    // Each of these is a Zig case with no working Swift equivalent. They are
-    // skipped rather than weakened: the assertion that would pass today is the
-    // wrong assertion, and writing it down would freeze the bug.
+    // Each of these was a Zig case with no working Swift equivalent when the
+    // corpus was ported. They are now behavioural: the screen, the cursor, the
+    // reported cursor position, and what reaches the OSC dispatcher.
 
     /// Zig: "grid tab moves cursor to next multiple-of-8 stop without erasing"
     /// — the clamp half.
+    ///
+    /// `tabStops` holds every multiple of 8 up to 992 regardless of the pane
+    /// width, so an unclamped HT walks off the screen: the third tab on a
+    /// 20-column screen used to reach column 24. CPR is the observable that
+    /// matters, because a column outside the screen is a column the app is
+    /// then told about.
     @MainActor
-    func testTabStopsAreClampedToTheLastColumn() throws {
-        // GAP. `interpret`'s HT branch takes `tabStops.filter { $0 > cursorColumn }.min()`
-        // with no upper bound, so on a 20-column screen a third tab from column
-        // 16 lands the cursor on column 24 — four columns past the screen. The
-        // Zig grid clamps to `width - 1` (19). A CPR issued there reports a
-        // column that does not exist, and the next printable character wraps
-        // from a position the app never moved the cursor to.
-        throw XCTSkip("HT is not clamped to the screen width: third tab on a 20-column screen reaches column 24, expected 19")
+    func testTabStopsAreClampedToTheLastColumn() {
+        let responses = TerminalVTResponseRecorder()
+        let interpreter = makeInterpreter(rows: 1, columns: 20, responses: responses)
+
+        interpreter.interpret("\t")
+        XCTAssertEqual(interpreter.cursorColumn, 8)
+
+        interpreter.interpret("\t")
+        XCTAssertEqual(interpreter.cursorColumn, 16)
+
+        // Stop 24 is past the last column, so HT stops at the right margin.
+        interpreter.interpret("\t")
+        XCTAssertEqual(interpreter.cursorColumn, 19)
+
+        // Every further tab is a no-op rather than a further walk off-screen.
+        interpreter.interpret("\t\t")
+        XCTAssertEqual(interpreter.cursorColumn, 19)
+
+        interpreter.interpret("\u{1b}[6n")
+        XCTAssertEqual(responses.terminalResponses, ["\u{1b}[1;20R"])
     }
 
     /// Zig: "parser suppresses fragmented DCS PM and APC payloads until
     /// terminators" — the DCS third.
+    ///
+    /// The payload is a DECRQSS probe (`DCS $ q ... ST`), which is what a TUI
+    /// asking for the current SGR state sends. Kurotty swallows DCS rather
+    /// than answering it, so the fix is that nothing is painted, not that a
+    /// reply is produced.
     @MainActor
-    func testDCSPayloadsAreNotPrintedToTheScreen() throws {
-        // GAP. `consumeControl` has no DCS state: ESC P falls through to
-        // `default`, which returns the parser to `.normal`, so the payload is
-        // treated as text. Feeding `a\ePq1$r` + `q\e\\b` paints `a1$rqb`; a
-        // conformant terminal shows `ab`. DECRQSS replies from any TUI that
-        // probes for capabilities land on screen as garbage.
-        throw XCTSkip("DCS payloads print literally: ESC P has no parser state, giving \"a1$rqb\" where \"ab\" is correct")
+    func testDCSPayloadsAreNotPrintedToTheScreen() {
+        let responses = TerminalVTResponseRecorder()
+        let interpreter = makeInterpreter(rows: 1, columns: 20, responses: responses)
+
+        interpreter.interpret("a\u{1b}P1$r")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "a ")
+
+        interpreter.interpret("q\u{1b}\\b")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "ab")
+        XCTAssertEqual(interpreter.cursorColumn, 2)
+        XCTAssertEqual(responses.terminalResponses, [])
     }
 
     /// Zig: "parser suppresses fragmented DCS PM and APC payloads until
-    /// terminators" — the APC third.
+    /// terminators" — the APC third. This is the envelope Kitty graphics uses.
     @MainActor
-    func testAPCPayloadsAreNotPrintedToTheScreen() throws {
-        // GAP. Same cause as DCS: ESC _ has no state. `c\e_apc-ignored\e\\d`
-        // paints `capc-ignoredd` instead of `cd`. This is the envelope Kitty
-        // graphics and several agent integrations use.
-        throw XCTSkip("APC payloads print literally: ESC _ has no parser state, giving \"capc-ignoredd\" where \"cd\" is correct")
+    func testAPCPayloadsAreNotPrintedToTheScreen() {
+        let interpreter = makeInterpreter(rows: 1, columns: 20)
+
+        interpreter.interpret("c\u{1b}_Ga=T,f=100;iVBORw0KGgoAAAANSUhEUg")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "c ")
+
+        interpreter.interpret("AAAAEAAAABCAYAAAAfFcSJ\u{1b}\\d")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "cd")
+        XCTAssertEqual(interpreter.cursorColumn, 2)
     }
 
     /// Zig: "parser suppresses fragmented DCS PM and APC payloads until
-    /// terminators" — the PM third.
+    /// terminators" — the PM third, plus the terminator question the Zig case
+    /// answers differently.
+    ///
+    /// BEL closes an OSC and nothing else. ECMA-48 §8.3.94 closes PM with ST,
+    /// and xterm's `CASE_BELL` only dispatches when `string_mode == ANSI_OSC`;
+    /// in any other string mode it rings the bell and keeps accumulating.
+    /// `src/parser.zig` treats BEL as a terminator for every string control,
+    /// so the two parsers disagree on this input by design.
     @MainActor
-    func testPMPayloadsAreNotPrintedToTheScreen() throws {
-        // GAP. Same cause: ESC ^ has no state. `b\e^pm-ignored\ac` paints
-        // `bpm-ignoredc` instead of `bc`.
-        throw XCTSkip("PM payloads print literally: ESC ^ has no parser state, giving \"bpm-ignoredc\" where \"bc\" is correct")
+    func testPMPayloadsAreNotPrintedToTheScreen() {
+        let interpreter = makeInterpreter(rows: 1, columns: 20)
+
+        interpreter.interpret("b\u{1b}^pm")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "b ")
+
+        interpreter.interpret("-ignored\u{7}still-ignored")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "b ")
+
+        interpreter.interpret("\u{1b}\\c")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "bc")
+        XCTAssertEqual(interpreter.cursorColumn, 2)
     }
 
     /// Zig: "parser keeps OSC open when ESC is not a string terminator".
+    ///
+    /// Kurotty diverges from the Zig parser here and follows xterm: an ESC
+    /// inside a string abandons it. The byte after the ESC still names a
+    /// sequence, though — `ESC X` is SOS (ECMA-48 §8.3.128) — so the tail
+    /// belongs to that string control rather than to the screen, and SOS is
+    /// closed by ST alone, so the BEL does not release it either. Nothing is
+    /// painted and the half-read title is dropped rather than applied.
     @MainActor
-    func testOSCInterruptedByANonTerminatorESCDoesNotLeakItsPayload() throws {
-        // GAP, and the more damaging half is the leak rather than the
-        // divergence. `\e]0;title\eX-suffix\adone` should either keep the OSC
-        // open (Zig) or abandon it; Swift abandons it *and* resumes printing
-        // mid-payload, so `-suffix` is painted onto the screen and the title is
-        // silently dropped. Any OSC carrying an ESC — a title containing one,
-        // or a truncated OSC 8 hyperlink — sprays its tail into the output.
-        throw XCTSkip("an OSC interrupted by a non-ST ESC paints its remaining payload: got \"-suffixdone\", expected no leakage")
+    func testOSCInterruptedByANonTerminatorESCDoesNotLeakItsPayload() {
+        let interpreter = makeInterpreter(rows: 1, columns: 20)
+        let originalTitle = interpreter.terminalTitle
+
+        interpreter.interpret("\u{1b}]0;title\u{1b}X-suffix\u{7}done")
+
+        XCTAssertEqual(interpreter.terminalTitle, originalTitle)
+        XCTAssertEqual(rowText(interpreter, 0), String(repeating: " ", count: 20))
+        XCTAssertEqual(interpreter.cursorColumn, 0)
+
+        // ST closes the SOS, and the stream resynchronizes.
+        interpreter.interpret("\u{1b}\\ok")
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "ok")
     }
 
-    /// Zig: "parser bounds oversized CSI buffers" / "...oversized OSC buffers"
-    /// — the bound, as opposed to the resync that
-    /// `testOversizedCSIResynchronizesAtTheFinalByte` covers.
+    /// The ESC that abandons an OSC is re-dispatched, so a CSI arriving inside
+    /// an unterminated OSC is executed instead of being eaten with the
+    /// payload. `\e]8;;http://…` truncated by a TUI redraw is the shape that
+    /// reaches this path in practice.
     @MainActor
-    func testUnterminatedCSIBufferIsBounded() throws {
-        // GAP. `csiBuffer` and `oscBuffer` are plain `String`s that grow for as
-        // long as a sequence stays unterminated; the Zig parser caps them at
-        // `max_csi_sequence_bytes` / `max_string_sequence_bytes` and discards.
-        // Resync is correct either way, so nothing renders wrongly, but a child
-        // process emitting `\e[` followed by unbounded digits — or `\e]0;` with
-        // no terminator — grows a main-actor String without limit. Unlike the
-        // rest of these, this is a memory-exhaustion path, not a rendering bug.
-        throw XCTSkip("csiBuffer and oscBuffer are unbounded: an unterminated sequence grows a String without limit")
+    func testCSIInterruptingAnOSCIsExecutedRatherThanSwallowed() {
+        let interpreter = makeInterpreter(rows: 1, columns: 20)
+
+        interpreter.interpret("\u{1b}]8;;https://example.com\u{1b}[31mA")
+
+        XCTAssertEqual(rowText(interpreter, 0).prefix(1), "A")
+        XCTAssertEqual(interpreter.screen.cells[0][0].style.foreground, DesignTokens.Color.ansiNormal[1])
+        XCTAssertNil(interpreter.screen.cells[0][0].linkURL)
+    }
+
+    /// Zig: "parser bounds oversized CSI buffers" — the bound, as opposed to
+    /// the resync that `testOversizedCSIResynchronizesAtTheFinalByte` covers.
+    ///
+    /// Overflow discards rather than truncates: executing `CSI <first 256
+    /// bytes> H` would move the cursor somewhere the program never asked for.
+    @MainActor
+    func testOversizedCSIParametersAreDiscardedRatherThanExecuted() {
+        let interpreter = makeInterpreter(rows: 4, columns: 10)
+
+        let overflowingParameters = String(
+            repeating: "1",
+            count: AppConstants.Terminal.maximumCsiParameterBytes + 1
+        )
+        interpreter.interpret("\u{1b}[" + overflowingParameters + ";5H")
+        XCTAssertEqual(interpreter.cursorRow, 0)
+        XCTAssertEqual(interpreter.cursorColumn, 0)
+
+        interpreter.interpret("ok")
+        XCTAssertEqual(rowText(interpreter, 0), "ok        ")
+    }
+
+    /// The other half of the bound: a long-but-legal CSI must still execute.
+    /// The cap is a memory backstop, and a backstop that eats real sequences
+    /// is a worse bug than the one it fixes.
+    @MainActor
+    func testLongButBoundedSGRSequenceStillApplies() {
+        let interpreter = makeInterpreter(rows: 1, columns: 10)
+
+        // `0;` pairs up to two bytes short of the cap, then the colour that has
+        // to survive.
+        let padding = String(
+            repeating: "0;",
+            count: (AppConstants.Terminal.maximumCsiParameterBytes - 2) / 2
+        )
+        interpreter.interpret("\u{1b}[" + padding + "31mA")
+
+        XCTAssertEqual(interpreter.screen.cells[0][0].character, "A")
+        XCTAssertEqual(interpreter.screen.cells[0][0].style.foreground, DesignTokens.Color.ansiNormal[1])
+    }
+
+    /// Zig: "parser bounds oversized OSC buffers". An overflowing title is
+    /// dropped whole rather than applied truncated, and the parser still
+    /// resynchronizes at the string terminator.
+    @MainActor
+    func testOversizedOSCPayloadIsDiscardedRatherThanApplied() {
+        let responses = TerminalVTResponseRecorder()
+        let interpreter = makeInterpreter(rows: 1, columns: 20, responses: responses)
+        let originalTitle = interpreter.terminalTitle
+
+        let overflowingTitle = String(
+            repeating: "x",
+            count: AppConstants.Terminal.maximumStringPayloadBytes + 1
+        )
+        interpreter.interpret("\u{1b}]0;" + overflowingTitle + "\u{1b}\\ok")
+
+        XCTAssertEqual(interpreter.terminalTitle, originalTitle)
+        XCTAssertEqual(responses.oscCommands, [])
+        XCTAssertEqual(rowText(interpreter, 0).prefix(2), "ok")
+    }
+
+    /// The other half of the OSC bound. An OSC 52 clipboard write carrying a
+    /// realistic selection — 192 KiB of text, so 256 KiB of base64 — must
+    /// reach the dispatcher byte for byte.
+    @MainActor
+    func testLargeOSC52ClipboardPayloadIsNotTruncatedByTheBound() {
+        let responses = TerminalVTResponseRecorder()
+        let interpreter = makeInterpreter(rows: 1, columns: 20, responses: responses)
+
+        let clipboardBase64 = String(repeating: "QUJD", count: 64 * 1024)
+        XCTAssertEqual(clipboardBase64.count, 256 * 1024)
+        interpreter.interpret("\u{1b}]52;c;" + clipboardBase64 + "\u{7}")
+
+        XCTAssertEqual(responses.oscCommands, ["52;c;" + clipboardBase64])
     }
 }
 
 private final class TerminalVTResponseRecorder {
     var terminalResponses: [String] = []
+    /// Raw OSC command strings as the interpreter dispatched them. A payload
+    /// that arrives here intact is one the parser's bound did not truncate.
+    var oscCommands: [String] = []
 }

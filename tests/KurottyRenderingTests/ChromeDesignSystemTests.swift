@@ -91,14 +91,14 @@ final class ChromeDesignSystemTests: XCTestCase {
 
     @MainActor
     func testSidebarSectionChangeUnhidesTheIncomingListWithoutSlidingIt() {
-        let underline = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 2))
+        let selectionPill = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 26))
         let outgoing = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         let incoming = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
         incoming.isHidden = true
 
         SidebarMotion.animateSectionChange(
-            underline: underline,
-            toFrame: NSRect(x: 40, y: 0, width: 60, height: 2),
+            selectionPill: selectionPill,
+            toFrame: NSRect(x: 40, y: 0, width: 60, height: 26),
             outgoing: outgoing,
             incoming: incoming
         )

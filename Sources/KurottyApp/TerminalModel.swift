@@ -1,14 +1,28 @@
 import Foundation
 import KurottyCore
 
+/// Parser states, named to match `State` in `src/parser.zig` so the Swift and
+/// Zig parsers can be diffed case by case.
 enum StreamState {
     case normal
     case escape
     case escapeDesignator
     case escapeDecPrivate
     case csi
+    /// An oversized CSI whose parameters were dropped. Bytes are consumed until
+    /// the final byte so the stream resynchronizes without a truncated command
+    /// being executed.
+    case csiDiscard
     case osc
     case oscEscape
+    /// The `csiDiscard` equivalent for OSC: payload dropped, terminator still
+    /// consumed.
+    case oscDiscard
+    case oscDiscardEscape
+    /// DCS, SOS, PM and APC. Their payloads are consumed and discarded, so no
+    /// buffer grows and nothing reaches the screen.
+    case stringControl
+    case stringEscape
 }
 
 enum TerminalCursorPresentationPolicy {

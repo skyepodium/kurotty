@@ -107,6 +107,18 @@ enum TerminalSidebarRowHighlight {
         }
     }
 
+    /// Which edge of the pill the accent rail runs along.
+    ///
+    /// The rail marks the edge the pill's content flows *away* from, so it is
+    /// the edge nearest whatever the selection introduces. A list row's title
+    /// runs rightwards from its leading edge; a section-strip tab introduces
+    /// the list underneath it. Same mark, same width, same accent — one
+    /// parameter rather than three hand-rolled selection treatments.
+    enum RailEdge {
+        case leading
+        case bottom
+    }
+
     enum Geometry {
         static var insetXPX: CGFloat { DesignTokens.Component.sidebarRowHighlightInsetXPX }
         static var insetYPX: CGFloat { DesignTokens.Component.sidebarRowHighlightInsetYPX }
@@ -135,15 +147,32 @@ enum TerminalSidebarRowHighlight {
             )
         }
 
-        /// Leading rail: full highlight height, pinned to the highlight inset.
-        static func railRect(in bounds: NSRect, topInsetPX: CGFloat = 0) -> NSRect {
+        /// The rail: `railWidthPX` thick, run the full length of the named edge
+        /// of the highlight and pinned to its inset.
+        static func railRect(
+            in bounds: NSRect,
+            topInsetPX: CGFloat = 0,
+            edge: RailEdge = .leading
+        ) -> NSRect {
             let highlight = highlightRect(in: bounds, topInsetPX: topInsetPX)
-            return NSRect(
-                x: highlight.minX,
-                y: highlight.minY,
-                width: railWidthPX,
-                height: highlight.height
-            )
+            switch edge {
+            case .leading:
+                return NSRect(
+                    x: highlight.minX,
+                    y: highlight.minY,
+                    width: railWidthPX,
+                    height: highlight.height
+                )
+            case .bottom:
+                // AppKit's default coordinate space is unflipped, so the bottom
+                // edge is the low-y one.
+                return NSRect(
+                    x: highlight.minX,
+                    y: highlight.minY,
+                    width: highlight.width,
+                    height: railWidthPX
+                )
+            }
         }
 
         static func focusRingRect(in bounds: NSRect, topInsetPX: CGFloat = 0) -> NSRect {
@@ -239,7 +268,12 @@ enum TerminalSidebarRowHighlight {
     /// painted through Core Graphics would be sheared off at the row edge — a
     /// hard line, which is worse than no shadow. `TerminalSidebarRowView` hangs
     /// it off the layer's `shadowPath` instead, which is not bounds-clipped.
-    static func paint(_ appearance: Appearance, in bounds: NSRect, topInsetPX: CGFloat = 0) {
+    static func paint(
+        _ appearance: Appearance,
+        in bounds: NSRect,
+        topInsetPX: CGFloat = 0,
+        railEdge: RailEdge = .leading
+    ) {
         guard !bounds.isEmpty else {
             return
         }
@@ -269,12 +303,25 @@ enum TerminalSidebarRowHighlight {
             borderPath.stroke()
         }
         if let rail = appearance.rail {
+            // Clipped to the pill. The rail is a rounded rect of its own but a
+            // much tighter one, so at the two corners it shares with the pill
+            // its ends stand proud of the curve — a point of accent outside the
+            // surface it belongs to. Barely visible on a row's leading rail;
+            // plainly visible on the section strip's, which runs the whole
+            // width of the pill and meets both bottom corners.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(
+                roundedRect: Geometry.highlightRect(in: bounds, topInsetPX: topInsetPX),
+                xRadius: Geometry.cornerRadiusPX,
+                yRadius: Geometry.cornerRadiusPX
+            ).setClip()
             rail.setFill()
             NSBezierPath(
-                roundedRect: Geometry.railRect(in: bounds, topInsetPX: topInsetPX),
+                roundedRect: Geometry.railRect(in: bounds, topInsetPX: topInsetPX, edge: railEdge),
                 xRadius: Geometry.railCornerRadiusPX,
                 yRadius: Geometry.railCornerRadiusPX
             ).fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
         if let focusRing = appearance.focusRing {
             focusRing.setStroke()

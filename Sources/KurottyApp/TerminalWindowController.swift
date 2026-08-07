@@ -9,8 +9,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
     private let tabBarView = NSView()
     private let topBarSeparatorView = NSView()
+    // Both toggles name their *content*, not the side they open on. The history
+    // toggle wore `sidebar.leading`, which stopped being true the moment the
+    // panels swapped sides; a side-named glyph is a second place the layout is
+    // written down, and it is the place nobody remembers to change. A clock
+    // says "the things you ran before" wherever the panel ends up.
     private let historyToggleButton = ChromeIconButton(
-        symbolName: IconSymbol.sidebarLeading,
+        symbolName: IconSymbol.history,
         accessibilityLabel: AppLocalization.string(.commandHistory),
         target: nil,
         action: nil
@@ -37,9 +42,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         target: nil,
         action: nil
     )
-    /// Trailing chrome group. The split pair sits inboard of the explorer
-    /// toggle so the panel control stays in the corner where it has always
-    /// been, and adding a button never moves it.
+    /// Trailing chrome group. The split pair sits inboard of the sidebar
+    /// toggle so the panel control stays in the corner, and adding a button
+    /// never moves it. Each toggle lives in the corner of the side its panel
+    /// opens on, so the button and the panel it summons are never across the
+    /// window from each other.
     private let trailingChromeStackView = NSStackView()
     private let tabStackView = NSStackView()
     let tabView = NSTabView()
@@ -55,7 +62,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     var agentSessionPanel: TerminalAgentSessionPanelView {
         leftSidebarPanel.agentSessionPanel
     }
-    let terminalContentHostView = NSView()
+    let terminalContentHostView = ChromeGroundHostView()
     // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
     // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
     let fileExplorerPanel = TerminalFileExplorerPanelView()
@@ -392,21 +399,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         // The ground the pane cards sit on. It is the same surface as the tab
         // bar above it, so the two read as one continuous plane with the
         // terminal floating on it.
+        // It is also the only view that paints the ground when the theme grades
+        // it, which is why the gradient goes here and not on the split views.
         terminalContentHostView.wantsLayer = true
         terminalContentHostView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        ChromeGroundGradient.apply(chromeTheme, to: terminalContentHostView)
         // The chrome bar spans the whole window (above the split view) so the
         // sidebar toggles sit in the window corners and panel content starts
         // below the title bar instead of colliding with the traffic lights.
         rootView.addSubview(tabBarView)
         terminalContentHostView.addSubview(tabView)
-        tabBarView.addSubview(historyToggleButton)
+        tabBarView.addSubview(explorerToggleButton)
         trailingChromeStackView.orientation = .horizontal
         trailingChromeStackView.alignment = .centerY
         trailingChromeStackView.spacing = DesignTokens.Component.terminalTabBarSideButtonInsetPX
         trailingChromeStackView.translatesAutoresizingMaskIntoConstraints = false
         trailingChromeStackView.setViews(
-            [splitRightButton, splitDownButton, explorerToggleButton],
+            [splitRightButton, splitDownButton, historyToggleButton],
             in: .leading
         )
         tabBarView.addSubview(trailingChromeStackView)
@@ -428,11 +437,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             tabBarView.topAnchor.constraint(equalTo: rootView.topAnchor),
             tabBarHeightConstraint,
 
-            historyToggleButton.leadingAnchor.constraint(
+            explorerToggleButton.leadingAnchor.constraint(
                 equalTo: tabBarView.leadingAnchor,
                 constant: DesignTokens.Component.terminalTrafficLightClearancePX
             ),
-            historyToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
+            explorerToggleButton.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
             trailingChromeStackView.trailingAnchor.constraint(
                 equalTo: tabBarView.trailingAnchor,
                 constant: -DesignTokens.Component.terminalTabBarHorizontalInsetPX
@@ -440,7 +449,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             trailingChromeStackView.centerYAnchor.constraint(equalTo: tabBarView.centerYAnchor),
 
             tabStackView.leadingAnchor.constraint(
-                equalTo: historyToggleButton.trailingAnchor,
+                equalTo: explorerToggleButton.trailingAnchor,
                 constant: DesignTokens.Component.terminalTabBarSideButtonInsetPX
             ),
             tabStackView.trailingAnchor.constraint(
@@ -600,7 +609,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         dropTargetView.chromeTheme = chromeTheme
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
-        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        ChromeGroundGradient.apply(chromeTheme, to: terminalContentHostView)
         // The same broadcast carries a UI-text-scale change, so anything sized
         // from a scaled token has to re-read it here.
         chromeMetrics.reapply()

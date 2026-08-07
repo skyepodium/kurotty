@@ -30,10 +30,16 @@ extension TerminalWindowController {
         // the terminal at zero size with nothing to render into.
         leftSidebarPanel.autoresizingMask = [.height]
         terminalContentHostView.autoresizingMask = [.width, .height]
-        commandHistorySplitView.addArrangedSubview(leftSidebarPanel)
+        // The history panel is the *trailing* column; the explorer leads. Both
+        // panels are removed again a few lines down, so this order is only the
+        // arrangement the split view briefly holds during setup — but it is the
+        // order `sidebarColumnOrder` declares, and a setup that contradicted it
+        // is exactly the kind of second source of truth that produced the
+        // divider-limit bug.
         commandHistorySplitView.addArrangedSubview(terminalContentHostView)
-        commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-        commandHistorySplitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+        commandHistorySplitView.addArrangedSubview(leftSidebarPanel)
+        commandHistorySplitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
 
         // Width is a divider position now, not a constraint; the array stays so
         // the shared show/hide helper keeps one signature for both sidebars.

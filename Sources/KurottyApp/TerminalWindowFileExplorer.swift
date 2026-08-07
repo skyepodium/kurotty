@@ -25,9 +25,10 @@ extension TerminalWindowController {
         fileExplorerPanel.layer?.cornerRadius = 0
         fileExplorerPanel.layer?.borderWidth = 0
         fileExplorerPanel.layer?.masksToBounds = false
-        commandHistorySplitView.addArrangedSubview(fileExplorerPanel)
-        let explorerSubviewIndex = commandHistorySplitView.arrangedSubviews.count - 1
-        commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: explorerSubviewIndex)
+        // The explorer is the leading column, so it goes in front of the
+        // terminal host rather than after it.
+        commandHistorySplitView.insertArrangedSubview(fileExplorerPanel, at: 0)
+        commandHistorySplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
 
         // The panel starts collapsed through the shared helper so the hidden
         // state, the released width constraints, and the zero-width pin are
