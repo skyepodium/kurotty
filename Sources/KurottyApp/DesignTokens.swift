@@ -1010,6 +1010,57 @@ enum DesignTokens {
         static var agentTranscriptMonospacedFontSizePT: CGFloat { UIScale.scaledPointSize(11) }
         static let agentTranscriptDetailBackgroundAlphaRATIO: CGFloat = 0.06
         static let agentTranscriptDiffBackgroundAlphaRATIO: CGFloat = 0.10
+
+        // MARK: Rendered Markdown inside a transcript text row
+        //
+        // A message an agent wrote is a document, not a list row, so these are
+        // document metrics: a heading ramp, paragraph leading, list indents.
+        // They still sit on the chrome scale rather than the editor's font-size
+        // setting, for the same reason the three rungs above do — the
+        // transcript is a read-only panel the user is not editing.
+
+        /// Heading ramp indexed by level 1...6. Levels 4 and up share the body
+        /// size and are separated by weight alone: an agent that reaches `####`
+        /// is nesting, not shouting, and six visibly different sizes inside a
+        /// chat row reads as noise.
+        static var agentTranscriptHeadingFontSizesPT: [CGFloat] {
+            [17, 15, 13, 12, 12, 12].map(UIScale.scaledPointSize)
+        }
+        /// Air above a heading that follows other prose. There is deliberately
+        /// no matching value below it: a heading belongs to the block under it.
+        static var agentTranscriptHeadingSpacingBeforePX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptParagraphSpacingPX: CGFloat { UIScale.scaledMetric(7) }
+        /// Indent added per list nesting level.
+        static var agentTranscriptListIndentPX: CGFloat { UIScale.scaledMetric(14) }
+        /// Column reserved for `•` or `12.`, wide enough that a two-digit
+        /// ordinal does not push its text out of alignment with its neighbours.
+        static var agentTranscriptListMarkerColumnPX: CGFloat { UIScale.scaledMetric(20) }
+        /// Gap between two segments of one rendered message — prose, then a
+        /// code block, then more prose.
+        static var agentTranscriptBlockSpacingPX: CGFloat { UIScale.scaledMetric(8) }
+        /// Block-quote rule. Fixed, like every other stroke.
+        static let agentTranscriptQuoteBarWidthPX: CGFloat = 2
+        static var agentTranscriptQuoteIndentPX: CGFloat { UIScale.scaledMetric(12) }
+        static var agentTranscriptCodeBlockPaddingXPX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptCodeBlockPaddingYPX: CGFloat { UIScale.scaledMetric(7) }
+        static let agentTranscriptCodeBlockCornerRadiusPX = Radius.smPX
+        /// Fixed leading inside a code block. Code is set as lines, so its
+        /// height must be an exact multiple of this: the block sizes itself
+        /// arithmetically from its line count instead of asking the text system,
+        /// which is what lets a non-wrapping block have a knowable height.
+        static var agentTranscriptCodeLineHeightPX: CGFloat { UIScale.scaledMetric(15) }
+        static var agentTranscriptCodeLanguageFontSizePT: CGFloat { UIScale.scaledPointSize(9) }
+        static let agentTranscriptCodeBackgroundAlphaRATIO: CGFloat = 0.06
+        static let agentTranscriptInlineCodeBackgroundAlphaRATIO: CGFloat = 0.09
+        static var agentTranscriptTableCellPaddingXPX: CGFloat { UIScale.scaledMetric(8) }
+        static var agentTranscriptTableCellPaddingYPX: CGFloat { UIScale.scaledMetric(4) }
+        /// Floor a column is shrunk to before the table gives up on natural
+        /// widths and splits the row evenly. Below this a column holds about
+        /// four characters and reads as a stripe rather than data.
+        static var agentTranscriptTableMinimumColumnWidthPX: CGFloat { UIScale.scaledMetric(44) }
+        static let agentTranscriptTableHeaderBackgroundAlphaRATIO: CGFloat = 0.07
+        /// Vertical air around a `---` rule.
+        static var agentTranscriptRuleSpacingPX: CGFloat { UIScale.scaledMetric(6) }
         // Shared three-state row highlight. Command history, agent sessions,
         // and the file explorer all paint through
         // `TerminalSidebarRowHighlight`, so the geometry lives once here.

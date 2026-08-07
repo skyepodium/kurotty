@@ -105,6 +105,11 @@ enum L10nKey: String, CaseIterable {
     case quickCommandSeedGitLogGraph, quickCommandSeedClaudeResume
     case openTranscript, transcriptEmpty, transcriptReadOnly, transcriptOlderRecordsHidden
     case transcriptRoleUser, transcriptRoleAgent, transcriptRoleTool, transcriptRoleSystem
+    // Rendered Markdown inside a transcript message. Only the parts that draw
+    // no text of their own need a string: a fence with no info string still
+    // wants a label on its chip, and a table and a quote are bare views that
+    // VoiceOver would otherwise announce as nothing.
+    case transcriptCodeBlockUnlabeled, transcriptTableAccessibility, transcriptQuoteAccessibility
     case collapseAllToolRuns
     // Bottom status bar. `cancel` is deliberately absent: the bar reuses the
     // existing `.cancel` key rather than shipping a second "Cancel".
@@ -258,6 +263,7 @@ enum AppLocalization {
             .openTranscript: "Open Transcript", .transcriptEmpty: "This transcript has no readable records yet.",
             .transcriptReadOnly: "Read-only", .transcriptOlderRecordsHidden: "Older records are not shown.",
             .transcriptRoleUser: "You", .transcriptRoleAgent: "Agent", .transcriptRoleTool: "Tool", .transcriptRoleSystem: "System",
+            .transcriptCodeBlockUnlabeled: "Code", .transcriptTableAccessibility: "Table", .transcriptQuoteAccessibility: "Quote",
             .collapseAllToolRuns: "Collapse All Tool Runs",
             .statusBarAgentIdle: "Idle", .statusBarAgentWorking: "Working", .statusBarAgentNeedsInput: "Needs input", .statusBarAgentBlocked: "Blocked",
             .statusBarNoAgent: "No agent", .statusBarConnectAnAgent: "Connect an agent",
@@ -367,6 +373,7 @@ enum AppLocalization {
             .openTranscript: "대화 기록 열기", .transcriptEmpty: "이 대화 기록에는 아직 읽을 수 있는 항목이 없습니다.",
             .transcriptReadOnly: "읽기 전용", .transcriptOlderRecordsHidden: "이전 항목은 표시되지 않습니다.",
             .transcriptRoleUser: "나", .transcriptRoleAgent: "에이전트", .transcriptRoleTool: "도구", .transcriptRoleSystem: "시스템",
+            .transcriptCodeBlockUnlabeled: "코드", .transcriptTableAccessibility: "표", .transcriptQuoteAccessibility: "인용",
             .collapseAllToolRuns: "모든 도구 실행 접기",
             .statusBarAgentIdle: "대기", .statusBarAgentWorking: "작업 중", .statusBarAgentNeedsInput: "입력 필요", .statusBarAgentBlocked: "차단됨",
             .statusBarNoAgent: "에이전트 없음", .statusBarConnectAnAgent: "에이전트 연결",
@@ -476,6 +483,7 @@ enum AppLocalization {
             .openTranscript: "記録を開く", .transcriptEmpty: "この記録にはまだ読み取れるレコードがありません。",
             .transcriptReadOnly: "読み取り専用", .transcriptOlderRecordsHidden: "古いレコードは表示されません。",
             .transcriptRoleUser: "あなた", .transcriptRoleAgent: "エージェント", .transcriptRoleTool: "ツール", .transcriptRoleSystem: "システム",
+            .transcriptCodeBlockUnlabeled: "コード", .transcriptTableAccessibility: "表", .transcriptQuoteAccessibility: "引用",
             .collapseAllToolRuns: "すべてのツール実行を折りたたむ",
             .statusBarAgentIdle: "待機", .statusBarAgentWorking: "作業中", .statusBarAgentNeedsInput: "入力待ち", .statusBarAgentBlocked: "ブロック",
             .statusBarNoAgent: "エージェントなし", .statusBarConnectAnAgent: "エージェントを接続",

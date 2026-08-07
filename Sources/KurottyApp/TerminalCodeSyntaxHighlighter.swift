@@ -50,6 +50,33 @@ enum CodeSyntaxLanguage: Equatable {
         default: self = .plain
         }
     }
+
+    /// Language for a fenced code block's info string.
+    ///
+    /// Separate from `init(fileExtension:)` because the two vocabularies barely
+    /// overlap: a fence says ```` ```python ```` and ```` ```bash ````, a file
+    /// says `.py` and `.sh`. Unrecognised hints fall through to the extension
+    /// table, which catches ```` ```swift ```` and ```` ```json ```` for free,
+    /// and then to `plain`, which renders the block monospaced but unhighlighted.
+    init(markdownLanguageHint hint: String) {
+        // An info string may carry attributes after the language, as in
+        // ```` ```swift title=Foo.swift ````.
+        let name = hint
+            .split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            .first
+            .map { String($0).lowercased() } ?? ""
+        switch name {
+        case "python", "python3": self = .python
+        case "bash", "shell", "sh", "zsh", "console", "terminal": self = .shell
+        case "javascript", "typescript", "node", "ts", "tsx", "jsx": self = .javascript
+        case "rust": self = .rust
+        case "golang": self = .go
+        case "objective-c", "objc", "c++", "cpp", "cxx": self = .c
+        case "yml": self = .yaml
+        case "text", "txt", "plaintext", "": self = .plain
+        default: self = CodeSyntaxLanguage(fileExtension: name)
+        }
+    }
 }
 
 /// Declarative description of a language's lexical surface. The generic
