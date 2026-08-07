@@ -33,7 +33,8 @@ struct AppSettings: Codable, Equatable {
             agentStatusCodexHookConsent: Defaults.agentStatusCodexHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
-            menuBarExtraEnabled: Defaults.menuBarExtraEnabled
+            menuBarExtraEnabled: Defaults.menuBarExtraEnabled,
+            promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -70,6 +71,7 @@ struct AppSettings: Codable, Equatable {
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
+        static let promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -206,6 +208,10 @@ struct TerminalSettings: Codable, Equatable {
     /// Unrelated to `statusBarEnabled` despite the similar sound: that one is
     /// the bar along the bottom of Kurotty's own window.
     var menuBarExtraEnabled: Bool
+    /// Draws the prompt navigator rail on the terminal's trailing edge. Distinct
+    /// from the scrollback indicator sharing that edge: the indicator says where
+    /// the viewport is, the rail says where the commands are.
+    var promptNavigatorRailEnabled: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -257,6 +263,7 @@ struct TerminalSettings: Codable, Equatable {
         case uiTextScalePercent
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
+        case promptNavigatorRailEnabled
     }
 
     init(
@@ -282,7 +289,8 @@ struct TerminalSettings: Codable, Equatable {
         agentStatusCodexHookConsent: String = SettingsDefaults.agentStatusCodexHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
-        menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled
+        menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled,
+        promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -307,6 +315,7 @@ struct TerminalSettings: Codable, Equatable {
         self.uiTextScalePercent = uiTextScalePercent
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
+        self.promptNavigatorRailEnabled = promptNavigatorRailEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -380,6 +389,12 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         menuBarExtraEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarExtraEnabled)
             ?? SettingsDefaults.menuBarExtraEnabled
+        // Absent in schema versions below 22; those files fall back to the
+        // current default rather than failing to decode.
+        promptNavigatorRailEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .promptNavigatorRailEnabled
+        ) ?? SettingsDefaults.promptNavigatorRailEnabled
     }
 }
 
@@ -585,6 +600,8 @@ struct AppSettingsNormalizer {
         static let commandProgressIndicatorSchemaVersion = 19
         /// Schema version that introduced `terminal.menuBarExtraEnabled`.
         static let menuBarExtraSchemaVersion = 20
+        /// Schema version that introduced `terminal.promptNavigatorRailEnabled`.
+        static let promptNavigatorRailSchemaVersion = 22
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -680,6 +697,15 @@ struct AppSettingsNormalizer {
             // menu bar it never agreed to share. From schema 20 on, an explicit
             // choice in either direction is preserved.
             next.terminal.menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
+        }
+        if sourceSchemaVersion < Migration.promptNavigatorRailSchemaVersion {
+            // Settings written before schema 22 predate the prompt navigator
+            // rail, so the key carries no user intent. Migrated files land on
+            // the current default, which is on — the rail draws nothing at all
+            // in a session without OSC 133, so an install that gains it gains
+            // no chrome it did not ask for. From schema 22 on, an explicit
+            // choice in either direction is preserved.
+            next.terminal.promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

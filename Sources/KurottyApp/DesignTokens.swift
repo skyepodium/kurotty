@@ -160,6 +160,17 @@ enum DesignTokens {
         static let scrollerThumbRestAlphaRATIO: CGFloat = 0.50
         static let scrollerThumbHoverAlphaRATIO: CGFloat = 0.65
         static let scrollerThumbActiveAlphaRATIO: CGFloat = 0.80
+        /// Alpha for a prompt-rail mark that stands for successful commands.
+        /// Below the failure alpha on purpose: the rail's job is to make a
+        /// failure findable in a column of green, so the two must not weigh the
+        /// same. A failed mark always draws opaque.
+        static let promptRailSuccessAlphaRATIO: CGFloat = 0.70
+        /// Alpha range a successful cluster interpolates across once the rail is
+        /// in its heat regime. The floor is the point where a mark is still
+        /// visible against the canvas; anything quieter is a rail with holes in
+        /// it that are not real gaps.
+        static let promptRailHeatMinAlphaRATIO: CGFloat = 0.25
+        static let promptRailHeatMaxAlphaRATIO: CGFloat = 0.85
 
         /// Dark ramp. Hex values are sRGB and are built with
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
@@ -798,6 +809,40 @@ enum DesignTokens {
         static let terminalScrollerThumbWidthPX: CGFloat = 9
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
+        /// Prompt navigator rail. Half the scroll indicator's width and flush to
+        /// the trailing edge, with the indicator track pushed inboard by exactly
+        /// this much: the two never share a pixel, which is the whole reason
+        /// this is a second strip rather than a second thing drawn in the first.
+        static let terminalPromptRailWidthPX: CGFloat = 6
+        /// Minimum pitch between two marks. The rail can never draw more than
+        /// `trackHeight / this` marks, so the count of marks is bounded by the
+        /// track and not by the session, and the 2pt of clear track between
+        /// neighbours is what keeps a busy rail from fusing into a stripe.
+        static let terminalPromptRailSlotHeightPX: CGFloat = 5
+        static let terminalPromptRailMarkerHeightPX: CGFloat = 3
+        /// Inset applied to a mark that stands for exactly one command, so a
+        /// lone command reads narrower than a stack of them at a glance.
+        static let terminalPromptRailSingletonInsetPX: CGFloat = 1.5
+        /// Commands per mark above which counting them by eye is hopeless and
+        /// the rail switches to a density wash. Eight is where a cluster stops
+        /// being a short list the popover can show in full.
+        static let terminalPromptRailClusterFanoutLIMIT = 8
+        /// How far off a mark a click may land and still count, in slots. The
+        /// mark is 3pt tall in a 6pt strip; requiring a hit on the mark itself
+        /// would make the rail feel broken.
+        static let terminalPromptRailHitToleranceSLOTS: CGFloat = 1.5
+        /// Commands the hover popover lists before it stops and reports a
+        /// remainder. Past this the popover is taller than the thing it
+        /// describes.
+        static let terminalPromptRailPopoverEntryLIMIT = 6
+        /// Marks the popover gathers around the pointer before trimming to the
+        /// entry limit. More than one so a hover between two marks describes
+        /// both.
+        static let terminalPromptRailPopoverClusterLIMIT = 4
+        static var terminalPromptRailPopoverWidthPX: CGFloat { UIScale.scaledMetric(300) }
+        static var terminalPromptRailPopoverRowHeightPX: CGFloat { UIScale.scaledMetric(20) }
+        static let terminalPromptRailPopoverInsetPX = Space.x3PX
+        static let terminalPromptRailPopoverGapPX = Space.x2PX
         static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
         static let terminalDiscreteScrollRowsPerTick = 2
         static var terminalSearchWidthPX: CGFloat { UIScale.scaledMetric(340) }

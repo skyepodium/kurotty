@@ -120,6 +120,8 @@ enum TerminalCommandDispatcher {
             controller.selectNextTab()
         case .findTerminalOutput:
             controller.findTerminalOutput()
+        case let .jumpToPrompt(direction):
+            controller.jumpToPrompt(direction)
         case .toggleCommandHistoryPanel:
             controller.toggleCommandHistoryPanel()
         case .toggleFileExplorerPanel:

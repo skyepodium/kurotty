@@ -150,6 +150,12 @@ enum L10nKey: String, CaseIterable {
     // its other three rows are the app menu's, and a second "Settings" or
     // "Quit" would be the same sentence maintained in two places.
     case openApp, menuBarExtraAccessibility
+    // Prompt navigator rail. The two jump commands are menu and palette rows;
+    // the overflow line is the popover admitting it truncated, and the
+    // accessibility label names the rail for VoiceOver, which cannot read a
+    // column of 3pt marks.
+    case jumpToPreviousPrompt, jumpToNextPrompt
+    case promptNavigatorMoreCommands, promptNavigatorAccessibility
 }
 
 enum AppLocalization {
@@ -299,6 +305,8 @@ enum AppLocalization {
             .childExitRestart: "Restart", .childExitClose: "Close",
             .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
             .commandProgressAccessibility: "Command running",
+            .jumpToPreviousPrompt: "Jump to Previous Prompt", .jumpToNextPrompt: "Jump to Next Prompt",
+            .promptNavigatorMoreCommands: "%d more", .promptNavigatorAccessibility: "Prompt navigator",
             .openApp: "Open %@", .menuBarExtraAccessibility: "%@ menu",
         ],
         .korean: [
@@ -408,6 +416,8 @@ enum AppLocalization {
             .childExitRestart: "다시 시작", .childExitClose: "닫기",
             .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
             .commandProgressAccessibility: "명령 실행 중",
+            .jumpToPreviousPrompt: "이전 프롬프트로 이동", .jumpToNextPrompt: "다음 프롬프트로 이동",
+            .promptNavigatorMoreCommands: "%d개 더", .promptNavigatorAccessibility: "프롬프트 내비게이터",
             .openApp: "%@ 열기", .menuBarExtraAccessibility: "%@ 메뉴",
         ],
         .japanese: [
@@ -517,6 +527,8 @@ enum AppLocalization {
             .childExitRestart: "再起動", .childExitClose: "閉じる",
             .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
             .commandProgressAccessibility: "コマンド実行中",
+            .jumpToPreviousPrompt: "前のプロンプトへ移動", .jumpToNextPrompt: "次のプロンプトへ移動",
+            .promptNavigatorMoreCommands: "他%d件", .promptNavigatorAccessibility: "プロンプトナビゲータ",
             .openApp: "%@を開く", .menuBarExtraAccessibility: "%@メニュー",
         ],
     ]

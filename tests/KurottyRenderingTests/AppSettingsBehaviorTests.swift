@@ -582,7 +582,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
         // Re-pointed at schema 21, which added
         // `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added
+        // `terminal.promptNavigatorRailEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -723,7 +725,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // the scrollback-restore default below is unchanged.
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -789,7 +792,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -838,7 +842,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
 
     func testUITextScaleDefaultsToOneHundredPercent() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }

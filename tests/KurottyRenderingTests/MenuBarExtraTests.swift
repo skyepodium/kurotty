@@ -286,7 +286,8 @@ final class MenuBarExtraTests: XCTestCase {
     /// unreachable.
     func testTheMenuBarExtraDefaultsOff() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertFalse(SettingsDefaults.menuBarExtraEnabled)
         XCTAssertFalse(AppSettings.default.terminal.menuBarExtraEnabled)
     }

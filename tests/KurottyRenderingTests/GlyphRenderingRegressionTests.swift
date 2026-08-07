@@ -1495,10 +1495,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
 
         let settingsSource = try appSettingsSource()
-        // Schema 21 added `terminal.agentStatusCodexHookConsent`. Asserted
+        // Schema 22 added `terminal.promptNavigatorRailEnabled`. Asserted
         // against the value rather than against the text of its declaration, so
         // a reformat of SettingsDefaults cannot fail a test about the menu.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
@@ -1912,7 +1912,12 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"t\", modifiers: .command)"))
         XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: .command)"))
         XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyEquivalent: \"d\", modifiers: [.command, .shift])"))
-        XCTAssertTrue(registrySource.contains("TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras)"))
+        // Was a source-text match on the literal key code 123. The registry now
+        // names its arrow key codes, and the binding is worth asserting through
+        // the registry rather than through the text that builds it.
+        let focusPaneLeft = TerminalCommandRegistry.default.windowCommands.first { $0.id == .focusPaneLeft }
+        XCTAssertEqual(focusPaneLeft?.shortcut?.keyCode, 123)
+        XCTAssertEqual(focusPaneLeft?.shortcut?.modifiers, .command)
         XCTAssertTrue(dispatcherSource.contains("controller.focusPane(direction)"))
         XCTAssertTrue(dispatcherSource.contains("controller.newTab()"))
         XCTAssertTrue(dispatcherSource.contains("controller.splitVertically()"))
