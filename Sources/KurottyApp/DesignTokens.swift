@@ -186,12 +186,14 @@ enum DesignTokens {
         /// Below the failure alpha on purpose: the rail's job is to make a
         /// failure findable in a column of green, so the two must not weigh the
         /// same. A failed mark always draws opaque.
-        static let promptRailSuccessAlphaRATIO: CGFloat = 0.70
+        /// Raised from 0.70: a successful command is the common case, and the
+        /// rail's whole job is to be findable at a glance.
+        static let promptRailSuccessAlphaRATIO: CGFloat = 0.92
         /// Alpha range a successful cluster interpolates across once the rail is
         /// in its heat regime. The floor is the point where a mark is still
         /// visible against the canvas; anything quieter is a rail with holes in
         /// it that are not real gaps.
-        static let promptRailHeatMinAlphaRATIO: CGFloat = 0.25
+        static let promptRailHeatMinAlphaRATIO: CGFloat = 0.40
         static let promptRailHeatMaxAlphaRATIO: CGFloat = 0.85
 
         /// Dark ramp. Hex values are sRGB and are built with
@@ -982,13 +984,16 @@ enum DesignTokens {
         /// the trailing edge, with the indicator track pushed inboard by exactly
         /// this much: the two never share a pixel, which is the whole reason
         /// this is a second strip rather than a second thing drawn in the first.
-        static let terminalPromptRailWidthPX: CGFloat = 6
+        static let terminalPromptRailWidthPX: CGFloat = 7
         /// Minimum pitch between two marks. The rail can never draw more than
         /// `trackHeight / this` marks, so the count of marks is bounded by the
         /// track and not by the session, and the 2pt of clear track between
         /// neighbours is what keeps a busy rail from fusing into a stripe.
         static let terminalPromptRailSlotHeightPX: CGFloat = 5
-        static let terminalPromptRailMarkerHeightPX: CGFloat = 3
+        /// A mark has to survive being the only thing on the rail. At 3pt it was
+        /// a full-stop at 70% and read as dust; the slot is 5pt, so 4 is the
+        /// most that still leaves a gap between adjacent marks.
+        static let terminalPromptRailMarkerHeightPX: CGFloat = 4
         /// Inset applied to a mark that stands for exactly one command, so a
         /// lone command reads narrower than a stack of them at a glance.
         static let terminalPromptRailSingletonInsetPX: CGFloat = 1.5

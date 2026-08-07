@@ -217,7 +217,12 @@ struct TerminalPromptRailLayout: Equatable {
                 width: trackFrame.width,
                 height: slotHeight
             )
-            let inset = slotMarkers.count == 1 ? singletonInset : 0
+            // Narrowing a singleton only says anything when there is a wider
+            // cluster beside it to be narrower *than*. In discrete mode every
+            // slot holds one command, so the inset communicated nothing and
+            // merely shrank a 6pt rail's mark to 3pt -- which is why a handful
+            // of commands read as almost nothing on screen.
+            let inset = (maximumFanout > 1 && slotMarkers.count == 1) ? singletonInset : 0
             let frame = NSRect(
                 x: trackFrame.minX + inset,
                 y: hitFrame.minY + (slotHeight - markHeight) / 2,

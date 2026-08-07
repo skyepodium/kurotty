@@ -868,3 +868,113 @@ final class TerminalPromptRailTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Visibility
+
+/// The rail shipped with a lone command drawn as a 3x3pt mark at 70% alpha on a
+/// 6pt track -- a full stop, effectively invisible, and that is exactly the case
+/// where the rail is the only thing on screen to look at.
+@MainActor
+final class TerminalPromptRailVisibilityTests: XCTestCase {
+    private func entry(_ exitCode: Int?) -> TerminalCommandHistoryEntry {
+        TerminalCommandHistoryEntry(
+            commandText: "swift build",
+            cwd: "/tmp",
+            cwdHost: nil,
+            exitCode: exitCode,
+            startedAt: nil,
+            finishedAt: Date(),
+            duration: nil
+        )
+    }
+
+    private func rail(commandCount: Int, height: CGFloat) -> TerminalPromptRailLayout? {
+        let rowsPerCommand = 3
+        let markers = (0..<commandCount).map { index in
+            TerminalPromptRailMarker(
+                spanID: index,
+                absoluteRowIndex: index * rowsPerCommand,
+                entry: entry(0)
+            )
+        }
+        return TerminalPromptRailLayout.layout(
+            markers: markers,
+            in: NSRect(x: 0, y: 0, width: 40, height: height),
+            contentRowCount: max(1, commandCount * rowsPerCommand),
+            firstRetainedRowIndex: 0
+        )
+    }
+
+    /// Narrowing a singleton only says something when a wider cluster sits
+    /// beside it to be narrower *than*. With none, the inset communicated
+    /// nothing and halved a 6pt mark.
+    func testALoneCommandUsesTheFullTrackWidth() throws {
+        let layout = try XCTUnwrap(rail(commandCount: 3, height: 600))
+        XCTAssertFalse(layout.clusters.isEmpty)
+        for cluster in layout.clusters {
+            XCTAssertEqual(
+                cluster.frame.width,
+                DesignTokens.Component.terminalPromptRailWidthPX,
+                accuracy: 0.01,
+                "a singleton with no cluster to contrast against drew \(cluster.frame.width)pt wide"
+            )
+        }
+    }
+
+    /// The inset still has to work where it means something. A uniform density
+    /// gives every slot the same count, so this deliberately mixes them: a burst
+    /// of commands landing in one slot, and lone commands spread far apart.
+    func testTheInsetStillDistinguishesSingletonsOnceClustersExist() throws {
+        var markers: [TerminalPromptRailMarker] = []
+        // A burst: eight commands sharing a handful of rows, so they bucket together.
+        for index in 0..<8 {
+            markers.append(TerminalPromptRailMarker(spanID: index, absoluteRowIndex: index, entry: entry(0)))
+        }
+        // Then lone commands, spaced far enough apart to each own a slot.
+        for index in 0..<6 {
+            markers.append(TerminalPromptRailMarker(
+                spanID: 100 + index,
+                absoluteRowIndex: 200 + index * 120,
+                entry: entry(0)
+            ))
+        }
+        let layout = try XCTUnwrap(TerminalPromptRailLayout.layout(
+            markers: markers,
+            in: NSRect(x: 0, y: 0, width: 40, height: 400),
+            contentRowCount: 1_000,
+            firstRetainedRowIndex: 0
+        ))
+        let clustered = layout.clusters.filter { $0.markerCount > 1 }
+        let singletons = layout.clusters.filter { $0.markerCount == 1 }
+        XCTAssertFalse(clustered.isEmpty, "the burst did not bucket into a cluster")
+        XCTAssertFalse(singletons.isEmpty, "the spaced commands did not stay singletons")
+        for singleton in singletons {
+            for cluster in clustered {
+                XCTAssertLessThan(
+                    singleton.frame.width,
+                    cluster.frame.width,
+                    "a singleton must read narrower than a stack beside it"
+                )
+            }
+        }
+    }
+
+    /// A sliver, or a mark translucent enough to sink into the ground, fails the
+    /// one job the rail has.
+    func testMarksAreThickEnoughAndOpaqueEnoughToFind() throws {
+        let layout = try XCTUnwrap(rail(commandCount: 3, height: 600))
+        for cluster in layout.clusters {
+            XCTAssertGreaterThanOrEqual(cluster.frame.height, 4, "mark height")
+        }
+        XCTAssertGreaterThanOrEqual(
+            DesignTokens.Color.promptRailSuccessAlphaRATIO,
+            0.85,
+            "a successful command is the common case and must not be faint"
+        )
+        XCTAssertGreaterThanOrEqual(
+            DesignTokens.Color.promptRailHeatMinAlphaRATIO,
+            0.35,
+            "the quietest heat step still has to be visible"
+        )
+    }
+}
