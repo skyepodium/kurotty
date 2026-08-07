@@ -160,6 +160,17 @@ enum DesignTokens {
         static let scrollerThumbRestAlphaRATIO: CGFloat = 0.50
         static let scrollerThumbHoverAlphaRATIO: CGFloat = 0.65
         static let scrollerThumbActiveAlphaRATIO: CGFloat = 0.80
+        /// Alpha for a prompt-rail mark that stands for successful commands.
+        /// Below the failure alpha on purpose: the rail's job is to make a
+        /// failure findable in a column of green, so the two must not weigh the
+        /// same. A failed mark always draws opaque.
+        static let promptRailSuccessAlphaRATIO: CGFloat = 0.70
+        /// Alpha range a successful cluster interpolates across once the rail is
+        /// in its heat regime. The floor is the point where a mark is still
+        /// visible against the canvas; anything quieter is a rail with holes in
+        /// it that are not real gaps.
+        static let promptRailHeatMinAlphaRATIO: CGFloat = 0.25
+        static let promptRailHeatMaxAlphaRATIO: CGFloat = 0.85
 
         /// Dark ramp. Hex values are sRGB and are built with
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
@@ -718,6 +729,38 @@ enum DesignTokens {
         /// the ramp; the window around it does not, which is the same trade the
         /// user already accepts when they zoom any list.
         static var commandPaletteRowHeightPX: CGFloat { UIScale.scaledMetric(34) }
+
+        /// Project file palette. The window borrows the command palette's frame
+        /// so the two read as one surface invoked two ways, but the row is
+        /// taller: a file row is a name over its directory, which is two lines
+        /// where a command row is one.
+        static let projectFilePaletteWidthPX = commandPaletteWidthPX
+        static let projectFilePaletteHeightPX = commandPaletteHeightPX
+        static var projectFilePaletteRowHeightPX: CGFloat { UIScale.scaledMetric(44) }
+        /// Height of the footer strip that names the scan source and the result
+        /// count. Fixed so the list does not resize when the text under it goes
+        /// from one count to another.
+        static var projectFilePaletteFooterHeightPX: CGFloat { UIScale.scaledMetric(18) }
+        static let projectFilePaletteInsetPX = Space.x5PX
+        static let projectFilePaletteGapPX = Space.x4PX
+        static let projectFilePaletteRowInsetXPX = Space.x3PX
+        static let projectFilePaletteRowLineGapPX: CGFloat = 1
+
+        /// Getting Started tab. Sized against the settings surface rather than
+        /// the window: it is the same kind of read-once page, and a full-bleed
+        /// column of prose at terminal width is unreadable.
+        static let gettingStartedContentMaxWidthPX = preferencesContentMaxWidthPX
+        static let gettingStartedInsetPX = Space.x6PX
+        static let gettingStartedRowGapPX = Space.x5PX
+        static let gettingStartedRowInsetPX = Space.x4PX
+        static let gettingStartedRowGutterPX = Space.x4PX
+        static let gettingStartedTextGapPX = Space.x1PX
+        static let gettingStartedHeaderGapPX = Space.x6PX
+        static let gettingStartedRowCornerRadiusPX = Radius.mdPX
+        /// Fixed width for the state glyph column so every row's title starts on
+        /// the same x, whichever of the three marks it carries.
+        static var gettingStartedGutterWidthPX: CGFloat { UIScale.scaledMetric(20) }
+
         /// Settings surface geometry. Settings is a center tab, not a window, so
         /// these are the size the surface is designed against and the frame the
         /// hosted view starts at before the tab stretches it — not a window
@@ -798,6 +841,40 @@ enum DesignTokens {
         static let terminalScrollerThumbWidthPX: CGFloat = 9
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
+        /// Prompt navigator rail. Half the scroll indicator's width and flush to
+        /// the trailing edge, with the indicator track pushed inboard by exactly
+        /// this much: the two never share a pixel, which is the whole reason
+        /// this is a second strip rather than a second thing drawn in the first.
+        static let terminalPromptRailWidthPX: CGFloat = 6
+        /// Minimum pitch between two marks. The rail can never draw more than
+        /// `trackHeight / this` marks, so the count of marks is bounded by the
+        /// track and not by the session, and the 2pt of clear track between
+        /// neighbours is what keeps a busy rail from fusing into a stripe.
+        static let terminalPromptRailSlotHeightPX: CGFloat = 5
+        static let terminalPromptRailMarkerHeightPX: CGFloat = 3
+        /// Inset applied to a mark that stands for exactly one command, so a
+        /// lone command reads narrower than a stack of them at a glance.
+        static let terminalPromptRailSingletonInsetPX: CGFloat = 1.5
+        /// Commands per mark above which counting them by eye is hopeless and
+        /// the rail switches to a density wash. Eight is where a cluster stops
+        /// being a short list the popover can show in full.
+        static let terminalPromptRailClusterFanoutLIMIT = 8
+        /// How far off a mark a click may land and still count, in slots. The
+        /// mark is 3pt tall in a 6pt strip; requiring a hit on the mark itself
+        /// would make the rail feel broken.
+        static let terminalPromptRailHitToleranceSLOTS: CGFloat = 1.5
+        /// Commands the hover popover lists before it stops and reports a
+        /// remainder. Past this the popover is taller than the thing it
+        /// describes.
+        static let terminalPromptRailPopoverEntryLIMIT = 6
+        /// Marks the popover gathers around the pointer before trimming to the
+        /// entry limit. More than one so a hover between two marks describes
+        /// both.
+        static let terminalPromptRailPopoverClusterLIMIT = 4
+        static var terminalPromptRailPopoverWidthPX: CGFloat { UIScale.scaledMetric(300) }
+        static var terminalPromptRailPopoverRowHeightPX: CGFloat { UIScale.scaledMetric(20) }
+        static let terminalPromptRailPopoverInsetPX = Space.x3PX
+        static let terminalPromptRailPopoverGapPX = Space.x2PX
         static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
         static let terminalDiscreteScrollRowsPerTick = 2
         static var terminalSearchWidthPX: CGFloat { UIScale.scaledMetric(340) }
@@ -1010,6 +1087,57 @@ enum DesignTokens {
         static var agentTranscriptMonospacedFontSizePT: CGFloat { UIScale.scaledPointSize(11) }
         static let agentTranscriptDetailBackgroundAlphaRATIO: CGFloat = 0.06
         static let agentTranscriptDiffBackgroundAlphaRATIO: CGFloat = 0.10
+
+        // MARK: Rendered Markdown inside a transcript text row
+        //
+        // A message an agent wrote is a document, not a list row, so these are
+        // document metrics: a heading ramp, paragraph leading, list indents.
+        // They still sit on the chrome scale rather than the editor's font-size
+        // setting, for the same reason the three rungs above do — the
+        // transcript is a read-only panel the user is not editing.
+
+        /// Heading ramp indexed by level 1...6. Levels 4 and up share the body
+        /// size and are separated by weight alone: an agent that reaches `####`
+        /// is nesting, not shouting, and six visibly different sizes inside a
+        /// chat row reads as noise.
+        static var agentTranscriptHeadingFontSizesPT: [CGFloat] {
+            [17, 15, 13, 12, 12, 12].map(UIScale.scaledPointSize)
+        }
+        /// Air above a heading that follows other prose. There is deliberately
+        /// no matching value below it: a heading belongs to the block under it.
+        static var agentTranscriptHeadingSpacingBeforePX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptParagraphSpacingPX: CGFloat { UIScale.scaledMetric(7) }
+        /// Indent added per list nesting level.
+        static var agentTranscriptListIndentPX: CGFloat { UIScale.scaledMetric(14) }
+        /// Column reserved for `•` or `12.`, wide enough that a two-digit
+        /// ordinal does not push its text out of alignment with its neighbours.
+        static var agentTranscriptListMarkerColumnPX: CGFloat { UIScale.scaledMetric(20) }
+        /// Gap between two segments of one rendered message — prose, then a
+        /// code block, then more prose.
+        static var agentTranscriptBlockSpacingPX: CGFloat { UIScale.scaledMetric(8) }
+        /// Block-quote rule. Fixed, like every other stroke.
+        static let agentTranscriptQuoteBarWidthPX: CGFloat = 2
+        static var agentTranscriptQuoteIndentPX: CGFloat { UIScale.scaledMetric(12) }
+        static var agentTranscriptCodeBlockPaddingXPX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptCodeBlockPaddingYPX: CGFloat { UIScale.scaledMetric(7) }
+        static let agentTranscriptCodeBlockCornerRadiusPX = Radius.smPX
+        /// Fixed leading inside a code block. Code is set as lines, so its
+        /// height must be an exact multiple of this: the block sizes itself
+        /// arithmetically from its line count instead of asking the text system,
+        /// which is what lets a non-wrapping block have a knowable height.
+        static var agentTranscriptCodeLineHeightPX: CGFloat { UIScale.scaledMetric(15) }
+        static var agentTranscriptCodeLanguageFontSizePT: CGFloat { UIScale.scaledPointSize(9) }
+        static let agentTranscriptCodeBackgroundAlphaRATIO: CGFloat = 0.06
+        static let agentTranscriptInlineCodeBackgroundAlphaRATIO: CGFloat = 0.09
+        static var agentTranscriptTableCellPaddingXPX: CGFloat { UIScale.scaledMetric(8) }
+        static var agentTranscriptTableCellPaddingYPX: CGFloat { UIScale.scaledMetric(4) }
+        /// Floor a column is shrunk to before the table gives up on natural
+        /// widths and splits the row evenly. Below this a column holds about
+        /// four characters and reads as a stripe rather than data.
+        static var agentTranscriptTableMinimumColumnWidthPX: CGFloat { UIScale.scaledMetric(44) }
+        static let agentTranscriptTableHeaderBackgroundAlphaRATIO: CGFloat = 0.07
+        /// Vertical air around a `---` rule.
+        static var agentTranscriptRuleSpacingPX: CGFloat { UIScale.scaledMetric(6) }
         // Shared three-state row highlight. Command history, agent sessions,
         // and the file explorer all paint through
         // `TerminalSidebarRowHighlight`, so the geometry lives once here.

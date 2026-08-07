@@ -10,6 +10,12 @@ import AppKit
 /// tool run is one `▸ Edit  src/foo.swift` line that expands in place into its
 /// input, a synthesized diff, and its output, so a turn with many tool calls
 /// stays scannable.
+///
+/// Message text is rendered as a Markdown document; tool input, tool output and
+/// diffs are not. That line is deliberate. A message is prose an agent wrote for
+/// a reader, so `##` should be a heading. A tool's input and output are verbatim
+/// bytes, and reinterpreting a JSON payload or a shell transcript as Markdown
+/// would silently rewrite the one thing the viewer exists to show truthfully.
 @MainActor
 final class AgentSessionTranscriptView: NSView {
     private enum Glyph {
@@ -17,6 +23,19 @@ final class AgentSessionTranscriptView: NSView {
         static let expanded = "▾"
         static let removedPrefix = "- "
         static let addedPrefix = "+ "
+    }
+
+    /// Parsed message bodies, keyed by row identity.
+    ///
+    /// `viewFor` is called for every row the table paints and again whenever it
+    /// measures a height, so parsing there without a cache would re-parse the
+    /// visible window on every append while the tail is live. The cache is
+    /// dropped wholesale rather than aged: it exists to cover a viewport, its
+    /// entries cost nothing to rebuild, and an eviction policy would be more
+    /// code than the thing it manages.
+    private struct ParsedMessage {
+        let text: String
+        let blocks: [AgentMarkdownBlock]
     }
 
     private let controller: AgentSessionTranscriptController
@@ -32,6 +51,10 @@ final class AgentSessionTranscriptView: NSView {
     private var rows: [AgentTranscriptRow] = []
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var isFollowingTail = true
+    private var parsedMessages: [String: ParsedMessage] = [:]
+    /// Comfortably above any viewport, small enough that a 4,000-message
+    /// transcript scrolled end to end cannot grow this without bound.
+    private static let parsedMessageCacheLimit = 512
 
     init(controller: AgentSessionTranscriptController) {
         self.controller = controller
@@ -67,6 +90,9 @@ final class AgentSessionTranscriptView: NSView {
         layer?.backgroundColor = theme.windowBackground.cgColor
         emptyStateLabel.textColor = theme.textMuted
         olderRecordsLabel.textColor = theme.textMuted
+        // Colours are baked into the composed attributed strings, so the rows
+        // have to be rebuilt. The parsed block trees behind them carry no
+        // colour and survive the change.
         tableView.reloadData()
     }
 
@@ -231,6 +257,32 @@ final class AgentSessionTranscriptView: NSView {
         }
     }
 
+    /// Coloured diff text. Static and pure for the same reason `diffLineText`
+    /// is: the two colours *are* the diff's rendering contract, and reading a
+    /// constraint proves nothing about them.
+    static func diffAttributedString(
+        _ diff: AgentTranscriptDiff,
+        theme: DesignTokens.ChromeTheme
+    ) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        let font = NSFont.monospacedSystemFont(
+            ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT,
+            weight: .regular
+        )
+        for line in diff.lines {
+            // Theme roles rather than the system palette: `systemRed` and
+            // `systemGreen` here were the last raw `NSColor` references in the
+            // app layer, and they read differently from every other red and
+            // green in the chrome.
+            let color = line.kind == .removed ? theme.error : theme.success
+            text.append(NSAttributedString(
+                string: diffLineText(line) + "\n",
+                attributes: [.font: font, .foregroundColor: color]
+            ))
+        }
+        return text
+    }
+
     static func toolRunLabel(run: AgentTranscriptToolRun, isExpanded: Bool) -> String {
         let disclosure = isExpanded ? Glyph.expanded : Glyph.collapsed
         return "\(disclosure) \(run.summary)"
@@ -240,14 +292,8 @@ final class AgentSessionTranscriptView: NSView {
         switch row {
         case let .turnHeader(_, role, timestamp):
             return makeHeaderView(role: role, timestamp: timestamp)
-        case let .text(_, _, text):
-            return makeLabelView(
-                text: text,
-                font: NSFont.systemFont(ofSize: DesignTokens.Component.agentTranscriptBodyFontSizePT),
-                color: chromeTheme.textPrimary,
-                insetX: DesignTokens.Component.agentTranscriptRowInsetXPX,
-                backgroundColor: nil
-            )
+        case let .text(id, _, text):
+            return makeMessageView(id: id, text: text)
         case let .toolRun(_, run, isExpanded):
             return makeLabelView(
                 text: Self.toolRunLabel(run: run, isExpanded: isExpanded),
@@ -295,6 +341,30 @@ final class AgentSessionTranscriptView: NSView {
         return container
     }
 
+    /// Message body as a rendered document. Parsing is lazy and cached so the
+    /// cost lands on the rows the user can actually see rather than on all
+    /// 4,000 the reader is holding.
+    private func makeMessageView(id: String, text: String) -> NSView {
+        AgentMarkdownDocumentView(
+            blocks: blocks(id: id, text: text),
+            theme: chromeTheme,
+            insetX: DesignTokens.Component.agentTranscriptRowInsetXPX,
+            insetY: DesignTokens.Component.agentTranscriptRowInsetYPX
+        )
+    }
+
+    private func blocks(id: String, text: String) -> [AgentMarkdownBlock] {
+        if let cached = parsedMessages[id], cached.text == text {
+            return cached.blocks
+        }
+        if parsedMessages.count >= Self.parsedMessageCacheLimit {
+            parsedMessages.removeAll(keepingCapacity: true)
+        }
+        let blocks = AgentTranscriptMarkdown.document(text)
+        parsedMessages[id] = ParsedMessage(text: text, blocks: blocks)
+        return blocks
+    }
+
     private func makeLabelView(
         text: String,
         font: NSFont,
@@ -328,16 +398,7 @@ final class AgentSessionTranscriptView: NSView {
         container.layer?.backgroundColor = chromeTheme.textPrimary
             .withAlphaComponent(DesignTokens.Component.agentTranscriptDiffBackgroundAlphaRATIO).cgColor
 
-        let text = NSMutableAttributedString()
-        let font = NSFont.monospacedSystemFont(ofSize: DesignTokens.Component.agentTranscriptMonospacedFontSizePT, weight: .regular)
-        for line in diff.lines {
-            let color = line.kind == .removed ? NSColor.systemRed : NSColor.systemGreen
-            text.append(NSAttributedString(
-                string: Self.diffLineText(line) + "\n",
-                attributes: [.font: font, .foregroundColor: color]
-            ))
-        }
-        let label = NSTextField(labelWithAttributedString: text)
+        let label = NSTextField(labelWithAttributedString: Self.diffAttributedString(diff, theme: chromeTheme))
         label.isSelectable = true
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0

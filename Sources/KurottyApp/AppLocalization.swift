@@ -105,6 +105,11 @@ enum L10nKey: String, CaseIterable {
     case quickCommandSeedGitLogGraph, quickCommandSeedClaudeResume
     case openTranscript, transcriptEmpty, transcriptReadOnly, transcriptOlderRecordsHidden
     case transcriptRoleUser, transcriptRoleAgent, transcriptRoleTool, transcriptRoleSystem
+    // Rendered Markdown inside a transcript message. Only the parts that draw
+    // no text of their own need a string: a fence with no info string still
+    // wants a label on its chip, and a table and a quote are bare views that
+    // VoiceOver would otherwise announce as nothing.
+    case transcriptCodeBlockUnlabeled, transcriptTableAccessibility, transcriptQuoteAccessibility
     case collapseAllToolRuns
     // Bottom status bar. `cancel` is deliberately absent: the bar reuses the
     // existing `.cancel` key rather than shipping a second "Cancel".
@@ -150,6 +155,29 @@ enum L10nKey: String, CaseIterable {
     // its other three rows are the app menu's, and a second "Settings" or
     // "Quit" would be the same sentence maintained in two places.
     case openApp, menuBarExtraAccessibility
+    // Prompt navigator rail. The two jump commands are menu and palette rows;
+    // the overflow line is the popover admitting it truncated, and the
+    // accessibility label names the rail for VoiceOver, which cannot read a
+    // column of 3pt marks.
+    case jumpToPreviousPrompt, jumpToNextPrompt
+    case promptNavigatorMoreCommands, promptNavigatorAccessibility
+    // Project file palette. The footer states are separate keys rather than one
+    // formatted sentence because they compose: a fallback scan that also
+    // truncated says both, and a single string could not.
+    case openProjectFile, openProjectFilePlaceholder, openProjectFileScanning
+    case openProjectFileEmpty, openProjectFileNoMatches, openProjectFileResultCount
+    case openProjectFileWithoutRipgrep, openProjectFileTruncated
+    // First-run setup checklist. `gettingStartedItem*` name the checks; the
+    // three states below are shared by every row, so a new check costs one
+    // title and one detail rather than three more state strings.
+    case gettingStarted, gettingStartedSubtitle
+    case gettingStartedStateReady, gettingStartedStateAction, gettingStartedStateUnavailable
+    case gettingStartedItemShellIntegration, gettingStartedItemShellIntegrationDetail
+    case gettingStartedItemAgentStatus, gettingStartedItemAgentStatusDetail
+    case gettingStartedItemAgentSessions, gettingStartedItemAgentSessionsDetail
+    case gettingStartedItemProjectFiles, gettingStartedItemProjectFilesDetail
+    case gettingStartedItemInstallLocation, gettingStartedItemInstallLocationDetail
+    case gettingStartedOpenSettings, gettingStartedCopyCommand, gettingStartedCommandCopied
 }
 
 enum AppLocalization {
@@ -258,6 +286,7 @@ enum AppLocalization {
             .openTranscript: "Open Transcript", .transcriptEmpty: "This transcript has no readable records yet.",
             .transcriptReadOnly: "Read-only", .transcriptOlderRecordsHidden: "Older records are not shown.",
             .transcriptRoleUser: "You", .transcriptRoleAgent: "Agent", .transcriptRoleTool: "Tool", .transcriptRoleSystem: "System",
+            .transcriptCodeBlockUnlabeled: "Code", .transcriptTableAccessibility: "Table", .transcriptQuoteAccessibility: "Quote",
             .collapseAllToolRuns: "Collapse All Tool Runs",
             .statusBarAgentIdle: "Idle", .statusBarAgentWorking: "Working", .statusBarAgentNeedsInput: "Needs input", .statusBarAgentBlocked: "Blocked",
             .statusBarNoAgent: "No agent", .statusBarConnectAnAgent: "Connect an agent",
@@ -299,7 +328,31 @@ enum AppLocalization {
             .childExitRestart: "Restart", .childExitClose: "Close",
             .increaseFontSize: "Increase Font Size", .decreaseFontSize: "Decrease Font Size", .resetFontSize: "Actual Size",
             .commandProgressAccessibility: "Command running",
+            .jumpToPreviousPrompt: "Jump to Previous Prompt", .jumpToNextPrompt: "Jump to Next Prompt",
+            .promptNavigatorMoreCommands: "%d more", .promptNavigatorAccessibility: "Prompt navigator",
             .openApp: "Open %@", .menuBarExtraAccessibility: "%@ menu",
+            .openProjectFile: "Open Project File", .openProjectFilePlaceholder: "Find a file by name",
+            .openProjectFileScanning: "Scanning...", .openProjectFileEmpty: "No files here",
+            .openProjectFileNoMatches: "No matching files",
+            .openProjectFileResultCount: "%1$d of %2$d",
+            .openProjectFileWithoutRipgrep: "without ripgrep",
+            .openProjectFileTruncated: "partial scan",
+            .gettingStarted: "Getting Started",
+            .gettingStartedSubtitle: "What Kurotty found on this machine. Nothing here is required.",
+            .gettingStartedStateReady: "Ready", .gettingStartedStateAction: "Not set up",
+            .gettingStartedStateUnavailable: "Off",
+            .gettingStartedItemShellIntegration: "Shell integration",
+            .gettingStartedItemShellIntegrationDetail: "Command boundaries and working directory, which the history panel, the progress bar, and finish notifications all read. Loaded for zsh, bash, and fish without touching your shell files. Another login shell is not an error; those features simply stay quiet.",
+            .gettingStartedItemAgentStatus: "Agent status",
+            .gettingStartedItemAgentStatusDetail: "Shows whether an agent in a pane is working, waiting, or blocked. Kurotty asks once before writing anything into an agent's own configuration.",
+            .gettingStartedItemAgentSessions: "Agent sessions",
+            .gettingStartedItemAgentSessionsDetail: "Indexes the Claude Code and Codex transcripts already on this machine so you can resume one from the sidebar. Nothing is copied.",
+            .gettingStartedItemProjectFiles: "Project file search",
+            .gettingStartedItemProjectFilesDetail: "Open Project File works without ripgrep, but the built-in scan ignores .gitignore and stops at a fixed budget. With ripgrep it reads your ignore rules and scans the whole tree.",
+            .gettingStartedItemInstallLocation: "Installed in Applications",
+            .gettingStartedItemInstallLocationDetail: "Automatic updates need Kurotty to live in Applications rather than in the disk image or Downloads.",
+            .gettingStartedOpenSettings: "Open Settings", .gettingStartedCopyCommand: "Copy Command",
+            .gettingStartedCommandCopied: "Copied",
         ],
         .korean: [
             .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
@@ -367,6 +420,7 @@ enum AppLocalization {
             .openTranscript: "대화 기록 열기", .transcriptEmpty: "이 대화 기록에는 아직 읽을 수 있는 항목이 없습니다.",
             .transcriptReadOnly: "읽기 전용", .transcriptOlderRecordsHidden: "이전 항목은 표시되지 않습니다.",
             .transcriptRoleUser: "나", .transcriptRoleAgent: "에이전트", .transcriptRoleTool: "도구", .transcriptRoleSystem: "시스템",
+            .transcriptCodeBlockUnlabeled: "코드", .transcriptTableAccessibility: "표", .transcriptQuoteAccessibility: "인용",
             .collapseAllToolRuns: "모든 도구 실행 접기",
             .statusBarAgentIdle: "대기", .statusBarAgentWorking: "작업 중", .statusBarAgentNeedsInput: "입력 필요", .statusBarAgentBlocked: "차단됨",
             .statusBarNoAgent: "에이전트 없음", .statusBarConnectAnAgent: "에이전트 연결",
@@ -408,7 +462,31 @@ enum AppLocalization {
             .childExitRestart: "다시 시작", .childExitClose: "닫기",
             .increaseFontSize: "글자 크게", .decreaseFontSize: "글자 작게", .resetFontSize: "실제 크기",
             .commandProgressAccessibility: "명령 실행 중",
+            .jumpToPreviousPrompt: "이전 프롬프트로 이동", .jumpToNextPrompt: "다음 프롬프트로 이동",
+            .promptNavigatorMoreCommands: "%d개 더", .promptNavigatorAccessibility: "프롬프트 내비게이터",
             .openApp: "%@ 열기", .menuBarExtraAccessibility: "%@ 메뉴",
+            .openProjectFile: "프로젝트 파일 열기", .openProjectFilePlaceholder: "이름으로 파일 찾기",
+            .openProjectFileScanning: "검색 중...", .openProjectFileEmpty: "파일이 없습니다",
+            .openProjectFileNoMatches: "일치하는 파일 없음",
+            .openProjectFileResultCount: "%2$d개 중 %1$d개",
+            .openProjectFileWithoutRipgrep: "ripgrep 없이 검색",
+            .openProjectFileTruncated: "일부만 검색됨",
+            .gettingStarted: "시작하기",
+            .gettingStartedSubtitle: "Kurotty가 이 컴퓨터에서 확인한 상태입니다. 필수 항목은 없습니다.",
+            .gettingStartedStateReady: "준비됨", .gettingStartedStateAction: "설정 안 됨",
+            .gettingStartedStateUnavailable: "꺼짐",
+            .gettingStartedItemShellIntegration: "셸 통합",
+            .gettingStartedItemShellIntegrationDetail: "명령 경계와 작업 디렉터리를 인식하며, 히스토리 패널과 진행 표시줄, 완료 알림이 모두 이 정보를 사용합니다. zsh, bash, fish에는 셸 설정 파일을 건드리지 않고 적용됩니다. 다른 로그인 셸을 써도 오류는 아니며, 해당 기능만 동작하지 않습니다.",
+            .gettingStartedItemAgentStatus: "에이전트 상태",
+            .gettingStartedItemAgentStatusDetail: "페인에서 실행 중인 에이전트가 작업 중인지, 입력을 기다리는지, 막혔는지 보여줍니다. 에이전트의 설정 파일을 수정하기 전에 한 번 물어봅니다.",
+            .gettingStartedItemAgentSessions: "에이전트 세션",
+            .gettingStartedItemAgentSessionsDetail: "이 컴퓨터에 이미 있는 Claude Code와 Codex 기록을 색인해 사이드바에서 이어서 실행할 수 있게 합니다. 내용을 복사하지 않습니다.",
+            .gettingStartedItemProjectFiles: "프로젝트 파일 검색",
+            .gettingStartedItemProjectFilesDetail: "ripgrep 없이도 동작하지만, 내장 검색은 .gitignore를 무시하고 정해진 한도에서 멈춥니다. ripgrep이 있으면 무시 규칙을 읽고 전체 트리를 검색합니다.",
+            .gettingStartedItemInstallLocation: "응용 프로그램 폴더에 설치됨",
+            .gettingStartedItemInstallLocationDetail: "자동 업데이트를 받으려면 Kurotty가 디스크 이미지나 다운로드 폴더가 아니라 응용 프로그램 폴더에 있어야 합니다.",
+            .gettingStartedOpenSettings: "설정 열기", .gettingStartedCopyCommand: "명령 복사",
+            .gettingStartedCommandCopied: "복사됨",
         ],
         .japanese: [
             .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
@@ -476,6 +554,7 @@ enum AppLocalization {
             .openTranscript: "記録を開く", .transcriptEmpty: "この記録にはまだ読み取れるレコードがありません。",
             .transcriptReadOnly: "読み取り専用", .transcriptOlderRecordsHidden: "古いレコードは表示されません。",
             .transcriptRoleUser: "あなた", .transcriptRoleAgent: "エージェント", .transcriptRoleTool: "ツール", .transcriptRoleSystem: "システム",
+            .transcriptCodeBlockUnlabeled: "コード", .transcriptTableAccessibility: "表", .transcriptQuoteAccessibility: "引用",
             .collapseAllToolRuns: "すべてのツール実行を折りたたむ",
             .statusBarAgentIdle: "待機", .statusBarAgentWorking: "作業中", .statusBarAgentNeedsInput: "入力待ち", .statusBarAgentBlocked: "ブロック",
             .statusBarNoAgent: "エージェントなし", .statusBarConnectAnAgent: "エージェントを接続",
@@ -517,7 +596,31 @@ enum AppLocalization {
             .childExitRestart: "再起動", .childExitClose: "閉じる",
             .increaseFontSize: "文字を大きく", .decreaseFontSize: "文字を小さく", .resetFontSize: "実際のサイズ",
             .commandProgressAccessibility: "コマンド実行中",
+            .jumpToPreviousPrompt: "前のプロンプトへ移動", .jumpToNextPrompt: "次のプロンプトへ移動",
+            .promptNavigatorMoreCommands: "他%d件", .promptNavigatorAccessibility: "プロンプトナビゲータ",
             .openApp: "%@を開く", .menuBarExtraAccessibility: "%@メニュー",
+            .openProjectFile: "プロジェクトファイルを開く", .openProjectFilePlaceholder: "ファイル名で検索",
+            .openProjectFileScanning: "スキャン中...", .openProjectFileEmpty: "ファイルがありません",
+            .openProjectFileNoMatches: "一致するファイルなし",
+            .openProjectFileResultCount: "%2$d件中%1$d件",
+            .openProjectFileWithoutRipgrep: "ripgrepなしで検索",
+            .openProjectFileTruncated: "部分的なスキャン",
+            .gettingStarted: "はじめに",
+            .gettingStartedSubtitle: "Kurottyがこのマシンで確認した状態です。必須の項目はありません。",
+            .gettingStartedStateReady: "準備完了", .gettingStartedStateAction: "未設定",
+            .gettingStartedStateUnavailable: "オフ",
+            .gettingStartedItemShellIntegration: "シェル統合",
+            .gettingStartedItemShellIntegrationDetail: "コマンドの区切りと作業ディレクトリを認識し、履歴パネル、進行状況バー、完了通知がこの情報を使います。zsh、bash、fishにはシェル設定ファイルを変更せず適用されます。別のログインシェルでもエラーではなく、これらの機能が動かないだけです。",
+            .gettingStartedItemAgentStatus: "エージェントの状態",
+            .gettingStartedItemAgentStatusDetail: "ペインで動いているエージェントが作業中か、入力待ちか、停止しているかを表示します。エージェント自身の設定ファイルに書き込む前に一度だけ確認します。",
+            .gettingStartedItemAgentSessions: "エージェントセッション",
+            .gettingStartedItemAgentSessionsDetail: "このマシンにあるClaude CodeとCodexの記録を索引し、サイドバーから再開できるようにします。内容はコピーしません。",
+            .gettingStartedItemProjectFiles: "プロジェクトファイル検索",
+            .gettingStartedItemProjectFilesDetail: "ripgrepがなくても動きますが、内蔵のスキャンは.gitignoreを読まず、決まった上限で止まります。ripgrepがあれば無視ルールを読んでツリー全体を検索します。",
+            .gettingStartedItemInstallLocation: "アプリケーションフォルダにインストール済み",
+            .gettingStartedItemInstallLocationDetail: "自動アップデートには、Kurottyがディスクイメージやダウンロードフォルダではなくアプリケーションフォルダにある必要があります。",
+            .gettingStartedOpenSettings: "設定を開く", .gettingStartedCopyCommand: "コマンドをコピー",
+            .gettingStartedCommandCopied: "コピーしました",
         ],
     ]
 }

@@ -72,6 +72,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// Settable so tests can point it at a temporary root instead of the user's
     /// real Application Support directory.
     var scrollbackSnapshotCoordinator: TerminalScrollbackSnapshotCoordinator?
+    /// The project file palette, held only while it is on screen. Retained by
+    /// the window rather than the app because the scan root is the window's
+    /// active pane, so a second window opens its own palette over its own
+    /// project instead of stealing this one.
+    var projectFilePaletteController: ProjectFileQuickOpenWindowController?
     var chromeTheme: DesignTokens.ChromeTheme
     /// Scaled constants on the window shell itself — currently the two sidebar
     /// toggles. The tab bar's own height is re-taken by `updateTabBar`, and
@@ -248,6 +253,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             return
         }
         currentSplitView()?.showSearchInActivePane()
+    }
+
+    /// Scrolls the active pane to the previous or next shell prompt. Silent in
+    /// a pane with no OSC 133 boundaries: there is nothing to jump to, and a
+    /// beep for a shell that simply has no integration installed would blame
+    /// the user for it.
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        currentSplitView()?.jumpToPromptInActivePane(direction)
     }
 
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
@@ -454,6 +467,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         updateTabBar()
         refreshFileExplorerRootDirectory()
         refreshStatusBarPanes()
+        // Re-runs the checks when the page comes back into view. The page is
+        // not on a timer: every row is a settings read or a process spawn, and
+        // polling them would spend work on a tab nobody is looking at.
+        if let tabViewItem, gettingStartedView(in: tabViewItem) != nil {
+            refreshGettingStartedEnvironment()
+        }
         if suppressesTmuxSelectionCallbacks {
             return
         }
@@ -561,6 +580,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         statusBarView.applyChromeTheme(chromeTheme)
+        if let item = gettingStartedTabItem {
+            gettingStartedView(in: item)?.applyChromeTheme(chromeTheme)
+        }
         applyChromeThemeToTabSplits(chromeTheme)
         // Both toggles take their full ramp from the theme, so a light theme
         // has to reach them here too — not only their on/off tint.

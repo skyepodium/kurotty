@@ -11,6 +11,17 @@ struct TerminalShellLaunchConfiguration: Equatable {
 enum TerminalShellIntegrationBootstrap {
     private static let preservedZDOTDIREnvironmentName = "KUROTTY_ZSH_ZDOTDIR"
 
+    /// The shell a new pane will launch. Named once here because two callers
+    /// need the same answer for different reasons — `ShellSession` to spawn it,
+    /// and the setup checklist to report what integration it will get — and the
+    /// two must not be able to disagree.
+    static func loginShellPath(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let path = environment[AppConstants.Shell.pathEnvironmentName] ?? ""
+        return path.isEmpty ? AppConstants.Shell.defaultPath : path
+    }
+
     static var bundledResourceDirectory: URL? {
         KurottyResourceBundle.bundle?.url(forResource: "ShellIntegration", withExtension: nil)
     }

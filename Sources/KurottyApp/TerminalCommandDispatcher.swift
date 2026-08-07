@@ -120,12 +120,18 @@ enum TerminalCommandDispatcher {
             controller.selectNextTab()
         case .findTerminalOutput:
             controller.findTerminalOutput()
+        case let .jumpToPrompt(direction):
+            controller.jumpToPrompt(direction)
         case .toggleCommandHistoryPanel:
             controller.toggleCommandHistoryPanel()
         case .toggleFileExplorerPanel:
             controller.toggleFileExplorerPanel()
         case .toggleAgentSessionPanel:
             controller.toggleAgentSessionPanel()
+        case .openProjectFile:
+            controller.openProjectFilePalette()
+        case .openGettingStarted:
+            controller.openGettingStartedTab()
         case let .zoomFont(step):
             // The zoom is app-wide, so it does not route through the controller
             // the way the pane and tab commands do.
