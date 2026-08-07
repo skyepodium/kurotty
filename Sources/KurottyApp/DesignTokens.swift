@@ -940,6 +940,18 @@ enum DesignTokens {
         static let fileExplorerAgentRingDiameterPX: CGFloat = 6
         static let fileExplorerAgentRingLineWidthPX: CGFloat = 1.5
         static let fileExplorerAgentRingAlphaRATIO: CGFloat = 0.90
+        /// Inline notice for a create, rename, or trash that did not happen.
+        /// It sits between the search pill and the tree and collapses to
+        /// nothing when there is no message, so a panel with no failure keeps
+        /// exactly the layout it had before this feature existed. The row is a
+        /// sentence, so its padding scales with the type ramp around it.
+        static var fileExplorerActionErrorPaddingYPX: CGFloat { UIScale.scaledMetric(Space.x2PX) }
+        /// The name field in the create/rename prompt. Both dimensions hold
+        /// type, so both scale: a 24px field with a 20pt ramp clips its own
+        /// text, and a fixed 240px field truncates a filename the user can
+        /// still read at a larger size.
+        static var fileExplorerNamePromptFieldWidthPX: CGFloat { UIScale.scaledMetric(260) }
+        static var fileExplorerNamePromptFieldHeightPX: CGFloat { UIScale.scaledMetric(24) }
 
         // MARK: Shared sidebar search pill
 
