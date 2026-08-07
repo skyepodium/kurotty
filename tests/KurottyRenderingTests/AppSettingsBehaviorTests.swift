@@ -207,6 +207,50 @@ final class AppSettingsBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.terminal.colors, .default)
     }
 
+    /// The palette lives in two places: the preset in code, and the resolved
+    /// colors persisted in every settings file. Fixing the preset reaches an
+    /// existing install only because a file that names a preset has that
+    /// preset's colors reapplied on load. This pins that path — it is what
+    /// makes a schema migration unnecessary, and if it ever stops holding, a
+    /// palette fix silently stops shipping to everyone who already has the app.
+    @MainActor
+    func testANamedLighttyThemeReappliesTheRecutPaletteOverStoredColors() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 22,
+            theme: TerminalThemePreset.lighttyName,
+            colors: lighttyColorsJSON()
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.colors, .lightty)
+        XCTAssertNotEqual(
+            settings.terminal.colors.ansi[15],
+            settings.terminal.colors.background,
+            "slot 15 shipped white on white; that is the bug the recut palette repairs"
+        )
+    }
+
+    /// The counterpart. Colors matching no preset infer to `custom`, and a
+    /// custom palette is a choice: nothing reapplies over it, so someone who
+    /// edited the old Lightty keeps exactly what they edited.
+    @MainActor
+    func testACustomPaletteIsNeverOverwrittenByAPresetRecut() throws {
+        let store = AppSettingsStore(settingsURL: settingsURL())
+        let edited = lighttyColorsJSON().replacingOccurrences(of: "#AB4634", with: "#B00020")
+
+        try store.save(rawJSON: settingsJSON(
+            schemaVersion: 22,
+            theme: TerminalThemePreset.customName,
+            colors: edited
+        ))
+        let settings = try store.load()
+
+        XCTAssertEqual(settings.terminal.colors.ansi[1], "#B00020")
+        XCTAssertEqual(settings.terminal.colors.ansi[15], "#FFFFFF")
+    }
+
     @MainActor
     func testExplicitKurottyThemeAppliesPresetColorsOverExistingThemeColors() throws {
         let store = AppSettingsStore(settingsURL: settingsURL())
@@ -326,9 +370,11 @@ final class AppSettingsBehaviorTests: XCTestCase {
             nextAnsiColors: nextAnsiColors
         )
         var screen = KurottyCore.TerminalScreen(rows: 1, columns: 3)
-        let lighttyWhite = TerminalColorSettings.lightty.backgroundColor
+        // Slot 15, read from the palette rather than from the background. The
+        // two were the same color while Lightty shipped white on white, and
+        // taking it from the background quietly depended on that.
         let promptStyle = TerminalTextStyle(
-            foreground: lighttyWhite,
+            foreground: previousAnsiColors[15],
             background: previousAnsiColors[5]
         )
         let customStyle = TerminalTextStyle(
