@@ -1023,12 +1023,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("DesignTokens.Component.terminalTabButtonHoverAlphaRATIO"))
         XCTAssertEqual(DesignTokens.Component.terminalTabButtonHoverAlphaRATIO, 0.18)
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
-        // Re-pointed 2026-08: chrome icon buttons use the arrow cursor. The
-        // pointing hand is the macOS convention for a web link, so it marked
-        // every chrome button as not-native. The assertion is kept (rather
-        // than deleted) so a silent revert to .pointingHand still fails.
-        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .arrow)"))
-        XCTAssertFalse(try chromeIconButtonSource().contains(".pointingHand"))
+        // Icon-only controls use a hand cursor so their hover state reads as
+        // actionable before the tooltip delay completes.
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
         XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
@@ -1313,12 +1310,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try chromeIconButtonSource().contains("let location = convert(event.locationInWindow, from: nil)"))
         XCTAssertTrue(try chromeIconButtonSource().contains("guard !bounds.contains(location) else { return }"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
-        // Re-pointed 2026-08: chrome icon buttons use the arrow cursor. The
-        // pointing hand is the macOS convention for a web link, so it marked
-        // every chrome button as not-native. The assertion is kept (rather
-        // than deleted) so a silent revert to .pointingHand still fails.
-        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .arrow)"))
-        XCTAssertFalse(try chromeIconButtonSource().contains(".pointingHand"))
+        // All top-chrome icon buttons share the same hand cursor affordance.
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(paneSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))

@@ -115,9 +115,9 @@ final class ChromeIconButton: NSButton {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard isEnabled else { return }
-        // Arrow, not pointing hand: the pointing hand means "web link" on macOS
-        // and marks a control as not-native the moment it appears.
-        addCursorRect(bounds, cursor: .arrow)
+        // Chrome icons are compact and often carry no visible label. The hand
+        // cursor reinforces the hover wash and tooltip as one clear affordance.
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     override func mouseEntered(with event: NSEvent) {
