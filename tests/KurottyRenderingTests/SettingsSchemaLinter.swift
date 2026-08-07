@@ -121,6 +121,16 @@ enum SettingsSchemaLinter {
             "records the same answer for Codex, and is omitted from the migrations for the same reason",
     ]
 
+    /// Migrations that deliberately write a value rather than the shared
+    /// default. Resetting to the default is right when the key is a preference;
+    /// it is wrong when the key records that something already happened, since
+    /// the default describes a fresh install and the file being migrated is not
+    /// one. Each entry is the record of that judgement.
+    private static let assignmentsExemptFromDefaultShape: [String: String] = [
+        "terminal.hasSeenGettingStarted":
+            "an upgraded install has already had its first run; landing on the default would open Getting Started in front of an existing user",
+    ]
+
     /// Written into a `Migration` constant's doc comment to say that sharing a
     /// schema version with another constant, at the version the app currently
     /// writes, is intended rather than the residue of two branches that both
@@ -825,7 +835,9 @@ enum SettingsSchemaLinter {
         let declared = Dictionary(uniqueKeysWithValues: constants.map { ($0.name, $0) })
         for block in blocks {
             for assignment in block.assignments {
-                if !assignment.expression.hasPrefix("SettingsDefaults.") {
+                let qualifiedAssignment = "\(assignment.section).\(assignment.key)"
+                if !assignment.expression.hasPrefix("SettingsDefaults."),
+                   assignmentsExemptFromDefaultShape[qualifiedAssignment] == nil {
                     findings.append(Finding(
                         rule: .migrationAssignmentShape,
                         file: scan.name,

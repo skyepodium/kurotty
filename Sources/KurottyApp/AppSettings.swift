@@ -615,8 +615,14 @@ struct AppSettingsNormalizer {
         /// Schema version that introduced `terminal.menuBarExtraEnabled`.
         static let menuBarExtraSchemaVersion = 20
         /// Schema version that introduced `terminal.promptNavigatorRailEnabled`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
         static let promptNavigatorRailSchemaVersion = 22
         /// Schema version that introduced `terminal.hasSeenGettingStarted`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
         static let gettingStartedSchemaVersion = 22
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
