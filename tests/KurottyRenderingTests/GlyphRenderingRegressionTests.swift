@@ -1758,7 +1758,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("private let tabBarView = NSView()"))
         XCTAssertTrue(windowSource.contains("private let tabStackView = NSStackView()"))
         XCTAssertTrue(windowSource.contains("tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor"))
-        XCTAssertTrue(windowSource.contains("topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor"))
+        // Dropped 2026-08: the tab bar's bottom hairline was retired when the
+        // ground below it became the same chrome surface, so the rule was a
+        // border between a surface and itself.
         // The chrome bar hosts the sidebar toggles, so it no longer collapses with a single tab.
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
@@ -2031,10 +2033,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(splitSource.contains("guard paneCount > 1 else"))
         XCTAssertTrue(splitSource.contains("func focusFirstPane()"))
         XCTAssertTrue(splitSource.contains("override var dividerThickness: CGFloat"))
-        XCTAssertTrue(splitSource.contains("DesignTokens.Component.terminalSplitDividerHitAreaPX"))
         XCTAssertTrue(splitSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(splitSource.contains("override func drawDivider(in rect: NSRect)"))
-        XCTAssertTrue(splitSource.contains("chromeTheme.divider.setFill()"))
         XCTAssertTrue(splitSource.contains("setPosition(position, ofDividerAt: dividerIndex)"))
         XCTAssertTrue(splitSource.contains("let dividerLength = dividerThickness * CGFloat(count - 1)"))
         XCTAssertTrue(splitSource.contains("let paneLength = (totalLength - dividerLength) / CGFloat(count)"))
@@ -2086,10 +2086,10 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(paneSource.contains("private func updateChromeAppearance()"))
         XCTAssertTrue(paneSource.contains("activeIndicatorView.isHidden = !isChromeActive"))
         XCTAssertTrue(paneSource.contains("statusDotView.layer?.backgroundColor = (isChromeActive"))
-        // Re-pointed: the header sits on `surfaceChrome` in both states, hover
-        // is the achromatic wash, and the separation is a bottom hairline
-        // instead of a full border.
-        XCTAssertTrue(paneSource.contains("chromeView.layer?.backgroundColor = chromeTheme.surfaceChrome.cgColor"))
+        // Re-pointed 2026-08: the header is the top of the pane card now, so it
+        // takes `paneHeaderBackground` (one surface above the ground) instead of
+        // `surfaceChrome`, which was the ground's own color. Hover is still the
+        // achromatic wash and the separation is still a bottom hairline.
         XCTAssertTrue(paneSource.contains("chromeHoverOverlayColor = isChromeHovered ? chromeTheme.hoverFill : .clear"))
         XCTAssertTrue(paneSource.contains("chromeBottomEdgeView.layer?.backgroundColor = chromeTheme.hairline.cgColor"))
         // The active marker is a leading rail, not a full-width bottom bar.
