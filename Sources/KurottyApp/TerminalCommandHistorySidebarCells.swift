@@ -10,6 +10,14 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
     }
 
     var onReturnKey: (() -> Void)?
+    /// `/` jumps to the panel's filter field.
+    ///
+    /// It takes the key away from `NSOutlineView`'s type-select, which is the
+    /// right trade in this list: type-select matches a row's leading characters,
+    /// and these rows lead with `git`, `swift`, or `cd`, so it lands on the
+    /// wrong row far more often than the filter does. The field it jumps to
+    /// searches the whole command.
+    var onFilterKey: (() -> Void)?
 
     /// Tint for the disclosure chevron. The outline view builds that button
     /// itself, so it cannot be reached through the cell views.
@@ -20,6 +28,10 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.returnKey || event.keyCode == KeyCode.keypadEnterKey {
             onReturnKey?()
+            return
+        }
+        if TerminalSidebarFilterKey.matches(event), let onFilterKey {
+            onFilterKey()
             return
         }
         super.keyDown(with: event)
@@ -74,6 +86,11 @@ final class TerminalCommandHistorySidebarRowView: TerminalSidebarRowView {}
 
 /// Expandable project node: folder icon, emphasized last path component,
 /// dimmed parent path, and a trailing rounded count badge.
+///
+/// This row is the history list's section header, so its content is pinned to
+/// the bottom of a taller row and the space above it is left empty. That air is
+/// the whole vertical-rhythm budget the reference sidebars spend on every row,
+/// spent instead on the ten rows where it separates something.
 @MainActor
 final class TerminalCommandHistoryGroupCellView: NSTableCellView {
     private let titleLabel: NSTextField
@@ -125,26 +142,30 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         toolTip = group.display.path.isEmpty ? nil : group.display.path
 
         let gap = DesignTokens.Component.commandHistoryRowGapPX
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        // Unflipped row geometry: the air is at the high-y edge, so the content
+        // band's centre sits half the air below the cell's own centre.
+        let airOffset = -DesignTokens.Component.commandHistoryGroupRowTopAirPX / 2
+        NSLayoutConstraint.activate(
+            TerminalSidebarRowLayout.leadingSlotConstraints(glyphView: iconView, in: self) + [
+                iconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
 
-            nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
+                nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
 
-            parentLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: gap),
-            parentLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            parentLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: badgeView.leadingAnchor,
-                constant: -gap
-            ),
+                parentLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: gap),
+                parentLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
+                parentLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: badgeView.leadingAnchor,
+                    constant: -gap
+                ),
 
-            badgeView.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -DesignTokens.Component.commandHistoryRowInsetXPX
-            ),
-            badgeView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+                badgeView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -DesignTokens.Component.commandHistoryRowInsetXPX
+                ),
+                badgeView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
+            ]
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -212,13 +233,21 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
         toolTip = entry.commandText
 
         let gap = DesignTokens.Component.commandHistoryRowGapPX
+        let dotSize = DesignTokens.Component.commandHistoryStatusDotSizePX
+        // The dot is centred in a reserved slot rather than pinned to the row
+        // edge, and the command text starts after the whole slot. The slot is
+        // one outline level narrower than a directory row's icon slot, so the
+        // command column lands on the directory-name column above it by
+        // construction — it used to happen to line up because a 6pt dot and a
+        // 12pt folder glyph differed by roughly the indentation.
+        let slot = DesignTokens.Component.sidebarRowStatusSlotWidthPX
         NSLayoutConstraint.activate([
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dot.centerXAnchor.constraint(equalTo: leadingAnchor, constant: slot / 2),
             dot.centerYAnchor.constraint(equalTo: centerYAnchor),
-            dot.widthAnchor.constraint(equalToConstant: DesignTokens.Component.commandHistoryStatusDotSizePX),
-            dot.heightAnchor.constraint(equalToConstant: DesignTokens.Component.commandHistoryStatusDotSizePX),
+            dot.widthAnchor.constraint(equalToConstant: dotSize),
+            dot.heightAnchor.constraint(equalToConstant: dotSize),
 
-            commandLabel.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: gap),
+            commandLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: slot + gap),
             commandLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             detailLabel.leadingAnchor.constraint(equalTo: commandLabel.trailingAnchor, constant: gap),

@@ -23,11 +23,10 @@ final class TerminalAgentSessionPanelView: NSView {
     private let searchPillView = TerminalSidebarSearchPillView(
         placeholder: { AppLocalization.string(.agentSessionsFilterPlaceholder) }
     )
-    private let sectionHeaderLabel = NSTextField(labelWithString: "")
     /// Clipping container for everything below the search pill. The scroll
     /// view and the empty state are both children of this view, so the empty
     /// state is centered in the list region instead of the whole panel and can
-    /// never be drawn over the section header or the search pill.
+    /// never be drawn over the search pill.
     private let listContainerView = NSView()
     private let quotaSummaryView = TerminalAgentQuotaSummaryView()
     private let usageSummaryView = TerminalAgentUsageSummaryView()
@@ -68,7 +67,6 @@ final class TerminalAgentSessionPanelView: NSView {
         searchPillView.applyChromeTheme(theme)
         quotaSummaryView.applyChromeTheme(theme)
         usageSummaryView.applyChromeTheme(theme)
-        DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
         applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
         emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
@@ -111,10 +109,6 @@ final class TerminalAgentSessionPanelView: NSView {
         convert(searchPillView.bounds, from: searchPillView)
     }
 
-    var sectionHeaderFrameForTesting: NSRect {
-        convert(sectionHeaderLabel.bounds, from: sectionHeaderLabel)
-    }
-
     var listRegionFrameForTesting: NSRect {
         convert(listContainerView.bounds, from: listContainerView)
     }
@@ -134,7 +128,6 @@ final class TerminalAgentSessionPanelView: NSView {
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
-        configureSectionHeader()
         configureListContainer()
         configureOutline()
         configureEmptyState()
@@ -166,17 +159,6 @@ final class TerminalAgentSessionPanelView: NSView {
         addSubview(usageSummaryView)
     }
 
-    private func configureSectionHeader() {
-        sectionHeaderLabel.stringValue = AppLocalization.string(.agentSessionsSectionTitle).localizedUppercase
-        DesignTokens.Typography.sectionHeader.apply(
-            to: sectionHeaderLabel,
-            color: chromeTheme.textTertiary
-        )
-        sectionHeaderLabel.lineBreakMode = .byTruncatingTail
-        sectionHeaderLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(sectionHeaderLabel)
-    }
-
     private func configureOutline() {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("agentSession"))
         column.resizingMask = .autoresizingMask
@@ -201,6 +183,9 @@ final class TerminalAgentSessionPanelView: NSView {
         outlineView.doubleAction = #selector(rowDoubleClicked(_:))
         outlineView.onReturnKey = { [weak self] in
             self?.insertSelectedResumeCommand()
+        }
+        outlineView.onFilterKey = { [weak self] in
+            self?.focusFilterField()
         }
         outlineView.menu = makeContextMenu()
 
@@ -237,16 +222,11 @@ final class TerminalAgentSessionPanelView: NSView {
         let insetX = DesignTokens.Component.commandHistoryPanelInsetXPX
         let insetY = DesignTokens.Component.commandHistoryPanelInsetYPX
         NSLayoutConstraint.activate([
-            sectionHeaderLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
-            sectionHeaderLabel.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderInsetXPX
-            ),
-            sectionHeaderLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -insetX),
-
+            // No panel title: the section strip above already names this
+            // section in the same words, so the header was that string twice.
             searchPillView.topAnchor.constraint(
-                equalTo: sectionHeaderLabel.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderBottomGapPX
+                equalTo: topAnchor,
+                constant: DesignTokens.Component.sidebarPanelTopGapPX
             ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
@@ -255,21 +235,21 @@ final class TerminalAgentSessionPanelView: NSView {
             // changes what the user does next, while yesterday's spend does not.
             quotaSummaryView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+                constant: DesignTokens.Component.sidebarPanelBandGapPX
             ),
             quotaSummaryView.leadingAnchor.constraint(equalTo: leadingAnchor),
             quotaSummaryView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
             usageSummaryView.topAnchor.constraint(
                 equalTo: quotaSummaryView.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+                constant: DesignTokens.Component.sidebarPanelBandGapPX
             ),
             usageSummaryView.leadingAnchor.constraint(equalTo: leadingAnchor),
             usageSummaryView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
             listContainerView.topAnchor.constraint(
                 equalTo: usageSummaryView.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+                constant: DesignTokens.Component.sidebarPanelBandGapPX
             ),
             listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -544,6 +524,11 @@ extension TerminalAgentSessionPanelView: NSOutlineViewDataSource, NSOutlineViewD
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalCommandHistorySidebarRowView()
         rowView.chromeTheme = chromeTheme
+        // Same contract as the history list: a group row's air is separation,
+        // not padding, so no highlight may paint over it.
+        if item is TerminalAgentSessionGroupOutlineItem {
+            rowView.highlightTopInsetPX = DesignTokens.Component.commandHistoryGroupRowTopAirPX
+        }
         return rowView
     }
 

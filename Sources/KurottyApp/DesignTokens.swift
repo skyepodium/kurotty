@@ -544,9 +544,9 @@ enum DesignTokens {
     ///
     /// Every floating surface used to hand-roll its own shadow (the terminal
     /// search bar carried `black @ 0.22 / r10 / y-2`), so two overlays at the
-    /// same conceptual height rendered at different heights. There is exactly
-    /// one elevation in the app today — a surface that floats over the terminal
-    /// — so there is exactly one level here.
+    /// same conceptual height rendered at different heights. There are two
+    /// heights: a surface floating over the terminal, and a selected sidebar row
+    /// lifted a hair off the panel it sits in.
     enum Elevation {
         /// A surface that floats over the terminal: the search bar today, and
         /// any future popover/HUD that is not a real `NSPanel`.
@@ -554,7 +554,7 @@ enum DesignTokens {
         /// Dark chrome needs a deeper, softer shadow than light chrome: on a
         /// dark canvas a shallow shadow is invisible, while on a light canvas
         /// the same shadow reads as smudge.
-        struct Shadow {
+        struct Shadow: Equatable {
             let color: NSColor
             let opacity: Float
             let radiusPX: CGFloat
@@ -586,10 +586,47 @@ enum DesignTokens {
             downwardOffsetPX: 3
         )
 
+        /// The pill under a selected sidebar row.
+        ///
+        /// Deliberately a fraction of `floating`. The reference this came from
+        /// puts a wide, soft shadow under a 40pt row in a list of twenty; the
+        /// same blur under a 26pt pill in a list of four hundred reads as a
+        /// smudge, and the smudge is repeated every time the selection moves.
+        /// The radius is small enough that the shadow stays inside the row's
+        /// own gutter rather than washing the rows above and below it.
+        ///
+        /// Light chrome leans on this hardest: its raised surface is white on
+        /// near-white — about 1.08:1 — so without a shadow the pill is not an
+        /// object at all. Dark chrome gets its lift from the surface step and
+        /// only needs the shadow to seat the pill.
+        static let sidebarSelectedRowDark = Shadow(
+            color: .black,
+            opacity: 0.42,
+            radiusPX: 3,
+            downwardOffsetPX: 1
+        )
+
+        static let sidebarSelectedRowLight = Shadow(
+            color: .black,
+            opacity: 0.16,
+            radiusPX: 3,
+            downwardOffsetPX: 1
+        )
+
         /// Picks the floating shadow that matches the active chrome ramp.
         @MainActor
         static func floating(for theme: DesignTokens.ChromeTheme) -> Shadow {
-            theme.windowAppearance?.name == .aqua ? floatingLight : floatingDark
+            isLight(theme) ? floatingLight : floatingDark
+        }
+
+        @MainActor
+        static func sidebarSelectedRow(for theme: DesignTokens.ChromeTheme) -> Shadow {
+            isLight(theme) ? sidebarSelectedRowLight : sidebarSelectedRowDark
+        }
+
+        @MainActor
+        private static func isLight(_ theme: DesignTokens.ChromeTheme) -> Bool {
+            theme.windowAppearance?.name == .aqua
         }
     }
 
@@ -948,10 +985,33 @@ enum DesignTokens {
         /// type.
         static var commandHistoryPanelInsetXPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
         static var commandHistoryPanelInsetYPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
-        static let commandHistorySectionHeaderTopGapPX = Space.x5PX
-        static let commandHistorySectionHeaderBottomGapPX = Space.x2PX
-        static let commandHistorySectionHeaderInsetXPX = Space.x4PX
-        static var commandHistoryGroupRowHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        /// Gap between two stacked bands of a sidebar panel: the search field,
+        /// the agent-session summary strips, and the list. Named for what it
+        /// separates rather than for the section header it used to sit under —
+        /// these panels no longer draw one.
+        static let sidebarPanelBandGapPX = Space.x5PX
+        /// Air above the search pill in a left-sidebar section.
+        ///
+        /// Smaller than the panel's own inset because the section strip above
+        /// already contributes `leftSidebarSectionStripBottomGapPX`; the two
+        /// together are the gap the user sees. These panels no longer draw a
+        /// title of their own — the strip is the title — so this is the whole
+        /// distance from the strip to the field.
+        static let sidebarPanelTopGapPX = Space.x3PX
+        /// The directory node is this list's section header, so it takes the
+        /// vertical rhythm the reference sidebars spend on every row — and only
+        /// it does. A history panel holds ten or so directories and hundreds of
+        /// commands: air above the ten costs a fraction of a row, while the same
+        /// air on the hundreds would push a third of the list off screen.
+        ///
+        /// The air is dead space above the header's content, not padding around
+        /// it: the row's highlight is inset past it (`highlightTopInsetPX`), so
+        /// what the user sees is a gap between groups rather than a tall row.
+        static let commandHistoryGroupRowTopAirPX = Space.x4PX
+        static var commandHistoryGroupContentHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        static var commandHistoryGroupRowHeightPX: CGFloat {
+            commandHistoryGroupContentHeightPX + commandHistoryGroupRowTopAirPX
+        }
         static var commandHistoryCommandRowHeightPX: CGFloat { UIScale.scaledMetric(30) }
         /// Fixed: a status dot is a mark, not a container. It reads as a dot at
         /// 6px and as a blob at 11.
@@ -1145,12 +1205,49 @@ enum DesignTokens {
         static let sidebarRowHighlightInsetYPX: CGFloat = 2
         static let sidebarRowHighlightCornerRadiusPX = Radius.smPX
         static let sidebarRowSelectionRailWidthPX: CGFloat = 2
+        /// Hairline around a selected row's pill. Fixed: a stroke is not a
+        /// container for type.
+        static let sidebarRowSelectionBorderWidthPX: CGFloat = 1
         static let sidebarRowSelectionRailCornerRadiusPX: CGFloat = 1
         static let sidebarRowFocusRingWidthPX: CGFloat = 2
         static let sidebarRowFocusRingOutsetPX: CGFloat = 1
-        /// Selected row in a background window: achromatic, so an inactive
-        /// window never claims the accent.
-        static let sidebarRowInactiveSelectionAlphaRATIO: CGFloat = 0.07
+        /// Reserved column for a row's leading glyph, in every sidebar list.
+        ///
+        /// The glyphs are not the same width: at 13pt `folder` measures 19pt and
+        /// `doc` 15pt, so an explorer tree drawn to each icon's intrinsic width
+        /// shifts its filename column by up to 4pt depending on what kind of
+        /// thing the row is. This is the same defect the git column already
+        /// fixed with a fixed slot; the leading column simply never got one.
+        static var sidebarRowIconSlotWidthPX: CGFloat { UIScale.scaledMetric(20) }
+        /// Reserved column for a command row's status dot.
+        ///
+        /// Narrower than the icon slot by exactly one outline level, because a
+        /// command row is one level below the directory row that owns it: the
+        /// two columns then land on the same x, and the panel reads as one text
+        /// column with a mark in front of it rather than two ragged ones. The
+        /// alignment used to hold by accident — a 6pt dot and a 12pt folder icon
+        /// happened to differ by about the indentation — and any change to
+        /// either glyph broke it silently.
+        static var sidebarRowStatusSlotWidthPX: CGFloat {
+            max(
+                commandHistoryStatusDotSizePX,
+                sidebarRowIconSlotWidthPX - commandHistoryOutlineIndentationPX
+            )
+        }
+
+        // MARK: Shared sidebar keyboard hint
+        //
+        // The badge that tells the user which key jumps to the filter field.
+        // A hint, so it is the quietest thing in the pill and leaves as soon as
+        // the field is doing anything: focused or holding a query.
+        static var sidebarSearchHintBadgeHeightPX: CGFloat { UIScale.scaledMetric(16) }
+        static var sidebarSearchHintBadgeMinWidthPX: CGFloat { UIScale.scaledMetric(16) }
+        static let sidebarSearchHintBadgeTextInsetXPX = Space.x2PX
+        static let sidebarSearchHintBadgeGapPX = Space.x2PX
+        static let sidebarSearchHintBadgeBorderWidthPX: CGFloat = 1
+        /// The key the badge advertises, and the key the lists route. One
+        /// constant so the label and the binding cannot disagree.
+        static let sidebarSearchHintKeyCharacter: Character = "/"
 
         // MARK: Left-sidebar section strip
         //

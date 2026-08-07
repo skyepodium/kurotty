@@ -249,32 +249,34 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         // agent wrote this, hovering says which agent and from which prompt.
         toolTip = agentMarker.touch.map { FileExplorerAgentTouchCopy.tooltip(for: $0, now: now) }
 
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: DesignTokens.Component.fileExplorerRowInsetXPX
-            ),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        NSLayoutConstraint.activate(
+            TerminalSidebarRowLayout.leadingSlotConstraints(
+                glyphView: iconView,
+                in: self,
+                leadingInsetPX: DesignTokens.Component.fileExplorerRowInsetXPX
+            ) + [
+                iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            nameLabel.leadingAnchor.constraint(
-                equalTo: iconView.trailingAnchor,
-                constant: DesignTokens.Component.fileExplorerRowGapPX
-            ),
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                nameLabel.leadingAnchor.constraint(
+                    equalTo: iconView.trailingAnchor,
+                    constant: DesignTokens.Component.fileExplorerRowGapPX
+                ),
+                nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            agentSlotView.leadingAnchor.constraint(
-                greaterThanOrEqualTo: nameLabel.trailingAnchor,
-                constant: DesignTokens.Component.fileExplorerRowGapPX
-            ),
-            agentSlotView.trailingAnchor.constraint(equalTo: gitSlotView.leadingAnchor),
-            agentSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                agentSlotView.leadingAnchor.constraint(
+                    greaterThanOrEqualTo: nameLabel.trailingAnchor,
+                    constant: DesignTokens.Component.fileExplorerRowGapPX
+                ),
+                agentSlotView.trailingAnchor.constraint(equalTo: gitSlotView.leadingAnchor),
+                agentSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            gitSlotView.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -DesignTokens.Component.fileExplorerRowInsetXPX
-            ),
-            gitSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+                gitSlotView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -DesignTokens.Component.fileExplorerRowInsetXPX
+                ),
+                gitSlotView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ]
+        )
     }
 
     required init?(coder: NSCoder) {

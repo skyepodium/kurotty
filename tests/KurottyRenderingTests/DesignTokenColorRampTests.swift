@@ -139,13 +139,16 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// resolves onto one of them, so the cross product is the real pairing set
     /// rather than a sample of it.
     ///
-    /// Deliberately out of scope: text sitting on a row that is *currently*
-    /// hovered, pressed, or selected. Those washes composite over the surface
-    /// and cost up to a full ratio point, and clearing AA underneath the dark
-    /// selection wash would mean lifting `textTertiary` until it is
-    /// indistinguishable from `textSecondary` — the ramp would lose a rank to
-    /// buy contrast for a transient state. They need their own fix (a lighter
-    /// wash, or a selected-row text rank), not a wider ramp.
+    /// Selected rows used to be out of scope here, because selection was a
+    /// translucent accent wash: it composited over the surface, cost up to a
+    /// full ratio point, and could not be fixed without lifting `textTertiary`
+    /// until it swallowed `textSecondary`. It is now an opaque `surfaceRaised`
+    /// pill, which is one of the four surfaces below, so a selected row's text
+    /// is covered by this cross product rather than exempted from it —
+    /// `testSelectedRowPillIsARampSurfaceAndItsTextClearsAA` is what holds the
+    /// pill to that surface.
+    ///
+    /// Still out of scope: hover and press, which remain translucent washes.
     func testEveryTextRankClearsWCAGAAOnEverySurfaceInBothThemes() throws {
         var checkedPairCount = 0
         for (themeName, theme) in themes() {
@@ -164,6 +167,79 @@ final class DesignTokenColorRampTests: XCTestCase {
         // Guards the enumeration itself: a rank or a surface quietly dropped
         // from the fixtures would otherwise make this test pass by testing less.
         XCTAssertEqual(checkedPairCount, 24)
+    }
+
+    /// The elevated selected row is a new *object*, not a new surface.
+    ///
+    /// That distinction is the whole reason the count above is still 24: the
+    /// pill is painted in `surfaceRaised`, opaque, so its text lands on a
+    /// background the cross product already measures. This test is what makes
+    /// that claim load-bearing — if the pill ever takes a colour of its own, or
+    /// a translucent one, it fails here rather than quietly shipping a fifth
+    /// unmeasured surface.
+    func testSelectedRowPillIsARampSurfaceAndItsTextClearsAA() throws {
+        var checkedPairCount = 0
+        for (themeName, theme) in themes() {
+            let states = [
+                ("active", TerminalSidebarRowHighlight.State(isSelected: true, isWindowActive: true)),
+                ("inactive", TerminalSidebarRowHighlight.State(isSelected: true)),
+            ]
+            for (stateName, state) in states {
+                let pill = try XCTUnwrap(
+                    TerminalSidebarRowHighlight.appearance(for: state, theme: theme).fill
+                )
+                XCTAssertEqual(
+                    pill.alphaComponent,
+                    1,
+                    "\(themeName) \(stateName) selection must be a surface, not a wash over one"
+                )
+                XCTAssertEqual(
+                    pill,
+                    theme.surfaceRaised,
+                    "\(themeName) \(stateName) selection must reuse a ramp surface"
+                )
+                for (text, _) in textRanks(of: theme) {
+                    let ratio = try contrastRatio(text.color, pill)
+                    checkedPairCount += 1
+                    XCTAssertGreaterThanOrEqual(
+                        ratio,
+                        WCAG.normalTextAARATIO,
+                        "\(themeName) \(text.name) on the \(stateName) selected pill measured \(ratio):1"
+                    )
+                }
+            }
+        }
+        // Two themes x two selection states x three text ranks.
+        XCTAssertEqual(checkedPairCount, 12)
+    }
+
+    /// The pill's hairline and its accent rail are meaningful graphics, so they
+    /// answer to the non-text floor. The rail in particular used to be accent
+    /// drawn on an accent wash, which is close to 1:1 against its own fill.
+    func testSelectedRowPillOutlineAndRailClearNonTextContrast() throws {
+        for (themeName, theme) in themes() {
+            let resolved = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: true),
+                theme: theme
+            )
+            let pill = try XCTUnwrap(resolved.fill)
+            let rail = try XCTUnwrap(resolved.rail)
+            let railRatio = try contrastRatio(rail, pill)
+            XCTAssertGreaterThanOrEqual(
+                railRatio,
+                WCAG.nonTextRATIO,
+                "\(themeName) selection rail measured \(railRatio):1 against its own pill"
+            )
+            // The hairline separates the pill from the panel behind it, so it
+            // is measured against that panel, not against the pill.
+            let border = try XCTUnwrap(resolved.border)
+            let borderRatio = try contrastRatio(border, theme.surfaceChrome)
+            XCTAssertGreaterThan(
+                borderRatio,
+                1.2,
+                "\(themeName) selection hairline measured \(borderRatio):1 against the panel"
+            )
+        }
     }
 
     /// An empty sidebar section is the one moment its copy is the only text on

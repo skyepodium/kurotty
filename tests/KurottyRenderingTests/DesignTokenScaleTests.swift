@@ -72,7 +72,7 @@ final class DesignTokenScaleTests: XCTestCase {
             "historyRowGap": DesignTokens.Component.commandHistoryRowGapPX,
             "historyRowInsetX": DesignTokens.Component.commandHistoryRowInsetXPX,
             "historyOutlineIndent": DesignTokens.Component.commandHistoryOutlineIndentationPX,
-            "sectionHeaderTopGap": DesignTokens.Component.commandHistorySectionHeaderTopGapPX,
+            "sidebarPanelBandGap": DesignTokens.Component.sidebarPanelBandGapPX,
             "searchPillTextInset": DesignTokens.Component.sidebarSearchPillTextInsetXPX,
             "searchIconGap": DesignTokens.Component.sidebarSearchIconGapPX,
             "sectionStripTopInset": DesignTokens.Component.leftSidebarSectionStripTopInsetPX,
