@@ -17,17 +17,17 @@ final class TerminalThemeApplicationTests: XCTestCase {
     func testLightPresetPinsItsShippedPalette() throws {
         let lightty = try XCTUnwrap(TerminalThemePreset.colors(named: TerminalThemePreset.lighttyName))
 
-        XCTAssertEqual(lightty.foreground, "#202124")
+        XCTAssertEqual(lightty.foreground, "#1D2228")
         XCTAssertEqual(lightty.background, "#FFFFFF")
         XCTAssertEqual(lightty.cursor, "#111111")
         // The old source-text form asserted eight hex strings appeared somewhere
         // in AppSettings.swift. Four of them were from the bright half, so the
         // normal ramp was never actually pinned in order.
         XCTAssertEqual(lightty.ansi, [
-            "#AFA7F5", "#AB4634", "#55C236", "#9A4DB4",
-            "#3347C3", "#B445B8", "#4FC3C7", "#C9C9C9",
-            "#666666", "#D47D78", "#55B94A", "#A452BD",
-            "#5B5AA2", "#CF75D3", "#35B9BD", "#FFFFFF",
+            "#070B11", "#C05053", "#2E8441", "#996C1B",
+            "#1877C9", "#AA569D", "#008283", "#4E545D",
+            "#30353C", "#A92735", "#006A1E", "#7D5100",
+            "#005DB8", "#933186", "#00676A", "#6D7580",
         ])
         XCTAssertEqual(lightty, TerminalColorSettings.lightty)
     }
