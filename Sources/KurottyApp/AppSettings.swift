@@ -510,6 +510,7 @@ enum TerminalThemePreset {
     static let kurottyName = "kurotty"
     static let darkName = "kuro-dark"
     static let lighttyName = "lightty"
+    static let nacreName = "nacre"
     static let customName = "custom"
 
     static func colors(named name: String) -> TerminalColorSettings? {
@@ -520,6 +521,8 @@ enum TerminalThemePreset {
             return .default
         case lighttyName:
             return .lightty
+        case nacreName:
+            return .nacre
         default:
             return nil
         }
@@ -552,6 +555,63 @@ extension TerminalColorSettings {
             "#CF75D3",
             "#35B9BD",
             "#FFFFFF",
+        ]
+    )
+
+    /// Nacre — a pale, low-chroma light palette.
+    ///
+    /// Every value here was solved, not picked. The generator worked in CIELCh
+    /// against this background and the numbers it had to satisfy are pinned by
+    /// `TerminalThemePaletteContrastTests`:
+    ///
+    /// - `foreground` clears 12.5:1 on `background` (AAA, not just AA).
+    /// - Each of the twelve chromatic slots clears AA 4.5:1 on `background`.
+    ///   The normal half sits at ~5.8:1 and the bright half at ~4.6:1, and both
+    ///   halves are held at one lightness so no ANSI color is systematically
+    ///   harder to read than its neighbours.
+    /// - No two of the sixteen are closer than 8 CIEDE2000, and no two
+    ///   *different* chromatic slots are closer than 20 — that second number is
+    ///   what stops red and magenta from both landing on pale pink.
+    ///
+    /// The thing that makes this read pastel is the ground, not the ink. On a
+    /// light background "pastel" has to mean low chroma at a readable
+    /// lightness; raising lightness instead is what produces the pale-on-pale
+    /// theme that photographs well and cannot be used. So the normal half is
+    /// muted (62% of the available chroma at its lightness) and the bright half
+    /// earns its "bright" from saturation (88%) rather than from being lighter,
+    /// which is also the only way both halves clear AA at once.
+    ///
+    /// The four neutral slots are a deliberate ordered value ramp — black,
+    /// bright black, white, bright white, darkest to lightest — carrying a
+    /// faint hue drift so they separate by more than lightness alone. Slot 15
+    /// is the one value in the palette that cannot clear 4.5:1: "bright white"
+    /// on a light ground is a contradiction, and it is held instead to the
+    /// WCAG non-text floor of 3:1 rather than being darkened until it stops
+    /// reading as the lightest step.
+    static let nacre = TerminalColorSettings(
+        foreground: "#2E2D40",
+        background: "#F8F6FC",
+        // Violet, at a hue no ANSI slot occupies, so the caret cannot be read
+        // as a colored glyph. Lighter than the foreground on purpose: it has to
+        // be found without outweighing the text it sits in.
+        cursor: "#6A4BC8",
+        ansi: [
+            "#1F1D29",
+            "#A43F3C",
+            "#3B6D2F",
+            "#755E2D",
+            "#465F97",
+            "#8F4099",
+            "#3A6969",
+            "#706E77",
+            "#49535E",
+            "#D72935",
+            "#248119",
+            "#8D6B17",
+            "#306FC9",
+            "#B92ACC",
+            "#247D7D",
+            "#948C96",
         ]
     )
 }
@@ -836,6 +896,9 @@ struct AppSettingsNormalizer {
     private static func inferredThemeName(for colors: TerminalColorSettings) -> String {
         if colors == .lightty {
             return TerminalThemePreset.lighttyName
+        }
+        if colors == .nacre {
+            return TerminalThemePreset.nacreName
         }
         if colors == .default {
             return TerminalThemePreset.kurottyName

@@ -55,7 +55,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     var agentSessionPanel: TerminalAgentSessionPanelView {
         leftSidebarPanel.agentSessionPanel
     }
-    let terminalContentHostView = NSView()
+    let terminalContentHostView = ChromeGroundHostView()
     // Right file-explorer pane; layout, cwd tracking, and editor-tab handlers
     // live in TerminalWindowFileExplorer.swift / TerminalWindowEditorTabs.swift.
     let fileExplorerPanel = TerminalFileExplorerPanelView()
@@ -392,9 +392,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         // The ground the pane cards sit on. It is the same surface as the tab
         // bar above it, so the two read as one continuous plane with the
         // terminal floating on it.
+        // It is also the only view that paints the ground when the theme grades
+        // it, which is why the gradient goes here and not on the split views.
         terminalContentHostView.wantsLayer = true
         terminalContentHostView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        ChromeGroundGradient.apply(chromeTheme, to: terminalContentHostView)
         // The chrome bar spans the whole window (above the split view) so the
         // sidebar toggles sit in the window corners and panel content starts
         // below the title bar instead of colliding with the traffic lights.
@@ -600,7 +602,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         dropTargetView.chromeTheme = chromeTheme
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
-        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        ChromeGroundGradient.apply(chromeTheme, to: terminalContentHostView)
         // The same broadcast carries a UI-text-scale change, so anything sized
         // from a scaled token has to re-read it here.
         chromeMetrics.reapply()

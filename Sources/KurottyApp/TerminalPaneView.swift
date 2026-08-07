@@ -121,7 +121,7 @@ final class TerminalPaneView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill(chromeTheme).cgColor
         applyCardShape()
         configureLayout()
         observeTerminalTitle()
@@ -419,7 +419,7 @@ final class TerminalPaneView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.terminalPaneGround.cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill(theme).cgColor
         searchBarView.applyChromeTheme(theme)
         childExitBannerView.applyChromeTheme(theme)
         agentActivityIndicatorView.applyChromeTheme(theme)
