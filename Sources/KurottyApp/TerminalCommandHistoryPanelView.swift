@@ -44,6 +44,7 @@ final class TerminalCommandHistoryPanelView: NSView {
     /// never be drawn over the search pill.
     private let listContainerView = NSView()
     private let scrollView = NSScrollView()
+    private let sidebarScroller = TerminalSidebarScroller(frame: .zero)
     private let outlineView = TerminalCommandHistoryOutlineView()
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
@@ -72,7 +73,8 @@ final class TerminalCommandHistoryPanelView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
+        sidebarScroller.applyChromeTheme(theme)
         searchPillView.applyChromeTheme(theme)
         applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
@@ -130,7 +132,7 @@ final class TerminalCommandHistoryPanelView: NSView {
     private func configure() {
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         configureSearchPill()
         configureListContainer()
         configureOutline()
@@ -188,7 +190,10 @@ final class TerminalCommandHistoryPanelView: NSView {
         outlineView.menu = makeContextMenu()
 
         scrollView.documentView = outlineView
+        scrollView.verticalScroller = sidebarScroller
         scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(scrollView)

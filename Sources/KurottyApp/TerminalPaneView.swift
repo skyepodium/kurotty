@@ -207,6 +207,7 @@ final class TerminalPaneView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closeButtonPressed(_:))
+        closeButton.toolTip = TerminalCommandTooltip.text(for: .closeCurrentPane)
         closeButton.applyChromeTheme(chromeTheme)
         chromeView.addSubview(closeButton)
 

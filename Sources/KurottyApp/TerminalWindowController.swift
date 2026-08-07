@@ -1,6 +1,43 @@
 import AppKit
 
 @MainActor
+final class TerminalContentTabView: NSTabView {
+    private var chromeTheme = DesignTokens.ChromeTheme.dark
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        layer?.masksToBounds = false
+        layer?.cornerRadius = DesignTokens.TerminalPaneCard.cornerRadiusPX
+        layer?.cornerCurve = .continuous
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        chromeTheme = theme
+        guard let layer else { return }
+        DesignTokens.Elevation.terminalCanvas(for: theme).apply(to: layer)
+        layer.borderWidth = DesignTokens.Component.hairlinePX
+        layer.borderColor = theme.borderHairline.withAlphaComponent(0.72).cgColor
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: DesignTokens.TerminalPaneCard.cornerRadiusPX,
+            cornerHeight: DesignTokens.TerminalPaneCard.cornerRadiusPX,
+            transform: nil
+        )
+    }
+}
+
+@MainActor
 final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSWindowDelegate {
     private let dropTargetView = TerminalPaneDropTargetView()
     let paneDragCoordinator: TerminalPaneDragCoordinator
@@ -49,7 +86,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// window from each other.
     private let trailingChromeStackView = NSStackView()
     private let tabStackView = NSStackView()
-    let tabView = NSTabView()
+    let tabView = TerminalContentTabView()
     // Left sidebar split chrome; layout and handlers live in
     // TerminalWindowCommandHistory.swift to keep this controller thin. The
     // pane hosts one container that switches between the command-history and
@@ -71,6 +108,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// collapsed bar gives every point back to the terminal content.
     let statusBarView = TerminalStatusBarView(frame: .zero)
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    private var isTrafficLightAlignmentScheduled = false
+    private var hasAlignedTrafficLights = false
     /// Sidebar width constraints stay active only while the panel is shown: a
     /// hidden view still participates in Auto Layout, so leaving them on keeps
     /// the split view reserving a sliver of width plus its divider.
@@ -395,6 +434,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabView.tabViewType = .noTabsNoBorder
         tabView.delegate = self
         tabView.drawsBackground = false
+        tabView.applyChromeTheme(chromeTheme)
         tabView.translatesAutoresizingMaskIntoConstraints = false
         // The ground the pane cards sit on. It is the same surface as the tab
         // bar above it, so the two read as one continuous plane with the
@@ -613,6 +653,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         // The same broadcast carries a UI-text-scale change, so anything sized
         // from a scaled token has to re-read it here.
         chromeMetrics.reapply()
+        topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
         leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         statusBarView.applyChromeTheme(chromeTheme)
@@ -656,9 +697,6 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         }
         guard tmuxCoordinator(managing: item) == nil else { return }
         item.label = title
-        if item === tabView.selectedTabViewItem {
-            window?.title = title
-        }
         updateTabBar()
     }
 
@@ -704,6 +742,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
     var selectedLayoutSlotProportions: [Double]? { currentSplitView()?.layoutSlotProportions }
     var selectedSplitViewForTesting: SplitTerminalView? { currentSplitView() }
+    var splitButtonsForTesting: [ChromeIconButton] { [splitRightButton, splitDownButton] }
+    var chromeThemeForTesting: DesignTokens.ChromeTheme { chromeTheme }
 
     private var windowFrameSnapshot: WorkspaceWindowFrameSnapshot? {
         guard let frame = window?.frame else {
@@ -786,11 +826,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         let addButton = ChromeIconButton(
             symbolName: IconSymbol.add,
             accessibilityLabel: AppLocalization.string(.newTab),
-            size: .small,
+            size: .regular,
             target: self,
             action: #selector(newTabButtonPressed(_:))
         )
         addButton.applyChromeTheme(chromeTheme)
+        addButton.toolTip = TerminalCommandTooltip.text(for: .newTab)
         // Deliberate deviation from the theme's achromatic hover: the tab bar
         // tints its own hover with the accent so add/close read as tab actions.
         addButton.normalTintColor = chromeTheme.textSecondary
@@ -802,6 +843,53 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabStackView.addArrangedSubview(addButton)
     }
 
+    private func scheduleTrafficLightAlignment(forcesRealignment: Bool = false) {
+        if forcesRealignment {
+            hasAlignedTrafficLights = false
+        }
+        guard !hasAlignedTrafficLights, !isTrafficLightAlignmentScheduled else { return }
+        isTrafficLightAlignmentScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isTrafficLightAlignmentScheduled = false
+            self.alignTrafficLightsWithChrome()
+        }
+    }
+
+    /// Full-size content windows leave AppKit's traffic lights on the stock
+    /// titlebar baseline while the custom tab bar is taller. Re-centre the
+    /// system buttons against the same horizontal axis as the tab and sidebar
+    /// controls so the titlebar reads as one row.
+    func alignTrafficLightsWithChrome() {
+        guard let window,
+              let closeButton = window.standardWindowButton(.closeButton),
+              let buttonHost = closeButton.superview
+        else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let chromeCenterInWindow = tabBarView.convert(
+            NSPoint(x: tabBarView.bounds.midX, y: tabBarView.bounds.midY),
+            to: nil
+        ).y
+        let targetCenterY = buttonHost.convert(
+            NSPoint(x: 0, y: chromeCenterInWindow),
+            from: nil
+        ).y
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(kind), button.superview === buttonHost else {
+                continue
+            }
+            var frame = button.frame
+            let scale = max(window.backingScaleFactor, 1)
+            frame.origin.y = ((targetCenterY - frame.height / 2) * scale).rounded() / scale
+            button.frame = frame
+        }
+        hasAlignedTrafficLights = true
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        scheduleTrafficLightAlignment(forcesRealignment: true)
+    }
+
     /// Bottom of the window-wide chrome bar; the split view hangs off this so
     /// sidebars start below the title bar rather than under the traffic lights.
     var chromeBarBottomAnchor: NSLayoutYAxisAnchor {
@@ -809,19 +897,19 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func configureSidebarToggleButtons() {
-        historyToggleButton.toolTip = AppLocalization.string(.commandHistory)
+        historyToggleButton.toolTip = TerminalCommandTooltip.text(for: .toggleCommandHistoryPanel)
         historyToggleButton.target = self
         historyToggleButton.action = #selector(historyToggleButtonPressed(_:))
 
-        explorerToggleButton.toolTip = AppLocalization.string(.fileExplorer)
+        explorerToggleButton.toolTip = TerminalCommandTooltip.text(for: .toggleFileExplorerPanel)
         explorerToggleButton.target = self
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
-        splitRightButton.toolTip = AppLocalization.string(.splitVertically)
+        splitRightButton.toolTip = TerminalCommandTooltip.text(for: .splitVertically)
         splitRightButton.target = self
         splitRightButton.action = #selector(splitRightButtonPressed(_:))
 
-        splitDownButton.toolTip = AppLocalization.string(.splitHorizontally)
+        splitDownButton.toolTip = TerminalCommandTooltip.text(for: .splitHorizontally)
         splitDownButton.target = self
         splitDownButton.action = #selector(splitDownButtonPressed(_:))
 
@@ -841,6 +929,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// An open panel keeps its toggle tinted like a selected control so the bar
     /// reads as on/off state, not just as two buttons.
     func updateSidebarToggleButtonStates() {
+        // Split controls are not toggles, but they live in the same trailing
+        // chrome group and must receive the same theme broadcast. Leaving them
+        // on `ChromeIconButton`'s dark defaults makes their white hover wash
+        // and pale glyph disappear against light chrome.
+        for button in [splitRightButton, splitDownButton] {
+            button.applyChromeTheme(chromeTheme)
+            button.normalTintColor = chromeTheme.textSecondary
+        }
+
         for (button, isOpen) in [
             (historyToggleButton, isCommandHistoryPanelVisible),
             (explorerToggleButton, isFileExplorerPanelVisible),
@@ -889,13 +986,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func makeTabItemView(title: String, index: Int, isSelected: Bool) -> NSView {
-        TerminalTabItemView(
+        let tab = TerminalTabItemView(
             title: title,
             isSelected: isSelected,
             chromeTheme: chromeTheme,
             onSelect: { [weak self] in self?.selectTab(at: index) },
             onClose: { [weak self] in self?.closeTab(at: index) }
         )
+        let slot = NSView()
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        slot.addSubview(tab)
+        NSLayoutConstraint.activate([
+            slot.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabBarHeightPX),
+            tab.leadingAnchor.constraint(equalTo: slot.leadingAnchor),
+            tab.trailingAnchor.constraint(equalTo: slot.trailingAnchor),
+            tab.bottomAnchor.constraint(equalTo: slot.bottomAnchor),
+        ])
+        return slot
     }
 
     private func selectTab(at index: Int) {

@@ -55,6 +55,9 @@ final class TerminalStatusBarView: NSView {
     /// arrive through the same notification as title changes, which fires once
     /// per prompt, so an unchanged directory must not spawn another `git`.
     private var worktreeDirectoryPath: String?
+    /// Process-tree presence is a fallback for sessions whose hooks cannot be
+    /// loaded. Precise registry states always win in the composer.
+    private var detectedAgentNames: [String] = []
 
     /// The worktree state the segment currently renders, applied from the
     /// service's async result.
@@ -184,6 +187,7 @@ final class TerminalStatusBarView: NSView {
     func refreshAgentSegment() {
         let summary = TerminalStatusBarAgentComposer.summary(
             statuses: activeStatuses(),
+            detectedAgentNames: detectedAgentNames,
             areStatusHooksInstalled: areStatusHooksInstalledProvider(),
             hasEverReported: hasEverReported()
         )
@@ -355,6 +359,11 @@ final class TerminalStatusBarView: NSView {
         sampler.onUsageChanged = { [weak self] usage in
             guard let self else {
                 return
+            }
+            let nextDetectedAgentNames = usage.panes.compactMap(\.detectedAgentName)
+            if nextDetectedAgentNames != self.detectedAgentNames {
+                self.detectedAgentNames = nextDetectedAgentNames
+                self.refreshAgentSegment()
             }
             self.resourceSegmentView.update(usage: usage, visibility: self.visibility)
         }

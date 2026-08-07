@@ -77,14 +77,24 @@ struct TerminalStatusBarPaneDescriptor: Equatable, Sendable {
 struct TerminalProcessCounterSample: Equatable, Sendable {
     let residentBytes: UInt64
     let cpuTimeSeconds: Double
+    /// Known coding-agent executable found anywhere below the pane shell.
+    /// This is a presence fallback only; lifecycle hooks remain the source of
+    /// precise working/waiting/blocked state.
+    let detectedAgentName: String?
     /// Monotonic clock reading, not wall time: a clock change must not be able
     /// to manufacture a CPU spike.
     let uptimeSeconds: Double
 
-    init(residentBytes: UInt64, cpuTimeSeconds: Double, uptimeSeconds: Double) {
+    init(
+        residentBytes: UInt64,
+        cpuTimeSeconds: Double,
+        uptimeSeconds: Double,
+        detectedAgentName: String? = nil
+    ) {
         self.residentBytes = residentBytes
         self.cpuTimeSeconds = cpuTimeSeconds
         self.uptimeSeconds = uptimeSeconds
+        self.detectedAgentName = detectedAgentName
     }
 }
 
@@ -138,19 +148,22 @@ struct TerminalPaneResourceUsage: Equatable, Sendable {
     let residentBytes: UInt64
     /// `nil` until a second sample exists for this pane.
     let cpuPercent: Double?
+    let detectedAgentName: String?
 
     init(
         paneIdentifier: String,
         title: String,
         processIdentifier: pid_t?,
         residentBytes: UInt64,
-        cpuPercent: Double?
+        cpuPercent: Double?,
+        detectedAgentName: String? = nil
     ) {
         self.paneIdentifier = paneIdentifier
         self.title = title
         self.processIdentifier = processIdentifier
         self.residentBytes = residentBytes
         self.cpuPercent = cpuPercent
+        self.detectedAgentName = detectedAgentName
     }
 }
 
@@ -523,11 +536,27 @@ enum TerminalStatusBarAgentComposer {
     ///     a finished agent reads as "No agent" rather than "Connect an agent".
     static func summary(
         statuses: [AgentActivityStatus],
+        detectedAgentNames: [String] = [],
         areStatusHooksInstalled: Bool,
         hasEverReported: Bool,
         language: AppLanguage = AppLocalization.language
     ) -> TerminalStatusBarAgentSummary {
         guard let dominant = dominant(statuses) else {
+            if let detectedAgentName = detectedAgentNames.first {
+                let runningLabel = AppLocalization.string(.statusBarAgentRunning, language: language)
+                let label = "\(detectedAgentName) \(AppConstants.StatusBar.labelSeparator) \(runningLabel)"
+                return TerminalStatusBarAgentSummary(
+                    dot: .filled(.idle),
+                    label: label,
+                    detail: nil,
+                    showsSpinner: false,
+                    showsAgentGlyph: true,
+                    agentCount: detectedAgentNames.count,
+                    isCallToAction: false,
+                    action: .showStatusHistory,
+                    tooltip: label
+                )
+            }
             return emptySummary(
                 areStatusHooksInstalled: areStatusHooksInstalled,
                 hasEverReported: hasEverReported,

@@ -395,6 +395,7 @@ final class SplitTerminalView: NSSplitView {
 
         let currentAxis: NSLayoutConstraint.Orientation = isVertical ? .vertical : .horizontal
         let existingGroup = SplitTerminalView(axis: currentAxis, pane: nil, paneDragCoordinator: paneDragCoordinator)
+        existingGroup.applyChromeTheme(chromeTheme)
         moveCurrentArrangedSubviews(to: existingGroup)
 
         isVertical = axis == .vertical
@@ -452,6 +453,7 @@ final class SplitTerminalView: NSSplitView {
         pane.removeFromSuperview()
 
         let nestedSplit = SplitTerminalView(axis: direction.axis, pane: nil, paneDragCoordinator: paneDragCoordinator)
+        nestedSplit.applyChromeTheme(chromeTheme)
         configurePane(newPane)
         if direction.insertsAfterActivePane {
             nestedSplit.addArrangedSubview(pane)

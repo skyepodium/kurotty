@@ -20,6 +20,7 @@ final class TerminalLeftSidebarPanelView: NSView {
     let agentSessionPanel = TerminalAgentSessionPanelView()
 
     private let sectionStrip = TerminalLeftSidebarSectionStripView()
+    private let glassBackgroundView = TerminalSidebarGlassBackgroundView(frame: .zero)
     private(set) var selectedSection: TerminalLeftSidebarSection = .commandHistory
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     /// The strip's height; the item labels inside it come back from
@@ -38,7 +39,8 @@ final class TerminalLeftSidebarPanelView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
+        glassBackgroundView.applyChromeTheme(theme)
         metrics.reapply()
         sectionStrip.applyChromeTheme(theme)
         historyPanel.applyChromeTheme(theme)
@@ -102,6 +104,16 @@ final class TerminalLeftSidebarPanelView: NSView {
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
+
+        glassBackgroundView.applyChromeTheme(chromeTheme)
+        glassBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassBackgroundView)
+        NSLayoutConstraint.activate([
+            glassBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            glassBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
 
         sectionStrip.selectedSection = selectedSection
         sectionStrip.onSelect = { [weak self] section in
@@ -205,7 +217,15 @@ final class TerminalLeftSidebarSectionStripView: NSView {
     /// frame. The shared painter applies the row inset inside it, so the pill's
     /// gutter is the list's gutter rather than a second set of numbers.
     func selectionPillFrame(for section: TerminalLeftSidebarSection) -> NSRect {
-        itemViews.first { $0.section == section }?.frame ?? .zero
+        guard let index = TerminalLeftSidebarSection.allCases.firstIndex(of: section),
+              !itemViews.isEmpty
+        else {
+            return .zero
+        }
+        let segmentWidth = bounds.width / CGFloat(itemViews.count)
+        let originX = bounds.minX + CGFloat(index) * segmentWidth
+        let width = index == itemViews.count - 1 ? bounds.maxX - originX : segmentWidth
+        return NSRect(x: originX, y: bounds.minY, width: width, height: bounds.height)
     }
 
     override func layout() {
@@ -511,6 +531,6 @@ final class TerminalLeftSidebarSectionItemView: NSView {
         guard !isSelectedSection else {
             return chromeTheme.textPrimary
         }
-        return isHovered ? chromeTheme.textSecondary : chromeTheme.textTertiary
+        return chromeTheme.textSecondary
     }
 }

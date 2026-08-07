@@ -117,7 +117,7 @@ enum L10nKey: String, CaseIterable {
     case collapseAllToolRuns
     // Bottom status bar. `cancel` is deliberately absent: the bar reuses the
     // existing `.cancel` key rather than shipping a second "Cancel".
-    case statusBarAgentIdle, statusBarAgentWorking, statusBarAgentNeedsInput, statusBarAgentBlocked
+    case statusBarAgentIdle, statusBarAgentRunning, statusBarAgentWorking, statusBarAgentNeedsInput, statusBarAgentBlocked
     case statusBarNoAgent, statusBarConnectAnAgent, statusBarConnectAnAgentTooltip
     case statusBarEnableStatusHooksTitle, statusBarEnableStatusHooksMessage, statusBarOpenPreferences
     case statusBarHistoryTitle, statusBarResumeLastSession
@@ -292,7 +292,7 @@ enum AppLocalization {
             .transcriptRoleUser: "You", .transcriptRoleAgent: "Agent", .transcriptRoleTool: "Tool", .transcriptRoleSystem: "System",
             .transcriptCodeBlockUnlabeled: "Code", .transcriptTableAccessibility: "Table", .transcriptQuoteAccessibility: "Quote",
             .collapseAllToolRuns: "Collapse All Tool Runs",
-            .statusBarAgentIdle: "Idle", .statusBarAgentWorking: "Working", .statusBarAgentNeedsInput: "Needs input", .statusBarAgentBlocked: "Blocked",
+            .statusBarAgentIdle: "Idle", .statusBarAgentRunning: "Running", .statusBarAgentWorking: "Working", .statusBarAgentNeedsInput: "Needs input", .statusBarAgentBlocked: "Blocked",
             .statusBarNoAgent: "No agent", .statusBarConnectAnAgent: "Connect an agent",
             .statusBarConnectAnAgentTooltip: "Agent status hooks are off. Open Preferences to enable them.",
             .statusBarEnableStatusHooksTitle: "Enable agent status hooks?",
@@ -426,7 +426,7 @@ enum AppLocalization {
             .transcriptRoleUser: "나", .transcriptRoleAgent: "에이전트", .transcriptRoleTool: "도구", .transcriptRoleSystem: "시스템",
             .transcriptCodeBlockUnlabeled: "코드", .transcriptTableAccessibility: "표", .transcriptQuoteAccessibility: "인용",
             .collapseAllToolRuns: "모든 도구 실행 접기",
-            .statusBarAgentIdle: "대기", .statusBarAgentWorking: "작업 중", .statusBarAgentNeedsInput: "입력 필요", .statusBarAgentBlocked: "차단됨",
+            .statusBarAgentIdle: "대기", .statusBarAgentRunning: "실행 중", .statusBarAgentWorking: "작업 중", .statusBarAgentNeedsInput: "입력 필요", .statusBarAgentBlocked: "차단됨",
             .statusBarNoAgent: "에이전트 없음", .statusBarConnectAnAgent: "에이전트 연결",
             .statusBarConnectAnAgentTooltip: "에이전트 상태 후크가 꺼져 있습니다. 환경설정에서 켜세요.",
             .statusBarEnableStatusHooksTitle: "에이전트 상태 후크를 켤까요?",
@@ -560,7 +560,7 @@ enum AppLocalization {
             .transcriptRoleUser: "あなた", .transcriptRoleAgent: "エージェント", .transcriptRoleTool: "ツール", .transcriptRoleSystem: "システム",
             .transcriptCodeBlockUnlabeled: "コード", .transcriptTableAccessibility: "表", .transcriptQuoteAccessibility: "引用",
             .collapseAllToolRuns: "すべてのツール実行を折りたたむ",
-            .statusBarAgentIdle: "待機", .statusBarAgentWorking: "作業中", .statusBarAgentNeedsInput: "入力待ち", .statusBarAgentBlocked: "ブロック",
+            .statusBarAgentIdle: "待機", .statusBarAgentRunning: "実行中", .statusBarAgentWorking: "作業中", .statusBarAgentNeedsInput: "入力待ち", .statusBarAgentBlocked: "ブロック",
             .statusBarNoAgent: "エージェントなし", .statusBarConnectAnAgent: "エージェントを接続",
             .statusBarConnectAnAgentTooltip: "エージェント状態フックがオフです。環境設定で有効にしてください。",
             .statusBarEnableStatusHooksTitle: "エージェント状態フックを有効にしますか？",

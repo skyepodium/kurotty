@@ -13,9 +13,9 @@ This design favors boring correctness over feature breadth. Rendering speed matt
 
 ## Brand
 
-- Personality: quiet, capable, native, compact, and subtly cute.
+- Personality: quiet, capable, native, compact, subtly cute, and confidently colorful.
 - Trust signals: predictable native behavior, precise alignment, readable terminal output, and explicit state.
-- Avoid: stacked card containers, ornamental gradients, oversized controls, heavy shadows, and decorative chrome around the terminal.
+- Avoid: stacked card containers, ornamental gradients, oversized controls, heavy shadows, sterile blue-gray chrome, and decorative chrome around the terminal.
 
 ## Product goals
 
@@ -37,23 +37,24 @@ This design favors boring correctness over feature breadth. Rendering speed matt
 
 ## Design principles
 
-- One shell, not nested cards: top chrome spans edge to edge with one bottom hairline; sidebars are flat workspace regions separated by split dividers.
+- One tinted shell, one elevated content canvas: top chrome and sidebars share a restrained color family while the terminal/editor floats one shallow shadow step above them as the single primary canvas. Avoid nested cards inside either region.
 - Density with breathing room: controls stay compact while alignment and 8–12 pt insets create calm hierarchy.
 - Tradeoffs: prefer a quieter native surface over strong panel boundaries or decorative brand presence.
 
 ## Visual language
 
-- Color: near-neutral chrome surfaces with one accent reserved for focus, selection, and active toggles.
+- Color: Arc-inspired pearl/periwinkle light chrome and ink/plum dark chrome. Light sidebars use translucent native material with only a trace of pink/mint/periwinkle tint; the accent remains reserved for focus, selection, and active toggles, while the terminal canvas carries the strongest foreground/background contrast.
 - Typography: native system fonts for chrome and monospaced fonts only for terminal/code content.
 - Spacing/layout rhythm: 4 pt micro rhythm, 8 pt control rhythm, 12 pt panel inset.
-- Shape/radius/elevation: small 6–7 pt control capsules; no radius or elevation on full-width bars and sidebars.
+- Shape/radius/elevation: 6–8 pt controls, a 10 pt active-tab pill, and a 12 pt primary content canvas. Use a hairline plus restrained shadow only where it clarifies shell-versus-content depth.
 - Motion: immediate state changes and native resizing; no decorative transitions.
 - Imagery/iconography: SF Symbols and the Kurotty mascot only in branded or empty-state contexts.
+- Scroll chrome: narrow, low-contrast translucent thumbs that become clearer on hover/drag without turning into a dark stripe.
 
 ## Components
 
 - Existing components to reuse: `ChromeIconButton`, `TerminalTabItemView`, command-history rows, file-explorer rows, and `DesignTokens`.
-- New/changed components: flat top-bar separator, persistent selected sidebar toggles, centered image preview canvas.
+- New/changed components: grounded active-tab treatment, persistent selected sidebar toggles, glass sidebar surfaces, and centered image preview canvas. Arc informs the shell composition only; it is not exposed as a terminal theme preset.
 - Variants and states: normal, hover, selected, focused, empty, disabled, and read-only preview.
 - Token/component ownership: reusable geometry and colors belong to `DesignTokens`; views own only semantic composition.
 
@@ -61,7 +62,7 @@ This design favors boring correctness over feature breadth. Rendering speed matt
 
 - Target standard: macOS native accessibility behavior with WCAG AA-equivalent contrast where applicable.
 - Keyboard/focus behavior: all sidebar, tab, search, and list actions remain keyboard reachable with visible focus.
-- Contrast/readability: terminal content wins over chrome; muted text remains readable in both appearances.
+- Contrast/readability: terminal content wins over chrome; sidebar navigation and filenames use a 14pt primary-text baseline, command history uses a 13.5pt monospaced baseline, and muted text remains readable in both appearances.
 - Screen-reader semantics: icons require accessible descriptions and controls expose state.
 - Reduced motion and sensory considerations: no essential animation or color-only destructive state.
 
@@ -368,13 +369,14 @@ Design rules:
 
 #### Three-pane workspace contract
 
-- The workspace uses one quiet top chrome bar, an optional command-history panel on the left, the active terminal/editor in the center, and an optional file explorer on the right. Side panels begin below the top chrome and never compete with the title-bar traffic lights.
-- Both side panels use the same visual hierarchy: the panel's identity, one search field, then a dense list. Unsupported or future controls are hidden instead of rendered disabled. A panel names itself once: the left sidebar's identity is its section strip, so its sections draw no header of their own.
+- The workspace uses one quiet top chrome bar, an optional file explorer on the left, the active terminal/editor in the center, and an optional command-history/agent-session panel on the right. Side panels begin below the top chrome and never compete with the title-bar traffic lights.
+- Both side panels use the same visual hierarchy: the panel's identity, one search field, then a readable compact list. Unsupported or future controls are hidden instead of rendered disabled. A panel names itself once: the left sidebar's identity is its section strip, so its sections draw no header of their own. The section selection surface is divided from the strip bounds rather than cached subview frames, keeping its accent rail centered while the panel resizes.
 - The search field carries a `/` key cap while it is idle, and `/` in either list jumps to it.
 - Panel backgrounds remain close to the top-chrome surface, separated from the center by one hairline border. Hover is a low-contrast neutral wash. Selection is not a wash: it is an opaque raised-surface pill with a hairline, a small drop shadow, an accent rail, and a heavier title, so a selected row's text sits on a surface the color ramp already guarantees. Elevation is for the pill only — panels and bars stay flat.
 - Vertical rhythm is spent on section headers, not on rows. A directory node carries air above it; the command rows under it stay dense, because the list is hundreds of rows long and a taller row buys rhythm by taking rows off the screen.
 - The top bar keeps tabs as the primary content. Leading and trailing sidebar controls are symmetrical, and an open panel is represented by a persistent filled capsule plus accent tint, not tint alone.
 - File rows preserve native outline disclosure and keyboard selection. A single click on a supported image opens or focuses a read-only preview tab; text files keep the deliberate open gesture already defined by the explorer.
+- Directories recognized as projects at any loaded explorer depth may replace the folder glyph with a 16px rounded identity image; ordinary nested directories remain semantic folder glyphs. Discovery follows only the lazily loaded tree and never recursively crawls unopened directories. A bounded local logo/favicon wins; otherwise a repository may asynchronously use the GitHub owner avatar derived from its configured `upstream` or `origin` remote and stored in the app cache. The row renders a generated project-name identity immediately, so offline, slow, failed, or non-GitHub lookups never delay or move the list.
 - Image preview tabs center the source at its intrinsic size and proportionally shrink it when the available canvas is smaller. They never upscale, crop, mutate, or silently convert the source image.
 
 #### Preferences GUI contract

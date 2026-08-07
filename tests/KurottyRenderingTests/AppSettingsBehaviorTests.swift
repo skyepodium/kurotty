@@ -967,7 +967,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         try store.save(settings)
 
         XCTAssertEqual(scaleSeenByObserver, 140)
-        XCTAssertEqual(rowTitleSeenByObserver ?? 0, 18.2, accuracy: 0.001)
+        XCTAssertEqual(rowTitleSeenByObserver ?? 0, 19.6, accuracy: 0.001)
     }
 
     /// A file written before schema 19 predates the key, so migration lands it
