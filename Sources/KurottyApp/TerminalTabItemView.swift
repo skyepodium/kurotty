@@ -52,6 +52,12 @@ final class TerminalTabItemView: NSView {
         closeButtonAlpha > 0 && closeButtonFrame.contains(location)
     }
 
+    nonisolated static func hoverOverlayColor(for theme: DesignTokens.ChromeTheme) -> NSColor {
+        theme.textPrimary.withAlphaComponent(
+            DesignTokens.Component.terminalTabHoverFillAlphaRATIO
+        )
+    }
+
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if Self.closesTab(
@@ -106,7 +112,7 @@ final class TerminalTabItemView: NSView {
         hoverOverlayView.wantsLayer = true
         hoverOverlayView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         hoverOverlayView.isHidden = true
-        hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor
+        hoverOverlayView.layer?.backgroundColor = Self.hoverOverlayColor(for: chromeTheme).cgColor
         hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hoverOverlayView)
 

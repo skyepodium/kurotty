@@ -1036,13 +1036,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("guard !bounds.contains(location) else { return }"))
         XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
         // Re-pointed: the tab radius moved onto the shared `Radius` scale, the
-        // selected outline was replaced by an accent top rail, and hover became
-        // the achromatic `hoverFill` wash so it cannot borrow the accent's
-        // meaning. An unselected tab now has no fill of its own at all.
+        // selected outline was replaced by an accent top rail, and hover uses
+        // a stronger tab-specific achromatic wash so it stays visible without
+        // borrowing the accent's meaning. An unselected tab has no resting fill.
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Radius.mdPX"))
         XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
         XCTAssertFalse(windowSource.contains("selectionRailView"))
-        XCTAssertTrue(windowSource.contains("hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor"))
+        XCTAssertTrue(windowSource.contains("Self.hoverOverlayColor(for: chromeTheme).cgColor"))
+        XCTAssertEqual(DesignTokens.Component.terminalTabHoverFillAlphaRATIO, 0.10)
         XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
         XCTAssertFalse(windowSource.contains("terminalTabShadow"))
         XCTAssertTrue(windowSource.contains("onSelect: { [weak self] in self?.selectTab(at: index) }"))

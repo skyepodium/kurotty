@@ -1203,6 +1203,10 @@ enum DesignTokens {
         /// Close affordance: a 20x20 hit target carrying a 10pt glyph. 18x18 was
         /// below the comfortable pointer target for a control this small.
         static var terminalTabCloseWidthPX: CGFloat { UIScale.scaledMetric(20) }
+        /// A tab is a broad target, so the shared 5–6% chrome hover wash fades
+        /// into a light title bar. Keep this achromatic, but give it enough
+        /// contrast to remain visible beside the selected tab.
+        static let terminalTabHoverFillAlphaRATIO: CGFloat = 0.10
         /// Tab add/close hover is the one chrome hover allowed to be chromatic:
         /// it marks a tab action rather than a row.
         static let terminalTabButtonHoverAlphaRATIO: CGFloat = 0.18

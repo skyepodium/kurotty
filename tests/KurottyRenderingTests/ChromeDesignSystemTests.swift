@@ -38,6 +38,21 @@ final class ChromeDesignSystemTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(DesignTokens.Component.terminalTabPlusWidthPX, 32)
     }
 
+    @MainActor
+    func testTabHoverUsesAStrongerAchromaticWashThanSharedChromeHover() {
+        let theme = DesignTokens.ChromeTheme.light
+        let hover = TerminalTabItemView.hoverOverlayColor(for: theme)
+        let sharedHoverAlpha = theme.hoverFill.alphaComponent
+
+        XCTAssertEqual(
+            hover.alphaComponent,
+            DesignTokens.Component.terminalTabHoverFillAlphaRATIO,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(hover.alphaComponent, sharedHoverAlpha)
+        XCTAssertEqual(DesignTokens.Component.terminalTabHoverFillAlphaRATIO, 0.10)
+    }
+
     // MARK: - Elevation
 
     @MainActor
