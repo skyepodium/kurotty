@@ -133,6 +133,64 @@ struct TerminalCommandShortcut: Equatable {
         }
         return characters == keyEquivalent
     }
+
+    var displayLabel: String {
+        var label = ""
+        if modifiers.contains(.control) {
+            label += "⌃"
+        }
+        if modifiers.contains(.option) {
+            label += "⌥"
+        }
+        if modifiers.contains(.shift) {
+            label += "⇧"
+        }
+        if modifiers.contains(.command) {
+            label += "⌘"
+        }
+
+        if let keyEquivalent {
+            label += keyEquivalent.uppercased()
+        } else if let keyCode {
+            label += keyCode.displayLabel
+        }
+
+        return label
+    }
+}
+
+private extension UInt16 {
+    var displayLabel: String {
+        switch self {
+        case 123:
+            return "←"
+        case 124:
+            return "→"
+        case 125:
+            return "↓"
+        case 126:
+            return "↑"
+        default:
+            return "#\(self)"
+        }
+    }
+}
+
+enum TerminalCommandTooltip {
+    static func text(
+        for commandID: TerminalWindowCommandID,
+        title overrideTitle: String? = nil,
+        registry: TerminalCommandRegistry = .localized
+    ) -> String {
+        guard let command = registry.windowCommands.first(where: { $0.id == commandID }) else {
+            return overrideTitle ?? ""
+        }
+        let title = overrideTitle ?? command.title
+        guard let shortcut = command.shortcut else {
+            return title
+        }
+        return "\(title)(\(shortcut.displayLabel))"
+    }
 }
 
 struct TerminalCommand: Equatable {

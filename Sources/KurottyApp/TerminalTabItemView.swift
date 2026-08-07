@@ -118,6 +118,10 @@ final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
+        closeButton.toolTip = TerminalCommandTooltip.text(
+            for: .closeCurrentPane,
+            title: AppLocalization.string(.closePaneOrTab)
+        )
         closeButton.applyChromeTheme(chromeTheme)
         // Same deliberate accent hover as the add button.
         closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(

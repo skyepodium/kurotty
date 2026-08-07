@@ -832,6 +832,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             action: #selector(newTabButtonPressed(_:))
         )
         addButton.applyChromeTheme(chromeTheme)
+        addButton.toolTip = TerminalCommandTooltip.text(for: .newTab)
         // Deliberate deviation from the theme's achromatic hover: the tab bar
         // tints its own hover with the accent so add/close read as tab actions.
         addButton.normalTintColor = chromeTheme.textSecondary
@@ -889,19 +890,19 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func configureSidebarToggleButtons() {
-        historyToggleButton.toolTip = AppLocalization.string(.commandHistory)
+        historyToggleButton.toolTip = TerminalCommandTooltip.text(for: .toggleCommandHistoryPanel)
         historyToggleButton.target = self
         historyToggleButton.action = #selector(historyToggleButtonPressed(_:))
 
-        explorerToggleButton.toolTip = AppLocalization.string(.fileExplorer)
+        explorerToggleButton.toolTip = TerminalCommandTooltip.text(for: .toggleFileExplorerPanel)
         explorerToggleButton.target = self
         explorerToggleButton.action = #selector(explorerToggleButtonPressed(_:))
 
-        splitRightButton.toolTip = AppLocalization.string(.splitVertically)
+        splitRightButton.toolTip = TerminalCommandTooltip.text(for: .splitVertically)
         splitRightButton.target = self
         splitRightButton.action = #selector(splitRightButtonPressed(_:))
 
-        splitDownButton.toolTip = AppLocalization.string(.splitHorizontally)
+        splitDownButton.toolTip = TerminalCommandTooltip.text(for: .splitHorizontally)
         splitDownButton.target = self
         splitDownButton.action = #selector(splitDownButtonPressed(_:))
 
