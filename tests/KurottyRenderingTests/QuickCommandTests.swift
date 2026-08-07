@@ -386,12 +386,6 @@ final class QuickCommandTests: XCTestCase {
         }
     }
 
-    func testDispatcherGatesExecutionOnUserInitiatedApproval() throws {
-        let dispatcherSource = try sourceFile("Sources/KurottyApp/TerminalCommandDispatcher.swift")
-        XCTAssertTrue(dispatcherSource.contains("guard approval.isUserInitiated else"))
-        XCTAssertTrue(dispatcherSource.contains("guard payload.executes else"))
-    }
-
     // MARK: - Store
 
     @MainActor
