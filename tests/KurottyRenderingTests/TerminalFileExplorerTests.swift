@@ -33,6 +33,25 @@ final class TerminalFileExplorerTests: XCTestCase {
         )
     }
 
+    func testProjectIconResolverKeepsLocalImageAheadOfGitHubAvatar() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let gitDirectory = root.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let iconURL = root.appendingPathComponent("favicon.png")
+        try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64)).write(to: iconURL)
+        try """
+        [remote "origin"]
+            url = git@github.com:openai/codex.git
+        """.write(to: gitDirectory.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .localFile(iconURL.standardizedFileURL)
+        )
+    }
+
     func testProjectIconResolverGeneratesALocalIdentityForARepository() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
@@ -43,6 +62,106 @@ final class TerminalFileExplorerTests: XCTestCase {
             FileExplorerProjectIconResolver.source(for: root),
             .generated(root.lastPathComponent)
         )
+    }
+
+    func testProjectIconResolverUsesGitHubOriginOwnerAvatar() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let gitDirectory = root.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        [remote "origin"]
+            url = git@github.com:openai/codex.git
+        """.write(to: gitDirectory.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .githubAvatar(owner: "openai", fallbackLabel: root.lastPathComponent)
+        )
+    }
+
+    func testProjectIconResolverPrefersUpstreamGitHubOwnerForAFork() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let gitDirectory = root.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        [remote "origin"]
+            url = https://github.com/local-user/codex.git
+        [remote "upstream"]
+            url = https://github.com/openai/codex.git
+        """.write(to: gitDirectory.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .githubAvatar(owner: "openai", fallbackLabel: root.lastPathComponent)
+        )
+    }
+
+    func testProjectIconResolverReadsTheCommonConfigForAGitWorktree() throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let root = container.appendingPathComponent("worktree", isDirectory: true)
+        let commonGitDirectory = container.appendingPathComponent("main.git", isDirectory: true)
+        let worktreeGitDirectory = commonGitDirectory
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("worktree", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: worktreeGitDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: container) }
+        try "gitdir: \(worktreeGitDirectory.path)\n".write(
+            to: root.appendingPathComponent(".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "../..\n".write(
+            to: worktreeGitDirectory.appendingPathComponent("commondir"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/openai/codex.git
+        """.write(
+            to: commonGitDirectory.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .githubAvatar(owner: "openai", fallbackLabel: root.lastPathComponent)
+        )
+    }
+
+    func testGitHubOwnerParserAcceptsHTTPSAndSSHButRejectsLookalikeHosts() {
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.githubOwner(
+                fromRemoteURL: "https://github.com/openai/codex.git"
+            ),
+            "openai"
+        )
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.githubOwner(
+                fromRemoteURL: "git@github.com:openai/codex.git"
+            ),
+            "openai"
+        )
+        XCTAssertNil(
+            FileExplorerProjectIconResolver.githubOwner(
+                fromRemoteURL: "git@evilgithub.com:openai/codex.git"
+            )
+        )
+    }
+
+    func testProjectIconRasterValidationAcceptsGitHubJPEGResponses() {
+        let jpegHeader = Data([0xff, 0xd8, 0xff, 0xdb, 0, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertTrue(FileExplorerProjectIconResolver.isSupportedRasterImage(jpegHeader))
     }
 
     func testProjectIconResolverSkipsAnInvalidLocalImageBeforeGeneratedFallback() throws {
@@ -87,6 +206,106 @@ final class TerminalFileExplorerTests: XCTestCase {
         XCTAssertNotNil(nestedCell.leadingIconImageForTesting)
         XCTAssertTrue(projectCell.isDisplayingProjectIconForTesting)
         XCTAssertFalse(nestedCell.isDisplayingProjectIconForTesting)
+    }
+
+    @MainActor
+    func testExpandedNestedRepositoryReceivesAProjectIdentitySource() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-nested-project-icon-\(UUID().uuidString)")
+        let group = root.appendingPathComponent("terminal", isDirectory: true)
+        let repository = group.appendingPathComponent("orca", isDirectory: true)
+        let gitDirectory = repository.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        [remote "origin"]
+            url = git@github.com:openai/orca.git
+        """.write(to: gitDirectory.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+        let panel = TerminalFileExplorerPanelView(
+            agentSessionIndexStore: AgentSessionIndexStore(
+                homeDirectory: root,
+                scanners: [],
+                isIndexingEnabled: false,
+                observesSettingsChanges: false
+            )
+        )
+        panel.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        panel.update(rootDirectory: root)
+        panel.layoutSubtreeIfNeeded()
+
+        panel.expandRowForTesting(0)
+        for _ in 0..<20 where panel.projectIconSourceForTesting(at: repository) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            panel.projectIconSourceForTesting(at: repository),
+            .githubAvatar(owner: "openai", fallbackLabel: "orca")
+        )
+    }
+
+    @MainActor
+    func testGitHubAvatarLoaderShowsFallbackThenCachesRemoteImage() async throws {
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let imageData = try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64))
+        let loader = FileExplorerProjectIconLoader(
+            cacheDirectory: cacheDirectory,
+            remoteDataLoader: { _ in imageData }
+        )
+        let callbacks = expectation(description: "generated fallback and remote avatar")
+        callbacks.expectedFulfillmentCount = 2
+        var deliveredImages = 0
+
+        loader.load(.githubAvatar(owner: "openai", fallbackLabel: "codex")) { image in
+            XCTAssertNotNil(image)
+            deliveredImages += 1
+            callbacks.fulfill()
+        }
+
+        await fulfillment(of: [callbacks], timeout: 1)
+        XCTAssertEqual(deliveredImages, 2)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: cacheDirectory.appendingPathComponent("github-openai.png").path
+            )
+        )
+    }
+
+    @MainActor
+    func testGitHubAvatarLoaderCoalescesProjectsOwnedByTheSameProfile() async throws {
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let imageData = try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64))
+        let remoteStarted = expectation(description: "one owner request")
+        remoteStarted.expectedFulfillmentCount = 1
+        let loader = FileExplorerProjectIconLoader(
+            cacheDirectory: cacheDirectory,
+            remoteDataLoader: { _ in
+                remoteStarted.fulfill()
+                try await Task.sleep(for: .milliseconds(20))
+                return imageData
+            }
+        )
+        let remoteImages = expectation(description: "both project rows upgrade")
+        remoteImages.expectedFulfillmentCount = 2
+        var firstCallbacks = 0
+        var secondCallbacks = 0
+
+        loader.load(.githubAvatar(owner: "openai", fallbackLabel: "codex")) { _ in
+            firstCallbacks += 1
+            if firstCallbacks == 2 { remoteImages.fulfill() }
+        }
+        loader.load(.githubAvatar(owner: "openai", fallbackLabel: "another-project")) { _ in
+            secondCallbacks += 1
+            if secondCallbacks == 2 { remoteImages.fulfill() }
+        }
+
+        await fulfillment(of: [remoteStarted, remoteImages], timeout: 1)
+        XCTAssertEqual(firstCallbacks, 2)
+        XCTAssertEqual(secondCallbacks, 2)
     }
 
     private static let onePixelPNGBase64 =

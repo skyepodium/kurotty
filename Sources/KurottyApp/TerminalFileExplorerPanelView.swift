@@ -173,7 +173,10 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         _ = rootItem.childItems()
         rootItem.refreshLoadedSubtree()
-        resolveProjectIconsIfNeeded(in: rootItem.childItems(), rootDirectory: rootDirectory)
+        resolveProjectIconsIfNeeded(
+            in: loadedProjectCandidateItems(in: rootItem.childItems()),
+            rootDirectory: rootDirectory
+        )
         outlineView.reloadData()
         reapplyFilterIfNeeded()
         gitStatusService.requestStatus(rootDirectory: rootDirectory) { [weak self] result in
@@ -237,6 +240,15 @@ final class TerminalFileExplorerPanelView: NSView {
 
     func selectRowForTesting(_ row: Int) {
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    func expandRowForTesting(_ row: Int) {
+        guard row >= 0, let item = outlineView.item(atRow: row) else { return }
+        outlineView.expandItem(item)
+    }
+
+    func projectIconSourceForTesting(at url: URL) -> FileExplorerProjectIconSource? {
+        projectIconSourceCache[url.standardizedFileURL]
     }
 
     func rowNamesForTesting() -> [String] {
@@ -936,13 +948,22 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
         )
     }
 
+    func outlineViewItemDidExpand(_ notification: Notification) {
+        guard filterMatchItems == nil,
+              let rootDirectory,
+              let item = notification.userInfo?["NSObject"] as? TerminalFileExplorerOutlineItem
+        else { return }
+        resolveProjectIconsIfNeeded(
+            in: item.childItems(),
+            rootDirectory: rootDirectory
+        )
+    }
+
     private func projectIconSource(
         for item: TerminalFileExplorerOutlineItem
     ) -> FileExplorerProjectIconSource? {
         guard filterMatchItems == nil,
-              item.node.kind == .directory,
-              item.node.url.deletingLastPathComponent().standardizedFileURL.path
-                == rootDirectory?.standardizedFileURL.path
+              item.node.kind == .directory
         else {
             return nil
         }
@@ -979,11 +1000,30 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
             projectIconResolutionTask = nil
             if let rootItem {
                 resolveProjectIconsIfNeeded(
-                    in: rootItem.childItems(),
+                    in: loadedProjectCandidateItems(in: rootItem.childItems()),
                     rootDirectory: rootDirectory
                 )
             }
         }
+    }
+
+
+    /// Project identity discovery follows only the tree the user has already
+    /// opened. It never turns a sidebar refresh into a recursive filesystem
+    /// crawl, while still branding repositories at any visible depth.
+    private func loadedProjectCandidateItems(
+        in items: [TerminalFileExplorerOutlineItem]
+    ) -> [TerminalFileExplorerOutlineItem] {
+        var result: [TerminalFileExplorerOutlineItem] = []
+        var pending = items
+        while let item = pending.popLast() {
+            guard item.node.kind == .directory else { continue }
+            result.append(item)
+            if let loadedChildren = item.loadedChildItems {
+                pending.append(contentsOf: loadedChildren)
+            }
+        }
+        return result
     }
 }
 
