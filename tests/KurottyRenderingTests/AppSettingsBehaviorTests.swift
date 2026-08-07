@@ -582,7 +582,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
         // Re-pointed at schema 21, which added
         // `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        // Re-pointed at schema 22, which added `terminal.hasSeenGettingStarted`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -723,7 +724,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // the scrollback-restore default below is unchanged.
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -789,7 +790,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -838,7 +839,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
 
     func testUITextScaleDefaultsToOneHundredPercent() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }
@@ -958,6 +959,85 @@ final class AppSettingsBehaviorTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
 
         XCTAssertEqual(decoded.terminal.uiTextScalePercent, SettingsDefaults.uiTextScalePercent)
+    }
+
+    // MARK: - Getting Started (schema 22)
+
+    func testAFreshInstallHasNotSeenGettingStarted() {
+        // The one default here that means "this has not happened yet" rather
+        // than "the user prefers this off".
+        XCTAssertFalse(SettingsDefaults.hasSeenGettingStarted)
+        XCTAssertFalse(AppSettings.default.terminal.hasSeenGettingStarted)
+    }
+
+    func testTheGettingStartedFlagIsLaunchOnly() {
+        XCTAssertEqual(
+            AppSettingsValidation.lifecycle(for: .terminalHasSeenGettingStarted),
+            .launchOnly
+        )
+    }
+
+    func testSettingsWrittenBeforeSchemaTwentyTwoAreTreatedAsHavingSeenIt() {
+        // The migration that matters. An existing install has been running for
+        // a while, so the true statement about it is that first run already
+        // happened; landing on the default instead would open a welcome tab in
+        // front of a long-time user on the upgrade that introduced it.
+        var settings = AppSettings.default
+        settings.schemaVersion = 21
+        settings.terminal.hasSeenGettingStarted = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertTrue(normalized.terminal.hasSeenGettingStarted)
+    }
+
+    func testAFileWithNoSchemaVersionAtAllIsAlsoTreatedAsHavingSeenIt() {
+        var settings = AppSettings.default
+        settings.schemaVersion = nil
+        settings.terminal.hasSeenGettingStarted = false
+
+        XCTAssertTrue(AppSettingsNormalizer.normalized(settings).terminal.hasSeenGettingStarted)
+    }
+
+    func testCurrentSchemaPreservesTheNotYetSeenState() {
+        // Once the key exists, `false` is a real state and must survive
+        // normalization — otherwise a fresh install never sees the tab.
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.hasSeenGettingStarted = false
+
+        XCTAssertFalse(AppSettingsNormalizer.normalized(settings).terminal.hasSeenGettingStarted)
+    }
+
+    func testTheGettingStartedFlagSurvivesAnEncodeDecodeRoundTrip() throws {
+        var settings = AppSettings.default
+        settings.terminal.hasSeenGettingStarted = true
+
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertTrue(decoded.terminal.hasSeenGettingStarted)
+        XCTAssertEqual(decoded, settings)
+    }
+
+    func testAFileMissingTheKeyDecodesRatherThanFailing() throws {
+        // Absent in every file below schema 22, and an undecodable document
+        // would reset every other key with it.
+        let json = """
+        {
+          "schemaVersion": 21,
+          "terminal": {
+            "theme": "kurotty",
+            "fontName": "Menlo",
+            "fontSize": 15,
+            "scrollbackLines": 10000,
+            "colors": \(customColorsJSON())
+          }
+        }
+        """
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertFalse(decoded.terminal.hasSeenGettingStarted)
     }
 
     private func customColorsJSON() -> String {

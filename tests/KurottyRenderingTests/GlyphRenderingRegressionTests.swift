@@ -1498,7 +1498,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         // Schema 21 added `terminal.agentStatusCodexHookConsent`. Asserted
         // against the value rather than against the text of its declaration, so
         // a reformat of SettingsDefaults cannot fail a test about the menu.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
         XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
         XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
         XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
