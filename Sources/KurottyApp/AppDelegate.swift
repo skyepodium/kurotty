@@ -36,6 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainMenu.install(target: self)
         installMenuBarExtra()
         openNewWindow()
+        // After the first window, so a fresh install lands on Getting Started
+        // with a terminal tab already beside it. It is a tab rather than a
+        // modal precisely so nothing is blocked: the prompt is one click away
+        // and Command-W dismisses the page for good.
+        windowController?.openGettingStartedTabOnFirstRunIfNeeded()
         restoreScrollbackFromWorkspaceSnapshot()
         if DebugOptions.showHistoryPanel {
             windowController?.setCommandHistoryPanelVisible(true)
@@ -146,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainMenu.install(target: self)
         menuBarExtraController?.refreshLocalization()
         activeTerminalWindowController?.refreshSettingsTabLocalization()
+        activeTerminalWindowController?.refreshGettingStartedTabLocalization()
         commandPaletteController?.close()
         commandPaletteController = nil
     }

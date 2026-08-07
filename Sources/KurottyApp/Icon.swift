@@ -153,6 +153,14 @@ enum IconSymbol {
     /// at menu-bar size can still say.
     static let menuBarExtra = "terminal"
 
+    // MARK: Getting Started
+    /// The three checklist states. Filled marks, because the glyph *is* the
+    /// state here — there is no coloured pill behind it to carry the meaning,
+    /// and a hollow ring at 13pt reads as an unrendered icon.
+    static let setupReady = "checkmark.circle.fill"
+    static let setupAction = "circle.dashed"
+    static let setupUnavailable = "minus.circle.fill"
+
     // MARK: Status bar
     static let memory = "memorychip"
     static let cpu = "cpu"

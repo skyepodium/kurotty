@@ -45,6 +45,13 @@ public enum SettingsDefaults {
     /// strip is not installed at all. Turning it off drops every recorded
     /// marker rather than parking them, so no stale row survives the switch.
     public static let promptNavigatorRailEnabled = true
+    /// Launch-only and **false** by default, which is the one default here that
+    /// means "this has not happened yet" rather than "the user prefers this
+    /// off". A fresh install opens the Getting Started tab once and sets this;
+    /// after that the tab is reached by name from the command palette. It is a
+    /// record of an event, so nothing in Settings toggles it — the same shape
+    /// as `agentStatusHookConsent`.
+    public static let hasSeenGettingStarted = false
     /// Launch-only and on by default. Restoring stored scrollback only repaints
     /// the screen model; it never writes to a PTY and never runs a command, so
     /// it stays separate from the command-replay opt-in.

@@ -114,6 +114,34 @@ enum AppConstants {
         static let watcherDebounceMS = 300
     }
 
+    /// Project file palette: how much of a checkout is enumerated, and how much
+    /// of the result is put on screen.
+    enum ProjectFiles {
+        /// Upper bound on paths held for one open of the palette. Ranking is
+        /// linear in this number and runs on every keystroke, so it is the knob
+        /// that decides whether typing stays responsive in a monorepo. A
+        /// hundred thousand paths is roughly a 6 MB index and still ranks in a
+        /// few milliseconds.
+        static let resultMaximumCOUNT = 100_000
+        /// Files the fallback walk will collect. Lower than the ripgrep cap on
+        /// purpose: without ignore rules the walk is spending its budget on
+        /// build output as often as on sources, and a bigger number would only
+        /// buy more of that.
+        static let walkResultMaximumCOUNT = 20_000
+        /// Directory entries the fallback walk will look at, files and
+        /// directories together. This is the real bound — the file cap alone
+        /// would let a tree of empty directories run forever.
+        static let walkVisitedEntryMaximumCOUNT = 60_000
+        /// Rows the palette shows. The list is keyboard-driven and nobody
+        /// arrows past the first screen; anything beyond this is answered by
+        /// typing another character, not by scrolling.
+        static let visibleResultMaximumCOUNT = 50
+        /// Query characters past which nothing is ranked. A pasted file's worth
+        /// of text cannot match a path, and ranking it against every entry is
+        /// the one way this palette can be made to stall.
+        static let queryMaximumCharacterCOUNT = 256
+    }
+
     /// Single source of truth for where Kurotty stores anything on disk.
     ///
     /// Settings, shell history, and scrollback snapshots all live under the same
@@ -399,6 +427,12 @@ enum AppConstants {
     }
 
     enum Shell {
+        /// Where the user's login shell is read from, and what to use when the
+        /// variable is absent. macOS has shipped zsh as the default login shell
+        /// since Catalina, so the fallback is the one that is almost certainly
+        /// right rather than the historical `/bin/sh`.
+        static let pathEnvironmentName = "SHELL"
+        static let defaultPath = "/bin/zsh"
         static let term = "xterm-256color"
         static let colorTerm = "truecolor"
         static let termProgram = "Kurotty"

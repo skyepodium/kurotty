@@ -729,6 +729,38 @@ enum DesignTokens {
         /// the ramp; the window around it does not, which is the same trade the
         /// user already accepts when they zoom any list.
         static var commandPaletteRowHeightPX: CGFloat { UIScale.scaledMetric(34) }
+
+        /// Project file palette. The window borrows the command palette's frame
+        /// so the two read as one surface invoked two ways, but the row is
+        /// taller: a file row is a name over its directory, which is two lines
+        /// where a command row is one.
+        static let projectFilePaletteWidthPX = commandPaletteWidthPX
+        static let projectFilePaletteHeightPX = commandPaletteHeightPX
+        static var projectFilePaletteRowHeightPX: CGFloat { UIScale.scaledMetric(44) }
+        /// Height of the footer strip that names the scan source and the result
+        /// count. Fixed so the list does not resize when the text under it goes
+        /// from one count to another.
+        static var projectFilePaletteFooterHeightPX: CGFloat { UIScale.scaledMetric(18) }
+        static let projectFilePaletteInsetPX = Space.x5PX
+        static let projectFilePaletteGapPX = Space.x4PX
+        static let projectFilePaletteRowInsetXPX = Space.x3PX
+        static let projectFilePaletteRowLineGapPX: CGFloat = 1
+
+        /// Getting Started tab. Sized against the settings surface rather than
+        /// the window: it is the same kind of read-once page, and a full-bleed
+        /// column of prose at terminal width is unreadable.
+        static let gettingStartedContentMaxWidthPX = preferencesContentMaxWidthPX
+        static let gettingStartedInsetPX = Space.x6PX
+        static let gettingStartedRowGapPX = Space.x5PX
+        static let gettingStartedRowInsetPX = Space.x4PX
+        static let gettingStartedRowGutterPX = Space.x4PX
+        static let gettingStartedTextGapPX = Space.x1PX
+        static let gettingStartedHeaderGapPX = Space.x6PX
+        static let gettingStartedRowCornerRadiusPX = Radius.mdPX
+        /// Fixed width for the state glyph column so every row's title starts on
+        /// the same x, whichever of the three marks it carries.
+        static var gettingStartedGutterWidthPX: CGFloat { UIScale.scaledMetric(20) }
+
         /// Settings surface geometry. Settings is a center tab, not a window, so
         /// these are the size the surface is designed against and the frame the
         /// hosted view starts at before the tab stretches it — not a window

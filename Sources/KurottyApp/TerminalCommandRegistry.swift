@@ -25,6 +25,8 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case toggleCommandHistoryPanel = "history.togglePanel"
     case toggleFileExplorerPanel = "explorer.togglePanel"
     case toggleAgentSessionPanel = "sessions.togglePanel"
+    case openProjectFile = "project.openFile"
+    case openGettingStarted = "app.gettingStarted"
     case increaseFontSize = "terminal.increaseFontSize"
     case decreaseFontSize = "terminal.decreaseFontSize"
     case resetFontSize = "terminal.resetFontSize"
@@ -53,6 +55,8 @@ enum TerminalWindowCommandAction: Equatable {
     case toggleCommandHistoryPanel
     case toggleFileExplorerPanel
     case toggleAgentSessionPanel
+    case openProjectFile
+    case openGettingStarted
     case zoomFont(TerminalFontZoomStep)
     case tmuxSwapPane(TmuxPaneSwapDirection)
     case tmuxRotateWindow(TmuxRotationDirection)
@@ -365,6 +369,26 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "a", modifiers: [.command, .shift]),
             action: .toggleAgentSessionPanel,
             searchTokens: ["agent sessions", "ai sessions", "claude code sessions", "codex sessions", "resume session", "session vault"]
+        ),
+        TerminalCommand(
+            id: .openProjectFile,
+            title: AppLocalization.string(.openProjectFile, language: language),
+            category: .navigation,
+            // Command-P. Kurotty has no Print command to contest it, and it is
+            // the chord every editor already trained people on.
+            shortcut: TerminalCommandShortcut(keyEquivalent: "p", modifiers: .command),
+            action: .openProjectFile,
+            searchTokens: ["quick open", "go to file", "find file", "open file", "fuzzy file search", "file palette"]
+        ),
+        TerminalCommand(
+            id: .openGettingStarted,
+            title: AppLocalization.string(.gettingStarted, language: language),
+            category: .navigation,
+            // No shortcut. It is read once and then reached by name; a chord
+            // spent on it would be a chord taken from something used daily.
+            shortcut: nil,
+            action: .openGettingStarted,
+            searchTokens: ["getting started", "setup", "first run", "welcome", "onboarding", "what is set up"]
         ),
         TerminalCommand(
             id: .increaseFontSize,

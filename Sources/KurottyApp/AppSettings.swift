@@ -34,7 +34,8 @@ struct AppSettings: Codable, Equatable {
             uiTextScalePercent: Defaults.uiTextScalePercent,
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
             menuBarExtraEnabled: Defaults.menuBarExtraEnabled,
-            promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled
+            promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled,
+            hasSeenGettingStarted: Defaults.hasSeenGettingStarted
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -72,6 +73,7 @@ struct AppSettings: Codable, Equatable {
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
         static let promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        static let hasSeenGettingStarted = SettingsDefaults.hasSeenGettingStarted
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -212,6 +214,10 @@ struct TerminalSettings: Codable, Equatable {
     /// from the scrollback indicator sharing that edge: the indicator says where
     /// the viewport is, the rail says where the commands are.
     var promptNavigatorRailEnabled: Bool
+    /// Whether the Getting Started tab has already been shown once. A record of
+    /// an event, not a preference: it is written by the app rather than by the
+    /// user, and no Settings control reads it.
+    var hasSeenGettingStarted: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -264,6 +270,7 @@ struct TerminalSettings: Codable, Equatable {
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
         case promptNavigatorRailEnabled
+        case hasSeenGettingStarted
     }
 
     init(
@@ -290,7 +297,8 @@ struct TerminalSettings: Codable, Equatable {
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
         menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled,
-        promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled
+        promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled,
+        hasSeenGettingStarted: Bool = SettingsDefaults.hasSeenGettingStarted
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -316,6 +324,7 @@ struct TerminalSettings: Codable, Equatable {
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
         self.promptNavigatorRailEnabled = promptNavigatorRailEnabled
+        self.hasSeenGettingStarted = hasSeenGettingStarted
     }
 
     init(from decoder: Decoder) throws {
@@ -395,6 +404,11 @@ struct TerminalSettings: Codable, Equatable {
             Bool.self,
             forKey: .promptNavigatorRailEnabled
         ) ?? SettingsDefaults.promptNavigatorRailEnabled
+        // Absent in schema versions below 22. The fallback is `false` — "not
+        // shown yet" — and the migration below is what stops an existing
+        // install from being told it is new.
+        hasSeenGettingStarted = try container.decodeIfPresent(Bool.self, forKey: .hasSeenGettingStarted)
+            ?? SettingsDefaults.hasSeenGettingStarted
     }
 }
 
@@ -602,6 +616,8 @@ struct AppSettingsNormalizer {
         static let menuBarExtraSchemaVersion = 20
         /// Schema version that introduced `terminal.promptNavigatorRailEnabled`.
         static let promptNavigatorRailSchemaVersion = 22
+        /// Schema version that introduced `terminal.hasSeenGettingStarted`.
+        static let gettingStartedSchemaVersion = 22
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -706,6 +722,17 @@ struct AppSettingsNormalizer {
             // no chrome it did not ask for. From schema 22 on, an explicit
             // choice in either direction is preserved.
             next.terminal.promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        }
+        if sourceSchemaVersion < Migration.gettingStartedSchemaVersion {
+            // The one migration here that does *not* re-apply the default, and
+            // deliberately so. `hasSeenGettingStarted` records an event rather
+            // than a preference: a settings file that predates schema 22 was
+            // written by an install that has been running for a while, so the
+            // true statement about it is that first run already happened.
+            // Landing it on the default instead would open a "Getting Started"
+            // tab in front of an existing user on the upgrade that introduced
+            // it, which is exactly the surprise the tab exists to avoid.
+            next.terminal.hasSeenGettingStarted = true
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

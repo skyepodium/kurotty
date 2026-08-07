@@ -147,7 +147,7 @@ struct CommandPalettePresenter {
 
 @MainActor
 final class CommandPaletteWindowController: NSWindowController {
-    private let searchField = CommandPaletteSearchField()
+    private let searchField = PaletteSearchField()
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let commandExecutor: (TerminalCommand) -> Void
@@ -210,7 +210,9 @@ final class CommandPaletteWindowController: NSWindowController {
         searchField.onMoveSelection = { [weak self] offset in
             self?.moveSelection(by: offset)
         }
-        searchField.onExecuteSelection = { [weak self] in
+        // A command has one activation, so the Command-held flag the shared
+        // field reports is not a second action here.
+        searchField.onExecuteSelection = { [weak self] _ in
             self?.executeSelectedCommand()
         }
         searchField.onCancel = { [weak self] in
@@ -350,27 +352,6 @@ extension CommandPaletteWindowController: NSTableViewDataSource, NSTableViewDele
     nonisolated func tableViewSelectionDidChange(_ notification: Notification) {
         MainActor.assumeIsolated {
             presenter.select(row: tableView.selectedRow)
-        }
-    }
-}
-
-private final class CommandPaletteSearchField: NSSearchField {
-    var onMoveSelection: ((Int) -> Void)?
-    var onExecuteSelection: (() -> Void)?
-    var onCancel: (() -> Void)?
-
-    override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 125:
-            onMoveSelection?(1)
-        case 126:
-            onMoveSelection?(-1)
-        case 36, 76:
-            onExecuteSelection?()
-        case 53:
-            onCancel?()
-        default:
-            super.keyDown(with: event)
         }
     }
 }
