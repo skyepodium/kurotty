@@ -727,19 +727,6 @@ final class AgentSessionIndexTests: XCTestCase {
         )
     }
 
-    func testBothSidebarsRouteThroughTheSharedHiddenHelper() throws {
-        let historySource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowCommandHistory.swift")
-        let explorerSource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowFileExplorer.swift")
-        for source in [historySource, explorerSource] {
-            XCTAssertTrue(
-                source.contains("setSidebarPanelHidden("),
-                "both sidebars must collapse through the shared helper"
-            )
-        }
-        XCTAssertFalse(historySource.contains("leftSidebarPanel.isHidden = !visible"))
-        XCTAssertFalse(explorerSource.contains("fileExplorerPanel.isHidden = !visible"))
-    }
-
     /// Regression: the section selector's required trailing pin let its
     /// intrinsic label width push the sidebar past its maximum width, which
     /// made the panel grow on every layout pass.

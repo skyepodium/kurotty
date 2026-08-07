@@ -174,35 +174,51 @@ final class TerminalEventLedgerTests: XCTestCase {
         XCTAssertFalse(summary.description.contains("secret-token"))
     }
 
-    func testLivePtyReadMetadataIsWiredIntoRuntimeLedgerWithoutRawPayload() throws {
-        let sessionSource = try sourceFile("Sources/KurottyApp/TerminalSession.swift")
-        let shellSource = try sourceFile("Sources/KurottyApp/ShellSession.swift")
-        let surfaceSource = try sourceFile("Sources/KurottyApp/TerminalSurfaceView.swift")
+    /// The one thing the twenty-two source-string assertions this replaces were
+    /// really guarding: a session's runtime events reach the surface's ledger,
+    /// and they carry byte counts rather than the bytes.
+    ///
+    /// The batching and trace-correlation semantics they also asserted are
+    /// covered for real by the two tests below and by
+    /// `testRuntimeBatchCorrelatesLiveBoundaryMetadataUnderStableTraceID`.
+    @MainActor
+    func testSessionRuntimeEventsReachTheSurfaceLedgerAsMetadataOnly() {
+        let session = RuntimeEventStubSession()
+        let surface = TerminalSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 200),
+            session: session
+        )
 
-        XCTAssertTrue(sessionSource.contains("var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)? { get set }"))
-        XCTAssertTrue(shellSource.contains("var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?"))
-        XCTAssertTrue(shellSource.contains("private var ptyReadTraceSequence: UInt64 = 0"))
-        XCTAssertTrue(shellSource.contains("emitRuntimePtyRead(byteCount: chunk.count)"))
-        XCTAssertTrue(shellSource.contains(".ptyRead(traceID: traceID, byteCount: byteCount)"))
-        XCTAssertTrue(shellSource.contains("onRuntimeEvent?(event)"))
-        XCTAssertTrue(surfaceSource.contains("private static let runtimeEventLedgerCapacity = 4_096"))
-        XCTAssertTrue(surfaceSource.contains("private var runtimeEventLedger = TerminalEventLedger(capacity: TerminalSurfaceView.runtimeEventLedgerCapacity)"))
-        XCTAssertTrue(surfaceSource.contains("shell.onRuntimeEvent = { [weak self] event in"))
-        XCTAssertTrue(surfaceSource.contains("self?.recordRuntimeEvent(event)"))
-        XCTAssertTrue(surfaceSource.contains("private func recordRuntimeEvent(_ event: TerminalEventLedger.RecordedEvent)"))
-        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.append(event)"))
-        XCTAssertTrue(surfaceSource.contains("beginOutputRuntimeEventBatch(byteCount: text.utf8.count)"))
-        XCTAssertTrue(surfaceSource.contains("let traceID = nextOutputFlushTraceID()"))
-        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordPtyRead(byteCount: ptyByteCount)"))
-        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordParserEvent(.printable(byteCount: byteCount))"))
-        XCTAssertTrue(surfaceSource.contains("activeOutputRuntimeEventBatch?.recordRenderFrame(.init("))
-        XCTAssertTrue(surfaceSource.contains("dirtyRegionCount: damage.rects.count"))
-        XCTAssertTrue(surfaceSource.contains("batch.commit(to: &runtimeEventLedger)"))
-        XCTAssertTrue(surfaceSource.contains("pendingRuntimeOutputEvents.reduce(0)"))
-        XCTAssertTrue(surfaceSource.contains("TerminalEventTraceID(\"output-flush-\\(outputFlushTraceSequence)\")"))
-        XCTAssertFalse(surfaceSource.contains("pendingRuntimeOutputTraceIDs.removeAll"))
-        XCTAssertFalse(surfaceSource.contains("runtimeEventLedger.recordPtyRead(traceID: event.traceID, data:"))
-        XCTAssertFalse(surfaceSource.contains("recordParserEvent(traceID: traceID, event: .printable(data:"))
+        session.onRuntimeEvent?(.ptyRead(traceID: TerminalEventTraceID("pty-read-1"), byteCount: 12))
+        session.onOutput?("secret-token")
+        // The hook hops to the main actor, so the ledger is only populated once
+        // the queue has run.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        let pane = surface.diagnosticsReportPane()
+        let ptyReads = pane.recentEvents.filter { $0.kind == .ptyRead }
+
+        XCTAssertFalse(ptyReads.isEmpty, "the surface must install the session's runtime-event hook")
+        for event in pane.recentEvents {
+            XCTAssertFalse(
+                event.description.contains("secret-token"),
+                "runtime events must carry counts, never terminal content"
+            )
+        }
+    }
+
+    /// A `.ptyRead` event has a byte count and no payload by construction, so
+    /// no call site can put terminal bytes into the ledger through it.
+    func testRecordedPtyReadEventsCarryNoPayload() {
+        var ledger = TerminalEventLedger(capacity: 4)
+        let traceID = TerminalEventTraceID("pty-read-1")
+        ledger.recordPtyRead(traceID: traceID, data: Data("secret-token".utf8))
+
+        let event = ledger.events(for: traceID).first
+
+        XCTAssertEqual(event?.kind, .ptyRead)
+        XCTAssertFalse(event?.description.contains("secret-token") ?? true)
+        XCTAssertTrue(event?.description.contains("bytes=12") ?? false)
     }
 
     func testRuntimeOutputFlushUsesSyntheticTraceWithoutCompletingIndividualPtyReads() {
@@ -386,17 +402,18 @@ final class TerminalEventLedgerTests: XCTestCase {
     }
 }
 
-private func sourceFile(_ relativePath: String) throws -> String {
-    try String(
-        contentsOf: sourceRoot().appendingPathComponent(relativePath),
-        encoding: .utf8
-    )
-}
+/// A session that records nothing and starts no process: the point is only that
+/// the surface installs `onRuntimeEvent` and forwards what arrives.
+private final class RuntimeEventStubSession: TerminalSession {
+    var onOutput: ((String) -> Void)?
+    var onRawOutput: ((Data) -> Void)?
+    var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
+    var onExit: ((TerminalChildExit) -> Void)?
 
-private func sourceRoot() -> URL {
-    var url = URL(fileURLWithPath: #filePath)
-    for _ in 0..<3 {
-        url.deleteLastPathComponent()
-    }
-    return url
+    func start(workingDirectory: String) {}
+    func write(_ text: String) {}
+    func foregroundProcessName() -> String? { nil }
+    func canReceiveTerminalResponseWithoutEcho() -> Bool { true }
+    func resize(columns: Int, rows: Int) {}
+    func stop() {}
 }
