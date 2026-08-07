@@ -55,6 +55,13 @@ extension TerminalWindowController: NSSplitViewDelegate {
         terminalContentHostView.frame.minX
     }
 
+    /// Where the terminal column ends, so the history divider knows how far
+    /// right it may travel. This is the explorer's divider when the explorer is
+    /// shown and the split view's trailing edge when it is not.
+    private var terminalColumnTrailingEdge: CGFloat {
+        terminalContentHostView.frame.maxX
+    }
+
     func splitView(
         _ splitView: NSSplitView,
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
@@ -97,7 +104,20 @@ extension TerminalWindowController: NSSplitViewDelegate {
         }
         switch sidebarDivider(at: dividerIndex) {
         case .history:
-            return DesignTokens.Component.commandHistoryPanelMaxWidthPX
+            // The explorer's divider already refuses to squeeze the terminal;
+            // this one did not, so dragging the history panel to its maximum
+            // took the terminal below its floor -- 88pt in a 760pt window, and
+            // still only 130pt at 900pt, against a 240pt minimum. The terminal
+            // sits between the two dividers, so this one's ceiling is the
+            // terminal's trailing edge less its floor and the divider itself.
+            let widest = DesignTokens.Component.commandHistoryPanelMaxWidthPX
+            let terminalCeiling = terminalColumnTrailingEdge
+                - DesignTokens.Component.terminalColumnMinWidthPX
+                - commandHistorySplitView.dividerThickness
+            let narrowest = DesignTokens.Component.commandHistoryPanelMinWidthPX
+            // On a window too narrow to satisfy both, the history panel's own
+            // minimum wins, the same order the explorer's case uses.
+            return max(min(widest, terminalCeiling), narrowest)
         case .explorer:
             return explorerDividerPosition(
                 forWidth: DesignTokens.Component.fileExplorerPanelMinWidthPX

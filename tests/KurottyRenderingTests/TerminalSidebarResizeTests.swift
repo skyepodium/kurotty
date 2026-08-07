@@ -50,6 +50,12 @@ final class TerminalSidebarResizeTests: XCTestCase {
         return controller
     }
 
+    /// Drags the history divider as far right as the delegate permits.
+    private func dragHistoryDividerFullyRight(in controller: TerminalWindowController) {
+        controller.commandHistorySplitView.setPosition(.greatestFiniteMagnitude, ofDividerAt: 0)
+        layOut(controller)
+    }
+
     private func layOut(_ controller: TerminalWindowController) {
         controller.window?.contentView?.layoutSubtreeIfNeeded()
         controller.commandHistorySplitView.layoutSubtreeIfNeeded()
@@ -281,5 +287,47 @@ final class TerminalSidebarResizeTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - Terminal floor
+
+    /// The explorer's divider refused to squeeze the terminal; the history
+    /// divider did not, so dragging the history panel to its 460pt maximum left
+    /// the terminal at 88pt in a 760pt window and 130pt at 900pt, against its
+    /// own 240pt floor.
+    func testDraggingTheHistoryPanelWideNeverTakesTheTerminalBelowItsFloor() {
+        for width in [760.0, 900.0, 1000.0, 1400.0, 1800.0] {
+            let controller = makeController(width: width)
+            dragHistoryDividerFullyRight(in: controller)
+            XCTAssertGreaterThanOrEqual(
+                controller.terminalContentHostView.frame.width,
+                DesignTokens.Component.terminalColumnMinWidthPX,
+                "terminal was \(controller.terminalContentHostView.frame.width)pt at \(width)pt"
+            )
+        }
+    }
+
+    /// The floor must not cost the history panel its own range on a window with
+    /// room for both -- a fix that clamped every width would be a regression
+    /// dressed as a fix.
+    func testAWideWindowStillLetsTheHistoryPanelReachItsMaximum() {
+        let controller = makeController(width: 1800)
+        dragHistoryDividerFullyRight(in: controller)
+        XCTAssertEqual(
+            controller.leftSidebarPanel.frame.width,
+            DesignTokens.Component.commandHistoryPanelMaxWidthPX,
+            accuracy: 1
+        )
+    }
+
+    /// When the window cannot satisfy both, the sidebar keeps its own minimum
+    /// rather than collapsing -- the same order the explorer's constraint uses.
+    func testAnOversubscribedWindowKeepsTheHistoryPanelAtItsMinimum() {
+        let controller = makeController(width: 620)
+        dragHistoryDividerFullyRight(in: controller)
+        XCTAssertGreaterThanOrEqual(
+            controller.leftSidebarPanel.frame.width,
+            DesignTokens.Component.commandHistoryPanelMinWidthPX - 1
+        )
     }
 }
