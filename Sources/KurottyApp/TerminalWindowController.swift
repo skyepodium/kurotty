@@ -108,6 +108,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// collapsed bar gives every point back to the terminal content.
     let statusBarView = TerminalStatusBarView(frame: .zero)
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    private var isTrafficLightAlignmentScheduled = false
+    private var hasAlignedTrafficLights = false
     /// Sidebar width constraints stay active only while the panel is shown: a
     /// hidden view still participates in Auto Layout, so leaving them on keeps
     /// the split view reserving a sliver of width plus its divider.
@@ -695,9 +697,6 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         }
         guard tmuxCoordinator(managing: item) == nil else { return }
         item.label = title
-        if item === tabView.selectedTabViewItem {
-            window?.title = title
-        }
         updateTabBar()
     }
 
@@ -842,12 +841,18 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         addButton.widthAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabPlusWidthPX).isActive = true
         addButton.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabHeightPX).isActive = true
         tabStackView.addArrangedSubview(addButton)
-        scheduleTrafficLightAlignment()
     }
 
-    private func scheduleTrafficLightAlignment() {
+    private func scheduleTrafficLightAlignment(forcesRealignment: Bool = false) {
+        if forcesRealignment {
+            hasAlignedTrafficLights = false
+        }
+        guard !hasAlignedTrafficLights, !isTrafficLightAlignmentScheduled else { return }
+        isTrafficLightAlignmentScheduled = true
         DispatchQueue.main.async { [weak self] in
-            self?.alignTrafficLightsWithChrome()
+            guard let self else { return }
+            self.isTrafficLightAlignmentScheduled = false
+            self.alignTrafficLightsWithChrome()
         }
     }
 
@@ -874,13 +879,15 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
                 continue
             }
             var frame = button.frame
-            frame.origin.y = round(targetCenterY - frame.height / 2)
+            let scale = max(window.backingScaleFactor, 1)
+            frame.origin.y = ((targetCenterY - frame.height / 2) * scale).rounded() / scale
             button.frame = frame
         }
+        hasAlignedTrafficLights = true
     }
 
     func windowDidResize(_ notification: Notification) {
-        scheduleTrafficLightAlignment()
+        scheduleTrafficLightAlignment(forcesRealignment: true)
     }
 
     /// Bottom of the window-wide chrome bar; the split view hangs off this so

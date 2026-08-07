@@ -266,6 +266,28 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertTrue(explorerSource.contains("homeDirectoryForCurrentUser"))
     }
 
+    func testTabTitleRefreshDoesNotRescheduleTrafficLightAlignment() throws {
+        let controllerSource = try sourceFile("Sources/KurottyApp/TerminalWindowController.swift")
+        let updateStart = try XCTUnwrap(controllerSource.range(of: "func updateTabBar()"))
+        let tail = controllerSource[updateStart.lowerBound...]
+        let nextFunction = try XCTUnwrap(tail.range(of: "private func scheduleTrafficLightAlignment"))
+        let updateBody = tail[..<nextFunction.lowerBound]
+
+        XCTAssertFalse(
+            updateBody.contains("scheduleTrafficLightAlignment"),
+            "changing a tab title must not move the macOS traffic lights"
+        )
+
+        let titleHandlerStart = try XCTUnwrap(controllerSource.range(of: "func terminalTitleDidChange"))
+        let titleHandlerTail = controllerSource[titleHandlerStart.lowerBound...]
+        let nextTitleHandlerFunction = try XCTUnwrap(titleHandlerTail.range(of: "func currentSplitView"))
+        let titleHandlerBody = titleHandlerTail[..<nextTitleHandlerFunction.lowerBound]
+        XCTAssertFalse(
+            titleHandlerBody.contains("window?.title"),
+            "the hidden native title must stay stable so AppKit does not relayout the traffic lights"
+        )
+    }
+
     // MARK: - Remote working directories
 
     private enum RemoteFixture {

@@ -39,6 +39,7 @@ enum TerminalProcessTreeReader {
         var cpuTimeSeconds: Double = 0
         var visitedCount = 0
         var didReadAnyProcess = false
+        var detectedAgentName: String?
 
         var frontier: [(processIdentifier: pid_t, depth: Int)] = [(rootProcessIdentifier, 0)]
         while let entry = frontier.popLast() {
@@ -52,6 +53,10 @@ enum TerminalProcessTreeReader {
                     .addingReportingOverflow(counters.residentBytes)
                     .partialValue
                 cpuTimeSeconds += counters.cpuTimeSeconds
+            }
+            if detectedAgentName == nil,
+               let commandName = TerminalProcessArguments.commandName(pid: entry.processIdentifier) {
+                detectedAgentName = TerminalAgentProcessDetector.agentName(forCommandName: commandName)
             }
             guard entry.depth < AppConstants.StatusBar.processTreeMaximumDepthCOUNT else {
                 continue
@@ -67,7 +72,8 @@ enum TerminalProcessTreeReader {
         return TerminalProcessCounterSample(
             residentBytes: residentBytes,
             cpuTimeSeconds: cpuTimeSeconds,
-            uptimeSeconds: uptimeSeconds
+            uptimeSeconds: uptimeSeconds,
+            detectedAgentName: detectedAgentName
         )
     }
 
@@ -109,6 +115,22 @@ enum TerminalProcessTreeReader {
         []
     }
     #endif
+}
+
+/// Maps process invocation names onto the small set of agents whose presence
+/// Kurotty can identify without reading terminal output. It deliberately does
+/// not infer activity state: hooks/OSC override this fallback when available.
+enum TerminalAgentProcessDetector {
+    nonisolated static func agentName(forCommandName commandName: String) -> String? {
+        let name = URL(fileURLWithPath: commandName).lastPathComponent.lowercased()
+        if name == "codex" || name.hasPrefix("codex-") {
+            return AppConstants.AgentStatus.codexReportedAgentName
+        }
+        if name == "claude" || name.hasPrefix("claude-") {
+            return AppConstants.AgentStatus.claudeReportedAgentName
+        }
+        return nil
+    }
 }
 
 /// Timer-driven sampler for one window.
@@ -263,7 +285,8 @@ final class TerminalResourceUsageSampler {
                 title: descriptor.title,
                 processIdentifier: processIdentifier,
                 residentBytes: sample.residentBytes,
-                cpuPercent: cpuPercent
+                cpuPercent: cpuPercent,
+                detectedAgentName: sample.detectedAgentName
             ))
         }
         previousSamples = nextPreviousSamples
