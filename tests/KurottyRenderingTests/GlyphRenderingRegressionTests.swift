@@ -580,98 +580,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("cellSize: TerminalFrameSize(width: Double(width), height: Double(lineHeight))"))
     }
 
-    func testTerminalFrameCarriesTrackedDamageDiagnostics() throws {
-        let metalSource = try terminalMetalViewSource()
-        let frameSource = try terminalRenderFrameSource()
-        XCTAssertTrue(frameSource.contains("let dirtyRows: [Int]"))
-        XCTAssertTrue(frameSource.contains("let dirtyRects: [TerminalFrameRect]"))
-        XCTAssertTrue(frameSource.contains("let isFullDamage: Bool"))
-        XCTAssertTrue(frameSource.contains("let defaultForeground: SIMD4<Float>"))
-        XCTAssertTrue(frameSource.contains("let defaultBackground: SIMD4<Float>"))
-        XCTAssertTrue(metalSource.contains("terminalFrame.defaultForeground"))
-        XCTAssertTrue(metalSource.contains("var lastFrameDirtyRowsForDiagnostics: [Int]"))
-        XCTAssertTrue(metalSource.contains("var lastFrameDirtyRectsForDiagnostics: [CGRect]"))
-        XCTAssertTrue(metalSource.contains("var lastFrameDamageWasFullForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var diagnosticFullRedrawEnabled = false"))
-        XCTAssertTrue(metalSource.contains("let policy = frame.damageMetadata.redrawPolicy("))
-        XCTAssertTrue(metalSource.contains("let uncoalescedSubmittedDisplayRects = policy.redrawDecision == .full ? [bounds] : frame.dirtyRects.map(\\.cgRect)"))
-        XCTAssertTrue(metalSource.contains("let submittedDisplayRects = policy.canCoalesceAtDisplayCadence"))
-        XCTAssertTrue(metalSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
-        XCTAssertTrue(metalSource.contains("setNeedsDisplay(rect)"))
-        XCTAssertTrue(metalSource.contains("!$0.color.sameColor(as: terminalFrame.defaultBackground)"))
-        XCTAssertFalse(metalSource.contains("private struct InputLineLayout"))
-        XCTAssertFalse(metalSource.contains("inputLineBackgroundInstanceBuffer"))
-        XCTAssertFalse(metalSource.contains("backgroundRunsExcludingInputLine"))
-        XCTAssertFalse(metalSource.contains("inputLineLayout(from:"))
-        XCTAssertFalse(metalSource.contains("isInputLineBackgroundColor"))
-        XCTAssertFalse(metalSource.contains("cursorTouchesInputRun"))
-        XCTAssertTrue(metalSource.contains("let backgroundRuns = mergedBackgroundRuns()"))
-        XCTAssertTrue(metalSource.contains("Kurotty render rects: cursorRectPx=%@"))
-
-        let surfaceSource = try terminalSurfaceViewSource()
-        let interpreterSource = try terminalOutputInterpreterSource()
-        XCTAssertTrue(interpreterSource.contains("var pendingDirtyRows = Set<Int>()"))
-        XCTAssertTrue(interpreterSource.contains("var pendingFullDamage = true"))
-        XCTAssertTrue(surfaceSource.contains("private func shouldRenderBackground(for cell: TerminalScreenCell) -> Bool"))
-        XCTAssertTrue(surfaceSource.contains("cell.style == .default"))
-        XCTAssertTrue(surfaceSource.contains("cell.style.effectiveBackground.sameColor(as: terminalDefaultStyle.background)"))
-        XCTAssertTrue(surfaceSource.contains("private func markDirty(row: Int)"))
-        XCTAssertTrue(surfaceSource.contains("private func markFullDamage()"))
-        XCTAssertTrue(surfaceSource.contains("private func consumePendingDamage(metrics: TerminalMetrics) -> TerminalFrameDamage"))
-        XCTAssertTrue(surfaceSource.contains("dirtyRows: damage.rows"))
-        XCTAssertTrue(surfaceSource.contains("dirtyRects: damage.rects"))
-        XCTAssertTrue(surfaceSource.contains("isFullDamage: damage.isFull"))
-        XCTAssertTrue(surfaceSource.contains("defaultForeground: terminalDefaultStyle.foreground"))
-        XCTAssertTrue(interpreterSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1, style: currentStyle)"))
-        XCTAssertTrue(interpreterSource.contains("screen.clear(row: cursorRow, from: 0, through: cursorColumn, style: currentStyle)"))
-        XCTAssertTrue(interpreterSource.contains("screen.clear(row: cursorRow, style: currentStyle)"))
-        XCTAssertFalse(interpreterSource.contains("screen.clear(row: cursorRow, from: cursorColumn, through: screen.columns - 1)\n"))
-    }
-
-    func testTerminalMetalViewExposesDamageInvalidationDiagnostics() throws {
-        let metalSource = try terminalMetalViewSource()
-        let updateSource = try functionBody(named: "update", in: metalSource)
-        let logSource = try functionBody(named: "logFrameStartIfNeeded", in: metalSource)
-
-        XCTAssertTrue(metalSource.contains("struct TerminalRenderDamageDiagnostics"))
-        XCTAssertTrue(metalSource.contains("let redrawDecision: RedrawDecision"))
-        XCTAssertTrue(metalSource.contains("let dirtyRectCount: Int"))
-        XCTAssertTrue(metalSource.contains("let scissorDisabled: Bool"))
-        XCTAssertTrue(metalSource.contains("let submittedDisplayRects: [CGRect]"))
-        XCTAssertTrue(metalSource.contains("let schedulingPolicy: SchedulingPolicy"))
-        XCTAssertTrue(metalSource.contains("let canCoalesceAtDisplayCadence: Bool"))
-        XCTAssertTrue(metalSource.contains("let coalescingFallbackReason: CoalescingFallbackReason"))
-        XCTAssertTrue(metalSource.contains("let stablePixelBounds: [TerminalFramePixelRect]"))
-        XCTAssertTrue(metalSource.contains("let stablePixelBoundCount: Int"))
-        XCTAssertTrue(metalSource.contains("struct TerminalRenderScissorRect"))
-        XCTAssertTrue(metalSource.contains("let scissorReadiness: ScissorReadiness"))
-        XCTAssertTrue(metalSource.contains("let scissorRects: [TerminalRenderScissorRect]"))
-        XCTAssertTrue(metalSource.contains("var scissorPlanIsReady: Bool"))
-        XCTAssertTrue(metalSource.contains("var damageDiagnostics: TerminalRenderDamageDiagnostics"))
-        XCTAssertTrue(metalSource.contains("var lastSubmittedDisplayRectsForDiagnostics: [CGRect]"))
-        XCTAssertTrue(metalSource.contains("var lastFrameScissorWasDisabledForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var lastFrameCanCoalesceAtDisplayCadenceForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var lastFrameCoalescingFallbackReasonForDiagnostics: String"))
-        XCTAssertTrue(metalSource.contains("var lastFrameStablePixelBoundCountForDiagnostics: Int"))
-        XCTAssertTrue(metalSource.contains("var lastFrameScissorReadinessForDiagnostics: String"))
-        XCTAssertTrue(metalSource.contains("var lastFrameScissorPlanIsReadyForDiagnostics: Bool"))
-        XCTAssertTrue(metalSource.contains("var lastFrameScissorRectsForDiagnostics: [TerminalRenderScissorRect]"))
-        XCTAssertTrue(updateSource.contains("TerminalRenderDamageDiagnostics.make("))
-        XCTAssertTrue(updateSource.contains("let submittedDisplayRects = damageDiagnostics.submittedDisplayRects"))
-        XCTAssertTrue(updateSource.contains("for rect in submittedDisplayRects {\n            setNeedsDisplay(rect)"))
-        XCTAssertTrue(logSource.contains("redrawDecision=%@"))
-        XCTAssertTrue(logSource.contains("schedulingPolicy=%@"))
-        XCTAssertTrue(logSource.contains("coalesceAtDisplayCadence=%@"))
-        XCTAssertTrue(logSource.contains("coalescingFallbackReason=%@"))
-        XCTAssertTrue(logSource.contains("submittedDisplayRects=%@"))
-        XCTAssertTrue(logSource.contains("stablePixelBoundCount=%d"))
-        XCTAssertTrue(logSource.contains("scissorReadiness=%@"))
-        XCTAssertTrue(logSource.contains("scissorPlanReady=%@"))
-        XCTAssertTrue(logSource.contains("scissorRects=%@"))
-        XCTAssertTrue(logSource.contains("damageDiagnostics.dirtyRectCount"))
-        XCTAssertTrue(logSource.contains("damageDiagnostics.scissorDisabled ? \"yes\" : \"no\""))
-    }
-
     func testTerminalMetalViewCompletionHandlerDoesNotCaptureMainActorStateOnMetalQueue() throws {
         let metalSource = try terminalMetalViewSource()
         let drawSource = try functionBody(named: "draw", in: metalSource)
@@ -732,52 +640,33 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(debugSource.contains("static let scrollRegion = flag(\"--debug-scroll-region\", env: \"KUROTTY_DEBUG_SCROLL_REGION\")"))
     }
 
-    func testPerFrameMetalInstanceBuffersReuseStorageWhenByteLengthIsStable() throws {
+    /// Kept as source-text assertions, deliberately.
+    ///
+    /// Both are per-frame allocation contracts. `TerminalMetalView` exposes no
+    /// allocation or rebuild counter, and Metal reports none either, so there is
+    /// no value a test can read that differs between "reused the buffer" and
+    /// "allocated a new one every frame" — the only observable difference is
+    /// throughput, and this suite has no timing harness. Reduced to the two
+    /// statements that actually matter; the per-field `hasher.combine` lines the
+    /// signature test used to pin were implementation detail.
+    ///
+    /// The behavioural replacement is a frame-allocation counter on the view,
+    /// or the benchmark target the roadmap wants.
+    func testPerFrameRendererWorkIsGuardedAgainstReallocationAndRedundantRebuilds() throws {
         let metalSource = try terminalMetalViewSource()
         let uploadSource = try functionBody(named: "uploadPendingInstanceBuffersIfNeeded", in: metalSource)
-
-        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with values: [T])"))
-        XCTAssertTrue(metalSource.contains("private func updateSharedBuffer<T>(_ buffer: inout MTLBuffer?, with value: inout T)"))
-        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.glyph, with: payload.glyphs)"))
-        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.background, with: payload.backgrounds)"))
-        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.decoration, with: payload.decorations)"))
-        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.cursor, with: &cursor)"))
-        XCTAssertTrue(uploadSource.contains("updateSharedBuffer(&set.uniforms, with: &uniforms)"))
-        XCTAssertFalse(uploadSource.contains("makeBuffer(bytes:"))
-    }
-
-    func testMetalViewSkipsAtlasBufferRebuildWhenRenderInputsAreUnchanged() throws {
-        let metalSource = try terminalMetalViewSource()
-        let updateSource = try functionBody(named: "update", in: metalSource)
         let dirtySource = try functionBody(named: "atlasBuffersNeedRebuild", in: metalSource)
-        let signatureSource = try functionBody(named: "makeAtlasBufferSignature", in: metalSource)
 
-        XCTAssertTrue(metalSource.contains("private var lastAtlasBufferSignature: Int?"))
-        XCTAssertTrue(updateSource.contains("let shouldRebuildAtlasBuffers = atlasBuffersNeedRebuild(for: frame)"))
-        XCTAssertTrue(updateSource.contains("if shouldRebuildAtlasBuffers {\n            rebuildAtlasBuffers()\n        }"))
-        XCTAssertFalse(updateSource.contains("synchronizeBackingScaleAndDrawableSize()\n        rebuildAtlasBuffers()"))
-        XCTAssertTrue(dirtySource.contains("let nextSignature = makeAtlasBufferSignature(for: frame)"))
+        // Instance buffers are memcpy'd into, not reallocated, once the byte
+        // length is stable.
+        XCTAssertFalse(uploadSource.contains("makeBuffer(bytes:"))
+        // The atlas rebuild is gated on a signature of the render inputs, and
+        // reading the signature must not also commit it — that would make every
+        // frame look unchanged.
         XCTAssertTrue(dirtySource.contains("return nextSignature != lastAtlasBufferSignature"))
         XCTAssertFalse(dirtySource.contains("lastAtlasBufferSignature = nextSignature"))
-        XCTAssertTrue(metalSource.contains("lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorColumn)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorRow)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.cursorBlinkOn)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedTextColumn)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedText)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(frame.markedTextSelectedRange.location)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(backingScale)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(drawableSize.width)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(diagnosticPixelSnappingEnabled)"))
-        XCTAssertTrue(signatureSource.contains("hasher.combine(diagnosticLinearGlyphSamplingEnabled)"))
-        XCTAssertTrue(signatureSource.contains("return hasher.finalize()"))
     }
 
-    /// The indicator's own behaviour — one view in the strip, thumb geometry,
-    /// idle fade, theming, cursor — is covered for real in
-    /// `TerminalScrollIndicatorTests`. What is left here is the surface view's
-    /// half of the contract: that it computes a scrollback range and hands it to
-    /// the coordinator.
     func testTerminalSurfaceViewDrivesTheScrollbackIndicator() throws {
         let source = try terminalSurfaceViewSource()
 

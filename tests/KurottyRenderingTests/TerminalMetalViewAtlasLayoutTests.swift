@@ -175,6 +175,73 @@ final class TerminalMetalViewAtlasLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(view.glyphAtlasSlotCapacityForDiagnostics, 1_000)
     }
 
+    // MARK: - Frame plumbing
+
+    /// The damage the surface computed has to survive the trip into the
+    /// renderer. It used to be asserted by matching `"let dirtyRows: [Int]"` in
+    /// the frame's source, which proved only that the field was declared.
+    func testDamageMetadataFromTheFrameReachesTheRenderersDiagnostics() throws {
+        let view = try makeView()
+        view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
+
+        view.update(frame: makeFrame(dirtyRows: [1, 3], dirtyRects: [rowRect(1), rowRect(3)], isFullDamage: false))
+
+        XCTAssertEqual(view.lastFrameDirtyRowsForDiagnostics, [1, 3])
+        XCTAssertEqual(view.lastFrameDirtyRectsForDiagnostics.count, 2)
+        XCTAssertFalse(view.lastFrameDamageWasFullForDiagnostics)
+        XCTAssertEqual(view.damageDiagnostics.dirtyRectCount, 2)
+
+        view.update(frame: makeFrame(dirtyRows: [], dirtyRects: [], isFullDamage: true))
+
+        XCTAssertTrue(view.lastFrameDamageWasFullForDiagnostics)
+        XCTAssertEqual(view.damageDiagnostics.redrawDecision, .full)
+        XCTAssertEqual(view.lastSubmittedDisplayRectsForDiagnostics, [view.bounds])
+    }
+
+    /// Forcing a full redraw must take the fallback path rather than quietly
+    /// enabling partial repaint with a stale scissor plan.
+    func testForcingAFullRedrawOverridesPartialDamage() throws {
+        let view = try makeView()
+        view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
+        view.diagnosticFullRedrawEnabled = true
+
+        view.update(frame: makeFrame(dirtyRows: [1], dirtyRects: [rowRect(1)], isFullDamage: false))
+
+        XCTAssertEqual(view.damageDiagnostics.redrawDecision, .full)
+        XCTAssertFalse(view.lastFrameCanCoalesceAtDisplayCadenceForDiagnostics)
+    }
+
+    private func makeFrame(
+        dirtyRows: [Int],
+        dirtyRects: [TerminalFrameRect],
+        isFullDamage: Bool
+    ) -> TerminalFrame {
+        TerminalFrame(
+            cells: [],
+            backgrounds: [],
+            decorations: [],
+            defaultForeground: SIMD4<Float>(1, 1, 1, 1),
+            defaultBackground: SIMD4<Float>(0, 0, 0, 1),
+            dirtyRows: dirtyRows,
+            dirtyRects: dirtyRects,
+            isFullDamage: isFullDamage,
+            cursorColumn: 0,
+            cursorRow: 0,
+            cursorBlinkOn: true,
+            markedTextColumn: 0,
+            markedText: "",
+            markedTextSelectedRange: .none,
+            columns: 20,
+            visibleRows: 5,
+            cellSize: TerminalFrameSize(width: 10, height: 20),
+            padding: .zero
+        )
+    }
+
+    private func rowRect(_ row: Int) -> TerminalFrameRect {
+        TerminalFrameRect(x: 0, y: Double(row * 20), width: 200, height: 20)
+    }
+
     // MARK: - Font fallback
 
     /// The monospaced system font has no Hangul, no powerline separators and no
