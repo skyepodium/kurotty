@@ -80,23 +80,28 @@ final class TerminalAgentSessionGroupCellView: NSTableCellView {
         toolTip = display.path.isEmpty ? nil : display.path
 
         let gap = DesignTokens.Component.commandHistoryRowGapPX
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        let airOffset = -DesignTokens.Component.commandHistoryGroupRowTopAirPX / 2
+        NSLayoutConstraint.activate(
+            TerminalSidebarRowLayout.leadingSlotConstraints(glyphView: iconView, in: self) + [
+                iconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
 
-            nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
+                nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
 
-            parentLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: gap),
-            parentLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            parentLabel.trailingAnchor.constraint(lessThanOrEqualTo: badgeView.leadingAnchor, constant: -gap),
+                parentLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: gap),
+                parentLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
+                parentLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: badgeView.leadingAnchor,
+                    constant: -gap
+                ),
 
-            badgeView.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -DesignTokens.Component.commandHistoryRowInsetXPX
-            ),
-            badgeView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+                badgeView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -DesignTokens.Component.commandHistoryRowInsetXPX
+                ),
+                badgeView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: airOffset),
+            ]
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -204,33 +209,34 @@ final class TerminalAgentSessionRowCellView: NSTableCellView {
         // The meter sits on the lower line, between the directory and the
         // message count, so it never displaces the title.
         let directoryTrailingAnchor = contextMeterView?.leadingAnchor ?? badgeView.leadingAnchor
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        NSLayoutConstraint.activate(
+            TerminalSidebarRowLayout.leadingSlotConstraints(glyphView: iconView, in: self) + [
+                iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
-            titleLabel.bottomAnchor.constraint(equalTo: centerYAnchor, constant: -textGap),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -gap),
+                titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: gap),
+                titleLabel.bottomAnchor.constraint(equalTo: centerYAnchor, constant: -textGap),
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -gap),
 
-            directoryLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            directoryLabel.topAnchor.constraint(equalTo: centerYAnchor, constant: textGap),
-            directoryLabel.trailingAnchor.constraint(lessThanOrEqualTo: directoryTrailingAnchor, constant: -gap),
+                directoryLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                directoryLabel.topAnchor.constraint(equalTo: centerYAnchor, constant: textGap),
+                directoryLabel.trailingAnchor.constraint(lessThanOrEqualTo: directoryTrailingAnchor, constant: -gap),
 
-            timeLabel.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -DesignTokens.Component.commandHistoryRowInsetXPX
-            ),
-            timeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            timeLabel.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: DesignTokens.Component.commandHistoryTimeLabelMinWidthPX
-            ),
+                timeLabel.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -DesignTokens.Component.commandHistoryRowInsetXPX
+                ),
+                timeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+                timeLabel.widthAnchor.constraint(
+                    greaterThanOrEqualToConstant: DesignTokens.Component.commandHistoryTimeLabelMinWidthPX
+                ),
 
-            badgeView.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -DesignTokens.Component.commandHistoryRowInsetXPX
-            ),
-            badgeView.centerYAnchor.constraint(equalTo: directoryLabel.centerYAnchor),
-        ])
+                badgeView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -DesignTokens.Component.commandHistoryRowInsetXPX
+                ),
+                badgeView.centerYAnchor.constraint(equalTo: directoryLabel.centerYAnchor),
+            ]
+        )
 
         if let contextMeterView {
             NSLayoutConstraint.activate([

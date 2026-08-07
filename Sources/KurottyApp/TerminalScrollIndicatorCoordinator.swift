@@ -14,19 +14,27 @@ struct TerminalScrollIndicatorMetrics: Equatable {
     /// Returns `nil` when there is nothing to scroll. That is the signal to
     /// take the indicator off screen entirely rather than draw a thumb that
     /// fills the whole track and cannot move.
+    ///
+    /// - Parameter trailingInsetPX: width already claimed at the trailing edge
+    ///   by the prompt navigator rail. The track slides inboard by exactly that
+    ///   much rather than sharing it: two things drawing in one strip is the
+    ///   bug this file was rewritten to remove, and the rail is not allowed to
+    ///   reintroduce it in a new shape.
     static func metrics(
         in bounds: NSRect,
         visibleRows: Int,
         maxScrollbackOffset: Int,
-        scrollbackOffset: Int
+        scrollbackOffset: Int,
+        trailingInsetPX: CGFloat = 0
     ) -> TerminalScrollIndicatorMetrics? {
         guard maxScrollbackOffset > 0, bounds.height > 0, visibleRows > 0 else {
             return nil
         }
 
         let trackWidth = DesignTokens.Component.terminalScrollerWidthPX
+        let trailingInset = max(0, min(trailingInsetPX, max(0, bounds.width - trackWidth)))
         let trackFrame = NSRect(
-            x: max(0, bounds.width - trackWidth),
+            x: max(0, bounds.width - trackWidth - trailingInset),
             y: 0,
             width: trackWidth,
             height: bounds.height
@@ -121,21 +129,35 @@ final class TerminalScrollIndicatorCoordinator: NSObject {
         view.addSubview(thumbView)
     }
 
-    func layout(in bounds: NSRect, visibleRows: Int, maxScrollbackOffset: Int, scrollbackOffset: Int) {
+    func layout(
+        in bounds: NSRect,
+        visibleRows: Int,
+        maxScrollbackOffset: Int,
+        scrollbackOffset: Int,
+        trailingInsetPX: CGFloat = 0
+    ) {
         update(
             bounds: bounds,
             visibleRows: visibleRows,
             maxScrollbackOffset: maxScrollbackOffset,
-            scrollbackOffset: scrollbackOffset
+            scrollbackOffset: scrollbackOffset,
+            trailingInsetPX: trailingInsetPX
         )
     }
 
-    func update(bounds: NSRect, visibleRows: Int, maxScrollbackOffset: Int, scrollbackOffset: Int) {
+    func update(
+        bounds: NSRect,
+        visibleRows: Int,
+        maxScrollbackOffset: Int,
+        scrollbackOffset: Int,
+        trailingInsetPX: CGFloat = 0
+    ) {
         guard let metrics = TerminalScrollIndicatorMetrics.metrics(
             in: bounds,
             visibleRows: visibleRows,
             maxScrollbackOffset: maxScrollbackOffset,
-            scrollbackOffset: scrollbackOffset
+            scrollbackOffset: scrollbackOffset,
+            trailingInsetPX: trailingInsetPX
         ) else {
             hideIndicator()
             return

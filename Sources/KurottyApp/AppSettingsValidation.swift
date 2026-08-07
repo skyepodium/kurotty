@@ -42,6 +42,17 @@ enum AppSettingKey: String, Codable, Hashable {
     /// than for a status item so it cannot be mistaken for a sibling of the
     /// in-window bottom bar.
     case terminalMenuBarExtraEnabled
+    /// Declared for its lifecycle contract only, like
+    /// `terminalMenuBarExtraEnabled`. Named for the navigator rather than for
+    /// the edge it sits on, so it cannot be mistaken for a sibling of the
+    /// scrollback indicator sharing that edge.
+    case terminalPromptNavigatorRailEnabled
+    /// Declared for its lifecycle contract only. Launch-only rather than
+    /// live-applied: it records that the Getting Started tab was already shown
+    /// once, and a hand-edit that flips it back to `false` cannot make a tab
+    /// appear in a running app — it takes effect on the next launch, which is
+    /// exactly what "launch-only" means.
+    case terminalHasSeenGettingStarted
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -76,7 +87,7 @@ struct AppSettingsValidationReport: Codable, Equatable {
 enum AppSettingsValidation {
     static func lifecycle(for key: AppSettingKey) -> AppSettingLifecycle {
         switch key {
-        case .schemaVersion, .shellWorkingDirectory:
+        case .schemaVersion, .shellWorkingDirectory, .terminalHasSeenGettingStarted:
             return .launchOnly
         case .terminalTheme,
              .terminalFontName,
@@ -94,6 +105,7 @@ enum AppSettingsValidation {
              .terminalUITextScalePercent,
              .terminalCommandProgressIndicatorEnabled,
              .terminalMenuBarExtraEnabled,
+             .terminalPromptNavigatorRailEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied

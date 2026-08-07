@@ -312,12 +312,12 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(configuration.environment["KUROTTY_ZSH_ZDOTDIR"], "/tmp/user-zdotdir")
         XCTAssertEqual(configuration.environment["ZDOTDIR"], resources.appendingPathComponent("zsh").path)
         XCTAssertTrue(configuration.automaticallyInjectsCommandBoundaries)
-        let bootstrapSource = try String(
-            contentsOf: repositoryRoot().appendingPathComponent("Sources/KurottyApp/TerminalShellIntegrationBootstrap.swift"),
-            encoding: .utf8
-        )
-        XCTAssertFalse(bootstrapSource.contains("/Users/"))
-        XCTAssertFalse(bootstrapSource.contains("/Applications/"))
+        // Every path the bootstrap hands back is rooted in the resource
+        // directory it was given, never a baked-in absolute path. This used to
+        // be asserted by grepping the bootstrap's own source for "/Users/";
+        // `testSupportedShellBootstrapsResolveOnlyFromProvidedResourceDirectory`
+        // below now proves it for every supported shell.
+        XCTAssertTrue(configuration.environment["ZDOTDIR"]?.hasPrefix(resources.path) ?? false)
     }
 
     func testSupportedShellBootstrapsResolveOnlyFromProvidedResourceDirectory() throws {
@@ -583,12 +583,5 @@ final class TerminalShellIntegrationTests: XCTestCase {
         integration.setActiveCommandText(commandText)
         _ = integration.consumeOsc("133;C")
         _ = integration.consumeOsc("133;D;\(exitCode)")
-    }
-
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 }

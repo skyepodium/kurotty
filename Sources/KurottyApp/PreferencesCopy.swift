@@ -18,6 +18,7 @@ enum PreferencesCopy {
         case statusBar, statusBarCheckboxTitle
         case commandProgress, commandProgressCheckboxTitle
         case menuBarExtra, menuBarExtraCheckboxTitle
+        case promptNavigatorRail, promptNavigatorRailCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case interfaceSection, interfaceSectionHelp, uiTextScale
@@ -64,6 +65,7 @@ enum PreferencesCopy {
             .statusBar: "Status bar", .statusBarCheckboxTitle: "Show the bottom status bar with agent state and pane resource usage",
             .commandProgress: "Command progress", .commandProgressCheckboxTitle: "Show a progress bar at the top of a pane while a command runs",
             .menuBarExtra: "Menu bar", .menuBarExtraCheckboxTitle: "Show a Kurotty icon in the macOS menu bar",
+            .promptNavigatorRail: "Prompt navigator", .promptNavigatorRailCheckboxTitle: "Mark each command on a rail down the terminal's right edge",
             .quickCommandsSection: "Quick Commands", .quickCommandsSectionHelp: "Named commands offered in the command palette and the terminal context menu.",
             .quickCommands: "Quick Commands", .quickCommandsButtonTitle: "Edit Quick Commands…",
             .appearanceTitle: "Appearance", .appearanceSubtitle: "Choose a built-in theme or create your own palette.",
@@ -99,6 +101,7 @@ enum PreferencesCopy {
             .statusBar: "상태 표시줄", .statusBarCheckboxTitle: "에이전트 상태와 패널 리소스 사용량을 보여주는 하단 상태 표시줄 표시",
             .commandProgress: "명령 진행 표시", .commandProgressCheckboxTitle: "명령이 실행되는 동안 패널 상단에 진행 막대 표시",
             .menuBarExtra: "메뉴 막대", .menuBarExtraCheckboxTitle: "macOS 메뉴 막대에 Kurotty 아이콘 표시",
+            .promptNavigatorRail: "프롬프트 내비게이터", .promptNavigatorRailCheckboxTitle: "터미널 오른쪽 가장자리 레일에 명령마다 표시 남기기",
             .agentStatusHooks: "에이전트 상태 훅", .agentStatusHooksCheckboxTitle: "Kurotty의 로컬 훅으로 Claude Code와 Codex가 상태를 보고하도록 허용 (각 에이전트 설정을 수정하기 전에 한 번씩 확인)",
             .quickCommandsSection: "빠른 명령", .quickCommandsSectionHelp: "명령 팔레트와 터미널 컨텍스트 메뉴에 표시되는 이름 붙인 명령입니다.",
             .quickCommands: "빠른 명령", .quickCommandsButtonTitle: "빠른 명령 편집…",
@@ -135,6 +138,7 @@ enum PreferencesCopy {
             .statusBar: "ステータスバー", .statusBarCheckboxTitle: "エージェント状態とペインのリソース使用量を表示する下部ステータスバーを表示",
             .commandProgress: "コマンドの進行状況", .commandProgressCheckboxTitle: "コマンドの実行中にペイン上部へ進行バーを表示",
             .menuBarExtra: "メニューバー", .menuBarExtraCheckboxTitle: "macOSのメニューバーにKurottyのアイコンを表示",
+            .promptNavigatorRail: "プロンプトナビゲータ", .promptNavigatorRailCheckboxTitle: "ターミナル右端のレールにコマンドごとの目印を表示",
             .agentStatusHooks: "エージェント状態フック", .agentStatusHooksCheckboxTitle: "Kurottyのローカルフック経由でClaude CodeとCodexが状態を報告できるようにする（各エージェントの設定を変更する前に一度ずつ確認）",
             .quickCommandsSection: "クイックコマンド", .quickCommandsSectionHelp: "コマンドパレットとターミナルのコンテキストメニューに表示される名前付きコマンドです。",
             .quickCommands: "クイックコマンド", .quickCommandsButtonTitle: "クイックコマンドを編集…",

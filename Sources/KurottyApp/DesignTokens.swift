@@ -81,8 +81,14 @@ enum DesignTokens {
         var activeTabBackground: NSColor { surfaceRaised }
         var inactiveTabBackground: NSColor { surfaceChrome }
         var inactiveTabHoverBackground: NSColor { surfaceSidebar }
-        var paneHeaderBackground: NSColor { surfaceChrome }
-        var paneHeaderHoverBackground: NSColor { surfaceSidebar }
+        /// The pane header is the top edge of a card that floats on
+        /// `terminalPaneGround`, so it cannot be the ground's own surface: at
+        /// `surfaceChrome` the card had no visible top and the rounded corners
+        /// cut into a color identical to what was behind them. One step up is
+        /// enough to give the card an edge without turning the header into a
+        /// second piece of chrome.
+        var paneHeaderBackground: NSColor { surfaceSidebar }
+        var paneHeaderHoverBackground: NSColor { surfaceRaised }
         var borderHairline: NSColor { hairline }
         var divider: NSColor { hairline }
         var textMuted: NSColor { textTertiary }
@@ -95,6 +101,22 @@ enum DesignTokens {
         var activeBorder: NSColor {
             accent.withAlphaComponent(Color.activeBorderAlphaRATIO)
         }
+
+        // MARK: Terminal pane ground
+        //
+        // The ground a terminal pane card floats on. It is the chrome surface,
+        // not the canvas, and deliberately so: the tab bar above it is already
+        // `surfaceChrome`, so the two fuse into one continuous plane and the
+        // card is the only thing on it. That is what removed the hairline under
+        // the tab bar — a rule between two identical colors is a stray line.
+        //
+        // The ground cannot be chosen to sit "under" the card, because the card
+        // is filled with the user's terminal background and its luminance is
+        // theirs. A light theme reads raised on this ground and a very dark one
+        // reads recessed; both read as a distinct surface, which is the whole
+        // job. This is also why no pane drop shadow exists: a shadow asserts an
+        // elevation direction that is only right half the time.
+        var terminalPaneGround: NSColor { surfaceChrome }
 
         static func theme(for settings: AppSettings) -> ChromeTheme {
             settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
@@ -160,6 +182,17 @@ enum DesignTokens {
         static let scrollerThumbRestAlphaRATIO: CGFloat = 0.50
         static let scrollerThumbHoverAlphaRATIO: CGFloat = 0.65
         static let scrollerThumbActiveAlphaRATIO: CGFloat = 0.80
+        /// Alpha for a prompt-rail mark that stands for successful commands.
+        /// Below the failure alpha on purpose: the rail's job is to make a
+        /// failure findable in a column of green, so the two must not weigh the
+        /// same. A failed mark always draws opaque.
+        static let promptRailSuccessAlphaRATIO: CGFloat = 0.70
+        /// Alpha range a successful cluster interpolates across once the rail is
+        /// in its heat regime. The floor is the point where a mark is still
+        /// visible against the canvas; anything quieter is a rail with holes in
+        /// it that are not real gaps.
+        static let promptRailHeatMinAlphaRATIO: CGFloat = 0.25
+        static let promptRailHeatMaxAlphaRATIO: CGFloat = 0.85
 
         /// Dark ramp. Hex values are sRGB and are built with
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
@@ -533,9 +566,9 @@ enum DesignTokens {
     ///
     /// Every floating surface used to hand-roll its own shadow (the terminal
     /// search bar carried `black @ 0.22 / r10 / y-2`), so two overlays at the
-    /// same conceptual height rendered at different heights. There is exactly
-    /// one elevation in the app today — a surface that floats over the terminal
-    /// — so there is exactly one level here.
+    /// same conceptual height rendered at different heights. There are two
+    /// heights: a surface floating over the terminal, and a selected sidebar row
+    /// lifted a hair off the panel it sits in.
     enum Elevation {
         /// A surface that floats over the terminal: the search bar today, and
         /// any future popover/HUD that is not a real `NSPanel`.
@@ -543,7 +576,7 @@ enum DesignTokens {
         /// Dark chrome needs a deeper, softer shadow than light chrome: on a
         /// dark canvas a shallow shadow is invisible, while on a light canvas
         /// the same shadow reads as smudge.
-        struct Shadow {
+        struct Shadow: Equatable {
             let color: NSColor
             let opacity: Float
             let radiusPX: CGFloat
@@ -575,10 +608,47 @@ enum DesignTokens {
             downwardOffsetPX: 3
         )
 
+        /// The pill under a selected sidebar row.
+        ///
+        /// Deliberately a fraction of `floating`. The reference this came from
+        /// puts a wide, soft shadow under a 40pt row in a list of twenty; the
+        /// same blur under a 26pt pill in a list of four hundred reads as a
+        /// smudge, and the smudge is repeated every time the selection moves.
+        /// The radius is small enough that the shadow stays inside the row's
+        /// own gutter rather than washing the rows above and below it.
+        ///
+        /// Light chrome leans on this hardest: its raised surface is white on
+        /// near-white — about 1.08:1 — so without a shadow the pill is not an
+        /// object at all. Dark chrome gets its lift from the surface step and
+        /// only needs the shadow to seat the pill.
+        static let sidebarSelectedRowDark = Shadow(
+            color: .black,
+            opacity: 0.42,
+            radiusPX: 3,
+            downwardOffsetPX: 1
+        )
+
+        static let sidebarSelectedRowLight = Shadow(
+            color: .black,
+            opacity: 0.16,
+            radiusPX: 3,
+            downwardOffsetPX: 1
+        )
+
         /// Picks the floating shadow that matches the active chrome ramp.
         @MainActor
         static func floating(for theme: DesignTokens.ChromeTheme) -> Shadow {
-            theme.windowAppearance?.name == .aqua ? floatingLight : floatingDark
+            isLight(theme) ? floatingLight : floatingDark
+        }
+
+        @MainActor
+        static func sidebarSelectedRow(for theme: DesignTokens.ChromeTheme) -> Shadow {
+            isLight(theme) ? sidebarSelectedRowLight : sidebarSelectedRowDark
+        }
+
+        @MainActor
+        private static func isLight(_ theme: DesignTokens.ChromeTheme) -> Bool {
+            theme.windowAppearance?.name == .aqua
         }
     }
 
@@ -653,10 +723,19 @@ enum DesignTokens {
 
         /// Exempt from the scale: these are cell-grid alignment for the terminal
         /// surface, not layout rhythm, so they must not be rounded onto a step.
+        ///
+        /// They are also the terminal's corner clearance. The pane is a rounded
+        /// card now, so the grid has to stop short of the arc or the corner
+        /// cells get shaved; these four numbers are the only thing standing
+        /// between a glyph and the mask. Every one of them must stay at or above
+        /// `TerminalPaneCard.minimumGridInsetPX` — `TerminalPaneCardGeometryTests`
+        /// measures that against the real cell rects rather than trusting it.
+        /// The horizontal pair went 6 -> 8 for exactly that reason, which also
+        /// made the terminal's own margin square.
         static let terminalTopPX: CGFloat = 8
-        static let terminalLeftPX: CGFloat = 6
+        static let terminalLeftPX: CGFloat = 8
         static let terminalBottomPX: CGFloat = 8
-        static let terminalRightPX: CGFloat = 6
+        static let terminalRightPX: CGFloat = 8
         static let preferencesInsetPX: CGFloat = 24
         static let preferencesGapPX: CGFloat = 14
     }
@@ -669,6 +748,72 @@ enum DesignTokens {
         static let mdPX: CGFloat = 8
         static let lgPX: CGFloat = 12
         static let fullPX: CGFloat = 999
+    }
+
+    // MARK: - Terminal pane card
+    //
+    // The terminal pane is a rounded card inset from the window edge, sitting
+    // on `ChromeTheme.terminalPaneGround`. One shape, one gutter, one ground —
+    // the panes read as separate surfaces, so the hairlines that used to do
+    // that job are gone.
+    //
+    // What was deliberately left out: a drop shadow (see `terminalPaneGround`
+    // for why the elevation direction is not knowable), a border on the card
+    // (it would put back the hairline the rounding just removed), and a radius
+    // above `Radius.lgPX` (a terminal is dense; a bigger arc starts eating the
+    // first and last cell of the top and bottom rows instead of empty margin).
+    //
+    // This is also the decision that settles the tab grammar. A Safari-style
+    // tab is merged: it shares an edge with the content, which is how it says
+    // "this tab is that document". A tab in Kurotty does not contain a
+    // document, it contains a split tree — a merged tab in a four-way split
+    // would share its edge with a gutter, and with a sidebar open it would have
+    // to merge past a column that is not the content. So the tab stays a pill
+    // on the chrome plane (`TerminalTabItemView`, radius on all four corners,
+    // inset inside the bar), associated with the card by sitting on the same
+    // ground rather than by touching it. Merged tabs and inset cards are
+    // mutually exclusive and the cards win; a tab that almost touches the card
+    // would only read as a misalignment.
+
+    /// Geometry of the terminal pane card and the ground around it.
+    ///
+    /// Nothing here scales with `UIScale`: a corner radius and a gutter are
+    /// shapes in the window, not containers for type.
+    enum TerminalPaneCard {
+        /// Corner radius of the pane card. The largest step on the scale and
+        /// the ceiling for this surface — see `minimumGridInsetPX` for what
+        /// raising it would cost.
+        static let cornerRadiusPX = Radius.lgPX
+
+        /// Gap between the window's chrome edges and the outermost card. The
+        /// ground shows through here, which is the whole effect.
+        static let groundInsetPX = Space.x3PX
+
+        /// Gap between two adjacent cards in a split. This is the split
+        /// divider's full thickness — the divider no longer draws a line, so
+        /// the band it reserves *is* the gutter, and it stays wide enough to
+        /// grab for a resize drag.
+        static let gutterPX = Component.terminalSplitDividerHitAreaPX
+
+        /// How far a rounded corner of radius 1 cuts into the content rect,
+        /// measured along one axis.
+        ///
+        /// The corner arc is centred at `(r, r)`. A point `(p, p)` inset from
+        /// the card's corner is inside the arc when `sqrt(2) * (r - p) <= r`,
+        /// which solves to `p >= r * (1 - 1/sqrt(2))`. That is this ratio.
+        static let cornerContentInsetRATIO: CGFloat = 1 - 1 / 2.squareRoot()
+
+        /// Smallest terminal grid inset that keeps the corner cells whole.
+        ///
+        /// This is the number that makes the rounding safe. Masking the layer
+        /// would shave the corner glyphs; instead the grid stops short, so the
+        /// arc only ever cuts through padding. `Space.terminal*PX` are all at or
+        /// above this, and because those insets are subtracted *before* the
+        /// columns/rows division in `TerminalSurfaceView.terminalMetrics()`, the
+        /// size reported to the PTY already accounts for the corners.
+        static var minimumGridInsetPX: CGFloat {
+            cornerRadiusPX * cornerContentInsetRATIO
+        }
     }
 
     /// Component metrics.
@@ -689,13 +834,16 @@ enum DesignTokens {
     ///   ramp. Scaling a 1px hairline or a 6px status dot makes chrome look
     ///   broken, not larger.
     enum Component {
-        /// The menu-bar extra's glyph. Outside `Icon.SizeClass` and outside the
-        /// UI text scale on purpose: the ramp exists so chrome glyphs track the
-        /// chrome type beside them, and there is no Kurotty type beside this
-        /// one. It sits in a bar whose height macOS fixes, so a glyph that grew
-        /// with Kurotty's own scale would be clipped by a bar Kurotty does not
-        /// control. 16pt is the size the system's own extras use.
-        static let menuBarExtraSymbolPointSizePT: CGFloat = 16
+        /// The side of the square the menu-bar extra's mark is drawn in.
+        /// Outside `Icon.SizeClass` and outside the UI text scale on purpose:
+        /// the ramp exists so chrome glyphs track the chrome type beside them,
+        /// and there is no Kurotty type beside this one. It sits in a bar whose
+        /// height macOS fixes, so a mark that grew with Kurotty's own scale
+        /// would be clipped by a bar Kurotty does not control. 18pt is the box
+        /// macOS gives a menu-bar image, and the mark fills it edge to edge
+        /// because it is a solid head rather than a stroked glyph — a stroked
+        /// SF Symbol at the same 18 would read heavier.
+        static let menuBarExtraMarkSizePT: CGFloat = 18
 
         /// Quick Commands editor window layout.
         static let quickCommandEditorWidthPX: CGFloat = 620
@@ -718,6 +866,38 @@ enum DesignTokens {
         /// the ramp; the window around it does not, which is the same trade the
         /// user already accepts when they zoom any list.
         static var commandPaletteRowHeightPX: CGFloat { UIScale.scaledMetric(34) }
+
+        /// Project file palette. The window borrows the command palette's frame
+        /// so the two read as one surface invoked two ways, but the row is
+        /// taller: a file row is a name over its directory, which is two lines
+        /// where a command row is one.
+        static let projectFilePaletteWidthPX = commandPaletteWidthPX
+        static let projectFilePaletteHeightPX = commandPaletteHeightPX
+        static var projectFilePaletteRowHeightPX: CGFloat { UIScale.scaledMetric(44) }
+        /// Height of the footer strip that names the scan source and the result
+        /// count. Fixed so the list does not resize when the text under it goes
+        /// from one count to another.
+        static var projectFilePaletteFooterHeightPX: CGFloat { UIScale.scaledMetric(18) }
+        static let projectFilePaletteInsetPX = Space.x5PX
+        static let projectFilePaletteGapPX = Space.x4PX
+        static let projectFilePaletteRowInsetXPX = Space.x3PX
+        static let projectFilePaletteRowLineGapPX: CGFloat = 1
+
+        /// Getting Started tab. Sized against the settings surface rather than
+        /// the window: it is the same kind of read-once page, and a full-bleed
+        /// column of prose at terminal width is unreadable.
+        static let gettingStartedContentMaxWidthPX = preferencesContentMaxWidthPX
+        static let gettingStartedInsetPX = Space.x6PX
+        static let gettingStartedRowGapPX = Space.x5PX
+        static let gettingStartedRowInsetPX = Space.x4PX
+        static let gettingStartedRowGutterPX = Space.x4PX
+        static let gettingStartedTextGapPX = Space.x1PX
+        static let gettingStartedHeaderGapPX = Space.x6PX
+        static let gettingStartedRowCornerRadiusPX = Radius.mdPX
+        /// Fixed width for the state glyph column so every row's title starts on
+        /// the same x, whichever of the three marks it carries.
+        static var gettingStartedGutterWidthPX: CGFloat { UIScale.scaledMetric(20) }
+
         /// Settings surface geometry. Settings is a center tab, not a window, so
         /// these are the size the surface is designed against and the frame the
         /// hosted view starts at before the tab stretches it — not a window
@@ -798,6 +978,40 @@ enum DesignTokens {
         static let terminalScrollerThumbWidthPX: CGFloat = 9
         static let terminalScrollerMinThumbHeightPX: CGFloat = 32
         static let terminalScrollerMinKnobProportion: CGFloat = 0.05
+        /// Prompt navigator rail. Half the scroll indicator's width and flush to
+        /// the trailing edge, with the indicator track pushed inboard by exactly
+        /// this much: the two never share a pixel, which is the whole reason
+        /// this is a second strip rather than a second thing drawn in the first.
+        static let terminalPromptRailWidthPX: CGFloat = 6
+        /// Minimum pitch between two marks. The rail can never draw more than
+        /// `trackHeight / this` marks, so the count of marks is bounded by the
+        /// track and not by the session, and the 2pt of clear track between
+        /// neighbours is what keeps a busy rail from fusing into a stripe.
+        static let terminalPromptRailSlotHeightPX: CGFloat = 5
+        static let terminalPromptRailMarkerHeightPX: CGFloat = 3
+        /// Inset applied to a mark that stands for exactly one command, so a
+        /// lone command reads narrower than a stack of them at a glance.
+        static let terminalPromptRailSingletonInsetPX: CGFloat = 1.5
+        /// Commands per mark above which counting them by eye is hopeless and
+        /// the rail switches to a density wash. Eight is where a cluster stops
+        /// being a short list the popover can show in full.
+        static let terminalPromptRailClusterFanoutLIMIT = 8
+        /// How far off a mark a click may land and still count, in slots. The
+        /// mark is 3pt tall in a 6pt strip; requiring a hit on the mark itself
+        /// would make the rail feel broken.
+        static let terminalPromptRailHitToleranceSLOTS: CGFloat = 1.5
+        /// Commands the hover popover lists before it stops and reports a
+        /// remainder. Past this the popover is taller than the thing it
+        /// describes.
+        static let terminalPromptRailPopoverEntryLIMIT = 6
+        /// Marks the popover gathers around the pointer before trimming to the
+        /// entry limit. More than one so a hover between two marks describes
+        /// both.
+        static let terminalPromptRailPopoverClusterLIMIT = 4
+        static var terminalPromptRailPopoverWidthPX: CGFloat { UIScale.scaledMetric(300) }
+        static var terminalPromptRailPopoverRowHeightPX: CGFloat { UIScale.scaledMetric(20) }
+        static let terminalPromptRailPopoverInsetPX = Space.x3PX
+        static let terminalPromptRailPopoverGapPX = Space.x2PX
         static let terminalPreciseScrollMultiplierRATIO: CGFloat = 1.5
         static let terminalDiscreteScrollRowsPerTick = 2
         static var terminalSearchWidthPX: CGFloat { UIScale.scaledMetric(340) }
@@ -871,10 +1085,33 @@ enum DesignTokens {
         /// type.
         static var commandHistoryPanelInsetXPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
         static var commandHistoryPanelInsetYPX: CGFloat { UIScale.scaledMetric(Space.x4PX) }
-        static let commandHistorySectionHeaderTopGapPX = Space.x5PX
-        static let commandHistorySectionHeaderBottomGapPX = Space.x2PX
-        static let commandHistorySectionHeaderInsetXPX = Space.x4PX
-        static var commandHistoryGroupRowHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        /// Gap between two stacked bands of a sidebar panel: the search field,
+        /// the agent-session summary strips, and the list. Named for what it
+        /// separates rather than for the section header it used to sit under —
+        /// these panels no longer draw one.
+        static let sidebarPanelBandGapPX = Space.x5PX
+        /// Air above the search pill in a left-sidebar section.
+        ///
+        /// Smaller than the panel's own inset because the section strip above
+        /// already contributes `leftSidebarSectionStripBottomGapPX`; the two
+        /// together are the gap the user sees. These panels no longer draw a
+        /// title of their own — the strip is the title — so this is the whole
+        /// distance from the strip to the field.
+        static let sidebarPanelTopGapPX = Space.x3PX
+        /// The directory node is this list's section header, so it takes the
+        /// vertical rhythm the reference sidebars spend on every row — and only
+        /// it does. A history panel holds ten or so directories and hundreds of
+        /// commands: air above the ten costs a fraction of a row, while the same
+        /// air on the hundreds would push a third of the list off screen.
+        ///
+        /// The air is dead space above the header's content, not padding around
+        /// it: the row's highlight is inset past it (`highlightTopInsetPX`), so
+        /// what the user sees is a gap between groups rather than a tall row.
+        static let commandHistoryGroupRowTopAirPX = Space.x4PX
+        static var commandHistoryGroupContentHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        static var commandHistoryGroupRowHeightPX: CGFloat {
+            commandHistoryGroupContentHeightPX + commandHistoryGroupRowTopAirPX
+        }
         static var commandHistoryCommandRowHeightPX: CGFloat { UIScale.scaledMetric(30) }
         /// Fixed: a status dot is a mark, not a container. It reads as a dot at
         /// 6px and as a blob at 11.
@@ -1010,6 +1247,57 @@ enum DesignTokens {
         static var agentTranscriptMonospacedFontSizePT: CGFloat { UIScale.scaledPointSize(11) }
         static let agentTranscriptDetailBackgroundAlphaRATIO: CGFloat = 0.06
         static let agentTranscriptDiffBackgroundAlphaRATIO: CGFloat = 0.10
+
+        // MARK: Rendered Markdown inside a transcript text row
+        //
+        // A message an agent wrote is a document, not a list row, so these are
+        // document metrics: a heading ramp, paragraph leading, list indents.
+        // They still sit on the chrome scale rather than the editor's font-size
+        // setting, for the same reason the three rungs above do — the
+        // transcript is a read-only panel the user is not editing.
+
+        /// Heading ramp indexed by level 1...6. Levels 4 and up share the body
+        /// size and are separated by weight alone: an agent that reaches `####`
+        /// is nesting, not shouting, and six visibly different sizes inside a
+        /// chat row reads as noise.
+        static var agentTranscriptHeadingFontSizesPT: [CGFloat] {
+            [17, 15, 13, 12, 12, 12].map(UIScale.scaledPointSize)
+        }
+        /// Air above a heading that follows other prose. There is deliberately
+        /// no matching value below it: a heading belongs to the block under it.
+        static var agentTranscriptHeadingSpacingBeforePX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptParagraphSpacingPX: CGFloat { UIScale.scaledMetric(7) }
+        /// Indent added per list nesting level.
+        static var agentTranscriptListIndentPX: CGFloat { UIScale.scaledMetric(14) }
+        /// Column reserved for `•` or `12.`, wide enough that a two-digit
+        /// ordinal does not push its text out of alignment with its neighbours.
+        static var agentTranscriptListMarkerColumnPX: CGFloat { UIScale.scaledMetric(20) }
+        /// Gap between two segments of one rendered message — prose, then a
+        /// code block, then more prose.
+        static var agentTranscriptBlockSpacingPX: CGFloat { UIScale.scaledMetric(8) }
+        /// Block-quote rule. Fixed, like every other stroke.
+        static let agentTranscriptQuoteBarWidthPX: CGFloat = 2
+        static var agentTranscriptQuoteIndentPX: CGFloat { UIScale.scaledMetric(12) }
+        static var agentTranscriptCodeBlockPaddingXPX: CGFloat { UIScale.scaledMetric(10) }
+        static var agentTranscriptCodeBlockPaddingYPX: CGFloat { UIScale.scaledMetric(7) }
+        static let agentTranscriptCodeBlockCornerRadiusPX = Radius.smPX
+        /// Fixed leading inside a code block. Code is set as lines, so its
+        /// height must be an exact multiple of this: the block sizes itself
+        /// arithmetically from its line count instead of asking the text system,
+        /// which is what lets a non-wrapping block have a knowable height.
+        static var agentTranscriptCodeLineHeightPX: CGFloat { UIScale.scaledMetric(15) }
+        static var agentTranscriptCodeLanguageFontSizePT: CGFloat { UIScale.scaledPointSize(9) }
+        static let agentTranscriptCodeBackgroundAlphaRATIO: CGFloat = 0.06
+        static let agentTranscriptInlineCodeBackgroundAlphaRATIO: CGFloat = 0.09
+        static var agentTranscriptTableCellPaddingXPX: CGFloat { UIScale.scaledMetric(8) }
+        static var agentTranscriptTableCellPaddingYPX: CGFloat { UIScale.scaledMetric(4) }
+        /// Floor a column is shrunk to before the table gives up on natural
+        /// widths and splits the row evenly. Below this a column holds about
+        /// four characters and reads as a stripe rather than data.
+        static var agentTranscriptTableMinimumColumnWidthPX: CGFloat { UIScale.scaledMetric(44) }
+        static let agentTranscriptTableHeaderBackgroundAlphaRATIO: CGFloat = 0.07
+        /// Vertical air around a `---` rule.
+        static var agentTranscriptRuleSpacingPX: CGFloat { UIScale.scaledMetric(6) }
         // Shared three-state row highlight. Command history, agent sessions,
         // and the file explorer all paint through
         // `TerminalSidebarRowHighlight`, so the geometry lives once here.
@@ -1017,12 +1305,49 @@ enum DesignTokens {
         static let sidebarRowHighlightInsetYPX: CGFloat = 2
         static let sidebarRowHighlightCornerRadiusPX = Radius.smPX
         static let sidebarRowSelectionRailWidthPX: CGFloat = 2
+        /// Hairline around a selected row's pill. Fixed: a stroke is not a
+        /// container for type.
+        static let sidebarRowSelectionBorderWidthPX: CGFloat = 1
         static let sidebarRowSelectionRailCornerRadiusPX: CGFloat = 1
         static let sidebarRowFocusRingWidthPX: CGFloat = 2
         static let sidebarRowFocusRingOutsetPX: CGFloat = 1
-        /// Selected row in a background window: achromatic, so an inactive
-        /// window never claims the accent.
-        static let sidebarRowInactiveSelectionAlphaRATIO: CGFloat = 0.07
+        /// Reserved column for a row's leading glyph, in every sidebar list.
+        ///
+        /// The glyphs are not the same width: at 13pt `folder` measures 19pt and
+        /// `doc` 15pt, so an explorer tree drawn to each icon's intrinsic width
+        /// shifts its filename column by up to 4pt depending on what kind of
+        /// thing the row is. This is the same defect the git column already
+        /// fixed with a fixed slot; the leading column simply never got one.
+        static var sidebarRowIconSlotWidthPX: CGFloat { UIScale.scaledMetric(20) }
+        /// Reserved column for a command row's status dot.
+        ///
+        /// Narrower than the icon slot by exactly one outline level, because a
+        /// command row is one level below the directory row that owns it: the
+        /// two columns then land on the same x, and the panel reads as one text
+        /// column with a mark in front of it rather than two ragged ones. The
+        /// alignment used to hold by accident — a 6pt dot and a 12pt folder icon
+        /// happened to differ by about the indentation — and any change to
+        /// either glyph broke it silently.
+        static var sidebarRowStatusSlotWidthPX: CGFloat {
+            max(
+                commandHistoryStatusDotSizePX,
+                sidebarRowIconSlotWidthPX - commandHistoryOutlineIndentationPX
+            )
+        }
+
+        // MARK: Shared sidebar keyboard hint
+        //
+        // The badge that tells the user which key jumps to the filter field.
+        // A hint, so it is the quietest thing in the pill and leaves as soon as
+        // the field is doing anything: focused or holding a query.
+        static var sidebarSearchHintBadgeHeightPX: CGFloat { UIScale.scaledMetric(16) }
+        static var sidebarSearchHintBadgeMinWidthPX: CGFloat { UIScale.scaledMetric(16) }
+        static let sidebarSearchHintBadgeTextInsetXPX = Space.x2PX
+        static let sidebarSearchHintBadgeGapPX = Space.x2PX
+        static let sidebarSearchHintBadgeBorderWidthPX: CGFloat = 1
+        /// The key the badge advertises, and the key the lists route. One
+        /// constant so the label and the binding cannot disagree.
+        static let sidebarSearchHintKeyCharacter: Character = "/"
 
         // MARK: Left-sidebar section strip
         //
@@ -1117,8 +1442,12 @@ enum DesignTokens {
         static let terminalPaneDragPreviewMaxWidthPX: CGFloat = 420
         static let terminalPaneDragPreviewTextInsetXPX = Space.x4PX
         static let terminalPaneDragPreviewTextInsetYPX = Space.x3PX
+        /// Width of the band between two pane cards. Read through
+        /// `TerminalPaneCard.gutterPX`, which is what the split view asks for:
+        /// the band is the gutter now, not a hit area wrapped around a rule.
+        /// The rule it used to carry (`terminalSplitDividerLinePX`) is gone —
+        /// the rounding separates the panes.
         static let terminalSplitDividerHitAreaPX = Space.x3PX
-        static let terminalSplitDividerLinePX: CGFloat = 1
         static let hairlinePX: CGFloat = 1
         static let ptyOutputCoalescingDelaySeconds: TimeInterval = 0.006
 

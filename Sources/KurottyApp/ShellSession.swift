@@ -99,7 +99,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
     func start(workingDirectory requestedWorkingDirectory: String) {
         guard !isStarted else { return }
         let workingDirectory = ShellSettings.normalizedWorkingDirectory(requestedWorkingDirectory)
-        let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let shellPath = TerminalShellIntegrationBootstrap.loginShellPath()
         let launchConfiguration = TerminalShellIntegrationBootstrap.bundledConfiguration(shellPath: shellPath)
         let notificationBridgeEnvironment = KurottyNotificationBridgeEnvironment.shellEnvironment()
         // Derived at the launch boundary: the `.git` walk needs the filesystem

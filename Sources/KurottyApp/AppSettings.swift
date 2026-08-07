@@ -33,7 +33,9 @@ struct AppSettings: Codable, Equatable {
             agentStatusCodexHookConsent: Defaults.agentStatusCodexHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
-            menuBarExtraEnabled: Defaults.menuBarExtraEnabled
+            menuBarExtraEnabled: Defaults.menuBarExtraEnabled,
+            promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled,
+            hasSeenGettingStarted: Defaults.hasSeenGettingStarted
         ),
         window: WindowSettings(
             width: Defaults.windowWidth,
@@ -70,6 +72,8 @@ struct AppSettings: Codable, Equatable {
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
+        static let promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        static let hasSeenGettingStarted = SettingsDefaults.hasSeenGettingStarted
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -151,12 +155,11 @@ struct AppSettings: Codable, Equatable {
 /// per-pane progress bar is ambient status with no dismiss affordance, so the
 /// switch is the only way to refuse it, and turning it off takes down a bar that
 /// is on screen at that moment rather than waiting for the next command.
-/// `menuBarExtraEnabled` is live-applied and defaults **off** — the one chrome
-/// switch here that does. It does not govern space inside Kurotty's window; it
-/// governs a slot in the system menu bar, which is shared and finite. Kurotty
-/// is a normal Dock app, so everything the extra offers is already reachable
-/// without it. Turning it on adds the slot immediately and turning it off takes
-/// it back out, rather than waiting for a relaunch.
+/// `menuBarExtraEnabled` is live-applied and defaults **on**. It is the one
+/// switch here that governs a surface outside Kurotty's window — a slot in the
+/// system menu bar, which is shared and finite — so turning it off gives the
+/// slot back immediately rather than leaving a zero-width item behind, and
+/// turning it on takes one immediately rather than waiting for a relaunch.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -206,6 +209,14 @@ struct TerminalSettings: Codable, Equatable {
     /// Unrelated to `statusBarEnabled` despite the similar sound: that one is
     /// the bar along the bottom of Kurotty's own window.
     var menuBarExtraEnabled: Bool
+    /// Draws the prompt navigator rail on the terminal's trailing edge. Distinct
+    /// from the scrollback indicator sharing that edge: the indicator says where
+    /// the viewport is, the rail says where the commands are.
+    var promptNavigatorRailEnabled: Bool
+    /// Whether the Getting Started tab has already been shown once. A record of
+    /// an event, not a preference: it is written by the app rather than by the
+    /// user, and no Settings control reads it.
+    var hasSeenGettingStarted: Bool
 
     var commandFinishNotificationMode: TerminalCommandFinishNotificationMode {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
@@ -257,6 +268,8 @@ struct TerminalSettings: Codable, Equatable {
         case uiTextScalePercent
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
+        case promptNavigatorRailEnabled
+        case hasSeenGettingStarted
     }
 
     init(
@@ -282,7 +295,9 @@ struct TerminalSettings: Codable, Equatable {
         agentStatusCodexHookConsent: String = SettingsDefaults.agentStatusCodexHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
-        menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled
+        menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled,
+        promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled,
+        hasSeenGettingStarted: Bool = SettingsDefaults.hasSeenGettingStarted
     ) {
         self.theme = theme
         self.fontName = fontName
@@ -307,6 +322,8 @@ struct TerminalSettings: Codable, Equatable {
         self.uiTextScalePercent = uiTextScalePercent
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
+        self.promptNavigatorRailEnabled = promptNavigatorRailEnabled
+        self.hasSeenGettingStarted = hasSeenGettingStarted
     }
 
     init(from decoder: Decoder) throws {
@@ -380,6 +397,17 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         menuBarExtraEnabled = try container.decodeIfPresent(Bool.self, forKey: .menuBarExtraEnabled)
             ?? SettingsDefaults.menuBarExtraEnabled
+        // Absent in schema versions below 22; those files fall back to the
+        // current default rather than failing to decode.
+        promptNavigatorRailEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .promptNavigatorRailEnabled
+        ) ?? SettingsDefaults.promptNavigatorRailEnabled
+        // Absent in schema versions below 22. The fallback is `false` — "not
+        // shown yet" — and the migration below is what stops an existing
+        // install from being told it is new.
+        hasSeenGettingStarted = try container.decodeIfPresent(Bool.self, forKey: .hasSeenGettingStarted)
+            ?? SettingsDefaults.hasSeenGettingStarted
     }
 }
 
@@ -585,6 +613,16 @@ struct AppSettingsNormalizer {
         static let commandProgressIndicatorSchemaVersion = 19
         /// Schema version that introduced `terminal.menuBarExtraEnabled`.
         static let menuBarExtraSchemaVersion = 20
+        /// Schema version that introduced `terminal.promptNavigatorRailEnabled`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
+        static let promptNavigatorRailSchemaVersion = 22
+        /// Schema version that introduced `terminal.hasSeenGettingStarted`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
+        static let gettingStartedSchemaVersion = 22
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -676,10 +714,46 @@ struct AppSettingsNormalizer {
         if sourceSchemaVersion < Migration.menuBarExtraSchemaVersion {
             // Settings written before schema 20 predate the menu-bar extra, so
             // the key carries no user intent. Migrated files land on the current
-            // default, which is off — no existing install gains an icon in a
-            // menu bar it never agreed to share. From schema 20 on, an explicit
-            // choice in either direction is preserved.
+            // default; from schema 20 on, an explicit choice in either direction
+            // is preserved.
+            //
+            // The default flipped from off to on after schema 22, and that flip
+            // deliberately did **not** get a branch of its own. A file already
+            // at schema 20 or later has `menuBarExtraEnabled` written out, and
+            // `false` in such a file is ambiguous by construction: it says the
+            // same thing whether the user tried the extra and removed it or
+            // never opened Settings at all, because the branch above wrote the
+            // then-current default for them. Nothing in the file distinguishes
+            // the two, so the only choice is which way to be wrong. Re-applying
+            // the new default would put an icon back into the menu bar of the
+            // one user who is known to have engaged with the feature — the one
+            // who removed it — in a bar Kurotty does not own. Preserving the
+            // stored value instead costs a passive user a checkbox they can
+            // still find in Settings, and costs them nothing else, because
+            // every row the extra offers is reachable from the Dock icon and
+            // the main menu bar anyway. So the flip reaches fresh installs and
+            // pre-20 files, and leaves stored values alone.
             next.terminal.menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
+        }
+        if sourceSchemaVersion < Migration.promptNavigatorRailSchemaVersion {
+            // Settings written before schema 22 predate the prompt navigator
+            // rail, so the key carries no user intent. Migrated files land on
+            // the current default, which is on — the rail draws nothing at all
+            // in a session without OSC 133, so an install that gains it gains
+            // no chrome it did not ask for. From schema 22 on, an explicit
+            // choice in either direction is preserved.
+            next.terminal.promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        }
+        if sourceSchemaVersion < Migration.gettingStartedSchemaVersion {
+            // The one migration here that does *not* re-apply the default, and
+            // deliberately so. `hasSeenGettingStarted` records an event rather
+            // than a preference: a settings file that predates schema 22 was
+            // written by an install that has been running for a while, so the
+            // true statement about it is that first run already happened.
+            // Landing it on the default instead would open a "Getting Started"
+            // tab in front of an existing user on the upgrade that introduced
+            // it, which is exactly the surprise the tab exists to avoid.
+            next.terminal.hasSeenGettingStarted = true
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

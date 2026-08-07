@@ -250,12 +250,45 @@ final class ChromeDesignSystemTests: XCTestCase {
         XCTAssertEqual(DesignTokens.Component.preferencesNumericFieldWidthPX, 96)
     }
 
-    func testPreferencesNoLongerPaintsSystemControlBackgroundCards() throws {
-        let source = try preferencesSource()
+    /// Settings cards belong to the same surface family as the sidebar and the
+    /// tab bar. They used to be painted with `NSColor.controlBackgroundColor`,
+    /// which is a system grey that ignores the chrome theme entirely — in the
+    /// dark theme the cards read as a lighter, foreign panel.
+    @MainActor
+    func testPreferencesCardsAreThemedSurfacesRatherThanSystemControlPanels() throws {
+        let view = PreferencesView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
+        view.layoutSubtreeIfNeeded()
+        // The surface derives its theme from the stored settings rather than
+        // taking one, so the test reads the same source it does.
+        let theme = view.chromeTheme
 
-        XCTAssertFalse(source.contains("NSColor.controlBackgroundColor"))
-        XCTAssertTrue(source.contains("theme.surfaceRaised.cgColor"))
-        XCTAssertTrue(source.contains("DesignTokens.Radius.mdPX"))
+        let card = try XCTUnwrap(
+            firstLayerBackedCard(in: view),
+            "the settings surface must contain at least one card"
+        )
+        let layer = try XCTUnwrap(card.layer)
+
+        // Not asserted as "not `controlBackgroundColor`": in the light theme the
+        // two resolve to the same white. What separates a themed card from a
+        // system panel is that its fill and its hairline both come from the
+        // chrome theme.
+        XCTAssertEqual(layer.backgroundColor, theme.surfaceRaised.cgColor)
+        XCTAssertEqual(layer.borderColor, theme.hairline.cgColor)
+    }
+
+    /// The cards are the only layer-backed views in the surface that carry both
+    /// the `md` radius and a hairline border.
+    @MainActor
+    private func firstLayerBackedCard(in view: NSView) -> NSView? {
+        if let layer = view.layer,
+           layer.cornerRadius == DesignTokens.Radius.mdPX,
+           layer.borderWidth == DesignTokens.Component.hairlinePX {
+            return view
+        }
+        for child in view.subviews {
+            if let hit = firstLayerBackedCard(in: child) { return hit }
+        }
+        return nil
     }
 
     // MARK: - Helpers
@@ -275,27 +308,5 @@ final class ChromeDesignSystemTests: XCTestCase {
             .flatMap { [$0] + $0.subviews }
             .compactMap { $0 as? NSTextField }
             .first
-    }
-
-    private func preferencesSource() throws -> String {
-        // PreferencesView was split into panes/controls files; the card
-        // styling this test asserts lives in the controls file.
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0..<3 {
-            root.deleteLastPathComponent()
-        }
-        let fileNames = [
-            "PreferencesView.swift",
-            "PreferencesViewPanes.swift",
-            "PreferencesViewControls.swift",
-        ]
-        return try fileNames.map { fileName in
-            try String(
-                contentsOf: root
-                    .appendingPathComponent("Sources/KurottyApp")
-                    .appendingPathComponent(fileName),
-                encoding: .utf8
-            )
-        }.joined()
     }
 }

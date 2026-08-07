@@ -72,6 +72,11 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// Settable so tests can point it at a temporary root instead of the user's
     /// real Application Support directory.
     var scrollbackSnapshotCoordinator: TerminalScrollbackSnapshotCoordinator?
+    /// The project file palette, held only while it is on screen. Retained by
+    /// the window rather than the app because the scan root is the window's
+    /// active pane, so a second window opens its own palette over its own
+    /// project instead of stealing this one.
+    var projectFilePaletteController: ProjectFileQuickOpenWindowController?
     var chromeTheme: DesignTokens.ChromeTheme
     /// Scaled constants on the window shell itself — currently the two sidebar
     /// toggles. The tab bar's own height is re-taken by `updateTabBar`, and
@@ -250,6 +255,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         currentSplitView()?.showSearchInActivePane()
     }
 
+    /// Scrolls the active pane to the previous or next shell prompt. Silent in
+    /// a pane with no OSC 133 boundaries: there is nothing to jump to, and a
+    /// beep for a shell that simply has no integration installed would blame
+    /// the user for it.
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        currentSplitView()?.jumpToPromptInActivePane(direction)
+    }
+
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
         workspaceDescriptor(capturingScrollback: false)
     }
@@ -351,9 +364,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabBarView.layer?.cornerRadius = DesignTokens.Component.terminalTopBarCornerRadiusPX
         tabBarView.layer?.masksToBounds = true
 
+        // The separator under the tab bar is now clear rather than removed: the
+        // bar and the ground below it are the same chrome surface, so the rule
+        // was drawing a border between a surface and itself. Keeping the view
+        // (at its existing height) keeps `chromeBarBottomAnchor` and every
+        // panel constraint measured from it exactly where they were.
         topBarSeparatorView.wantsLayer = true
         topBarSeparatorView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
+        topBarSeparatorView.layer?.backgroundColor = NSColor.clear.cgColor
         topBarSeparatorView.translatesAutoresizingMaskIntoConstraints = false
 
         tabStackView.orientation = .horizontal
@@ -371,6 +389,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabView.delegate = self
         tabView.drawsBackground = false
         tabView.translatesAutoresizingMaskIntoConstraints = false
+        // The ground the pane cards sit on. It is the same surface as the tab
+        // bar above it, so the two read as one continuous plane with the
+        // terminal floating on it.
+        terminalContentHostView.wantsLayer = true
+        terminalContentHostView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
         // The chrome bar spans the whole window (above the split view) so the
         // sidebar toggles sit in the window corners and panel content starts
         // below the title bar instead of colliding with the traffic lights.
@@ -431,10 +455,26 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             topBarSeparatorView.bottomAnchor.constraint(equalTo: tabBarView.bottomAnchor),
             topBarSeparatorView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX),
 
-            tabView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
-            tabView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
-            tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
-            tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
+            // The gap the ground shows through. Inset on all four sides so the
+            // outermost pane card floats clear of the tab bar, the status bar,
+            // the window edge, and whichever sidebar is open, instead of butting
+            // into them.
+            tabView.leadingAnchor.constraint(
+                equalTo: terminalContentHostView.leadingAnchor,
+                constant: DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.trailingAnchor.constraint(
+                equalTo: terminalContentHostView.trailingAnchor,
+                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.topAnchor.constraint(
+                equalTo: terminalContentHostView.topAnchor,
+                constant: DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.bottomAnchor.constraint(
+                equalTo: terminalContentHostView.bottomAnchor,
+                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
         ])
         // Mounted before the split configuration because the split's bottom
         // constraint is pinned to `statusBarView.topAnchor`: Auto Layout
@@ -454,6 +494,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         updateTabBar()
         refreshFileExplorerRootDirectory()
         refreshStatusBarPanes()
+        // Re-runs the checks when the page comes back into view. The page is
+        // not on a timer: every row is a settings read or a process spawn, and
+        // polling them would spend work on a tab nobody is looking at.
+        if let tabViewItem, gettingStartedView(in: tabViewItem) != nil {
+            refreshGettingStartedEnvironment()
+        }
         if suppressesTmuxSelectionCallbacks {
             return
         }
@@ -554,13 +600,16 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         dropTargetView.chromeTheme = chromeTheme
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
-        topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
+        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
         // The same broadcast carries a UI-text-scale change, so anything sized
         // from a scaled token has to re-read it here.
         chromeMetrics.reapply()
         leftSidebarPanel.applyChromeTheme(chromeTheme)
         fileExplorerPanel.applyChromeTheme(chromeTheme)
         statusBarView.applyChromeTheme(chromeTheme)
+        if let item = gettingStartedTabItem {
+            gettingStartedView(in: item)?.applyChromeTheme(chromeTheme)
+        }
         applyChromeThemeToTabSplits(chromeTheme)
         // Both toggles take their full ramp from the theme, so a light theme
         // has to reach them here too — not only their on/off tint.

@@ -833,22 +833,45 @@ final class TerminalStatusBarTests: XCTestCase {
     /// The bar never executes a command: the resume row inserts text on the
     /// prompt and the user presses Return themselves.
     @MainActor
-    func testWindowInsertTextRoutesThroughTheInsertOnlyPath() throws {
-        let statusBarSource = try statusBarWindowSource()
-        XCTAssertTrue(statusBarSource.contains("func statusBarInsertText(_ text: String, paneIdentifier: String) {"))
-        XCTAssertTrue(statusBarSource.contains("sendTextToActivePane(text)"))
-        XCTAssertFalse(statusBarSource.contains("sendTextToActivePane(text + \"\\n\")"))
+    func testWindowInsertTextRoutesThroughTheInsertOnlyPath() {
+        var written: [String] = []
+        let controller = makeWindowController(onWrite: { written.append($0) })
+
+        controller.statusBarInsertText("claude --resume abc123", paneIdentifier: Fixture.paneA)
+
+        XCTAssertEqual(written, ["claude --resume abc123"])
+        for text in written {
+            XCTAssertFalse(text.hasSuffix("\n"), "the bar must never submit the command")
+            XCTAssertFalse(text.hasSuffix("\r"), "the bar must never submit the command")
+        }
     }
 
+    /// Kept as a source-text assertion, deliberately.
+    ///
+    /// `TerminalStatusBarSampler` exposes no "is running" state, so a test that
+    /// posts `windowDidMiniaturize` has no value to read back — the only
+    /// observable effect of a missed `stopSampling()` is a timer that keeps
+    /// firing `ps` on a hidden window, which is the bug this guards.
+    ///
+    /// The sampling *policy* is covered behaviourally by
+    /// `testSamplingContextFollowsWindowVisibility` and by
+    /// `TerminalStatusBarSamplingPolicy`; what is left here is only that the
+    /// window controller implements each AppKit callback and calls the sampler
+    /// from it. The behavioural replacement is an `isSampling` accessor on the
+    /// sampler.
     @MainActor
-    func testWindowStartsAndStopsSamplingWithTheWindowLifecycle() throws {
+    func testWindowLifecycleCallbacksDriveTheSampler() throws {
         let statusBarSource = try statusBarWindowSource()
-        XCTAssertTrue(statusBarSource.contains("override func showWindow(_ sender: Any?)"))
-        XCTAssertTrue(statusBarSource.contains("func windowDidBecomeMain(_ notification: Notification)"))
-        XCTAssertTrue(statusBarSource.contains("func windowWillClose(_ notification: Notification)"))
-        XCTAssertTrue(statusBarSource.contains("func windowDidChangeOcclusionState(_ notification: Notification)"))
-        XCTAssertTrue(statusBarSource.contains("func windowDidMiniaturize(_ notification: Notification)"))
-        XCTAssertTrue(statusBarSource.contains("func windowDidDeminiaturize(_ notification: Notification)"))
+        for callback in [
+            "override func showWindow(_ sender: Any?)",
+            "func windowDidBecomeMain(_ notification: Notification)",
+            "func windowWillClose(_ notification: Notification)",
+            "func windowDidChangeOcclusionState(_ notification: Notification)",
+            "func windowDidMiniaturize(_ notification: Notification)",
+            "func windowDidDeminiaturize(_ notification: Notification)",
+        ] {
+            XCTAssertTrue(statusBarSource.contains(callback), "missing \(callback)")
+        }
         XCTAssertTrue(statusBarSource.contains("statusBarView.startSampling()"))
         XCTAssertTrue(statusBarSource.contains("statusBarView.stopSampling()"))
         XCTAssertTrue(statusBarSource.contains("statusBarView.windowVisibilityDidChange()"))
@@ -864,9 +887,11 @@ final class TerminalStatusBarTests: XCTestCase {
     }
 
     @MainActor
-    private func makeWindowController() -> TerminalWindowController {
+    private func makeWindowController(
+        onWrite: @escaping (String) -> Void = { _ in }
+    ) -> TerminalWindowController {
         let session = TmuxPaneSession(
-            writeHandler: { _ in },
+            writeHandler: { onWrite($0) },
             resizeHandler: { _, _ in },
             stopHandler: {}
         )

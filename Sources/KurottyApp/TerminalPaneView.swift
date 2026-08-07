@@ -121,7 +121,8 @@ final class TerminalPaneView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.windowBackground.cgColor
+        layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        applyCardShape()
         configureLayout()
         observeTerminalTitle()
         observeTerminalFocus()
@@ -142,6 +143,23 @@ final class TerminalPaneView: NSView {
                 AgentActivityRegistry.shared.removePane(paneIdentifier)
             }
         }
+    }
+
+    /// Rounds the pane into the card the window ground shows around.
+    ///
+    /// The mask goes on the pane rather than on the surface so the header, the
+    /// terminal, and every overlay pinned to the pane's edges are cut by one
+    /// shape; masking them individually would leave the progress bar drawing
+    /// square corners over a rounded card.
+    ///
+    /// Clipping is safe here only because the terminal grid already stops
+    /// `Space.terminal*PX` short of the pane edge, which is at or above
+    /// `TerminalPaneCard.minimumGridInsetPX`. The arc therefore cuts through the
+    /// surface's background band and never through a cell.
+    private func applyCardShape() {
+        layer?.cornerRadius = DesignTokens.TerminalPaneCard.cornerRadiusPX
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
     }
 
     private func configureLayout() {
@@ -381,6 +399,10 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView.sendText(text)
     }
 
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        terminalSurfaceView.jumpToPrompt(direction)
+    }
+
     func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
         terminalSurfaceView.commandSpanPaletteCommands()
     }
@@ -397,7 +419,7 @@ final class TerminalPaneView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.windowBackground.cgColor
+        layer?.backgroundColor = theme.terminalPaneGround.cgColor
         searchBarView.applyChromeTheme(theme)
         childExitBannerView.applyChromeTheme(theme)
         agentActivityIndicatorView.applyChromeTheme(theme)
@@ -457,9 +479,13 @@ final class TerminalPaneView: NSView {
     }
 
     private func updateChromeAppearance() {
-        // The header is chrome, so it sits on `surfaceChrome` in both states;
-        // hover is the achromatic wash and never a second surface color.
-        chromeView.layer?.backgroundColor = chromeTheme.surfaceChrome.cgColor
+        // The header is the top of the card, not a strip of window chrome, so
+        // it takes the surface one step above the ground. On `surfaceChrome` it
+        // was the same color as the ground the card floats on, which made the
+        // card's rounded top corners invisible and left the header reading as
+        // background with the terminal starting below it. Hover stays the
+        // achromatic wash and never a second surface color.
+        chromeView.layer?.backgroundColor = chromeTheme.paneHeaderBackground.cgColor
         chromeView.layer?.borderWidth = 0
         chromeHoverOverlayColor = isChromeHovered ? chromeTheme.hoverFill : .clear
         activeIndicatorView.isHidden = !isChromeActive

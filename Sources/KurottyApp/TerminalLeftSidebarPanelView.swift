@@ -11,9 +11,9 @@ enum TerminalLeftSidebarSection: Int, CaseIterable {
 /// keeps a single arranged subview and both sections reuse the same width,
 /// divider, and collapse behavior.
 ///
-/// The child panels are untouched: each still draws its own uppercase section
-/// header, search pill, and outline rows, so both sections stay pixel-identical
-/// below the selector.
+/// Neither child panel draws a title of its own: the strip is the title, and a
+/// panel header repeating it was the same string twice with a list underneath.
+/// Below the strip both sections are pixel-identical — search pill, then rows.
 @MainActor
 final class TerminalLeftSidebarPanelView: NSView {
     let historyPanel = TerminalCommandHistoryPanelView()
@@ -278,7 +278,7 @@ final class TerminalLeftSidebarSectionStripView: NSView {
         case .commandHistory:
             return AppLocalization.string(.commandHistorySectionTitle).localizedUppercase
         case .agentSessions:
-            return AppLocalization.string(.agentSessions).localizedUppercase
+            return AppLocalization.string(.agentSessionsSectionTitle).localizedUppercase
         }
     }
 }

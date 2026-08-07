@@ -4,8 +4,11 @@ import XCTest
 
 /// Layout regression coverage for the left sidebar container and its two
 /// sections. The empty state must occupy the list region only: it may never
-/// overlap the section header, the search pill, or the section selector, at
-/// any supported panel width.
+/// overlap the search pill or the section selector, at any supported panel
+/// width.
+///
+/// Neither section draws a title of its own any more -- the section strip is
+/// the title -- so there is no panel header left to overlap.
 @MainActor
 final class TerminalLeftSidebarLayoutTests: XCTestCase {
     /// The UI text scale is process-wide and the tokens read it on every build,
@@ -189,10 +192,197 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         XCTAssertFalse(pill.isClearButtonVisibleForTesting)
     }
 
+    // MARK: - Row rhythm
+
+    /// The reference sidebars this borrows from list about twenty items and can
+    /// afford a 40pt row. This list holds hundreds, so the rhythm is spent on
+    /// the section headers -- the directory rows -- and nowhere else.
+    func testVerticalRhythmIsSpentOnSectionHeadersNotOnLeafRows() {
+        let air = DesignTokens.Component.commandHistoryGroupRowTopAirPX
+        XCTAssertGreaterThan(air, 0, "a directory row has to be separated from the group above it")
+        XCTAssertEqual(
+            DesignTokens.Component.commandHistoryGroupRowHeightPX,
+            DesignTokens.Component.commandHistoryGroupContentHeightPX + air,
+            accuracy: 0.01,
+            "the extra height is air, not a bigger content band"
+        )
+        // The leaf row is the one that repeats hundreds of times, so it is the
+        // one that must not grow.
+        XCTAssertLessThanOrEqual(
+            DesignTokens.Component.commandHistoryCommandRowHeightPX,
+            DesignTokens.Component.commandHistoryGroupContentHeightPX
+        )
+    }
+
+    /// Guards the trade directly: a taller leaf row buys rhythm by taking rows
+    /// off the screen, and this is how many rows that costs.
+    func testARealisticHistoryStillFillsTheListWithLeafRows() {
+        let listHeightPX: CGFloat = 560
+        let visibleLeafRows = Int(
+            (listHeightPX / DesignTokens.Component.commandHistoryCommandRowHeightPX)
+                .rounded(.down)
+        )
+        XCTAssertGreaterThanOrEqual(
+            visibleLeafRows,
+            18,
+            "a 40pt row would show 14 here; the panel is a history, not a list of twenty threads"
+        )
+    }
+
+    /// The count badge and the relative time are different views on different
+    /// row types, and they are the same column.
+    func testTrailingColumnsShareOneRightEdgeAcrossRowTypes() {
+        let theme = DesignTokens.ChromeTheme.dark
+        let widthPX: CGFloat = 300
+        let groupCell = TerminalCommandHistoryGroupCellView(
+            group: TerminalCommandHistoryRowBuilder.groups(
+                entriesNewestFirst: [historyEntry(command: "swift test")],
+                filter: ""
+            )[0],
+            chromeTheme: theme
+        )
+        layOut(groupCell, width: widthPX, height: DesignTokens.Component.commandHistoryGroupRowHeightPX)
+        let commandCell = TerminalCommandHistoryCommandCellView(
+            entry: historyEntry(command: "swift test"),
+            chromeTheme: theme,
+            now: Date()
+        )
+        layOut(commandCell, width: widthPX, height: DesignTokens.Component.commandHistoryCommandRowHeightPX)
+
+        let badgeRightEdge = trailingEdge(of: groupCell, ofType: TerminalSidebarCountBadgeView.self)
+        let timeRightEdge = rightAlignedLabelTrailingEdge(in: commandCell)
+        XCTAssertEqual(badgeRightEdge, timeRightEdge, accuracy: 0.01)
+    }
+
+    /// The reserved leading slot exists because SF Symbols are not one width.
+    /// A folder row and a file row must start their names at the same x.
+    func testExplorerNameColumnDoesNotDependOnTheRowsIconGlyph() {
+        let theme = DesignTokens.ChromeTheme.dark
+        let widthPX: CGFloat = 300
+        let leadingEdges = [FileExplorerNodeKind.directory, .file].map { kind -> CGFloat in
+            let cell = TerminalFileExplorerRowCellView(
+                item: TerminalFileExplorerOutlineItem(
+                    node: FileExplorerNode(
+                        url: URL(fileURLWithPath: "/tmp/kurotty/entry"),
+                        kind: kind
+                    )
+                ),
+                badge: nil,
+                chromeTheme: theme
+            )
+            layOut(cell, width: widthPX, height: DesignTokens.Component.fileExplorerRowHeightPX)
+            return leadingEdgeOfNameLabel(in: cell)
+        }
+        XCTAssertEqual(leadingEdges[0], leadingEdges[1], accuracy: 0.01)
+        XCTAssertGreaterThan(leadingEdges[0], 0)
+    }
+
+    /// A command row is one outline level below the directory row that owns it,
+    /// so its status slot is one level narrower and the two text columns land on
+    /// the same x. This used to hold by accident.
+    func testCommandColumnIsDerivedFromTheDirectoryColumn() {
+        XCTAssertEqual(
+            DesignTokens.Component.sidebarRowStatusSlotWidthPX
+                + DesignTokens.Component.commandHistoryOutlineIndentationPX,
+            DesignTokens.Component.sidebarRowIconSlotWidthPX,
+            accuracy: 0.01
+        )
+        XCTAssertGreaterThanOrEqual(
+            DesignTokens.Component.sidebarRowStatusSlotWidthPX,
+            DesignTokens.Component.commandHistoryStatusDotSizePX,
+            "the slot must at least hold the dot it centres"
+        )
+    }
+
+    // MARK: - Keyboard hint
+
+    func testKeyHintShowsOnlyWhileTheFieldIsIdle() {
+        let pill = TerminalSidebarSearchPillView(placeholder: { "filter" })
+        layOut(pill, width: 260, height: DesignTokens.Component.sidebarSearchPillHeightPX)
+        XCTAssertTrue(pill.isKeyHintVisibleForTesting)
+        XCTAssertFalse(pill.isClearButtonVisibleForTesting)
+
+        pill.stringValue = "swift"
+        XCTAssertFalse(pill.isKeyHintVisibleForTesting, "a hint competes with the query it sits beside")
+        XCTAssertTrue(pill.isClearButtonVisibleForTesting)
+
+        pill.stringValue = ""
+        XCTAssertTrue(pill.isKeyHintVisibleForTesting)
+    }
+
+    /// The cap is a trailing accessory. Left unbounded it stretched across the
+    /// whole field and rendered as a bare `/` floating mid-pill.
+    func testKeyHintSitsAgainstTheTrailingEdgeOfTheField() {
+        let widthPX: CGFloat = 260
+        let pill = TerminalSidebarSearchPillView(placeholder: { "filter" })
+        layOut(pill, width: widthPX, height: DesignTokens.Component.sidebarSearchPillHeightPX)
+        pill.layoutSubtreeIfNeeded()
+
+        let hint = pill.keyHintFrameForTesting
+        XCTAssertEqual(
+            hint.maxX,
+            widthPX - DesignTokens.Component.sidebarSearchPillEdgeInsetXPX,
+            accuracy: 0.5
+        )
+        XCTAssertLessThanOrEqual(
+            hint.width,
+            DesignTokens.Component.sidebarSearchHintBadgeMinWidthPX
+                + 2 * DesignTokens.Component.sidebarSearchHintBadgeTextInsetXPX,
+            "the cap hugs its glyph: \(hint)"
+        )
+        XCTAssertEqual(hint.height, DesignTokens.Component.sidebarSearchHintBadgeHeightPX, accuracy: 0.5)
+    }
+
+    /// Every sidebar advertises the same key, and every sidebar routes it.
+    func testAllThreeSidebarSectionsAdvertiseTheFilterKey() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        let explorer = TerminalFileExplorerPanelView()
+        layOut(explorer, width: PanelWidth.defaultPX)
+        for panel in [sidebar.historyPanel as NSView, sidebar.agentSessionPanel as NSView, explorer] {
+            let pill = descendants(of: panel).compactMap { $0 as? TerminalSidebarSearchPillView }.first
+            XCTAssertEqual(pill?.isKeyHintVisibleForTesting, true, "\(type(of: panel))")
+        }
+    }
+
     // MARK: - Helpers
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func historyEntry(command: String) -> TerminalCommandHistoryEntry {
+        TerminalCommandHistoryEntry(
+            commandText: command,
+            cwd: "/Users/kurotty/dev/kurotty",
+            exitCode: 0,
+            finishedAt: Date()
+        )
+    }
+
+    /// Alignment rects, not frames. `NSTextField` draws a frame a couple of
+    /// points wider than the box Auto Layout positioned, so comparing raw
+    /// frames says two columns are 2pt apart when the ink lines up exactly.
+    private func alignmentRect(of view: NSView) -> NSRect {
+        view.alignmentRect(forFrame: view.frame)
+    }
+
+    private func trailingEdge<T: NSView>(of cell: NSView, ofType type: T.Type) -> CGFloat {
+        let match = descendants(of: cell).compactMap { $0 as? T }.first
+        return match.map { alignmentRect(of: $0).maxX } ?? .nan
+    }
+
+    /// The relative-time label is the only right-aligned label in a command row.
+    private func rightAlignedLabelTrailingEdge(in cell: NSView) -> CGFloat {
+        let match = descendants(of: cell)
+            .compactMap { $0 as? NSTextField }
+            .first { $0.alignment == .right }
+        return match.map { alignmentRect(of: $0).maxX } ?? .nan
+    }
+
+    /// The name label is the only left-aligned text field in an explorer row.
+    private func leadingEdgeOfNameLabel(in cell: NSView) -> CGFloat {
+        let match = descendants(of: cell).compactMap { $0 as? NSTextField }.first
+        return match.map { alignmentRect(of: $0).minX } ?? .nan
     }
 
     private func makeLaidOutSidebar(width: CGFloat) -> TerminalLeftSidebarPanelView {
@@ -218,7 +408,6 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         let labelFrame: NSRect
         let textOverflows: Bool
         let searchPillFrame: NSRect
-        let headerFrame: NSRect
         let listFrame: NSRect
         switch section {
         case .commandHistory:
@@ -227,7 +416,6 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
             labelFrame = sidebar.historyPanel.emptyStateLabelFrameForTesting
             textOverflows = sidebar.historyPanel.emptyStateTextOverflowsFrameForTesting
             searchPillFrame = sidebar.historyPanel.searchPillFrameForTesting
-            headerFrame = sidebar.historyPanel.sectionHeaderFrameForTesting
             listFrame = sidebar.historyPanel.listRegionFrameForTesting
         case .agentSessions:
             panel = sidebar.agentSessionPanel
@@ -235,7 +423,6 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
             labelFrame = sidebar.agentSessionPanel.emptyStateLabelFrameForTesting
             textOverflows = sidebar.agentSessionPanel.emptyStateTextOverflowsFrameForTesting
             searchPillFrame = sidebar.agentSessionPanel.searchPillFrameForTesting
-            headerFrame = sidebar.agentSessionPanel.sectionHeaderFrameForTesting
             listFrame = sidebar.agentSessionPanel.listRegionFrameForTesting
         }
         let context = "section=\(section) width=\(width) empty=\(emptyStateFrame) list=\(listFrame)"
@@ -264,12 +451,6 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         XCTAssertFalse(
             emptyStateFrame.intersects(searchPillFrame),
             "empty state must not overlap the search pill: \(context) pill=\(searchPillFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertFalse(
-            emptyStateFrame.intersects(headerFrame),
-            "empty state must not overlap the section header: \(context) header=\(headerFrame)",
             file: file,
             line: line
         )

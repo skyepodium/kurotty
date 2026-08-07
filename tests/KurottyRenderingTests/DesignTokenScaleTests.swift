@@ -40,14 +40,18 @@ final class DesignTokenScaleTests: XCTestCase {
         XCTAssertEqual(Set(steps).count, steps.count)
     }
 
-    /// The terminal content insets are cell-grid alignment, not layout rhythm.
-    /// They are deliberately exempt and must keep their own values even though
-    /// two of them happen to coincide with a step.
+    /// The terminal content insets are cell-grid alignment and corner
+    /// clearance, not layout rhythm. They are deliberately exempt and keep
+    /// their own values even though they now coincide with a step.
+    ///
+    /// The horizontal pair moved 6 -> 8 when the pane became a rounded card:
+    /// `TerminalPaneCardGeometryTests` owns the constraint that keeps them
+    /// wide enough for the corner arc.
     func testTerminalContentInsetsStayExemptFromTheScale() {
         XCTAssertEqual(DesignTokens.Space.terminalTopPX, 8)
-        XCTAssertEqual(DesignTokens.Space.terminalLeftPX, 6)
+        XCTAssertEqual(DesignTokens.Space.terminalLeftPX, 8)
         XCTAssertEqual(DesignTokens.Space.terminalBottomPX, 8)
-        XCTAssertEqual(DesignTokens.Space.terminalRightPX, 6)
+        XCTAssertEqual(DesignTokens.Space.terminalRightPX, 8)
     }
 
     /// Every sidebar, tab, pane, and status-bar metric has to resolve onto a
@@ -72,7 +76,7 @@ final class DesignTokenScaleTests: XCTestCase {
             "historyRowGap": DesignTokens.Component.commandHistoryRowGapPX,
             "historyRowInsetX": DesignTokens.Component.commandHistoryRowInsetXPX,
             "historyOutlineIndent": DesignTokens.Component.commandHistoryOutlineIndentationPX,
-            "sectionHeaderTopGap": DesignTokens.Component.commandHistorySectionHeaderTopGapPX,
+            "sidebarPanelBandGap": DesignTokens.Component.sidebarPanelBandGapPX,
             "searchPillTextInset": DesignTokens.Component.sidebarSearchPillTextInsetXPX,
             "searchIconGap": DesignTokens.Component.sidebarSearchIconGapPX,
             "sectionStripTopInset": DesignTokens.Component.leftSidebarSectionStripTopInsetPX,

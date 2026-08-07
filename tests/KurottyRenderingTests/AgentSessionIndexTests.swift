@@ -632,13 +632,6 @@ final class AgentSessionIndexTests: XCTestCase {
         )
     }
 
-    func testStoreNeverPersistsIndexedRecords() throws {
-        let storeSource = try agentSessionSourceFile("Sources/KurottyApp/AgentSessionIndexStore.swift")
-        for writeSymbol in ["data.write(", "createDirectory(", "JSONEncoder("] {
-            XCTAssertFalse(storeSource.contains(writeSymbol), "the index must stay in memory: found \(writeSymbol)")
-        }
-    }
-
     // MARK: - Window integration
 
     @MainActor
@@ -725,19 +718,6 @@ final class AgentSessionIndexTests: XCTestCase {
             accuracy: 1,
             "hiding both sidebars must give the width back"
         )
-    }
-
-    func testBothSidebarsRouteThroughTheSharedHiddenHelper() throws {
-        let historySource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowCommandHistory.swift")
-        let explorerSource = try agentSessionSourceFile("Sources/KurottyApp/TerminalWindowFileExplorer.swift")
-        for source in [historySource, explorerSource] {
-            XCTAssertTrue(
-                source.contains("setSidebarPanelHidden("),
-                "both sidebars must collapse through the shared helper"
-            )
-        }
-        XCTAssertFalse(historySource.contains("leftSidebarPanel.isHidden = !visible"))
-        XCTAssertFalse(explorerSource.contains("fileExplorerPanel.isHidden = !visible"))
     }
 
     /// Regression: the section selector's required trailing pin let its

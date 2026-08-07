@@ -6,8 +6,8 @@ import XCTest
 final class TerminalTextInputRouterTests: XCTestCase {
     @MainActor
     func testPromptInputViewMarkedTextIsOverlayOnlyUntilCommit() throws {
-        let core = SpyTerminalCore()
-        let view = TerminalInputView(core: core)
+        var sent: [String] = []
+        let view = TerminalInputView(core: SpyTerminalCore(), send: { sent.append($0) })
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 96)
 
         view.setMarkedText("ㅇ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -15,17 +15,17 @@ final class TerminalTextInputRouterTests: XCTestCase {
         view.setMarkedText("안", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 1))
 
         XCTAssertTrue(view.hasMarkedText())
-        XCTAssertEqual(core.fedText, [])
+        XCTAssertEqual(sent, [])
 
         view.insertText("안", replacementRange: NSRange(location: 0, length: 1))
 
         XCTAssertFalse(view.hasMarkedText())
-        XCTAssertEqual(core.fedText, ["안"])
+        XCTAssertEqual(sent, ["안"])
     }
 
     @MainActor
     func testPromptInputViewInvalidatesWhenMarkedTextStartsBeforeCommit() throws {
-        let view = TerminalInputView(core: CoreBridge(cols: 80, rows: 24))
+        let view = TerminalInputView(core: CoreBridge(cols: 80, rows: 24), send: { _ in })
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 96)
 
         view.setMarkedText("ㅇ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -146,31 +146,45 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertFalse(encoderSource.contains("case #selector(NSResponder.insertNewline(_:)):\n            return \"\\n\""))
     }
 
-    func testCommittedIMETextFlushesBeforeTerminalCommand() throws {
-        let surfaceSource = try terminalSurfaceViewSource()
-        let inputSource = try terminalInputViewSource()
-
-        let surfaceDoCommandSource = try sourceSlice(
-            in: surfaceSource,
-            from: "override func doCommand",
-            to: "func setMarkedText"
+    /// Committed IME text has to reach the shell before the key command does.
+    /// Reversed, a Korean composition finished with Return arrives after the
+    /// carriage return and lands on the next prompt line.
+    ///
+    /// Replaces an assertion that `"flushAccumulatedCommittedText()"` appeared
+    /// earlier in the source text of `doCommand` than `"send(sequence)"`.
+    @MainActor
+    func testCommittedIMETextReachesTheShellBeforeTheKeyCommand() {
+        let session = RecordingTerminalSession()
+        let surface = TerminalSurfaceView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            session: session
         )
-        let inputDoCommandSource = try sourceSlice(
-            in: inputSource,
-            from: "override func doCommand",
-            to: "func setMarkedText"
-        )
 
-        let surfaceFlush = try XCTUnwrap(surfaceDoCommandSource.range(of: "flushAccumulatedCommittedText()"))
-        let surfaceSend = try XCTUnwrap(surfaceDoCommandSource.range(of: "send(sequence)"))
-        XCTAssertLessThan(surfaceFlush.lowerBound, surfaceSend.lowerBound)
+        // A key press that both commits a composition and carries Return: the
+        // accumulator holds the committed text until the command drains it.
+        surface.keyDown(with: returnKeyEvent())
+        session.reset()
+        surface.setMarkedText("하", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        surface.insertText("하", replacementRange: NSRange(location: NSNotFound, length: 0))
+        surface.doCommand(by: #selector(NSResponder.insertNewline(_:)))
 
-        let inputFlush = try XCTUnwrap(inputDoCommandSource.range(of: "flushAccumulatedCommittedText()"))
-        let inputFeed = try XCTUnwrap(inputDoCommandSource.range(of: "core.feed(sequence)"))
-        XCTAssertLessThan(inputFlush.lowerBound, inputFeed.lowerBound)
+        XCTAssertEqual(session.writes, ["하", "\r"])
+    }
 
-        XCTAssertTrue(surfaceSource.contains("private func flushAccumulatedCommittedText() -> Bool"))
-        XCTAssertTrue(inputSource.contains("private func flushAccumulatedCommittedText() -> Bool"))
+    @MainActor
+    private func returnKeyEvent() -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        )!
     }
 
     func testReturnUsesTerminalEnterAction() throws {
@@ -597,12 +611,6 @@ final class TerminalTextInputRouterTests: XCTestCase {
 }
 
 private final class SpyTerminalCore: TerminalCore {
-    private(set) var fedText: [String] = []
-
-    func feed(_ text: String) {
-        fedText.append(text)
-    }
-
     func recordKeyEvent() {}
     func recordFramePresented() {}
     func beginFrame(visibleCells: UInt32) -> UInt32 { 0 }
@@ -619,6 +627,8 @@ private final class RecordingTerminalSession: TerminalSession {
     var onRuntimeEvent: ((TerminalEventLedger.RecordedEvent) -> Void)?
     var onExit: ((TerminalChildExit) -> Void)?
     private(set) var writes: [String] = []
+
+    func reset() { writes.removeAll() }
 
     func start(workingDirectory requestedWorkingDirectory: String) {}
     func write(_ text: String) { writes.append(text) }
