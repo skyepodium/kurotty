@@ -529,7 +529,6 @@ final class TerminalDiagnosticsTests: XCTestCase {
 }
 
 private final class NonDiagnosingTerminalCore: TerminalCore {
-    func feed(_ text: String) {}
     func recordKeyEvent() {}
     func recordFramePresented() {}
     func beginFrame(visibleCells: UInt32) -> UInt32 { visibleCells }

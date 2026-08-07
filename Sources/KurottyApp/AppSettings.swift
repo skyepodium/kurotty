@@ -155,12 +155,11 @@ struct AppSettings: Codable, Equatable {
 /// per-pane progress bar is ambient status with no dismiss affordance, so the
 /// switch is the only way to refuse it, and turning it off takes down a bar that
 /// is on screen at that moment rather than waiting for the next command.
-/// `menuBarExtraEnabled` is live-applied and defaults **off** — the one chrome
-/// switch here that does. It does not govern space inside Kurotty's window; it
-/// governs a slot in the system menu bar, which is shared and finite. Kurotty
-/// is a normal Dock app, so everything the extra offers is already reachable
-/// without it. Turning it on adds the slot immediately and turning it off takes
-/// it back out, rather than waiting for a relaunch.
+/// `menuBarExtraEnabled` is live-applied and defaults **on**. It is the one
+/// switch here that governs a surface outside Kurotty's window — a slot in the
+/// system menu bar, which is shared and finite — so turning it off gives the
+/// slot back immediately rather than leaving a zero-width item behind, and
+/// turning it on takes one immediately rather than waiting for a relaunch.
 struct TerminalSettings: Codable, Equatable {
     var theme: String
     var fontName: String
@@ -615,8 +614,14 @@ struct AppSettingsNormalizer {
         /// Schema version that introduced `terminal.menuBarExtraEnabled`.
         static let menuBarExtraSchemaVersion = 20
         /// Schema version that introduced `terminal.promptNavigatorRailEnabled`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
         static let promptNavigatorRailSchemaVersion = 22
         /// Schema version that introduced `terminal.hasSeenGettingStarted`.
+        /// Both keys landed in 22 together, so the shared version is
+        /// deliberate rather than two branches bumping to the same number.
+        /// schema-lint: shared-version-ok
         static let gettingStartedSchemaVersion = 22
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
@@ -709,9 +714,25 @@ struct AppSettingsNormalizer {
         if sourceSchemaVersion < Migration.menuBarExtraSchemaVersion {
             // Settings written before schema 20 predate the menu-bar extra, so
             // the key carries no user intent. Migrated files land on the current
-            // default, which is off — no existing install gains an icon in a
-            // menu bar it never agreed to share. From schema 20 on, an explicit
-            // choice in either direction is preserved.
+            // default; from schema 20 on, an explicit choice in either direction
+            // is preserved.
+            //
+            // The default flipped from off to on after schema 22, and that flip
+            // deliberately did **not** get a branch of its own. A file already
+            // at schema 20 or later has `menuBarExtraEnabled` written out, and
+            // `false` in such a file is ambiguous by construction: it says the
+            // same thing whether the user tried the extra and removed it or
+            // never opened Settings at all, because the branch above wrote the
+            // then-current default for them. Nothing in the file distinguishes
+            // the two, so the only choice is which way to be wrong. Re-applying
+            // the new default would put an icon back into the menu bar of the
+            // one user who is known to have engaged with the feature — the one
+            // who removed it — in a bar Kurotty does not own. Preserving the
+            // stored value instead costs a passive user a checkbox they can
+            // still find in Settings, and costs them nothing else, because
+            // every row the extra offers is reachable from the Dock icon and
+            // the main menu bar anyway. So the flip reaches fresh installs and
+            // pre-20 files, and leaves stored values alone.
             next.terminal.menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
         }
         if sourceSchemaVersion < Migration.promptNavigatorRailSchemaVersion {

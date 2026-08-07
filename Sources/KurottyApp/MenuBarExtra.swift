@@ -141,13 +141,26 @@ enum MenuBarExtraGlyph {
     /// inverts it while the menu is held open; a non-template glyph keeps one
     /// fixed color through all of that, which is the single most common way a
     /// menu-bar icon ends up invisible or inverted for half the users.
-    static func makeImage() -> NSImage? {
-        Icon.templateSymbol(
-            IconSymbol.menuBarExtra,
-            pointSizePT: DesignTokens.Component.menuBarExtraSymbolPointSizePT,
-            weight: .regular,
-            accessibilityDescription: accessibilityDescription
-        )
+    ///
+    /// Non-optional, unlike every SF Symbol call site in the app: the mark is a
+    /// path this app draws, so there is no name for the system to fail to
+    /// resolve and no failure for a caller to handle.
+    static func makeImage() -> NSImage {
+        let side = DesignTokens.Component.menuBarExtraMarkSizePT
+        // The drawing handler, not a one-off bitmap: AppKit re-runs it for the
+        // backing scale of whichever display the bar is on, so the mark is
+        // resolution-independent instead of a 2x asset upscaled onto a 3x panel.
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { bounds in
+            // Any opaque colour would do — a template keeps only coverage — but
+            // black is what the mark looks like if something ever renders it
+            // without honouring the flag.
+            NSColor.black.setFill()
+            MenuBarExtraMark.path(in: bounds).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = accessibilityDescription
+        return image
     }
 
     static var accessibilityDescription: String {
