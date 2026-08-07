@@ -201,11 +201,16 @@ final class TerminalFileExplorerSidebarRowView: TerminalSidebarRowView {}
 final class TerminalFileExplorerRowCellView: NSTableCellView {
     private let nameLabel: NSTextField
     private let titleStyler: TerminalSidebarRowTitleStyler
+    private let leadingIconView = NSImageView()
+
+    var leadingIconImageForTesting: NSImage? { leadingIconView.image }
+    private(set) var isDisplayingProjectIconForTesting = false
 
     init(
         item: TerminalFileExplorerOutlineItem,
         badge: FileExplorerGitBadge?,
         agentMarker: FileExplorerAgentMarker = .none,
+        projectIconSource: FileExplorerProjectIconSource? = nil,
         now: Date = Date(),
         chromeTheme: DesignTokens.ChromeTheme
     ) {
@@ -226,8 +231,7 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         )
         super.init(frame: .zero)
 
-        let iconView = NSImageView()
-        iconView.image = Icon.symbol(
+        leadingIconView.image = Icon.symbol(
             FileExplorerIcon.symbolName(for: item.node),
             pointSizePT: DesignTokens.Component.fileExplorerRowIconPointSizePT,
             weight: .regular,
@@ -238,8 +242,15 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
                 chromeTheme: chromeTheme
             )
         )
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(iconView)
+        leadingIconView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(leadingIconView)
+        if let projectIconSource {
+            FileExplorerProjectIconLoader.shared.load(projectIconSource) { [weak self] image in
+                guard let self, let image else { return }
+                leadingIconView.image = image
+                isDisplayingProjectIconForTesting = true
+            }
+        }
 
         titleStyler.apply(.rest, to: nameLabel)
         nameLabel.lineBreakMode = .byTruncatingMiddle
@@ -263,14 +274,14 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
 
         NSLayoutConstraint.activate(
             TerminalSidebarRowLayout.leadingSlotConstraints(
-                glyphView: iconView,
+                glyphView: leadingIconView,
                 in: self,
                 leadingInsetPX: DesignTokens.Component.fileExplorerRowInsetXPX
             ) + [
-                iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                leadingIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
 
                 nameLabel.leadingAnchor.constraint(
-                    equalTo: iconView.trailingAnchor,
+                    equalTo: leadingIconView.trailingAnchor,
                     constant: DesignTokens.Component.fileExplorerRowGapPX
                 ),
                 nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),

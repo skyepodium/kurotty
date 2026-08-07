@@ -376,6 +376,7 @@ Design rules:
 - Vertical rhythm is spent on section headers, not on rows. A directory node carries air above it; the command rows under it stay dense, because the list is hundreds of rows long and a taller row buys rhythm by taking rows off the screen.
 - The top bar keeps tabs as the primary content. Leading and trailing sidebar controls are symmetrical, and an open panel is represented by a persistent filled capsule plus accent tint, not tint alone.
 - File rows preserve native outline disclosure and keyboard selection. A single click on a supported image opens or focuses a read-only preview tab; text files keep the deliberate open gesture already defined by the explorer.
+- Direct children of the explorer root are project rows: they may replace the folder glyph with a 16px rounded identity image discovered from a bounded local logo/favicon or generated locally from the project name. Discovery never makes a network request. Nested directories remain semantic folder glyphs, and every failed or missing image falls back without moving the shared leading column.
 - Image preview tabs center the source at its intrinsic size and proportionally shrink it when the available canvas is smaller. They never upscale, crop, mutate, or silently convert the source image.
 
 #### Preferences GUI contract

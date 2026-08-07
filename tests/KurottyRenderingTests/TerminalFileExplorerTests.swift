@@ -16,6 +16,82 @@ final class TerminalFileExplorerTests: XCTestCase {
         records.map { $0 + Fixture.recordSeparator }.joined()
     }
 
+    // MARK: - Project icons
+
+    func testProjectIconResolverPrefersAConventionalLocalImage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let iconURL = root.appendingPathComponent("favicon.png")
+        try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64)).write(to: iconURL)
+
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .localFile(iconURL.standardizedFileURL)
+        )
+    }
+
+    func testProjectIconResolverGeneratesALocalIdentityForARepository() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let gitDirectory = root.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .generated(root.lastPathComponent)
+        )
+    }
+
+    func testProjectIconResolverSkipsAnInvalidLocalImageBeforeGeneratedFallback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        let gitDirectory = root.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("not an image".utf8).write(to: root.appendingPathComponent("favicon.png"))
+        XCTAssertEqual(
+            FileExplorerProjectIconResolver.source(for: root),
+            .generated(root.lastPathComponent)
+        )
+    }
+
+    @MainActor
+    func testProjectRowUsesTheResolvedImageWhileNestedFoldersKeepSymbols() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kurotty-project-icon-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let iconURL = root.appendingPathComponent("logo.png")
+        try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64)).write(to: iconURL)
+        let item = TerminalFileExplorerOutlineItem(
+            node: FileExplorerNode(url: root, kind: .directory)
+        )
+
+        let projectCell = TerminalFileExplorerRowCellView(
+            item: item,
+            badge: nil,
+            projectIconSource: .localFile(iconURL),
+            chromeTheme: .light
+        )
+        let nestedCell = TerminalFileExplorerRowCellView(
+            item: item,
+            badge: nil,
+            projectIconSource: nil,
+            chromeTheme: .light
+        )
+
+        XCTAssertNotNil(projectCell.leadingIconImageForTesting)
+        XCTAssertNotNil(nestedCell.leadingIconImageForTesting)
+        XCTAssertTrue(projectCell.isDisplayingProjectIconForTesting)
+        XCTAssertFalse(nestedCell.isDisplayingProjectIconForTesting)
+    }
+
+    private static let onePixelPNGBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
     // MARK: - Porcelain parser
 
     /// Re-pointed: the explorer's git column now distinguishes staged and

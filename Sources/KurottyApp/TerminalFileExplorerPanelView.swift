@@ -26,6 +26,9 @@ final class TerminalFileExplorerPanelView: NSView {
     private var gitOverlay = FileExplorerGitOverlay.empty
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var watcher: TerminalFileExplorerRootWatcher?
+    private var projectIconSourceCache: [URL: FileExplorerProjectIconSource] = [:]
+    private var resolvedProjectIconURLs: Set<URL> = []
+    private var projectIconResolutionTask: Task<Void, Never>?
     private var filterGeneration = 0
     private let gitStatusService = TerminalGitStatusService()
     /// Read-only source of "which agent wrote this file, from which prompt".
@@ -118,6 +121,7 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         if self.rootDirectory != standardized {
             self.rootDirectory = standardized
+            invalidateProjectIconSources()
             directoryNameLabel.stringValue = standardized.lastPathComponent
             rootItem = TerminalFileExplorerOutlineItem(
                 node: FileExplorerNode(url: standardized, kind: .directory)
@@ -146,6 +150,7 @@ final class TerminalFileExplorerPanelView: NSView {
         remoteLocation = location
         rootDirectory = nil
         rootItem = nil
+        invalidateProjectIconSources()
         filterMatchItems = nil
         actionErrorRow.present(nil)
         // Invalidate any in-flight filter scan started for the previous local
@@ -168,6 +173,7 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         _ = rootItem.childItems()
         rootItem.refreshLoadedSubtree()
+        resolveProjectIconsIfNeeded(in: rootItem.childItems(), rootDirectory: rootDirectory)
         outlineView.reloadData()
         reapplyFilterIfNeeded()
         gitStatusService.requestStatus(rootDirectory: rootDirectory) { [weak self] result in
@@ -567,7 +573,16 @@ final class TerminalFileExplorerPanelView: NSView {
 
     @objc private func refreshClicked(_ sender: Any?) {
         agentSessionIndexStore.refresh()
+        invalidateProjectIconSources()
         refresh()
+    }
+
+    private func invalidateProjectIconSources() {
+        projectIconResolutionTask?.cancel()
+        projectIconResolutionTask = nil
+        projectIconSourceCache.removeAll()
+        resolvedProjectIconURLs.removeAll()
+        FileExplorerProjectIconLoader.shared.invalidate()
     }
 
     @objc private func agentSessionIndexDidChange(_ notification: Notification) {
@@ -916,8 +931,59 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
                 provenance: agentProvenance,
                 now: Date()
             ),
+            projectIconSource: projectIconSource(for: outlineItem),
             chromeTheme: chromeTheme
         )
+    }
+
+    private func projectIconSource(
+        for item: TerminalFileExplorerOutlineItem
+    ) -> FileExplorerProjectIconSource? {
+        guard filterMatchItems == nil,
+              item.node.kind == .directory,
+              item.node.url.deletingLastPathComponent().standardizedFileURL.path
+                == rootDirectory?.standardizedFileURL.path
+        else {
+            return nil
+        }
+        return projectIconSourceCache[item.node.url.standardizedFileURL]
+    }
+
+    private func resolveProjectIconsIfNeeded(
+        in items: [TerminalFileExplorerOutlineItem],
+        rootDirectory: URL
+    ) {
+        let unresolvedURLs = items.compactMap { item -> URL? in
+            guard item.node.kind == .directory else { return nil }
+            let url = item.node.url.standardizedFileURL
+            return resolvedProjectIconURLs.contains(url) ? nil : url
+        }
+        guard !unresolvedURLs.isEmpty, projectIconResolutionTask == nil else { return }
+        resolvedProjectIconURLs.formUnion(unresolvedURLs)
+        projectIconResolutionTask = Task { [weak self] in
+            let resolved = await FileExplorerProjectIconResolver.sources(for: unresolvedURLs)
+            guard !Task.isCancelled,
+                  let self,
+                  self.rootDirectory == rootDirectory
+            else {
+                return
+            }
+            for (url, source) in resolved {
+                if let source {
+                    projectIconSourceCache[url] = source
+                } else {
+                    projectIconSourceCache.removeValue(forKey: url)
+                }
+            }
+            outlineView.reloadData()
+            projectIconResolutionTask = nil
+            if let rootItem {
+                resolveProjectIconsIfNeeded(
+                    in: rootItem.childItems(),
+                    rootDirectory: rootDirectory
+                )
+            }
+        }
     }
 }
 

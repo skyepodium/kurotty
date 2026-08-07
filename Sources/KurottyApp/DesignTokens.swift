@@ -1304,6 +1304,8 @@ enum DesignTokens {
         static let fileExplorerRowGapPX = Space.x2PX
         static let fileExplorerOutlineIndentationPX = Space.x4PX
         static var fileExplorerRowIconPointSizePT: CGFloat { UIScale.scaledPointSize(14) }
+        static var fileExplorerProjectIconSizePX: CGFloat { UIScale.scaledMetric(16) }
+        static var fileExplorerProjectIconCornerRadiusPX: CGFloat { UIScale.scaledMetric(4) }
         /// Fixed-width git column: a dot in a reserved slot cannot shift the row
         /// beside it, which the old `M`/`U`/`⊘` letters did every repaint. The
         /// slot and its dot are both fixed — the column carries a mark, not
