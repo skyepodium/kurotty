@@ -75,6 +75,24 @@ enum MainMenu {
         )
         fileExplorer.keyEquivalentModifierMask = [.command, .shift]
         viewMenu.addItem(fileExplorer)
+        // ⌘⇧↑ / ⌘⇧↓: free in TerminalCommandRegistry apart from these two
+        // entries, free in this menu, and free in the surface's key handling —
+        // the bare ⌘-arrow there is pane focus, which does not tolerate shift.
+        // Written as the arrow function keys so the menu renders ⇧⌘↑.
+        let previousPrompt = NSMenuItem(
+            title: AppLocalization.string(.jumpToPreviousPrompt),
+            action: #selector(AppDelegate.jumpToPreviousPrompt),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        previousPrompt.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(previousPrompt)
+        let nextPrompt = NSMenuItem(
+            title: AppLocalization.string(.jumpToNextPrompt),
+            action: #selector(AppDelegate.jumpToNextPrompt),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        nextPrompt.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(nextPrompt)
         // ⌘⇧K: free in TerminalCommandRegistry, in this menu, and in the
         // surface's key handling. Targets the feature's own action object so
         // quick commands do not add a case to AppDelegate.

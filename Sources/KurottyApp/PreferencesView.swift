@@ -139,6 +139,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(menuBarExtraToggled(_:))
     )
+    lazy var promptNavigatorRailCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(promptNavigatorRailToggled(_:))
+    )
     lazy var quickCommandsButton = NSButton(
         title: "",
         target: self,
@@ -605,6 +610,16 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    /// Live-applied: open panes install or drop the rail as soon as the change
+    /// lands. Turning it off also forgets every recorded marker, because the
+    /// scrollback keeps moving while the rail is not watching it and a marker
+    /// restored later would point at a row that has since moved.
+    @objc private func promptNavigatorRailToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.promptNavigatorRailEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     @objc private func confirmMultilinePasteToggled(_ sender: NSButton) {
         guard !isUpdatingControls else { return }
         settings.terminal.confirmMultilinePaste = sender.state == .on
@@ -746,6 +761,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
         commandProgressCheckbox.state = settings.terminal.commandProgressIndicatorEnabled ? .on : .off
         menuBarExtraCheckbox.state = settings.terminal.menuBarExtraEnabled ? .on : .off
+        promptNavigatorRailCheckbox.state = settings.terminal.promptNavigatorRailEnabled ? .on : .off
         agentSessionIndexCheckbox.state = settings.terminal.agentSessionIndexEnabled ? .on : .off
         hideMouseCursorCheckbox.state = settings.terminal.hideMouseCursorWhileTyping ? .on : .off
         perProjectHistoryCheckbox.state = settings.shell.perProjectHistoryEnabled ? .on : .off

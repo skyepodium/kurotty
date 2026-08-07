@@ -381,6 +381,10 @@ final class TerminalPaneView: NSView {
         terminalSurfaceView.sendText(text)
     }
 
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        terminalSurfaceView.jumpToPrompt(direction)
+    }
+
     func commandSpanPaletteCommands() -> [TerminalCommandSpanCommand] {
         terminalSurfaceView.commandSpanPaletteCommands()
     }

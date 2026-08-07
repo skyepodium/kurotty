@@ -42,6 +42,11 @@ enum AppSettingKey: String, Codable, Hashable {
     /// than for a status item so it cannot be mistaken for a sibling of the
     /// in-window bottom bar.
     case terminalMenuBarExtraEnabled
+    /// Declared for its lifecycle contract only, like
+    /// `terminalMenuBarExtraEnabled`. Named for the navigator rather than for
+    /// the edge it sits on, so it cannot be mistaken for a sibling of the
+    /// scrollback indicator sharing that edge.
+    case terminalPromptNavigatorRailEnabled
     case windowWidth
     case windowHeight
     case shellWorkingDirectory
@@ -94,6 +99,7 @@ enum AppSettingsValidation {
              .terminalUITextScalePercent,
              .terminalCommandProgressIndicatorEnabled,
              .terminalMenuBarExtraEnabled,
+             .terminalPromptNavigatorRailEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied

@@ -21,6 +21,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
+    private lazy var promptRailCoordinator = TerminalPromptRailCoordinator()
+    /// Absolute scrollback row of the prompt OSC 133 last reported, held from
+    /// the `A` boundary until the matching `D`. The span itself cannot carry it:
+    /// `TerminalShellIntegration` is a pure value type with no view of the
+    /// screen, and the row is only knowable at the instant the sequence is
+    /// parsed, before any further output moves the cursor.
+    private var pendingPromptAbsoluteRowIndex: Int?
     /// Internal rather than private so sibling seams that must drive the parser
     /// directly — scrollback replay, which raises `isReplayingScrollback`
     /// around the feed — can reach it without a second parser entry point.
@@ -167,6 +174,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             rendererView.topAnchor.constraint(equalTo: topAnchor),
             rendererView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        // The rail installs first so the indicator's thumb draws above it; they
+        // never overlap, but z-order decides which one wins if a future token
+        // change makes them touch.
+        promptRailCoordinator.install(in: self)
+        promptRailCoordinator.onSelectAbsoluteRow = { [weak self] absoluteRow in
+            self?.scrollToAbsoluteRow(absoluteRow)
+        }
         scrollIndicatorCoordinator.install(in: self)
         interpreter.host = TerminalOutputInterpreterHost(
             sendTerminalResponse: { [weak self] text in self?.sendTerminalResponse(text) },
@@ -2841,23 +2855,88 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
 
     private func layoutScrollIndicator() {
-        let visibleRows = max(1, terminalMetrics().size.rows)
-        scrollIndicatorCoordinator.layout(
-            in: bounds,
-            visibleRows: visibleRows,
-            maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
-            scrollbackOffset: scrollbackOffset
-        )
+        updateScrollIndicator()
     }
 
     private func updateScrollIndicator() {
         let visibleRows = max(1, terminalMetrics().size.rows)
+        // The rail is laid out first because the indicator's track has to know
+        // how much of the trailing edge the rail took.
+        updatePromptRail()
         scrollIndicatorCoordinator.update(
             bounds: bounds,
             visibleRows: visibleRows,
             maxScrollbackOffset: maxScrollbackOffset(visibleRows: visibleRows),
-            scrollbackOffset: scrollbackOffset
+            scrollbackOffset: scrollbackOffset,
+            trailingInsetPX: promptRailCoordinator.trailingInsetPX
         )
+    }
+
+    private func updatePromptRail() {
+        let retainedRowSummary = scrollbackRows.retainedRowSummary
+        promptRailCoordinator.update(
+            bounds: bounds,
+            contentRowCount: contentRowCount,
+            firstRetainedRowIndex: retainedRowSummary.firstRetainedRowIndex,
+            nextRowIndex: retainedRowSummary.nextRowIndex
+        )
+    }
+
+    /// Absolute scrollback row the cursor sits on right now.
+    ///
+    /// `nextRowIndex` is the index the next row appended to the scrollback will
+    /// take, so it is also the absolute index of screen row 0. Reading it while
+    /// an OSC is being executed is what makes the number correct: the parser is
+    /// synchronous, so nothing has moved the cursor since the sequence arrived.
+    private var cursorAbsoluteRowIndex: Int {
+        scrollbackRows.retainedRowSummary.nextRowIndex + cursorRow
+    }
+
+    /// Scrolls the viewport so `absoluteRow` is visible, if it still exists.
+    ///
+    /// A row that has been trimmed out of the scrollback resolves to nothing
+    /// and the viewport stays put, which is the honest answer: the command is
+    /// gone, and scrolling to where it used to be would be a lie.
+    private func scrollToAbsoluteRow(_ absoluteRow: Int) {
+        let firstRetainedRowIndex = scrollbackRows.retainedRowSummary.firstRetainedRowIndex
+        let contentRow = absoluteRow - firstRetainedRowIndex
+        guard contentRow >= 0, contentRow < contentRowCount else { return }
+        scrollToContentRow(contentRow)
+    }
+
+    private func scrollToContentRow(_ contentRow: Int) {
+        let metrics = terminalMetrics()
+        let nextOffset = TerminalSearchNavigation.scrollbackOffsetToReveal(
+            row: contentRow,
+            contentRowCount: contentRowCount,
+            visibleRowCount: metrics.size.rows,
+            currentOffset: scrollbackOffset
+        )
+        guard nextOffset != scrollbackOffset else { return }
+        scrollbackOffset = nextOffset
+        markFullDamage()
+        updateScrollIndicator()
+        updateRendererFrame()
+    }
+
+    /// Scrolls to the previous or next shell prompt.
+    ///
+    /// Reads the rail's markers rather than the rail's geometry, so it answers
+    /// identically whether the rail is drawn, hidden behind an empty session,
+    /// or switched off in Settings.
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        let visibleRowCount = max(1, terminalMetrics().size.rows)
+        let firstRetainedRowIndex = scrollbackRows.retainedRowSummary.firstRetainedRowIndex
+        guard let targetRow = TerminalPromptRailNavigation.targetContentRow(
+            markers: promptRailCoordinator.markers,
+            firstRetainedRowIndex: firstRetainedRowIndex,
+            contentRowCount: contentRowCount,
+            currentTopContentRow: visibleRowStartIndex(limit: visibleRowCount),
+            direction: direction
+        ) else {
+            return
+        }
+        scrollToContentRow(targetRow)
     }
 
 
@@ -2900,16 +2979,50 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         }
 
         switch shellEvent {
+        case .promptStart:
+            // The prompt row, not the command row: a marker has to land on the
+            // line the user reads as the start of the command, and OSC 133 `B`
+            // arrives after the prompt has already been drawn.
+            pendingPromptAbsoluteRowIndex = cursorAbsoluteRowIndex
         case .commandStart:
             shellIntegration.setActiveCommandText(lastSubmittedCommandText)
             onCommandProgress?(.commandStarted)
         case .commandEnd(let context):
+            recordPromptRailMarker(for: context)
             TerminalCommandHistoryStore.shared.record(completion: context)
             onCommandProgress?(.commandEnded(exitCode: context.exitCode))
             notifyCommandFinishedIfNeeded(context)
         default:
             break
         }
+    }
+
+    /// Anchors a finished command onto the rail.
+    ///
+    /// Falls back to the cursor's row when no prompt boundary was seen, which
+    /// happens when integration is installed mid-session and the first command
+    /// to complete never had an `A`. A marker one line below the prompt is
+    /// still a marker on the right command; no marker at all would silently
+    /// drop it.
+    private func recordPromptRailMarker(for context: TerminalCommandCompletionContext) {
+        defer { pendingPromptAbsoluteRowIndex = nil }
+        guard let commandText = context.commandText else { return }
+        let finishedAt = Date()
+        promptRailCoordinator.record(
+            TerminalPromptRailMarker(
+                spanID: context.span.id,
+                absoluteRowIndex: pendingPromptAbsoluteRowIndex ?? cursorAbsoluteRowIndex,
+                entry: TerminalCommandHistoryEntry(
+                    commandText: commandText,
+                    cwd: context.cwd,
+                    cwdHost: context.cwdHost,
+                    exitCode: context.exitCode,
+                    startedAt: context.duration.map { finishedAt.addingTimeInterval(-$0) },
+                    finishedAt: finishedAt,
+                    duration: context.duration
+                )
+            )
+        )
     }
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {

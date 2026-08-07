@@ -328,6 +328,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeTerminalWindowController?.toggleFileExplorerPanel()
     }
 
+    @objc func jumpToPreviousPrompt() {
+        activeTerminalWindowController?.jumpToPrompt(.previous)
+    }
+
+    @objc func jumpToNextPrompt() {
+        activeTerminalWindowController?.jumpToPrompt(.next)
+    }
+
     // The font zoom is app-wide, so unlike the pane and tab commands it stays
     // available with no terminal window key.
     @objc func increaseTerminalFontSize() {

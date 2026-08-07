@@ -155,6 +155,11 @@ final class SplitTerminalView: NSSplitView {
         targetPane.showSearch()
     }
 
+    func jumpToPromptInActivePane(_ direction: TerminalPromptRailNavigation.Direction) {
+        guard let targetPane = activePane() ?? firstPane() else { return }
+        targetPane.jumpToPrompt(direction)
+    }
+
     func closeSearchInAllPanes(restoringTerminalFocus: Bool = false) {
         for pane in terminalPanesInLayoutOrder {
             pane.closeSearch(restoringTerminalFocus: restoringTerminalFocus)

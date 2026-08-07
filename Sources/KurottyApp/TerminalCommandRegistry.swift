@@ -20,6 +20,8 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case selectNextTab = "window.selectNextTab"
     case selectPreviousTab = "window.selectPreviousTab"
     case findTerminalOutput = "terminal.findOutput"
+    case jumpToPreviousPrompt = "terminal.jumpToPreviousPrompt"
+    case jumpToNextPrompt = "terminal.jumpToNextPrompt"
     case toggleCommandHistoryPanel = "history.togglePanel"
     case toggleFileExplorerPanel = "explorer.togglePanel"
     case toggleAgentSessionPanel = "sessions.togglePanel"
@@ -47,6 +49,7 @@ enum TerminalWindowCommandAction: Equatable {
     case selectNextTab
     case selectPreviousTab
     case findTerminalOutput
+    case jumpToPrompt(TerminalPromptRailNavigation.Direction)
     case toggleCommandHistoryPanel
     case toggleFileExplorerPanel
     case toggleAgentSessionPanel
@@ -249,6 +252,15 @@ struct TerminalCommandRegistry {
 
     private static let arrowShortcutExtras: NSEvent.ModifierFlags = [.option, .numericPad, .function]
 
+    /// Arrow key codes, matched by hardware code for the same reason the zoom
+    /// keys are: a non-Latin input source reports no character for them.
+    private enum ArrowKeyCode {
+        static let left: UInt16 = 123
+        static let right: UInt16 = 124
+        static let down: UInt16 = 125
+        static let up: UInt16 = 126
+    }
+
     /// Matched by hardware key code rather than by character: on a US layout
     /// ⌘+ arrives as Shift+Equal, so a character match would need two entries
     /// for one command, and non-Latin input sources report neither character.
@@ -298,6 +310,37 @@ struct TerminalCommandRegistry {
             shortcut: TerminalCommandShortcut(keyEquivalent: "f", modifiers: .command),
             action: .findTerminalOutput,
             searchTokens: ["find text", "search output", "search scrollback", "terminal search"]
+        ),
+        // ⌘⇧↑ / ⌘⇧↓, matching iTerm2's Previous/Next Mark, which is the same
+        // gesture over the same OSC 133 data. Ghostty and kitty bind their
+        // `jump_to_prompt` / `scroll_to_prompt` to the bare ⌘-arrow and to
+        // ⌃⇧Z/X respectively; the bare ⌘-arrow is already pane focus here, and
+        // a letter pair would not read as movement. Shift is a required
+        // modifier rather than a tolerated extra, which is exactly what keeps
+        // this from shadowing `focusPaneUp` on the same key code.
+        TerminalCommand(
+            id: .jumpToPreviousPrompt,
+            title: AppLocalization.string(.jumpToPreviousPrompt, language: language),
+            category: .navigation,
+            shortcut: TerminalCommandShortcut(
+                keyCode: ArrowKeyCode.up,
+                modifiers: [.command, .shift],
+                allowedExtraModifiers: arrowShortcutExtras
+            ),
+            action: .jumpToPrompt(.previous),
+            searchTokens: ["previous prompt", "previous command", "jump to prompt", "previous mark", "scroll to prompt"]
+        ),
+        TerminalCommand(
+            id: .jumpToNextPrompt,
+            title: AppLocalization.string(.jumpToNextPrompt, language: language),
+            category: .navigation,
+            shortcut: TerminalCommandShortcut(
+                keyCode: ArrowKeyCode.down,
+                modifiers: [.command, .shift],
+                allowedExtraModifiers: arrowShortcutExtras
+            ),
+            action: .jumpToPrompt(.next),
+            searchTokens: ["next prompt", "next command", "jump to prompt", "next mark", "scroll to prompt"]
         ),
         TerminalCommand(
             id: .toggleCommandHistoryPanel,
@@ -351,7 +394,7 @@ struct TerminalCommandRegistry {
             id: .focusPaneLeft,
             title: AppLocalization.string(.focusPaneLeft, language: language),
             category: .navigation,
-            shortcut: TerminalCommandShortcut(keyCode: 123, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
+            shortcut: TerminalCommandShortcut(keyCode: ArrowKeyCode.left, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.left),
             searchTokens: ["move left", "pane left", "go left", "previous pane"]
         ),
@@ -359,7 +402,7 @@ struct TerminalCommandRegistry {
             id: .focusPaneRight,
             title: AppLocalization.string(.focusPaneRight, language: language),
             category: .navigation,
-            shortcut: TerminalCommandShortcut(keyCode: 124, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
+            shortcut: TerminalCommandShortcut(keyCode: ArrowKeyCode.right, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.right),
             searchTokens: ["move right", "pane right", "go right", "next pane"]
         ),
@@ -367,7 +410,7 @@ struct TerminalCommandRegistry {
             id: .focusPaneDown,
             title: AppLocalization.string(.focusPaneDown, language: language),
             category: .navigation,
-            shortcut: TerminalCommandShortcut(keyCode: 125, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
+            shortcut: TerminalCommandShortcut(keyCode: ArrowKeyCode.down, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.down),
             searchTokens: ["move down", "pane down", "go down"]
         ),
@@ -375,7 +418,7 @@ struct TerminalCommandRegistry {
             id: .focusPaneUp,
             title: AppLocalization.string(.focusPaneUp, language: language),
             category: .navigation,
-            shortcut: TerminalCommandShortcut(keyCode: 126, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
+            shortcut: TerminalCommandShortcut(keyCode: ArrowKeyCode.up, modifiers: .command, allowedExtraModifiers: arrowShortcutExtras),
             action: .focusPane(.up),
             searchTokens: ["move up", "pane up", "go up"]
         ),

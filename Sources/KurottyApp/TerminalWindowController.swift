@@ -250,6 +250,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         currentSplitView()?.showSearchInActivePane()
     }
 
+    /// Scrolls the active pane to the previous or next shell prompt. Silent in
+    /// a pane with no OSC 133 boundaries: there is nothing to jump to, and a
+    /// beep for a shell that simply has no integration installed would blame
+    /// the user for it.
+    func jumpToPrompt(_ direction: TerminalPromptRailNavigation.Direction) {
+        currentSplitView()?.jumpToPromptInActivePane(direction)
+    }
+
     func layoutOnlyWorkspaceDescriptor() -> WorkspaceSnapshotCoordinator.WorkspaceDescriptor {
         workspaceDescriptor(capturingScrollback: false)
     }
