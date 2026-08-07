@@ -8,6 +8,14 @@ import XCTest
 /// any supported panel width.
 @MainActor
 final class TerminalLeftSidebarLayoutTests: XCTestCase {
+    /// The UI text scale is process-wide and the tokens read it on every build,
+    /// so a test that moves it has to restore it or it leaks into every test
+    /// that runs afterwards.
+    override func tearDown() {
+        DesignTokens.UIScale.setPercent(DesignTokens.UIScale.defaultPercent)
+        super.tearDown()
+    }
+
     private enum PanelWidth {
         /// Mirrors `DesignTokens.Component.leftSidebarPanel*WidthPX`.
         static let minimumPX: CGFloat = 200
@@ -102,13 +110,29 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         )
     }
 
+    /// `.fillEqually` hands out whole points, so a strip whose usable width does
+    /// not divide by the item count leaves a remainder of one point on a single
+    /// item. That is AppKit dividing correctly, not the layout breaking, and it
+    /// only surfaces at some combinations of panel width and UI text scale --
+    /// 175% at 200pt gives 93 and 92. Asserting exact equality made this an
+    /// intermittent failure that depended on whether an earlier test had left
+    /// the scale somewhere other than 100%. The bound is what the assertion
+    /// always meant: no item may be visibly wider than another.
     func testSectionStripItemsSplitTheStripEvenlyAtEveryWidth() {
-        for width in PanelWidth.allPX {
-            let sidebar = makeLaidOutSidebar(width: width)
-            let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
-            XCTAssertEqual(items.count, TerminalLeftSidebarSection.allCases.count)
-            let widths = Set(items.map { $0.frame.width })
-            XCTAssertEqual(widths.count, 1, "section items must be equal width at \(width)")
+        for scale in [DesignTokens.UIScale.defaultPercent, DesignTokens.UIScale.maximumPercent] {
+            DesignTokens.UIScale.setPercent(scale)
+            for width in PanelWidth.allPX {
+                let sidebar = makeLaidOutSidebar(width: width)
+                let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
+                XCTAssertEqual(items.count, TerminalLeftSidebarSection.allCases.count)
+                let widths = items.map(\.frame.width)
+                let spread = (widths.max() ?? 0) - (widths.min() ?? 0)
+                XCTAssertLessThanOrEqual(
+                    spread,
+                    1,
+                    "section items differed by \(spread)pt at \(width)pt, scale \(scale): \(widths)"
+                )
+            }
         }
     }
 
