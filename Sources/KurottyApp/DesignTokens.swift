@@ -51,6 +51,23 @@ enum DesignTokens {
 
         let windowAppearance: NSAppearance?
 
+        /// Top-to-bottom stops for the ground the pane cards float on, or `nil`
+        /// when the ground is a flat fill.
+        ///
+        /// A terminal background is one color — the grid is filled from
+        /// `TerminalColorSettings.background` and Metal paints every cell with
+        /// it — so a "gradient theme" cannot mean a graded grid without pane
+        /// transparency, which Kurotty does not have. What it can mean is this:
+        /// the ground *around* the cards is graded, the cards themselves are
+        /// the user's flat theme background, and the two never mix.
+        ///
+        /// Only the window's ground host draws it. The split views and the pane
+        /// cards go transparent instead of restating it, so the grade runs
+        /// once across the whole content area rather than restarting inside
+        /// every gutter — which is what a per-view gradient would do, and which
+        /// reads as banding rather than as one surface.
+        let groundGradient: (top: NSColor, bottom: NSColor)?
+
         // MARK: Scrollback indicator
         //
         // The indicator floats over the terminal canvas rather than over chrome,
@@ -118,8 +135,19 @@ enum DesignTokens {
         // elevation direction that is only right half the time.
         var terminalPaneGround: NSColor { surfaceChrome }
 
+        /// Chrome follows the terminal theme by name first and by luminance
+        /// second.
+        ///
+        /// Luminance alone cannot express Nacre: its background is light, so
+        /// the fallback would hand it the neutral light ramp and the tint —
+        /// the half of the theme that lives outside the grid — would never
+        /// appear. A named preset owns its chrome; anything else, custom
+        /// palettes included, still gets the light/dark decision it always got.
         static func theme(for settings: AppSettings) -> ChromeTheme {
-            settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
+            if TerminalThemePreset.canonicalName(settings.terminal.theme) == TerminalThemePreset.nacreName {
+                return .nacre
+            }
+            return settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
         }
 
         static let dark = ChromeTheme(
@@ -142,7 +170,8 @@ enum DesignTokens {
             hoverFill: Color.Dark.hoverFill,
             pressFill: Color.Dark.pressFill,
             focusRing: Color.Dark.focusRing,
-            windowAppearance: NSAppearance(named: .darkAqua)
+            windowAppearance: NSAppearance(named: .darkAqua),
+            groundGradient: nil
         )
 
         static let light = ChromeTheme(
@@ -165,7 +194,35 @@ enum DesignTokens {
             hoverFill: Color.Light.hoverFill,
             pressFill: Color.Light.pressFill,
             focusRing: Color.Light.focusRing,
-            windowAppearance: NSAppearance(named: .aqua)
+            windowAppearance: NSAppearance(named: .aqua),
+            groundGradient: nil
+        )
+
+        static let nacre = ChromeTheme(
+            surfaceCanvas: Color.Nacre.surfaceCanvas,
+            surfaceChrome: Color.Nacre.surfaceChrome,
+            surfaceSidebar: Color.Nacre.surfaceSidebar,
+            surfaceRaised: Color.Nacre.surfaceRaised,
+            hairline: Color.Nacre.hairline,
+            borderStrong: Color.Nacre.borderStrong,
+            textPrimary: Color.Nacre.textPrimary,
+            textSecondary: Color.Nacre.textSecondary,
+            textTertiary: Color.Nacre.textTertiary,
+            accent: Color.Nacre.accent,
+            success: Color.Nacre.success,
+            warning: Color.Nacre.warning,
+            error: Color.Nacre.error,
+            usageRampLow: Color.Nacre.usageRampLow,
+            usageRampHigh: Color.Nacre.usageRampHigh,
+            selectionFill: Color.Nacre.selectionFill,
+            hoverFill: Color.Nacre.hoverFill,
+            pressFill: Color.Nacre.pressFill,
+            focusRing: Color.Nacre.focusRing,
+            windowAppearance: NSAppearance(named: .aqua),
+            groundGradient: (
+                top: Color.Nacre.groundGradientTop,
+                bottom: Color.Nacre.groundGradientBottom
+            )
         )
     }
 
@@ -275,6 +332,74 @@ enum DesignTokens {
             static let hoverFill = NSColor.designTokenSRGB(0x00_00_00, alpha: hoverFillAlphaRATIO)
             static let pressFill = NSColor.designTokenSRGB(0x00_00_00, alpha: pressFillAlphaRATIO)
             static let focusRing = accent.withAlphaComponent(focusRingAlphaRATIO)
+        }
+
+        /// Nacre ramp. The one chrome ramp that is *tinted* rather than
+        /// near-neutral.
+        ///
+        /// The dark and light ramps separate their surfaces by lightness alone,
+        /// which is why every boundary in them is grey on grey and each step
+        /// has to be paid for out of a contrast budget. This ramp separates by
+        /// hue instead: a blue-lavender ground with neutral-to-white surfaces
+        /// on it. `surfaceRaised` is pure white and the ground is two steps
+        /// down *and* visibly blue, so a selected tab or a selected row reads as
+        /// a white card on colored ground with no hairline doing the work.
+        ///
+        /// The tint stops at the chrome. It never reaches the cell grid — that
+        /// belongs entirely to `TerminalColorSettings.nacre`, unmodified — for
+        /// the same reason the pane ground is not allowed to bleed into the
+        /// pane: a wash under text is a wash the user did not choose for their
+        /// text.
+        enum Nacre {
+            static let surfaceCanvas = NSColor.designTokenSRGB(0xEF_F2_FC)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xE4_E9_F7)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF4_F5_FC)
+            static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
+            static let hairline = NSColor.designTokenSRGB(0xD3_D9_EE)
+            static let borderStrong = NSColor.designTokenSRGB(0xB6_BE_DB)
+            /// Deeper than the terminal's own ink. Chrome text has to clear
+            /// 11.7:1 on `surfaceChrome`, which is a full two steps darker than
+            /// the light ramp's chrome surface, so this rank cannot simply
+            /// mirror `TerminalColorSettings.nacre.foreground`.
+            static let textPrimary = NSColor.designTokenSRGB(0x21_1F_31)
+            static let textSecondary = NSColor.designTokenSRGB(0x4C_4B_63)
+            /// The rank with no headroom, as in every ramp — but here the floor
+            /// is set by the *bottom* of the ground gradient rather than by a
+            /// flat surface, which is a darker ground than any token names.
+            static let textTertiary = NSColor.designTokenSRGB(0x5B_5A_73)
+            static let accent = NSColor.designTokenSRGB(0x2F_55_C8)
+            static let success = NSColor.designTokenSRGB(0x1E_6B_3D)
+            /// Light-style sequential ramp: a heavier day darkens rather than
+            /// brightens, because the ground it is drawn on is light.
+            static let usageRampLow = NSColor.designTokenSRGB(0x6C_6A_80)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xA0_30_1F)
+            static let warning = NSColor.designTokenSRGB(0x87_54_0A)
+            static let error = NSColor.designTokenSRGB(0xB3_2B_22)
+
+            static let selectionFillAlphaRATIO: CGFloat = 0.14
+            static let hoverFillAlphaRATIO: CGFloat = 0.05
+            static let pressFillAlphaRATIO: CGFloat = 0.09
+
+            static let selectionFill = accent.withAlphaComponent(selectionFillAlphaRATIO)
+            static let hoverFill = NSColor.designTokenSRGB(0x00_00_00, alpha: hoverFillAlphaRATIO)
+            static let pressFill = NSColor.designTokenSRGB(0x00_00_00, alpha: pressFillAlphaRATIO)
+            static let focusRing = accent.withAlphaComponent(focusRingAlphaRATIO)
+
+            /// Top and bottom stops of the ground gradient.
+            ///
+            /// The top stop *is* `surfaceChrome`, and that is the whole reason
+            /// the gradient can exist without breaking the plane. The tab bar
+            /// is flat `surfaceChrome` and the pane ground starts at the same
+            /// value directly beneath it, so the two still read as one
+            /// continuous surface — the property the pane-card work was built
+            /// on — and the grade only becomes visible further down, away from
+            /// the seam.
+            /// The depth of the grade is set by how far the bottom stop can go
+            /// before `textTertiary` stops clearing AA on it — 4.60:1 here,
+            /// which is the binding constraint and the reason the ramp's
+            /// quietest rank is darker than the light ramp's.
+            static let groundGradientTop = surfaceChrome
+            static let groundGradientBottom = NSColor.designTokenSRGB(0xCB_D7_F0)
         }
 
         // MARK: Theme-neutral chrome
@@ -662,7 +787,7 @@ enum DesignTokens {
     /// preferences pane switching must all be instant. `ChromeMotion` and
     /// `SidebarMotion` are the behaviour helpers that read these tokens.
     enum Motion {
-        /// Sidebar section switch. Long enough to read the underline
+        /// Sidebar section switch. Long enough to read the selection pill
         /// travelling, short enough that a fast click never queues.
         static let sectionSwitchDurationMS = 160
         /// Each half of the sidebar list crossfade.
@@ -1364,13 +1489,12 @@ enum DesignTokens {
         static let leftSidebarSectionStripTopInsetPX = Space.x3PX
         static let leftSidebarSectionStripInsetXPX = Space.x4PX
         static let leftSidebarSectionStripBottomGapPX = Space.x3PX
-        static let leftSidebarSectionUnderlineHeightPX: CGFloat = 2
-        /// Underline is inset from the item's own width so two adjacent
-        /// selections could never read as one continuous rule.
-        static let leftSidebarSectionUnderlineInsetXPX = Space.x1PX
-        static let leftSidebarSectionHoverInsetPX: CGFloat = 2
-        static let leftSidebarSectionFocusRingWidthPX: CGFloat = 2
-        static let leftSidebarSectionFocusRingOutsetPX: CGFloat = 1
+        // The strip's selection geometry — pill inset, radius, rail thickness,
+        // focus ring — is deliberately not tokenised here. It is the sidebar
+        // row's geometry (`sidebarRowHighlight*`, `sidebarRowSelection*`),
+        // because the strip now uses the row's selection device rather than an
+        // underline of its own. A second set of numbers for the same object is
+        // how the two drifted apart in the first place.
         static let imagePreviewInsetPX = Space.x6PX
         /// 40, down from 44: four digits fit at 11pt with `x3` of trailing air.
         /// The gutter draws in `Typography.monoGutter`, which is a chrome rung,

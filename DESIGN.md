@@ -391,7 +391,8 @@ Design rules:
 - Domain constants describe protocol, ABI, shell, PTY, file paths, queue labels, and timing.
 - Design tokens describe UI color, typography, spacing, radius, opacity, window size, terminal cell defaults, and renderer dimensions.
 - Settings JSON stores user preferences such as font, theme, scrollback limit, cursor style, shell path, and renderer options.
-- Theme presets are named settings contracts. `kuro-dark` preserves the existing dark palette, `lightty` provides a bright colorful palette, and `custom` leaves user-provided color values intact.
+- Theme presets are named settings contracts. `kuro-dark` preserves the existing dark palette, `lightty` provides a bright colorful palette, `nacre` provides a pale low-chroma palette on a tinted chrome ground, and `custom` leaves user-provided color values intact.
+- A preset may own its chrome ramp as well as its palette; `ChromeTheme.theme(for:)` resolves by preset name first and falls back to background luminance. Chrome color never reaches the cell grid: the grid is the user's palette, unmodified, and a tinted or graded ground stops at the pane card's edge.
 - Defaults live in typed settings/design-token code, not in views or controllers.
 - Settings changes that affect rendering or PTY behavior need validation, migration, and tests.
 - Each settings key should declare whether it is live-applied, next-session, or launch-only.

@@ -26,7 +26,7 @@ final class SplitTerminalView: NSSplitView {
         dividerStyle = .paneSplitter
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill(chromeTheme).cgColor
         if let pane {
             configurePane(pane)
             addArrangedSubview(pane)
@@ -66,7 +66,7 @@ final class SplitTerminalView: NSSplitView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.terminalPaneGround.cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill(theme).cgColor
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView {
                 pane.applyChromeTheme(theme)
@@ -86,7 +86,12 @@ final class SplitTerminalView: NSSplitView {
     /// says they are separate surfaces; a rule inside that gap says it twice,
     /// and in a four-way split the second telling is a cross through the middle
     /// of the window.
+    ///
+    /// Under a graded ground the divider draws nothing at all: the one grade is
+    /// on the window's ground host, and filling the band here with a flat color
+    /// would stamp a solid bar across it.
     override func drawDivider(in rect: NSRect) {
+        guard chromeTheme.groundGradient == nil else { return }
         chromeTheme.terminalPaneGround.setFill()
         rect.fill()
     }

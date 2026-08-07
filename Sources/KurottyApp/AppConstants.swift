@@ -206,7 +206,18 @@ enum AppConstants {
         static let persistenceQueueLabel = "dev.kurotty.command-history.persistence"
         // Versioned: the autosaved widths win over the default tokens, so a
         // changed default only reaches existing installs under a fresh name.
-        static let splitViewAutosaveName = "dev.kurotty.command-history.split.v3"
+        //
+        // v4 is the side swap. AppKit autosaves divider positions *by index*,
+        // with no record of which panel was on which side, so v3's frames would
+        // have been replayed onto the reversed arrangement: a stored 460pt
+        // history column is divider 0 at 460, and divider 0 is now the explorer.
+        // Every user who had ever dragged the history panel would have opened
+        // the app to an explorer at someone else's width. There is nothing to
+        // migrate — the two columns do not share limits and a width chosen for
+        // a command list is not a width chosen for a file tree — so the version
+        // bump drops the old frames and both panels open at their own defaults
+        // once. Widths dragged after the swap persist normally.
+        static let splitViewAutosaveName = "dev.kurotty.command-history.split.v4"
     }
 
     /// Read-only index of AI coding-agent transcripts the agents themselves

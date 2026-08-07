@@ -948,6 +948,7 @@ enum PreferencesThemePopup {
     static let entries: [Entry] = [
         Entry(presetName: TerminalThemePreset.kurottyName, copyKey: .themeKurotty),
         Entry(presetName: TerminalThemePreset.lighttyName, copyKey: .themeLightty),
+        Entry(presetName: TerminalThemePreset.nacreName, copyKey: .themeNacre),
         Entry(presetName: TerminalThemePreset.customName, copyKey: .themeCustom),
     ]
 

@@ -62,7 +62,21 @@ enum FileExplorerAgentTouchCopy {
 // MARK: - Icons
 
 enum FileExplorerIcon {
-    static let folderSymbolName = "folder"
+    /// Filled, and the only tinted glyph in the leading column.
+    ///
+    /// Directories carry the tree's structure, so the one thing the leading
+    /// column has to answer instantly is "is this a folder or a file". The
+    /// outline `folder` answered it with a notch in a rounded rectangle and the
+    /// outline `doc` answered with a fold in the same rectangle, which at 13pt
+    /// is the same shape twice. Fill plus tint makes the answer two independent
+    /// channels — ink coverage and hue — so it still reads for a user who
+    /// cannot separate the hues, and it still reads at a glance for one who can.
+    ///
+    /// Deliberately *not* carrying git state as well. The row already has a
+    /// reserved git column and a reserved agent column, and encoding the same
+    /// fact a second time in a different visual language is exactly what the
+    /// agent ring was shaped to avoid.
+    static let folderSymbolName = IconSymbol.folderFilled
     static let refreshSymbolName = IconSymbol.refresh
     /// Empty-state glyph for a working directory that lives on another machine.
     static let remoteSymbolName = "network"
@@ -292,8 +306,11 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         guard !isDimmed else {
             return dimmedColor
         }
-        // Folders take a quiet accent so the tree's structure is readable at a
-        // glance; files stay at the lowest text rank.
+        // Folders take the accent so the tree's structure is readable at a
+        // glance; files stay at the lowest text rank. The tint is a meaningful
+        // graphic rather than decoration — it is half of what says "directory" —
+        // so it answers to WCAG 1.4.11 at 3:1 against every surface it can land
+        // on, which `DesignTokenColorRampTests` measures rather than assumes.
         return isDirectory
             ? chromeTheme.accent.withAlphaComponent(
                 DesignTokens.Component.fileExplorerFolderIconAlphaRATIO

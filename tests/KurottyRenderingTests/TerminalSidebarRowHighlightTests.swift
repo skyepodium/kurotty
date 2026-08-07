@@ -205,6 +205,56 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         )
     }
 
+    /// The rail runs along whichever edge is named, at the same thickness and
+    /// pinned to the same highlight inset. A list row marks its leading edge
+    /// because its title runs rightwards from there; the section strip marks
+    /// its bottom edge because that is the side the list it introduces is on.
+    func testTheRailRunsAlongWhicheverEdgeIsNamedAtTheSameThickness() {
+        let stripBounds = NSRect(x: 0, y: 0, width: 160, height: 30)
+        let highlight = TerminalSidebarRowHighlight.Geometry.highlightRect(in: stripBounds)
+        let thickness = TerminalSidebarRowHighlight.Geometry.railWidthPX
+
+        let leading = TerminalSidebarRowHighlight.Geometry.railRect(in: stripBounds, edge: .leading)
+        XCTAssertEqual(leading.minX, highlight.minX)
+        XCTAssertEqual(leading.minY, highlight.minY)
+        XCTAssertEqual(leading.width, thickness)
+        XCTAssertEqual(leading.height, highlight.height)
+
+        let bottom = TerminalSidebarRowHighlight.Geometry.railRect(in: stripBounds, edge: .bottom)
+        XCTAssertEqual(bottom.minX, highlight.minX)
+        // Unflipped coordinates: the bottom edge is the low-y one.
+        XCTAssertEqual(bottom.minY, highlight.minY)
+        XCTAssertEqual(bottom.width, highlight.width)
+        XCTAssertEqual(bottom.height, thickness)
+
+        XCTAssertTrue(highlight.contains(leading), "the rail must stay inside the pill")
+        XCTAssertTrue(highlight.contains(bottom), "the rail must stay inside the pill")
+    }
+
+    /// One selection language, three places.
+    ///
+    /// The window used to mark selection three different ways: the terminal tab
+    /// bar raised a `surfaceRaised` tab under an accent rail, the sidebar lists
+    /// raised a `surfaceRaised` pill under an accent rail, and the sidebar's
+    /// section strip drew a bare accent underline and nothing else — the
+    /// weakest of the three, carrying the sidebar's own navigation. This pins
+    /// the surface and the accent that all three now agree on, so a change to
+    /// one that does not reach the others fails here.
+    func testEverySelectedSurfaceInTheWindowIsTheSameRaisedSurfaceAndAccent() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+            let row = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: true),
+                theme: theme
+            )
+            XCTAssertEqual(row.fill, theme.surfaceRaised)
+            XCTAssertEqual(row.rail, theme.accent)
+            // The terminal tab bar's selected tab, which raises the same
+            // surface out of the chrome bar and rails it in the same accent.
+            XCTAssertEqual(theme.activeTabBackground, theme.surfaceRaised)
+            XCTAssertEqual(theme.activeIndicator, theme.accent)
+        }
+    }
+
     func testPaintIsANoOpForAnEmptyRow() {
         TerminalSidebarRowHighlight.paint(appearance(selected: true), in: .zero)
     }

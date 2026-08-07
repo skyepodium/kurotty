@@ -123,14 +123,14 @@ final class DesignTokenColorRampTests: XCTestCase {
     }
 
     private func themes() -> [(String, DesignTokens.ChromeTheme)] {
-        [("dark", .dark), ("light", .light)]
+        [("dark", .dark), ("light", .light), ("nacre", .nacre)]
     }
 
     // MARK: - Tests
 
     /// DESIGN.md promises "WCAG AA-equivalent contrast". This is that promise,
     /// enumerated: every text rank the ramp defines, on every surface the ramp
-    /// defines, in both themes.
+    /// defines, in every theme.
     ///
     /// The four surfaces are the complete set of backgrounds a chrome label can
     /// land on — `surfaceCanvas` (window body), `surfaceChrome` (top bar,
@@ -149,7 +149,7 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// pill to that surface.
     ///
     /// Still out of scope: hover and press, which remain translucent washes.
-    func testEveryTextRankClearsWCAGAAOnEverySurfaceInBothThemes() throws {
+    func testEveryTextRankClearsWCAGAAOnEverySurfaceInEveryTheme() throws {
         var checkedPairCount = 0
         for (themeName, theme) in themes() {
             for (text, _) in textRanks(of: theme) {
@@ -166,7 +166,7 @@ final class DesignTokenColorRampTests: XCTestCase {
         }
         // Guards the enumeration itself: a rank or a surface quietly dropped
         // from the fixtures would otherwise make this test pass by testing less.
-        XCTAssertEqual(checkedPairCount, 24)
+        XCTAssertEqual(checkedPairCount, 36)
     }
 
     /// The elevated selected row is a new *object*, not a new surface.
@@ -209,8 +209,8 @@ final class DesignTokenColorRampTests: XCTestCase {
                 }
             }
         }
-        // Two themes x two selection states x three text ranks.
-        XCTAssertEqual(checkedPairCount, 12)
+        // Three themes x two selection states x three text ranks.
+        XCTAssertEqual(checkedPairCount, 18)
     }
 
     /// The pill's hairline and its accent rail are meaningful graphics, so they
@@ -242,6 +242,59 @@ final class DesignTokenColorRampTests: XCTestCase {
         }
     }
 
+    /// The explorer's directory glyph is a meaningful graphic, not decoration.
+    ///
+    /// Fill and tint are the two channels that say "this row is a directory";
+    /// nothing else in the row says it, and the filename beside it certainly
+    /// does not. That puts the tint under WCAG 1.4.11 at 3:1 rather than under
+    /// the redundant-graphic exemption the empty-state art gets. It is drawn at
+    /// `fileExplorerFolderIconAlphaRATIO`, so what has to clear the floor is the
+    /// *composite* over each surface the row can sit on — including
+    /// `surfaceRaised`, which is the selected row's pill.
+    func testExplorerDirectoryIconTintClearsNonTextContrastOnEverySurface() throws {
+        let tintAlpha = DesignTokens.Component.fileExplorerFolderIconAlphaRATIO
+        for (themeName, theme) in themes() {
+            let tint = theme.accent.withAlphaComponent(tintAlpha)
+            for surface in surfaces(of: theme) {
+                let ratio = try contrastRatio(
+                    try composited(tint, over: surface.color),
+                    surface.color
+                )
+                XCTAssertGreaterThanOrEqual(
+                    ratio,
+                    WCAG.nonTextRATIO,
+                    "\(themeName) directory icon on \(surface.name) measured \(ratio):1"
+                )
+            }
+        }
+    }
+
+    /// A directory and a file have to be told apart by the glyph column, so the
+    /// two tints cannot be the same ink at two strengths. The shapes differ as
+    /// well — filled against outline — which is what carries the distinction
+    /// for a user who cannot separate the hues; this measures the other channel.
+    func testExplorerDirectoryAndFileIconTintsAreDistinguishable() throws {
+        let tintAlpha = DesignTokens.Component.fileExplorerFolderIconAlphaRATIO
+        let separationRATIO = 1.3
+        for (themeName, theme) in themes() {
+            let directory = try composited(
+                theme.accent.withAlphaComponent(tintAlpha),
+                over: theme.surfaceChrome
+            )
+            let file = theme.textTertiary
+            let ratio = try contrastRatio(directory, file)
+            XCTAssertGreaterThanOrEqual(
+                ratio,
+                separationRATIO,
+                "\(themeName) directory and file glyph tints measured \(ratio):1 apart"
+            )
+        }
+        // Filled against outline: the silhouette difference, stated once so a
+        // future edit that quietly re-outlines the folder fails here.
+        XCTAssertNotEqual(FileExplorerIcon.folderSymbolName, IconSymbol.folder)
+        XCTAssertEqual(FileExplorerIcon.folderSymbolName, IconSymbol.folderFilled)
+    }
+
     /// An empty sidebar section is the one moment its copy is the only text on
     /// screen, so it cannot be the least readable text in the app.
     ///
@@ -268,7 +321,7 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// The scrollback indicator is a control, so it answers to the non-text
     /// floor. It used to be one fixed gray for both themes, which measured
     /// about 1.4:1 on the light canvas.
-    func testScrollbackIndicatorThumbClearsNonTextContrastInBothThemes() throws {
+    func testScrollbackIndicatorThumbClearsNonTextContrastInEveryTheme() throws {
         for (themeName, theme) in themes() {
             let states = [
                 NamedColor(name: "scrollerThumb", color: theme.scrollerThumb),
@@ -297,7 +350,7 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// The three ranks have to stay distinguishable from each other, not just
     /// from the surface behind them. Raising a rank to clear AA is only a fix if
     /// it does not swallow its neighbour.
-    func testTextRanksStayDistinctFromEachOtherInBothThemes() throws {
+    func testTextRanksStayDistinctFromEachOtherInEveryTheme() throws {
         let rankSeparationRATIO = 1.15
         for (themeName, theme) in themes() {
             let primaryToSecondary = try contrastRatio(theme.textPrimary, theme.textSecondary)
@@ -323,12 +376,58 @@ final class DesignTokenColorRampTests: XCTestCase {
         try assertTextRanksMeetFloors(in: .light, themeName: "light")
     }
 
+    func testNacreThemeTextRanksMeetContrastFloorsOnEverySurface() throws {
+        try assertTextRanksMeetFloors(in: .nacre, themeName: "nacre")
+    }
+
+    /// A graded ground is a surface the token list does not name.
+    ///
+    /// `surfaceChrome` is the gradient's top stop, so the four fixtures above
+    /// measure the lightest end of the ground and nothing measures the darkest
+    /// end — which is the end nearest the bottom of the window. Both stops are
+    /// held to AA here, which is what stops the grade being deepened into a
+    /// ground that fails contrast somewhere down its length.
+    ///
+    /// AA rather than the rank floors, deliberately: the floors above exist to
+    /// keep three ranks from collapsing into each other on the *named*
+    /// surfaces, and the bottom of a grade is not a surface a rank is chosen
+    /// against. Readability is not negotiable there; rank separation is already
+    /// settled elsewhere.
+    func testGroundGradientStopsAreHeldToTheSameFloorsAsFlatSurfaces() throws {
+        var checkedThemeCount = 0
+        for (themeName, theme) in themes() {
+            guard let stops = theme.groundGradient else { continue }
+            checkedThemeCount += 1
+            XCTAssertEqual(
+                stops.top,
+                theme.surfaceChrome,
+                "\(themeName) must start its grade at the chrome plane, or the tab bar shows a seam"
+            )
+            XCTAssertLessThan(
+                try relativeLuminance(of: stops.bottom),
+                try relativeLuminance(of: stops.top),
+                "\(themeName) grade must deepen downward"
+            )
+            for (text, floor) in textRanks(of: theme) {
+                for (stopName, stop) in [("gradientTop", stops.top), ("gradientBottom", stops.bottom)] {
+                    let ratio = try contrastRatio(text.color, stop)
+                    XCTAssertGreaterThanOrEqual(
+                        ratio,
+                        min(floor, WCAG.normalTextAARATIO),
+                        "\(themeName) \(text.name) on \(stopName) measured \(ratio):1"
+                    )
+                }
+            }
+        }
+        XCTAssertEqual(checkedThemeCount, 1, "nacre is the only graded ground so far")
+    }
+
     /// The light theme previously reused the dark status hues, which is why
     /// `success` was unreadable on white. Each status role must be legible
     /// against its own theme's canvas.
     func testStatusColorsAreThemeOwnedAndLegibleOnTheirCanvas() throws {
         let statusFloorRATIO = 3.0
-        for (themeName, theme) in [("dark", DesignTokens.ChromeTheme.dark), ("light", .light)] {
+        for (themeName, theme) in [("dark", DesignTokens.ChromeTheme.dark), ("light", .light), ("nacre", .nacre)] {
             let statuses = [
                 NamedColor(name: "accent", color: theme.accent),
                 NamedColor(name: "success", color: theme.success),
@@ -365,7 +464,7 @@ final class DesignTokenColorRampTests: XCTestCase {
 
     /// Hover must stay achromatic so it can never be mistaken for selection.
     func testHoverAndPressFillsAreAchromaticAndSelectionFillIsAccentDerived() throws {
-        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
             for fill in [theme.hoverFill, theme.pressFill] {
                 let resolved = try XCTUnwrap(fill.usingColorSpace(.sRGB))
                 XCTAssertEqual(resolved.redComponent, resolved.greenComponent)
@@ -382,7 +481,7 @@ final class DesignTokenColorRampTests: XCTestCase {
 
     /// Purple is a syntax color only; no chrome role may reference it.
     func testChromeRolesDoNotUsePurple() {
-        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
             XCTAssertEqual(
                 theme.inactiveStatusDot,
                 theme.textTertiary.withAlphaComponent(DesignTokens.Color.inactiveStatusDotAlphaRATIO)
