@@ -19,9 +19,9 @@ import Foundation
 enum TerminalScrollbackSnapshotFormat {
     /// Directory under `Application Support/Kurotty` that holds snapshot files.
     static let directoryName = AppConstants.TerminalScrollbackSnapshots.directoryName
-    /// Format tag. A future incompatible payload takes `v2` and leaves `v1`
-    /// files to be pruned as unreferenced.
-    static let refPrefix = "v1"
+    /// V2 drops styled trailing blanks so prompt backgrounds cannot expand
+    /// into large color blocks when scrollback is replayed on launch.
+    static let refPrefix = "v2"
     static let fileExtension = "bin"
     /// Hex characters retained from the SHA-256 digest.
     static let refHashCharacterCount = 32
@@ -52,7 +52,7 @@ enum TerminalScrollbackSnapshotFormat {
         return "\(refPrefix)-\(hex.prefix(refHashCharacterCount))"
     }
 
-    /// True only for a well-formed `v1-<32 hex>` reference. Every filesystem
+    /// True only for a well-formed `v2-<32 hex>` reference. Every filesystem
     /// path is derived through this guard so a hostile or corrupted snapshot
     /// value can never escape the snapshot directory.
     static func isValidRef(_ ref: String) -> Bool {

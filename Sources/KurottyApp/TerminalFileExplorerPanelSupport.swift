@@ -216,13 +216,11 @@ final class TerminalFileExplorerRowCellView: NSTableCellView {
         // Dimming is a color, never `alphaValue`: alpha also dims the subpixel
         // antialiasing, so a faded label loses stroke weight as well as
         // contrast and stops looking like the same typeface.
-        let dimmedColor = chromeTheme.textTertiary.withAlphaComponent(
-            DesignTokens.Component.fileExplorerDimmedTextAlphaRATIO
-        )
+        let dimmedColor = chromeTheme.textTertiary
         nameLabel = NSTextField(labelWithString: item.filterDisplayPath ?? item.node.name)
         titleStyler = TerminalSidebarRowTitleStyler(
             role: DesignTokens.Typography.rowTitle,
-            restColor: isDimmed ? dimmedColor : chromeTheme.textSecondary,
+            restColor: isDimmed ? dimmedColor : chromeTheme.textPrimary,
             selectedColor: isDimmed ? dimmedColor : chromeTheme.textPrimary,
             chromeTheme: chromeTheme
         )

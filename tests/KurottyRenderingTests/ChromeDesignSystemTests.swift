@@ -11,7 +11,7 @@ final class ChromeDesignSystemTests: XCTestCase {
     func testIconSizeClassPinsTheFourChromeSizes() {
         XCTAssertEqual(Icon.SizeClass.micro.pointSizePT, 9)
         XCTAssertEqual(Icon.SizeClass.small.pointSizePT, 11)
-        XCTAssertEqual(Icon.SizeClass.regular.pointSizePT, 13)
+        XCTAssertEqual(Icon.SizeClass.regular.pointSizePT, 14)
         XCTAssertEqual(Icon.SizeClass.large.pointSizePT, 20)
 
         XCTAssertEqual(Icon.SizeClass.micro.weight, .semibold)
@@ -24,6 +24,18 @@ final class ChromeDesignSystemTests: XCTestCase {
         XCTAssertNotNil(Icon.symbol(IconSymbol.close, .small, tint: .white))
         XCTAssertNotNil(Icon.symbol(IconSymbol.breadcrumbSeparator, .micro, tint: .white))
         XCTAssertNil(Icon.symbol("kurotty.not.a.real.symbol", .small, tint: .white))
+    }
+
+    func testSelectedTabGeometryReachesTheBottomOfTheChromeBar() {
+        XCTAssertEqual(
+            DesignTokens.Component.terminalTabTopAirPX
+                + DesignTokens.Component.terminalTabHeightPX,
+            DesignTokens.Component.terminalTabBarHeightPX,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(DesignTokens.Component.terminalTabStackInsetTopPX, 0)
+        XCTAssertEqual(DesignTokens.Component.terminalTabStackInsetBottomPX, 0)
+        XCTAssertGreaterThanOrEqual(DesignTokens.Component.terminalTabPlusWidthPX, 32)
     }
 
     // MARK: - Elevation
@@ -39,6 +51,15 @@ final class ChromeDesignSystemTests: XCTestCase {
         XCTAssertEqual(light.opacity, 0.14)
         XCTAssertEqual(light.radiusPX, 12)
         XCTAssertEqual(light.downwardOffsetPX, 3)
+    }
+
+    @MainActor
+    func testTerminalCanvasElevationIsBroadAndThemeOwned() {
+        let dark = DesignTokens.Elevation.terminalCanvas(for: .dark)
+        let light = DesignTokens.Elevation.terminalCanvas(for: .light)
+        XCTAssertEqual(dark.radiusPX, 14)
+        XCTAssertEqual(light.radiusPX, 14)
+        XCTAssertGreaterThan(dark.opacity, light.opacity)
     }
 
     @MainActor

@@ -83,6 +83,50 @@ enum TerminalCursorPresentationPolicy {
     }
 }
 
+/// Resolves text color for rendering without mutating terminal protocol state.
+enum TerminalTextContrastPolicy {
+    private static let minimumContrastRatio: Float = 4.5
+    /// Explicit colors normally belong to the application and must survive
+    /// unchanged. The exception is a catastrophically unreadable pair. This
+    /// also protects restored scrollback: snapshots encode their historical
+    /// colors as RGB, so a theme change can otherwise replay dark-on-dark text
+    /// even though the live terminal palette is readable.
+    private static let emergencyContrastRatio: Float = 2.0
+
+    static func visibleForeground(
+        for style: TerminalTextStyle,
+        defaultStyle: TerminalTextStyle
+    ) -> SIMD4<Float> {
+        let foreground = style.effectiveForeground
+        let background = style.effectiveBackground
+
+        let contrast = TerminalCursorPresentationPolicy.contrastRatio(foreground, background)
+        let effectiveForegroundSource = style.inverse ? style.backgroundSource : style.foregroundSource
+        let effectiveBackgroundSource = style.inverse ? style.foregroundSource : style.backgroundSource
+        let shouldRepairDefaultForeground = effectiveForegroundSource == .defaultColor
+            && effectiveBackgroundSource != .defaultColor
+            && contrast < minimumContrastRatio
+        let shouldRepairCatastrophicExplicitPair = effectiveForegroundSource != .defaultColor
+            && contrast < emergencyContrastRatio
+
+        guard shouldRepairDefaultForeground || shouldRepairCatastrophicExplicitPair else {
+            return foreground
+        }
+
+        let defaultForeground = defaultStyle.effectiveForeground
+        if TerminalCursorPresentationPolicy.contrastRatio(defaultForeground, background) >= minimumContrastRatio {
+            return defaultForeground
+        }
+
+        let black = SIMD4<Float>(0, 0, 0, 1)
+        let white = SIMD4<Float>(1, 1, 1, 1)
+        return TerminalCursorPresentationPolicy.contrastRatio(black, background)
+            >= TerminalCursorPresentationPolicy.contrastRatio(white, background)
+            ? black
+            : white
+    }
+}
+
 enum TerminalEscapeSequence {
     static func beginsTwoByteDesignator(_ scalar: UnicodeScalar) -> Bool {
         switch scalar {

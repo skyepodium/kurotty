@@ -128,14 +128,14 @@ final class DesignTokenScaleTests: XCTestCase {
             ("windowTitle", DesignTokens.Typography.windowTitle, 13, .semibold),
             ("tabLabel", DesignTokens.Typography.tabLabel, 13, .medium),
             ("tabLabelSel", DesignTokens.Typography.tabLabelSel, 13, .semibold),
-            ("sectionHeader", DesignTokens.Typography.sectionHeader, 12, .semibold),
-            ("rowTitle", DesignTokens.Typography.rowTitle, 13, .regular),
-            ("rowTitleSel", DesignTokens.Typography.rowTitleSel, 13, .medium),
-            ("rowSecondary", DesignTokens.Typography.rowSecondary, 12, .regular),
+            ("sectionHeader", DesignTokens.Typography.sectionHeader, 13, .semibold),
+            ("rowTitle", DesignTokens.Typography.rowTitle, 14, .regular),
+            ("rowTitleSel", DesignTokens.Typography.rowTitleSel, 14, .medium),
+            ("rowSecondary", DesignTokens.Typography.rowSecondary, 12.5, .regular),
             ("badge", DesignTokens.Typography.badge, 11, .medium),
             ("statusBar", DesignTokens.Typography.statusBar, 12, .regular),
             ("statusBarNum", DesignTokens.Typography.statusBarNum, 12, .medium),
-            ("monoBody", DesignTokens.Typography.monoBody, 13, .regular),
+            ("monoBody", DesignTokens.Typography.monoBody, 13.5, .regular),
             ("paneHeader", DesignTokens.Typography.paneHeader, 12, .medium),
         ]
         for (name, role, sizePT, weight) in expected {
@@ -151,19 +151,19 @@ final class DesignTokenScaleTests: XCTestCase {
     func testScaleMultipliesEveryRungOfTheRampAndTheFontItBuilds() {
         DesignTokens.UIScale.setPercent(150)
 
-        XCTAssertEqual(DesignTokens.Typography.rowTitle.sizePT, 19.5, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.sizePT, 21, accuracy: 0.001)
         XCTAssertEqual(DesignTokens.Typography.badge.sizePT, 16.5, accuracy: 0.001)
         XCTAssertEqual(DesignTokens.Typography.prefsTitle.sizePT, 30, accuracy: 0.001)
         // The font is what actually reaches the screen, so the multiply has to
         // survive as far as `NSFont`, not only as far as the token.
-        XCTAssertEqual(DesignTokens.Typography.rowTitle.font.pointSize, 19.5, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.font.pointSize, 21, accuracy: 0.001)
         XCTAssertEqual(
             DesignTokens.Typography.statusBarNum.font.pointSize,
             18,
             accuracy: 0.001
         )
         // The spec is untouched: only the reading of it moves.
-        XCTAssertEqual(DesignTokens.Typography.rowTitle.baseSizePT, 13)
+        XCTAssertEqual(DesignTokens.Typography.rowTitle.baseSizePT, 14)
     }
 
     /// Tracking is a point value like the size, so scaled caps must not keep
@@ -171,7 +171,7 @@ final class DesignTokenScaleTests: XCTestCase {
     func testScaleMovesTrackingWithTheTypeItSeparates() {
         DesignTokens.UIScale.setPercent(150)
 
-        XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.825, accuracy: 0.001)
+        XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.525, accuracy: 0.001)
         XCTAssertEqual(DesignTokens.Typography.rowTitle.tracking, 0)
     }
 
@@ -235,7 +235,6 @@ final class DesignTokenScaleTests: XCTestCase {
             ("gitDot", { component.fileExplorerGitDotSizePX }),
             ("rowHighlightRadius", { component.sidebarRowHighlightCornerRadiusPX }),
             ("selectionRail", { component.sidebarRowSelectionRailWidthPX }),
-            ("tabTopRail", { component.terminalTabTopRailHeightPX }),
             ("searchPillFocusRing", { component.sidebarSearchPillFocusRingWidthPX }),
             ("trafficLightClearance", { component.terminalTrafficLightClearancePX }),
             ("prefsButtonHeight", { component.preferencesButtonHeightPX }),
@@ -293,9 +292,9 @@ final class DesignTokenScaleTests: XCTestCase {
         DesignTokens.UIScale.setPercent(150)
 
         XCTAssertEqual(Icon.SizeClass.small.pointSizePT, 16.5, accuracy: 0.001)
-        XCTAssertEqual(Icon.SizeClass.regular.pointSizePT, 19.5, accuracy: 0.001)
+        XCTAssertEqual(Icon.SizeClass.regular.pointSizePT, 21, accuracy: 0.001)
         XCTAssertEqual(Icon.SizeClass.small.basePointSizePT, 11)
-        XCTAssertEqual(Icon.SizeClass.regular.basePointSizePT, 13)
+        XCTAssertEqual(Icon.SizeClass.regular.basePointSizePT, 14)
     }
 
     /// Terminal and editor content have their own sizes and their own zoom, so
@@ -312,7 +311,7 @@ final class DesignTokenScaleTests: XCTestCase {
 
 
     func testOnlySectionHeaderCarriesTracking() {
-        XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.55)
+        XCTAssertEqual(DesignTokens.Typography.sectionHeader.tracking, 0.35)
         for role in [
             DesignTokens.Typography.rowTitle,
             DesignTokens.Typography.rowSecondary,

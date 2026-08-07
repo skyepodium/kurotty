@@ -1297,7 +1297,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                     renderedForeground = TerminalSearchStyle.foregroundColor
                     renderedBackground = TerminalSearchStyle.matchBackgroundColor
                 } else {
-                    renderedForeground = cell.style.effectiveForeground
+                    renderedForeground = TerminalTextContrastPolicy.visibleForeground(
+                        for: cell.style,
+                        defaultStyle: terminalDefaultStyle
+                    )
                     renderedBackground = cell.style.effectiveBackground
                 }
                 if isSelected || searchHighlight != nil || shouldRenderBackground(for: cell) {

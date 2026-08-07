@@ -1,6 +1,15 @@
+public enum TerminalColorSource: Equatable, Sendable {
+    case defaultColor
+    case ansi
+    case indexed
+    case rgb
+}
+
 public struct TerminalTextStyle: Equatable, Sendable {
     public var foreground: SIMD4<Float>
     public var background: SIMD4<Float>
+    public var foregroundSource: TerminalColorSource
+    public var backgroundSource: TerminalColorSource
     public var bold: Bool
     public var dim: Bool
     public var italic: Bool
@@ -17,6 +26,8 @@ public struct TerminalTextStyle: Equatable, Sendable {
     public init(
         foreground: SIMD4<Float>,
         background: SIMD4<Float>,
+        foregroundSource: TerminalColorSource = .defaultColor,
+        backgroundSource: TerminalColorSource = .defaultColor,
         bold: Bool = false,
         dim: Bool = false,
         italic: Bool = false,
@@ -27,6 +38,8 @@ public struct TerminalTextStyle: Equatable, Sendable {
     ) {
         self.foreground = foreground
         self.background = background
+        self.foregroundSource = foregroundSource
+        self.backgroundSource = backgroundSource
         self.bold = bold
         self.dim = dim
         self.italic = italic

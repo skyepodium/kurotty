@@ -918,23 +918,31 @@ final class TerminalOutputInterpreter {
                 currentStyle.inverse = false
             case 30...37:
                 currentStyle.foreground = terminalAnsiColor(code - 30, bright: currentStyle.bold)
+                currentStyle.foregroundSource = .ansi
             case 39:
                 currentStyle.foreground = terminalDefaultStyle.foreground
+                currentStyle.foregroundSource = .defaultColor
             case 40...47:
                 currentStyle.background = terminalAnsiColor(code - 40, bright: false)
+                currentStyle.backgroundSource = .ansi
             case 49:
                 currentStyle.background = terminalDefaultStyle.background
+                currentStyle.backgroundSource = .defaultColor
             case 90...97:
                 currentStyle.foreground = terminalAnsiColor(code - 90, bright: true)
+                currentStyle.foregroundSource = .ansi
             case 100...107:
                 currentStyle.background = terminalAnsiColor(code - 100, bright: true)
+                currentStyle.backgroundSource = .ansi
             case 38, 48:
                 let isForeground = code == 38
-                if let color = colorFromColonSgr(element) {
+                if let resolved = colorFromColonSgr(element) {
                     if isForeground {
-                        currentStyle.foreground = color
+                        currentStyle.foreground = resolved.color
+                        currentStyle.foregroundSource = resolved.source
                     } else {
-                        currentStyle.background = color
+                        currentStyle.background = resolved.color
+                        currentStyle.backgroundSource = resolved.source
                     }
                     break
                 }
@@ -943,16 +951,20 @@ final class TerminalOutputInterpreter {
                     let color = xterm256Color(codes[index + 2].value)
                     if isForeground {
                         currentStyle.foreground = color
+                        currentStyle.foregroundSource = .indexed
                     } else {
                         currentStyle.background = color
+                        currentStyle.backgroundSource = .indexed
                     }
                     index += 2
                 } else if codes[index + 1].value == 2, index + 4 < codes.count {
                     let color = TerminalTextStyle.rgb(red: codes[index + 2].value, green: codes[index + 3].value, blue: codes[index + 4].value)
                     if isForeground {
                         currentStyle.foreground = color
+                        currentStyle.foregroundSource = .rgb
                     } else {
                         currentStyle.background = color
+                        currentStyle.backgroundSource = .rgb
                     }
                     index += 4
                 }
@@ -971,16 +983,25 @@ final class TerminalOutputInterpreter {
         currentStyle.underline = element.values[1] != 0
     }
 
-    private func colorFromColonSgr(_ element: CsiParameterElement) -> SIMD4<Float>? {
+    private func colorFromColonSgr(
+        _ element: CsiParameterElement
+    ) -> (color: SIMD4<Float>, source: TerminalColorSource)? {
         guard element.values.count > 1 else { return nil }
         switch element.values[1] {
         case 5:
             guard element.values.count > 2 else { return nil }
-            return xterm256Color(element.values[2])
+            return (xterm256Color(element.values[2]), .indexed)
         case 2:
             let colorComponents = Array(element.values.dropFirst(2).suffix(3))
             guard colorComponents.count == 3 else { return nil }
-            return TerminalTextStyle.rgb(red: colorComponents[0], green: colorComponents[1], blue: colorComponents[2])
+            return (
+                TerminalTextStyle.rgb(
+                    red: colorComponents[0],
+                    green: colorComponents[1],
+                    blue: colorComponents[2]
+                ),
+                .rgb
+            )
         default:
             return nil
         }

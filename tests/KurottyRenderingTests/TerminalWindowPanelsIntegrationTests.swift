@@ -88,6 +88,42 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertFalse(controller.isFileExplorerPanelVisible)
     }
 
+    @MainActor
+    func testOrthogonalSplitsInheritTheVisibleChromeGround() throws {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let root = try XCTUnwrap(controller.selectedSplitViewForTesting)
+        root.applyChromeTheme(.light)
+        root.focusFirstPane()
+
+        controller.splitVertically()
+        controller.splitHorizontally()
+
+        let splits = allSplitViews(from: root)
+        XCTAssertGreaterThan(splits.count, 1, "an orthogonal split must create a nested split")
+        for split in splits {
+            XCTAssertEqual(
+                split.layer?.backgroundColor,
+                DesignTokens.ChromeTheme.light.terminalPaneGround.cgColor,
+                "a nested split must not expose its default dark ground inside a light window"
+            )
+        }
+    }
+
+    @MainActor
+    func testSplitButtonsReceiveTheVisibleChromeTheme() {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let theme = controller.chromeThemeForTesting
+
+        for button in controller.splitButtonsForTesting {
+            XCTAssertEqual(button.normalTintColor, theme.textSecondary)
+            XCTAssertEqual(button.hoverTintColor, theme.textPrimary)
+            XCTAssertEqual(button.hoverBackgroundColor, theme.hoverFill)
+            XCTAssertEqual(button.pressBackgroundColor, theme.pressFill)
+        }
+    }
+
     /// A hidden pane must leave the split view entirely: while it merely had
     /// `isHidden` set, the split view kept the pane's last frame and drew a
     /// divider hairline plus an empty strip at the window edge.
@@ -432,6 +468,14 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
             explorerSource.contains("quoted(path) + \"\\n\""),
             "insert must never append a newline"
         )
+    }
+}
+
+@MainActor
+private func allSplitViews(from root: SplitTerminalView) -> [SplitTerminalView] {
+    [root] + root.arrangedSubviews.flatMap { subview -> [SplitTerminalView] in
+        guard let split = subview as? SplitTerminalView else { return [] }
+        return allSplitViews(from: split)
     }
 }
 

@@ -10,7 +10,7 @@ import XCTest
 final class TerminalWindowScrollbackPersistenceTests: XCTestCase {
     private enum Fixture {
         static let paneText = "restored-scrollback-line"
-        static let orphanRef = "v1-0123456789abcdef0123456789abcdef"
+        static let orphanRef = "v2-0123456789abcdef0123456789abcdef"
         static let orphanPayload = "orphan"
     }
 

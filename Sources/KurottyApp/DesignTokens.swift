@@ -236,7 +236,7 @@ enum DesignTokens {
         /// Alphas applied to `textPrimary` for the three scrollback-indicator
         /// states. The resting value is the floor: below it the thumb stops
         /// clearing 3:1 against the canvas and the indicator reads as a smudge.
-        static let scrollerThumbRestAlphaRATIO: CGFloat = 0.50
+        static let scrollerThumbRestAlphaRATIO: CGFloat = 0.52
         static let scrollerThumbHoverAlphaRATIO: CGFloat = 0.65
         static let scrollerThumbActiveAlphaRATIO: CGFloat = 0.80
         /// Alpha for a prompt-rail mark that stands for successful commands.
@@ -257,34 +257,26 @@ enum DesignTokens {
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
         /// the specified hex on screen.
         enum Dark {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_16_18)
-            static let surfaceChrome = NSColor.designTokenSRGB(0x1C_1C_1E)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0x20_20_22)
-            static let surfaceRaised = NSColor.designTokenSRGB(0x26_26_2A)
-            static let hairline = NSColor.designTokenSRGB(0x2E_2E_32)
-            static let borderStrong = NSColor.designTokenSRGB(0x3C_3C_42)
-            static let textPrimary = NSColor.designTokenSRGB(0xF2_F2_F4)
-            static let textSecondary = NSColor.designTokenSRGB(0xA8_A8_AE)
-            /// Near-neutral, a whisper cool. The ramp began blue (`#16181D`
-            /// through `#262A31`), which read as a cold film; correcting it to a
-            /// warm neutral overshot and read yellow, most visibly in the text
-            /// ranks where the cast reached R-B +7. These sit where Apple's own
-            /// greys sit -- `#1D1D1F`, `#F5F5F7` -- which is close enough to
-            /// neutral that no hue reads at all. This rank has no headroom — it is
-            /// the lightest value still clearing AA 4.5 on `surfaceRaised`, the
-            /// selected tab, where a title has to be read.
-            static let textTertiary = NSColor.designTokenSRGB(0x90_90_97)
-            static let accent = NSColor.designTokenSRGB(0x0A_84_FF)
-            static let success = NSColor.designTokenSRGB(0x5F_D0_8A)
+            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_13_25)
+            static let surfaceChrome = NSColor.designTokenSRGB(0x1D_19_30)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x22_1E_38)
+            static let surfaceRaised = NSColor.designTokenSRGB(0x2D_28_48)
+            static let hairline = NSColor.designTokenSRGB(0x3B_35_56)
+            static let borderStrong = NSColor.designTokenSRGB(0x4B_44_69)
+            static let textPrimary = NSColor.designTokenSRGB(0xF0_EE_F8)
+            static let textSecondary = NSColor.designTokenSRGB(0xBF_B9_D1)
+            static let textTertiary = NSColor.designTokenSRGB(0x9F_98_B5)
+            static let accent = NSColor.designTokenSRGB(0x84_6E_FF)
+            static let success = NSColor.designTokenSRGB(0x57_DA_A0)
             /// Sequential ramp for the daily usage strip, low -> high. One warm
             /// hue, rising in chroma, not the `error` step: a heavy day is a
             /// magnitude, not a fault, and reusing a status colour for it would
             /// make the two mean the same thing. Both stops clear 3:1 against
             /// `surfaceSidebar`, the ground the strip is drawn on.
-            static let usageRampLow = NSColor.designTokenSRGB(0x85_85_8C)
-            static let usageRampHigh = NSColor.designTokenSRGB(0xE0_65_5C)
-            static let warning = NSColor.designTokenSRGB(0xE0_A9_4F)
-            static let error = NSColor.designTokenSRGB(0xE8_75_6E)
+            static let usageRampLow = NSColor.designTokenSRGB(0x9A_92_AD)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xF2_7E_A6)
+            static let warning = NSColor.designTokenSRGB(0xF4_BA_68)
+            static let error = NSColor.designTokenSRGB(0xFF_82_9A)
 
             static let selectionFillAlphaRATIO: CGFloat = 0.24
             static let hoverFillAlphaRATIO: CGFloat = 0.06
@@ -300,29 +292,24 @@ enum DesignTokens {
         /// they stay legible on white; sharing the dark values would drop
         /// `success` to roughly 1.6:1 against `surfaceCanvas`.
         enum Light {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let surfaceChrome = NSColor.designTokenSRGB(0xF0_F0_F2)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xF5_F5_F7)
+            static let surfaceCanvas = NSColor.designTokenSRGB(0xEE_EC_F8)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF3_F1_FA)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xE8_E6_FA)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let hairline = NSColor.designTokenSRGB(0xE4_E4_E7)
-            static let borderStrong = NSColor.designTokenSRGB(0xD0_D0_D5)
-            static let textPrimary = NSColor.designTokenSRGB(0x1D_1D_1F)
-            static let textSecondary = NSColor.designTokenSRGB(0x4E_4E_52)
-            /// Warm-neutral, matching the dark ramp. Light chrome has no room
-            /// to spend on a quiet rank: this is the lightest value that still
-            /// clears AA 4.5 on every light surface, and it sits far enough
-            /// below `textSecondary` that the two read as different ranks —
-            /// they were 1.2:1 apart before, which looked like one rank twice.
-            static let textTertiary = NSColor.designTokenSRGB(0x6A_6A_70)
-            static let accent = NSColor.designTokenSRGB(0x00_71_E3)
+            static let hairline = NSColor.designTokenSRGB(0xD8_D4_E8)
+            static let borderStrong = NSColor.designTokenSRGB(0xBE_B8_D2)
+            static let textPrimary = NSColor.designTokenSRGB(0x29_27_3A)
+            static let textSecondary = NSColor.designTokenSRGB(0x49_45_5F)
+            static let textTertiary = NSColor.designTokenSRGB(0x5D_57_6D)
+            static let accent = NSColor.designTokenSRGB(0x65_5C_EF)
             static let success = NSColor.designTokenSRGB(0x17_72_45)
             /// Light counterpart of the usage ramp. On a light ground a
             /// sequential scale runs light -> dark, so the stops darken as the
             /// day gets heavier rather than brightening.
-            static let usageRampLow = NSColor.designTokenSRGB(0x86_86_8B)
-            static let usageRampHigh = NSColor.designTokenSRGB(0xA0_2D_22)
-            static let warning = NSColor.designTokenSRGB(0x8A_53_00)
-            static let error = NSColor.designTokenSRGB(0xC0_27_1F)
+            static let usageRampLow = NSColor.designTokenSRGB(0x86_80_99)
+            static let usageRampHigh = NSColor.designTokenSRGB(0xA0_2D_55)
+            static let warning = NSColor.designTokenSRGB(0x7C_4F_08)
+            static let error = NSColor.designTokenSRGB(0xB7_2F_50)
 
             static let selectionFillAlphaRATIO: CGFloat = 0.14
             static let hoverFillAlphaRATIO: CGFloat = 0.05
@@ -415,7 +402,6 @@ enum DesignTokens {
         static let paneDropTargetBackground = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 0.08)
         static let inputStatusBackground = Dark.surfaceRaised
         static let cyanTerminalAccent = NSColor(srgbRed: 53.0 / 255.0, green: 201.0 / 255.0, blue: 201.0 / 255.0, alpha: 1)
-
         // MARK: Dark-ramp aliases for chrome that has no theme at the call site
 
         static let windowBackground = Dark.surfaceCanvas
@@ -649,10 +635,10 @@ enum DesignTokens {
         static let tabLabel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
         static let tabLabelSel = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18)
         /// Uppercased at the call site; tracking opens the caps back up.
-        static let sectionHeader = Role(sizePT: 12, weight: .semibold, lineHeightPX: 16, tracking: 0.55)
-        static let rowTitle = Role(sizePT: 13, weight: .regular, lineHeightPX: 18)
-        static let rowTitleSel = Role(sizePT: 13, weight: .medium, lineHeightPX: 18)
-        static let rowSecondary = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
+        static let sectionHeader = Role(sizePT: 13, weight: .semibold, lineHeightPX: 18, tracking: 0.35)
+        static let rowTitle = Role(sizePT: 14, weight: .regular, lineHeightPX: 19)
+        static let rowTitleSel = Role(sizePT: 14, weight: .medium, lineHeightPX: 19)
+        static let rowSecondary = Role(sizePT: 12.5, weight: .regular, lineHeightPX: 17)
         static let badge = Role(sizePT: 11, weight: .medium, lineHeightPX: 15)
         static let statusBar = Role(sizePT: 12, weight: .regular, lineHeightPX: 16)
         static let statusBarNum = Role(
@@ -661,7 +647,7 @@ enum DesignTokens {
             lineHeightPX: 16,
             design: .monospacedDigit
         )
-        static let monoBody = Role(sizePT: 13, weight: .regular, lineHeightPX: 18, design: .monospaced)
+        static let monoBody = Role(sizePT: 13.5, weight: .regular, lineHeightPX: 19, design: .monospaced)
         /// Editor line-number gutter. Monospaced digits so a jump from line 9 to
         /// line 10 cannot shift the column.
         static let monoGutter = Role(
@@ -742,6 +728,23 @@ enum DesignTokens {
             downwardOffsetPX: 3
         )
 
+        /// The terminal canvas floats only one step above the chrome ground.
+        /// It is broader and quieter than an overlay shadow: enough to detach
+        /// the canvas from the lavender shell without making it look modal.
+        static let terminalCanvasDark = Shadow(
+            color: .black,
+            opacity: 0.30,
+            radiusPX: 14,
+            downwardOffsetPX: 4
+        )
+
+        static let terminalCanvasLight = Shadow(
+            color: .black,
+            opacity: 0.16,
+            radiusPX: 14,
+            downwardOffsetPX: 4
+        )
+
         /// The pill under a selected sidebar row.
         ///
         /// Deliberately a fraction of `floating`. The reference this came from
@@ -773,6 +776,11 @@ enum DesignTokens {
         @MainActor
         static func floating(for theme: DesignTokens.ChromeTheme) -> Shadow {
             isLight(theme) ? floatingLight : floatingDark
+        }
+
+        @MainActor
+        static func terminalCanvas(for theme: DesignTokens.ChromeTheme) -> Shadow {
+            isLight(theme) ? terminalCanvasLight : terminalCanvasDark
         }
 
         @MainActor
@@ -897,17 +905,10 @@ enum DesignTokens {
     // above `Radius.lgPX` (a terminal is dense; a bigger arc starts eating the
     // first and last cell of the top and bottom rows instead of empty margin).
     //
-    // This is also the decision that settles the tab grammar. A Safari-style
-    // tab is merged: it shares an edge with the content, which is how it says
-    // "this tab is that document". A tab in Kurotty does not contain a
-    // document, it contains a split tree — a merged tab in a four-way split
-    // would share its edge with a gutter, and with a sidebar open it would have
-    // to merge past a column that is not the content. So the tab stays a pill
-    // on the chrome plane (`TerminalTabItemView`, radius on all four corners,
-    // inset inside the bar), associated with the card by sitting on the same
-    // ground rather than by touching it. Merged tabs and inset cards are
-    // mutually exclusive and the cards win; a tab that almost touches the card
-    // would only read as a misalignment.
+    // The selected tab is grounded into the bottom of the chrome bar. Its top
+    // corners stay rounded while the bottom edge is square and continuous with
+    // the plane below, following Dia's connected-tab rhythm without pretending
+    // that one tab maps to one pane when it may contain a split tree.
 
     /// Geometry of the terminal pane card and the ground around it.
     ///
@@ -1168,7 +1169,7 @@ enum DesignTokens {
         /// The query field is slightly translucent so the bar reads as one
         /// floating surface rather than a field pasted onto a card.
         static let terminalSearchFieldFillAlphaRATIO: CGFloat = 0.9
-        static var terminalTabBarHeightPX: CGFloat { UIScale.scaledMetric(38) }
+        static var terminalTabBarHeightPX: CGFloat { UIScale.scaledMetric(40) }
         static let terminalTopBarCornerRadiusPX: CGFloat = 0
         static let terminalTabBarHorizontalInsetPX: CGFloat = 0
         /// Fixed: this is where macOS puts the traffic lights, not where our
@@ -1176,7 +1177,7 @@ enum DesignTokens {
         /// button that has not moved.
         static let terminalTrafficLightClearancePX: CGFloat = 78
         static let terminalTabBarSideButtonInsetPX = Space.x3PX
-        static var terminalTabHeightPX: CGFloat { UIScale.scaledMetric(28) }
+        static var terminalTabHeightPX: CGFloat { UIScale.scaledMetric(34) }
         static var sidebarToggleSizePX: CGFloat { UIScale.scaledMetric(26) }
         static let sidebarDividerGrabPaddingPX = Space.x1PX
         static let sidebarToggleEdgeInsetPX = Space.x3PX
@@ -1194,7 +1195,11 @@ enum DesignTokens {
         /// 120 at 175% truncates every title to two words.
         static var terminalTabMinWidthPX: CGFloat { UIScale.scaledMetric(120) }
         static var terminalTabMaxWidthPX: CGFloat { UIScale.scaledMetric(240) }
-        static var terminalTabPlusWidthPX: CGFloat { UIScale.scaledMetric(26) }
+        static var terminalTabPlusWidthPX: CGFloat { UIScale.scaledMetric(32) }
+        static let sidebarScrollerHorizontalInsetPX: CGFloat = 4
+        static let sidebarScrollerVerticalInsetPX: CGFloat = 2
+        static let sidebarScrollerRestingAlphaRATIO: CGFloat = 0.24
+        static let sidebarScrollerActiveAlphaRATIO: CGFloat = 0.46
         /// Close affordance: a 20x20 hit target carrying a 10pt glyph. 18x18 was
         /// below the comfortable pointer target for a control this small.
         static var terminalTabCloseWidthPX: CGFloat { UIScale.scaledMetric(20) }
@@ -1202,17 +1207,17 @@ enum DesignTokens {
         /// it marks a tab action rather than a row.
         static let terminalTabButtonHoverAlphaRATIO: CGFloat = 0.18
         static let terminalTabStackGapPX = Space.x1PX
-        static let terminalTabStackInsetTopPX = Space.x1PX
+        static let terminalTabStackInsetTopPX: CGFloat = 0
         static let terminalTabStackInsetLeftPX = Space.x3PX
-        static let terminalTabStackInsetBottomPX = Space.x1PX
+        static let terminalTabStackInsetBottomPX: CGFloat = 0
+        static var terminalTabTopAirPX: CGFloat {
+            terminalTabBarHeightPX - terminalTabHeightPX
+        }
         static let terminalTabStackInsetRightPX = Space.x3PX
-        /// Selected tabs are marked by an accent rail across the tab's top edge,
-        /// not by an outline: a border reads as a box, a rail reads as "current".
-        static let terminalTabTopRailHeightPX: CGFloat = 2
         static let terminalTabTitleLeadingPX = Space.x4PX
         static let terminalTabTitleCloseGapPX = Space.x2PX
         static let terminalTabCloseTrailingPX = Space.x3PX
-        static let commandHistoryPanelDefaultWidthPX: CGFloat = 350
+        static let commandHistoryPanelDefaultWidthPX: CGFloat = 300
         static let commandHistoryPanelMinWidthPX: CGFloat = 200
         static let commandHistoryPanelMaxWidthPX: CGFloat = 460
         static let commandHistoryPanelCornerRadiusPX: CGFloat = 0
@@ -1245,7 +1250,7 @@ enum DesignTokens {
         /// it: the row's highlight is inset past it (`highlightTopInsetPX`), so
         /// what the user sees is a gap between groups rather than a tall row.
         static let commandHistoryGroupRowTopAirPX = Space.x4PX
-        static var commandHistoryGroupContentHeightPX: CGFloat { UIScale.scaledMetric(32) }
+        static var commandHistoryGroupContentHeightPX: CGFloat { UIScale.scaledMetric(34) }
         static var commandHistoryGroupRowHeightPX: CGFloat {
             commandHistoryGroupContentHeightPX + commandHistoryGroupRowTopAirPX
         }
@@ -1260,8 +1265,8 @@ enum DesignTokens {
         static var commandHistoryBadgeHeightPX: CGFloat { UIScale.scaledMetric(16) }
         static let commandHistoryBadgeTextInsetXPX = Space.x2PX
         static var commandHistoryBadgeMinWidthPX: CGFloat { UIScale.scaledMetric(18) }
-        static var commandHistoryGroupIconPointSizePT: CGFloat { UIScale.scaledPointSize(12) }
-        static var commandHistoryDisclosurePointSizePT: CGFloat { UIScale.scaledPointSize(9) }
+        static var commandHistoryGroupIconPointSizePT: CGFloat { UIScale.scaledPointSize(14) }
+        static var commandHistoryDisclosurePointSizePT: CGFloat { UIScale.scaledPointSize(10) }
         static var commandHistoryDisclosureBoxSizePX: CGFloat { UIScale.scaledMetric(16) }
         static var commandHistoryEmptyStateIconPointSizePT: CGFloat { UIScale.scaledPointSize(18) }
         static let commandHistoryEmptyStateGapPX = Space.x3PX
@@ -1281,7 +1286,7 @@ enum DesignTokens {
         static let commandHistoryOutlineIndentationPX = Space.x4PX
         static let commandHistoryDefaultExpandedGroupCount = 3
         static let commandHistoryBadgeBackgroundAlphaRATIO: CGFloat = 0.10
-        static let fileExplorerPanelDefaultWidthPX: CGFloat = 350
+        static let fileExplorerPanelDefaultWidthPX: CGFloat = 300
         /// The terminal column never shrinks past this. Sidebars are allowed to
         /// take space from it, but not to erase it: a zero-width terminal is a
         /// broken window, not a narrow one.
@@ -1294,11 +1299,11 @@ enum DesignTokens {
         static let fileExplorerHeaderGapPX = Space.x1PX
         static let fileExplorerControlGapPX = Space.x3PX
         static var fileExplorerRefreshButtonSizePX: CGFloat { UIScale.scaledMetric(24) }
-        static var fileExplorerRowHeightPX: CGFloat { UIScale.scaledMetric(26) }
+        static var fileExplorerRowHeightPX: CGFloat { UIScale.scaledMetric(30) }
         static let fileExplorerRowInsetXPX = Space.x3PX
         static let fileExplorerRowGapPX = Space.x2PX
         static let fileExplorerOutlineIndentationPX = Space.x4PX
-        static var fileExplorerRowIconPointSizePT: CGFloat { UIScale.scaledPointSize(13) }
+        static var fileExplorerRowIconPointSizePT: CGFloat { UIScale.scaledPointSize(14) }
         /// Fixed-width git column: a dot in a reserved slot cannot shift the row
         /// beside it, which the old `M`/`U`/`⊘` letters did every repaint. The
         /// slot and its dot are both fixed — the column carries a mark, not
@@ -1307,7 +1312,6 @@ enum DesignTokens {
         static let fileExplorerGitDotSizePX: CGFloat = 5
         static var fileExplorerGitConflictPointSizePT: CGFloat { UIScale.scaledPointSize(10) }
         static let fileExplorerFolderIconAlphaRATIO: CGFloat = 0.85
-        static let fileExplorerDimmedTextAlphaRATIO: CGFloat = 0.50
         /// Agent-provenance column, sitting immediately before the git column.
         /// A hollow ring rather than a second filled dot: git already owns the
         /// filled-dot vocabulary, and shape separates the two states faster
@@ -1350,7 +1354,7 @@ enum DesignTokens {
         /// Two stacked lines of type, so it moves with both of them.
         static var agentSessionRowHeightPX: CGFloat { UIScale.scaledMetric(42) }
         static var agentSessionRowTextGapPY: CGFloat { UIScale.scaledMetric(2) }
-        static var agentSessionAgentIconPointSizePT: CGFloat { UIScale.scaledPointSize(12) }
+        static var agentSessionAgentIconPointSizePT: CGFloat { UIScale.scaledPointSize(14) }
         static var agentSessionEmptyStateIconPointSizePT: CGFloat { UIScale.scaledPointSize(18) }
         static let agentSessionDefaultExpandedGroupCount = 3
         // Context-window meter on a session row. One bar, no ticks, no label:
@@ -1492,7 +1496,7 @@ enum DesignTokens {
         // 22pt segmented-control height, so the old control rendered squashed
         // and needed `setWidth(0…)` plus compression-resistance workarounds to
         // stay inside the panel at all.
-        static var leftSidebarSectionStripHeightPX: CGFloat { UIScale.scaledMetric(30) }
+        static var leftSidebarSectionStripHeightPX: CGFloat { UIScale.scaledMetric(34) }
         static let leftSidebarSectionStripTopInsetPX = Space.x3PX
         static let leftSidebarSectionStripInsetXPX = Space.x4PX
         static let leftSidebarSectionStripBottomGapPX = Space.x3PX

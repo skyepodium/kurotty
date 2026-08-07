@@ -24,8 +24,8 @@ final class TerminalScrollbackSnapshotFormatTests: XCTestCase {
 
         XCTAssertEqual(first, second)
         XCTAssertTrue(TerminalScrollbackSnapshotFormat.isValidRef(first))
-        XCTAssertTrue(first.hasPrefix("v1-"))
-        XCTAssertEqual(first.count, "v1-".count + TerminalScrollbackSnapshotFormat.refHashCharacterCount)
+        XCTAssertTrue(first.hasPrefix("v2-"))
+        XCTAssertEqual(first.count, "v2-".count + TerminalScrollbackSnapshotFormat.refHashCharacterCount)
     }
 
     func testRefSeparatesTabAndPaneWithNulByte() {
@@ -39,12 +39,12 @@ final class TerminalScrollbackSnapshotFormatTests: XCTestCase {
     func testInvalidRefsAreRejected() {
         let cases = [
             "",
-            "v1-",
-            "v2-0123456789abcdef0123456789abcdef",
-            "v1-0123456789ABCDEF0123456789abcdef",
-            "v1-0123456789abcdef0123456789abcde",
-            "v1-0123456789abcdef0123456789abcdefa",
-            "v1-../../etc/passwd0123456789abcdef",
+            "v2-",
+            "v1-0123456789abcdef0123456789abcdef",
+            "v2-0123456789ABCDEF0123456789abcdef",
+            "v2-0123456789abcdef0123456789abcde",
+            "v2-0123456789abcdef0123456789abcdefa",
+            "v2-../../etc/passwd0123456789abcdef",
         ]
         for candidate in cases {
             XCTAssertFalse(
@@ -154,6 +154,28 @@ final class TerminalScrollbackSnapshotSerializerTests: XCTestCase {
         )
 
         XCTAssertEqual(encoded, "hi")
+    }
+
+    func testStyledTrailingBlanksAreDroppedBeforeReplay() {
+        let black = SIMD4<Float>(0, 0, 0, 1)
+        let promptStyle = TerminalTextStyle(
+            foreground: SIMD4<Float>(1, 1, 1, 1),
+            background: black,
+            foregroundSource: .defaultColor,
+            backgroundSource: .ansi
+        )
+        var cells = row("prompt", style: promptStyle)
+        for index in 6..<cells.count {
+            cells[index] = TerminalScreenCell(character: " ", style: promptStyle)
+        }
+
+        let encoded = TerminalScrollbackSnapshotSerializer.encoded(
+            row: cells,
+            defaultStyle: .default
+        )
+
+        XCTAssertFalse(encoded.hasSuffix(String(repeating: " ", count: 6)))
+        XCTAssertTrue(encoded.contains("prompt"))
     }
 
     func testRowsSerializeOldestFirstWithCarriageReturnNewline() {

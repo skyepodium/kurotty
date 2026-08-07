@@ -22,7 +22,7 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
     private enum PanelWidth {
         /// Mirrors `DesignTokens.Component.leftSidebarPanel*WidthPX`.
         static let minimumPX: CGFloat = 200
-        static let defaultPX: CGFloat = 350
+        static let defaultPX: CGFloat = 300
         static let maximumPX: CGFloat = 460
         static let allPX: [CGFloat] = [minimumPX, defaultPX, maximumPX]
     }
@@ -33,6 +33,7 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         XCTAssertEqual(DesignTokens.Component.commandHistoryPanelMinWidthPX, PanelWidth.minimumPX)
         XCTAssertEqual(DesignTokens.Component.commandHistoryPanelDefaultWidthPX, PanelWidth.defaultPX)
         XCTAssertEqual(DesignTokens.Component.commandHistoryPanelMaxWidthPX, PanelWidth.maximumPX)
+        XCTAssertEqual(DesignTokens.Component.fileExplorerPanelDefaultWidthPX, PanelWidth.defaultPX)
     }
 
     func testEmptyStateNeverOverlapsHeaderOrSearchPillAtEverySupportedWidth() {
@@ -191,7 +192,14 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
                 XCTFail("no item for \(section)")
                 continue
             }
-            XCTAssertEqual(pill, selected.frame, "the pill must sit on the selected tab")
+            XCTAssertEqual(
+                pill.midX,
+                selected.frame.midX,
+                accuracy: 0.5,
+                "the selection rail must stay optically centered under its tab"
+            )
+            XCTAssertEqual(pill.width, selected.frame.width, accuracy: 1)
+            XCTAssertEqual(pill.height, selected.frame.height, accuracy: 0.01)
             // Not an underline: a rule is a couple of points tall and this has
             // to be a surface the tab's label sits on.
             XCTAssertGreaterThan(
@@ -395,6 +403,30 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
             DesignTokens.Component.sidebarRowStatusSlotWidthPX,
             DesignTokens.Component.commandHistoryStatusDotSizePX,
             "the slot must at least hold the dot it centres"
+        )
+    }
+
+    func testHistoryAndAgentSessionDisclosureSharesTheGroupContentCenterline() {
+        let rowFrame = NSRect(
+            x: 0,
+            y: 40,
+            width: 300,
+            height: DesignTokens.Component.commandHistoryGroupRowHeightPX
+        )
+        let frame = TerminalCommandHistoryOutlineView.disclosureFrame(
+            rowFrame: rowFrame,
+            baseFrame: NSRect(x: 4, y: 44, width: 12, height: 12)
+        )
+        let expectedCenterY = rowFrame.midY
+            - DesignTokens.Component.commandHistoryGroupRowTopAirPX / 2
+
+        XCTAssertEqual(frame.midY, expectedCenterY, accuracy: 0.01)
+        XCTAssertEqual(
+            frame.size,
+            NSSize(
+                width: DesignTokens.Component.commandHistoryDisclosureBoxSizePX,
+                height: DesignTokens.Component.commandHistoryDisclosureBoxSizePX
+            )
         )
     }
 

@@ -1040,7 +1040,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         // the achromatic `hoverFill` wash so it cannot borrow the accent's
         // meaning. An unselected tab now has no fill of its own at all.
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Radius.mdPX"))
-        XCTAssertTrue(windowSource.contains("selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor"))
+        XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
+        XCTAssertFalse(windowSource.contains("selectionRailView"))
         XCTAssertTrue(windowSource.contains("hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor"))
         XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
         XCTAssertFalse(windowSource.contains("terminalTabShadow"))
@@ -1068,7 +1069,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("terminalTabCloseWidthPX"))
         XCTAssertTrue(designSource.contains("terminalTabStackGapPX"))
         XCTAssertTrue(designSource.contains("terminalTabStackInsetTopPX"))
-        XCTAssertTrue(designSource.contains("terminalTabTopRailHeightPX"))
         // The shadow tokens were dead: `terminalTabShadowOpacity` was 0.
         XCTAssertFalse(designSource.contains("terminalTabShadowOpacity"))
         XCTAssertTrue(windowSource.contains("private let topBarSeparatorView = NSView()"))

@@ -46,6 +46,7 @@ final class TerminalFileExplorerPanelView: NSView {
     }
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
+    private let glassBackgroundView = TerminalSidebarGlassBackgroundView(frame: .zero)
     private let directoryNameLabel = NSTextField(labelWithString: "")
     private let refreshButton = ChromeIconButton(
         symbolName: FileExplorerIcon.refreshSymbolName,
@@ -61,6 +62,7 @@ final class TerminalFileExplorerPanelView: NSView {
     private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalFileExplorerOutlineView()
+    private let sidebarScroller = TerminalSidebarScroller(frame: .zero)
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
@@ -175,7 +177,9 @@ final class TerminalFileExplorerPanelView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
+        glassBackgroundView.applyChromeTheme(theme)
+        sidebarScroller.applyChromeTheme(theme)
         DesignTokens.Typography.rowTitleSel.apply(to: directoryNameLabel, color: theme.textPrimary)
         DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
         searchPillView.applyChromeTheme(theme)
@@ -295,6 +299,16 @@ final class TerminalFileExplorerPanelView: NSView {
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
+        glassBackgroundView.applyChromeTheme(chromeTheme)
+        glassBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassBackgroundView)
+        NSLayoutConstraint.activate([
+            glassBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            glassBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
         panelTitleLabel.stringValue = AppLocalization.string(.fileExplorer).localizedUppercase
         DesignTokens.Typography.sectionHeader.apply(
             to: panelTitleLabel,
@@ -338,7 +352,10 @@ final class TerminalFileExplorerPanelView: NSView {
 
         configureOutlineView()
         scrollView.documentView = outlineView
+        scrollView.verticalScroller = sidebarScroller
         scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(scrollView)
