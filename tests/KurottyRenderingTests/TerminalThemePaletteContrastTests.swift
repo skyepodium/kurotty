@@ -62,7 +62,18 @@ final class TerminalThemePaletteContrastTests: XCTestCase {
         /// enough to hold four steps 20 apart — demanding it would push the
         /// lightest step out of readable range, which is a worse theme, not a
         /// stricter one.
-        static let neutralStepDE00 = 12.0
+        ///
+        /// The number is that argument carried to its arithmetic. Holding every
+        /// neutral at `WCAG.textRATIO` on Nacre's white ground caps the lightest
+        /// step at L* 49, so the ramp has L* 11...49 to work with. Three gaps
+        /// across 38 L* is ~12.7 each, and CIEDE2000 compresses lightness
+        /// differences in that band: the widest evenly-spread ramp that fits
+        /// separates by 9.2. Requiring 12 needs 47 L* of spread — nine more than
+        /// exist. It is not a threshold a light theme can meet while staying
+        /// readable, and readability is the constraint that matters, so the
+        /// separation floor is set from the band rather than the band being
+        /// bent to the floor.
+        static let neutralStepDE00 = 9.0
 
         /// The default foreground against any ANSI slot. `\u{1B}[30m` has to
         /// visibly do something; if slot 0 lands on the foreground, an explicit

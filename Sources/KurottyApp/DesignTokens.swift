@@ -351,9 +351,16 @@ enum DesignTokens {
         /// pane: a wash under text is a wash the user did not choose for their
         /// text.
         enum Nacre {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0xEF_F2_FC)
-            static let surfaceChrome = NSColor.designTokenSRGB(0xE4_E9_F7)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xF4_F5_FC)
+            // These sit next to a terminal whose background is pure white, and
+            // the seam between them is the first thing the eye lands on. At the
+            // old values surfaceChrome measured 6.1 CIEDE2000 from that white --
+            // past the point a difference reads as deliberate, so it read as a
+            // mismatch instead. They are pulled toward white until the steps are
+            // soft (chrome 3.5, canvas 1.7, sidebar 0.8) while still ordering
+            // chrome under canvas under sidebar under raised.
+            static let surfaceCanvas = NSColor.designTokenSRGB(0xFA_FB_FE)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF3_F5_FC)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xFC_FD_FE)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
             static let hairline = NSColor.designTokenSRGB(0xD3_D9_EE)
             static let borderStrong = NSColor.designTokenSRGB(0xB6_BE_DB)
