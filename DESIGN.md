@@ -369,8 +369,10 @@ Design rules:
 #### Three-pane workspace contract
 
 - The workspace uses one quiet top chrome bar, an optional command-history panel on the left, the active terminal/editor in the center, and an optional file explorer on the right. Side panels begin below the top chrome and never compete with the title-bar traffic lights.
-- Both side panels use the same visual hierarchy: compact uppercase section label, optional contextual subtitle, one search field, then a dense list. Unsupported or future controls are hidden instead of rendered disabled.
-- Panel backgrounds remain close to the top-chrome surface, separated from the center by one hairline border. Hover uses a low-contrast neutral fill; selection uses the active accent with enough contrast to remain obvious in light and dark themes.
+- Both side panels use the same visual hierarchy: the panel's identity, one search field, then a dense list. Unsupported or future controls are hidden instead of rendered disabled. A panel names itself once: the left sidebar's identity is its section strip, so its sections draw no header of their own.
+- The search field carries a `/` key cap while it is idle, and `/` in either list jumps to it.
+- Panel backgrounds remain close to the top-chrome surface, separated from the center by one hairline border. Hover is a low-contrast neutral wash. Selection is not a wash: it is an opaque raised-surface pill with a hairline, a small drop shadow, an accent rail, and a heavier title, so a selected row's text sits on a surface the color ramp already guarantees. Elevation is for the pill only — panels and bars stay flat.
+- Vertical rhythm is spent on section headers, not on rows. A directory node carries air above it; the command rows under it stay dense, because the list is hundreds of rows long and a taller row buys rhythm by taking rows off the screen.
 - The top bar keeps tabs as the primary content. Leading and trailing sidebar controls are symmetrical, and an open panel is represented by a persistent filled capsule plus accent tint, not tint alone.
 - File rows preserve native outline disclosure and keyboard selection. A single click on a supported image opens or focuses a read-only preview tab; text files keep the deliberate open gesture already defined by the explorer.
 - Image preview tabs center the source at its intrinsic size and proportionally shrink it when the available canvas is smaller. They never upscale, crop, mutate, or silently convert the source image.

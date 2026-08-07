@@ -36,6 +36,9 @@ final class TerminalFileExplorerOutlineView: NSOutlineView {
     /// bound: this list sits beside a terminal and takes focus on a click, and
     /// a single unmodified keystroke is too small a gesture for a delete.
     var onTrashKey: (() -> Void)?
+    /// `/` jumps to the panel's search field, as it does in the history list.
+    /// The badge in the field advertises the same key in both panels.
+    var onFilterKey: (() -> Void)?
 
     private static let returnCharacter: Character = "\r"
     private static let enterCharacter = Character(UnicodeScalar(NSEnterCharacter)!)
@@ -55,6 +58,10 @@ final class TerminalFileExplorerOutlineView: NSOutlineView {
         }
         if modifiers == .command, character == Self.deleteCharacter, let onTrashKey {
             onTrashKey()
+            return
+        }
+        if TerminalSidebarFilterKey.matches(event), let onFilterKey {
+            onFilterKey()
             return
         }
         super.keyDown(with: event)

@@ -9,8 +9,10 @@ final class SplitTerminalView: NSSplitView {
     var isApplyingTmuxProportions = false
     let paneDragCoordinator: TerminalPaneDragCoordinator
 
+    /// The gap between two pane cards. It is still the drag target it always
+    /// was; it is no longer a hit area wrapped around a rule.
     override var dividerThickness: CGFloat {
-        DesignTokens.Component.terminalSplitDividerHitAreaPX
+        DesignTokens.TerminalPaneCard.gutterPX
     }
 
     init(
@@ -24,7 +26,7 @@ final class SplitTerminalView: NSSplitView {
         dividerStyle = .paneSplitter
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.windowBackground.cgColor
+        layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
         if let pane {
             configurePane(pane)
             addArrangedSubview(pane)
@@ -64,7 +66,7 @@ final class SplitTerminalView: NSSplitView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.windowBackground.cgColor
+        layer?.backgroundColor = theme.terminalPaneGround.cgColor
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView {
                 pane.applyChromeTheme(theme)
@@ -77,29 +79,16 @@ final class SplitTerminalView: NSSplitView {
         needsDisplay = true
     }
 
+    /// The divider is ground, and only ground.
+    ///
+    /// It used to fill the band and then draw a hairline down the middle of it.
+    /// The panes are rounded cards now, so the gap between two of them already
+    /// says they are separate surfaces; a rule inside that gap says it twice,
+    /// and in a four-way split the second telling is a cross through the middle
+    /// of the window.
     override func drawDivider(in rect: NSRect) {
-        chromeTheme.windowBackground.setFill()
+        chromeTheme.terminalPaneGround.setFill()
         rect.fill()
-
-        let lineThickness = DesignTokens.Component.terminalSplitDividerLinePX
-        let lineRect: NSRect
-        if isVertical {
-            lineRect = NSRect(
-                x: rect.midX - lineThickness / 2,
-                y: rect.minY,
-                width: lineThickness,
-                height: rect.height
-            )
-        } else {
-            lineRect = NSRect(
-                x: rect.minX,
-                y: rect.midY - lineThickness / 2,
-                width: rect.width,
-                height: lineThickness
-            )
-        }
-        chromeTheme.divider.setFill()
-        lineRect.fill()
     }
 
     override func resetCursorRects() {

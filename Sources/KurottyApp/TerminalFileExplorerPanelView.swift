@@ -420,6 +420,9 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.onTrashKey = { [weak self] in
             self?.moveToTrashFromContextMenu(nil)
         }
+        outlineView.onFilterKey = { [weak self] in
+            self?.focusSearchField()
+        }
         outlineView.menu = makeContextMenu()
     }
 

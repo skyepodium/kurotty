@@ -38,11 +38,10 @@ final class TerminalCommandHistoryPanelView: NSView {
     private let searchPillView = TerminalSidebarSearchPillView(
         placeholder: { AppLocalization.string(.commandHistoryFilterPlaceholder) }
     )
-    private let sectionHeaderLabel = NSTextField(labelWithString: "")
     /// Clipping container for everything below the search pill. The scroll
     /// view and the empty state are both children of this view, so the empty
     /// state is centered in the list region instead of the whole panel and can
-    /// never be drawn over the section header or the search pill.
+    /// never be drawn over the search pill.
     private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalCommandHistoryOutlineView()
@@ -75,7 +74,6 @@ final class TerminalCommandHistoryPanelView: NSView {
         chromeTheme = theme
         layer?.backgroundColor = theme.topChromeBackground.cgColor
         searchPillView.applyChromeTheme(theme)
-        DesignTokens.Typography.sectionHeader.apply(to: sectionHeaderLabel, color: theme.textTertiary)
         applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
         emptyStateIconView.alphaValue = DesignTokens.Component.sidebarEmptyStateIconAlphaRATIO
@@ -108,10 +106,6 @@ final class TerminalCommandHistoryPanelView: NSView {
         convert(searchPillView.bounds, from: searchPillView)
     }
 
-    var sectionHeaderFrameForTesting: NSRect {
-        convert(sectionHeaderLabel.bounds, from: sectionHeaderLabel)
-    }
-
     var listRegionFrameForTesting: NSRect {
         convert(listContainerView.bounds, from: listContainerView)
     }
@@ -138,16 +132,14 @@ final class TerminalCommandHistoryPanelView: NSView {
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
         configureSearchPill()
-        configureSectionHeader()
         configureListContainer()
         configureOutline()
         configureEmptyState()
         activateLayoutConstraints()
     }
 
-    /// The container is added before the pill and header are populated with
-    /// content but after them in the subview order only for the outline; it
-    /// clips so no descendant can paint into the header/pill band.
+    /// Added after the search pill in the subview order and clipped, so no
+    /// descendant of the list can paint into the pill's band.
     private func configureListContainer() {
         listContainerView.wantsLayer = true
         listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
@@ -163,16 +155,6 @@ final class TerminalCommandHistoryPanelView: NSView {
         searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
-    }
-
-    private func configureSectionHeader() {
-        sectionHeaderLabel.stringValue = AppLocalization.string(.commandHistorySectionTitle).localizedUppercase
-        DesignTokens.Typography.sectionHeader.apply(
-            to: sectionHeaderLabel,
-            color: chromeTheme.textTertiary
-        )
-        sectionHeaderLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(sectionHeaderLabel)
     }
 
     private func configureOutline() {
@@ -199,6 +181,9 @@ final class TerminalCommandHistoryPanelView: NSView {
         outlineView.doubleAction = #selector(rowDoubleClicked(_:))
         outlineView.onReturnKey = { [weak self] in
             self?.insertSelectedCommand()
+        }
+        outlineView.onFilterKey = { [weak self] in
+            self?.focusFilterField()
         }
         outlineView.menu = makeContextMenu()
 
@@ -235,26 +220,20 @@ final class TerminalCommandHistoryPanelView: NSView {
         let insetX = DesignTokens.Component.commandHistoryPanelInsetXPX
         let insetY = DesignTokens.Component.commandHistoryPanelInsetYPX
         NSLayoutConstraint.activate([
-            sectionHeaderLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
-            sectionHeaderLabel.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderInsetXPX
-            ),
-            sectionHeaderLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingAnchor,
-                constant: -insetX
-            ),
-
+            // No panel title. The section strip directly above already names
+            // this section, in the same words and the same uppercase role, so
+            // the header was the same string twice with 22pt of the list
+            // underneath it.
             searchPillView.topAnchor.constraint(
-                equalTo: sectionHeaderLabel.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderBottomGapPX
+                equalTo: topAnchor,
+                constant: DesignTokens.Component.sidebarPanelTopGapPX
             ),
             searchPillView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
 
             listContainerView.topAnchor.constraint(
                 equalTo: searchPillView.bottomAnchor,
-                constant: DesignTokens.Component.commandHistorySectionHeaderTopGapPX
+                constant: DesignTokens.Component.sidebarPanelBandGapPX
             ),
             listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             listContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -487,6 +466,11 @@ extension TerminalCommandHistoryPanelView: NSOutlineViewDataSource, NSOutlineVie
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let rowView = TerminalCommandHistorySidebarRowView()
         rowView.chromeTheme = chromeTheme
+        // A directory row carries air above its content; the highlight has to
+        // stop short of it or the separation reads as a tall hover target.
+        if item is TerminalCommandHistoryGroupOutlineItem {
+            rowView.highlightTopInsetPX = DesignTokens.Component.commandHistoryGroupRowTopAirPX
+        }
         return rowView
     }
 

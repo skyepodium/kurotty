@@ -364,9 +364,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabBarView.layer?.cornerRadius = DesignTokens.Component.terminalTopBarCornerRadiusPX
         tabBarView.layer?.masksToBounds = true
 
+        // The separator under the tab bar is now clear rather than removed: the
+        // bar and the ground below it are the same chrome surface, so the rule
+        // was drawing a border between a surface and itself. Keeping the view
+        // (at its existing height) keeps `chromeBarBottomAnchor` and every
+        // panel constraint measured from it exactly where they were.
         topBarSeparatorView.wantsLayer = true
         topBarSeparatorView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
+        topBarSeparatorView.layer?.backgroundColor = NSColor.clear.cgColor
         topBarSeparatorView.translatesAutoresizingMaskIntoConstraints = false
 
         tabStackView.orientation = .horizontal
@@ -384,6 +389,12 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         tabView.delegate = self
         tabView.drawsBackground = false
         tabView.translatesAutoresizingMaskIntoConstraints = false
+        // The ground the pane cards sit on. It is the same surface as the tab
+        // bar above it, so the two read as one continuous plane with the
+        // terminal floating on it.
+        terminalContentHostView.wantsLayer = true
+        terminalContentHostView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
         // The chrome bar spans the whole window (above the split view) so the
         // sidebar toggles sit in the window corners and panel content starts
         // below the title bar instead of colliding with the traffic lights.
@@ -444,10 +455,26 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             topBarSeparatorView.bottomAnchor.constraint(equalTo: tabBarView.bottomAnchor),
             topBarSeparatorView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX),
 
-            tabView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor),
-            tabView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor),
-            tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor),
-            tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor),
+            // The gap the ground shows through. Inset on all four sides so the
+            // outermost pane card floats clear of the tab bar, the status bar,
+            // the window edge, and whichever sidebar is open, instead of butting
+            // into them.
+            tabView.leadingAnchor.constraint(
+                equalTo: terminalContentHostView.leadingAnchor,
+                constant: DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.trailingAnchor.constraint(
+                equalTo: terminalContentHostView.trailingAnchor,
+                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.topAnchor.constraint(
+                equalTo: terminalContentHostView.topAnchor,
+                constant: DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
+            tabView.bottomAnchor.constraint(
+                equalTo: terminalContentHostView.bottomAnchor,
+                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
+            ),
         ])
         // Mounted before the split configuration because the split's bottom
         // constraint is pinned to `statusBarView.topAnchor`: Auto Layout
@@ -573,7 +600,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         dropTargetView.chromeTheme = chromeTheme
         rootView.layer?.backgroundColor = chromeTheme.windowBackground.cgColor
         tabBarView.layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
-        topBarSeparatorView.layer?.backgroundColor = chromeTheme.borderHairline.cgColor
+        terminalContentHostView.layer?.backgroundColor = chromeTheme.terminalPaneGround.cgColor
         // The same broadcast carries a UI-text-scale change, so anything sized
         // from a scaled token has to re-read it here.
         chromeMetrics.reapply()

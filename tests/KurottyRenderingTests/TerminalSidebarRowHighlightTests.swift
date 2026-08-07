@@ -9,6 +9,15 @@ import XCTest
 final class TerminalSidebarRowHighlightTests: XCTestCase {
     private let theme = DesignTokens.ChromeTheme.dark
 
+    /// Lets a row paint a chosen state without a key window. Row state is read
+    /// off AppKit (`window?.isKeyWindow`), and a test process never gets one,
+    /// so an active selection is unreachable any other way.
+    private final class FixedStateRowView: TerminalSidebarRowView {
+        var forcedState = TerminalSidebarRowHighlight.State.rest
+
+        override var highlightState: TerminalSidebarRowHighlight.State { forcedState }
+    }
+
     private func appearance(
         selected: Bool = false,
         hovered: Bool = false,
@@ -44,6 +53,8 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         XCTAssertEqual(resolved.fill, theme.hoverFill)
         XCTAssertNil(resolved.rail)
         XCTAssertNil(resolved.focusRing)
+        XCTAssertNil(resolved.border, "a wash is not an object; only a pill is bordered")
+        XCTAssertNil(resolved.shadow, "only a surface is elevated")
         XCTAssertEqual(resolved.titleWeight, .regular)
     }
 
@@ -53,25 +64,69 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         XCTAssertNotNil(appearance(selected: true).rail)
     }
 
-    func testSelectedInActiveWindowAddsFillRailAndWeight() {
+    func testSelectedInActiveWindowIsAnElevatedRaisedSurface() {
         let resolved = appearance(selected: true)
-        XCTAssertEqual(resolved.fill, theme.selectionFill)
+        XCTAssertEqual(resolved.fill, theme.surfaceRaised)
+        XCTAssertEqual(resolved.border, theme.borderStrong)
         XCTAssertEqual(resolved.rail, theme.accent)
+        XCTAssertEqual(resolved.shadow, DesignTokens.Elevation.sidebarSelectedRowDark)
         XCTAssertNil(resolved.focusRing)
         XCTAssertEqual(resolved.titleWeight, .medium)
         XCTAssertEqual(resolved.titleColorRole, .primary)
     }
 
-    func testSelectedInInactiveWindowDropsAccentAndDemotesTitle() {
-        let resolved = appearance(selected: true, windowActive: false)
+    /// The pill has to be a surface, not a tint over one. A translucent fill is
+    /// what made a selected row's text land on a colour nothing had measured.
+    func testSelectedFillIsAnOpaqueRampSurfaceInBothThemes() throws {
+        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+            for state in [
+                TerminalSidebarRowHighlight.State(isSelected: true, isWindowActive: true),
+                TerminalSidebarRowHighlight.State(isSelected: true),
+            ] {
+                let fill = try XCTUnwrap(
+                    TerminalSidebarRowHighlight.appearance(for: state, theme: theme).fill
+                )
+                XCTAssertEqual(fill, theme.surfaceRaised)
+                XCTAssertEqual(fill.alphaComponent, 1)
+            }
+        }
+    }
+
+    /// Elevation is a token, and the two ramps do not share one: the same
+    /// shadow is invisible on dark chrome and a smudge on light.
+    func testSelectionShadowComesFromTheElevationRampAndIsThemeOwned() {
         XCTAssertEqual(
-            resolved.fill,
-            theme.textPrimary.withAlphaComponent(
-                DesignTokens.Component.sidebarRowInactiveSelectionAlphaRATIO
-            )
+            TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: true),
+                theme: .light
+            ).shadow,
+            DesignTokens.Elevation.sidebarSelectedRowLight
         )
+        XCTAssertNotEqual(
+            DesignTokens.Elevation.sidebarSelectedRowLight,
+            DesignTokens.Elevation.sidebarSelectedRowDark
+        )
+        // A row pill is a fraction of a floating panel. The reference's wide
+        // blur under a 26pt pill is a smudge repeated down the whole list.
+        XCTAssertLessThan(
+            DesignTokens.Elevation.sidebarSelectedRowDark.radiusPX,
+            DesignTokens.Elevation.floatingDark.radiusPX
+        )
+        XCTAssertLessThan(
+            DesignTokens.Elevation.sidebarSelectedRowLight.radiusPX,
+            DesignTokens.Elevation.floatingLight.radiusPX
+        )
+    }
+
+    func testSelectedInInactiveWindowKeepsTheSurfaceAndDropsEverythingActive() {
+        let resolved = appearance(selected: true, windowActive: false)
+        // The surface survives so the row can still be found; what goes is
+        // everything that says the user is acting on it.
+        XCTAssertEqual(resolved.fill, theme.surfaceRaised)
         XCTAssertNil(resolved.rail)
+        XCTAssertNil(resolved.shadow)
         XCTAssertNil(resolved.focusRing)
+        XCTAssertEqual(resolved.titleWeight, .regular)
         XCTAssertEqual(resolved.titleColorRole, .secondary)
     }
 
@@ -93,16 +148,22 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         XCTAssertEqual(unselectedPress.fill, theme.pressFill)
         XCTAssertNil(unselectedPress.rail)
 
+        // Pressing a selected row pushes it down: the pill stays, the lift goes.
         let selectedPress = appearance(selected: true, pressed: true)
-        XCTAssertEqual(selectedPress.fill, theme.pressFill)
+        XCTAssertEqual(selectedPress.fill, theme.surfaceRaised)
         XCTAssertEqual(selectedPress.rail, theme.accent)
+        XCTAssertNil(selectedPress.shadow)
     }
 
-    func testSelectionCarriesThreeIndependentCues() {
+    func testSelectionCarriesFourIndependentCues() {
         let resolved = appearance(selected: true)
         XCTAssertNotNil(resolved.fill)
         XCTAssertNotNil(resolved.rail)
+        XCTAssertNotNil(resolved.shadow)
         XCTAssertNotEqual(resolved.titleWeight, TerminalSidebarRowHighlight.Appearance.rest.titleWeight)
+        // The rail used to be accent drawn on an accent wash, which is one cue
+        // wearing two hats. On a neutral pill it is genuinely separate.
+        XCTAssertNotEqual(resolved.rail, resolved.fill)
     }
 
     // MARK: - Geometry
@@ -148,6 +209,140 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         TerminalSidebarRowHighlight.paint(appearance(selected: true), in: .zero)
     }
 
+    /// A section-header row reserves air above its content. Painting over it
+    /// would turn the gap between two directories back into one tall row.
+    func testHighlightStopsShortOfASectionHeadersAir() {
+        let rowBounds = NSRect(x: 0, y: 0, width: 200, height: 44)
+        let airPX: CGFloat = 12
+        let plain = TerminalSidebarRowHighlight.Geometry.highlightRect(in: rowBounds)
+        let withAir = TerminalSidebarRowHighlight.Geometry.highlightRect(
+            in: rowBounds,
+            topInsetPX: airPX
+        )
+        // Unflipped geometry: the air is at the high-y edge, so the pill keeps
+        // its origin and loses height.
+        XCTAssertEqual(withAir.minY, plain.minY)
+        XCTAssertEqual(withAir.minX, plain.minX)
+        XCTAssertEqual(withAir.width, plain.width)
+        XCTAssertEqual(withAir.maxY, plain.maxY - airPX)
+
+        // Every derived shape follows the pill, or the cues drift apart.
+        let rail = TerminalSidebarRowHighlight.Geometry.railRect(in: rowBounds, topInsetPX: airPX)
+        XCTAssertEqual(rail.height, withAir.height)
+        XCTAssertEqual(rail.maxY, withAir.maxY)
+        let ring = TerminalSidebarRowHighlight.Geometry.focusRingRect(in: rowBounds, topInsetPX: airPX)
+        XCTAssertEqual(ring, withAir.insetBy(dx: -1, dy: -1))
+        XCTAssertEqual(
+            TerminalSidebarRowHighlight.Geometry.highlightPath(in: rowBounds, topInsetPX: airPX)
+                .boundingBoxOfPath,
+            withAir
+        )
+    }
+
+    /// Air taller than the row leaves no pill rather than a negative one.
+    func testHighlightCollapsesRatherThanInvertingWhenTheAirExceedsTheRow() {
+        let rect = TerminalSidebarRowHighlight.Geometry.highlightRect(
+            in: NSRect(x: 0, y: 0, width: 200, height: 20),
+            topInsetPX: 999
+        )
+        XCTAssertEqual(rect.height, 0)
+    }
+
+    // MARK: - Shadow plumbing
+
+    /// The shadow has to hang off the layer, not off `draw(_:)`. A layer-backed
+    /// row renders into a backing store the size of its own bounds, so a
+    /// Core Graphics shadow would be sheared into a hard line at the row edge.
+    func testSelectedRowHangsItsShadowOffTheLayerPath() throws {
+        let rowBounds = NSRect(x: 0, y: 0, width: 220, height: 30)
+        let rowView = FixedStateRowView(frame: rowBounds)
+        rowView.chromeTheme = theme
+        rowView.forcedState = .init(isSelected: true, isWindowActive: true)
+        rowView.isSelected = true
+        rowView.layout()
+
+        let layer = try XCTUnwrap(rowView.layer)
+        XCTAssertFalse(layer.masksToBounds, "a clipping row would cut the shadow into an edge")
+        XCTAssertEqual(
+            layer.shadowPath,
+            TerminalSidebarRowHighlight.Geometry.highlightPath(in: rowBounds)
+        )
+        XCTAssertEqual(layer.shadowOpacity, DesignTokens.Elevation.sidebarSelectedRowDark.opacity)
+        XCTAssertEqual(layer.shadowRadius, DesignTokens.Elevation.sidebarSelectedRowDark.radiusPX)
+        // Unflipped layer geometry pushes a shadow down with a negative height.
+        XCTAssertEqual(
+            layer.shadowOffset.height,
+            -DesignTokens.Elevation.sidebarSelectedRowDark.downwardOffsetPX
+        )
+    }
+
+    func testUnselectedRowCarriesNoShadow() throws {
+        let rowView = FixedStateRowView(frame: NSRect(x: 0, y: 0, width: 220, height: 30))
+        rowView.chromeTheme = theme
+        rowView.forcedState = .init(isHovered: true, isWindowActive: true)
+        rowView.layout()
+
+        let layer = try XCTUnwrap(rowView.layer)
+        XCTAssertEqual(layer.shadowOpacity, 0)
+        XCTAssertNil(layer.shadowPath)
+    }
+
+    /// A row that was selected and then was not must give the shadow back.
+    func testDeselectingARowClearsItsShadow() throws {
+        let rowView = FixedStateRowView(frame: NSRect(x: 0, y: 0, width: 220, height: 30))
+        rowView.chromeTheme = theme
+        rowView.forcedState = .init(isSelected: true, isWindowActive: true)
+        rowView.layout()
+        XCTAssertGreaterThan(try XCTUnwrap(rowView.layer).shadowOpacity, 0)
+
+        rowView.forcedState = .rest
+        rowView.layout()
+        XCTAssertEqual(try XCTUnwrap(rowView.layer).shadowOpacity, 0)
+    }
+
+    /// A section-header row's shadow has to follow its shortened pill.
+    func testSectionHeaderRowShadowFollowsTheShortenedPill() throws {
+        let rowBounds = NSRect(x: 0, y: 0, width: 220, height: 44)
+        let rowView = FixedStateRowView(frame: rowBounds)
+        rowView.chromeTheme = theme
+        rowView.highlightTopInsetPX = DesignTokens.Component.commandHistoryGroupRowTopAirPX
+        rowView.forcedState = .init(isSelected: true, isWindowActive: true)
+        rowView.layout()
+
+        XCTAssertEqual(
+            try XCTUnwrap(rowView.layer).shadowPath,
+            TerminalSidebarRowHighlight.Geometry.highlightPath(
+                in: rowBounds,
+                topInsetPX: DesignTokens.Component.commandHistoryGroupRowTopAirPX
+            )
+        )
+    }
+
+    // MARK: - Filter key
+
+    func testBareSlashJumpsToTheFilterFieldAndAModifiedOneDoesNot() throws {
+        func event(_ characters: String, modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+            try XCTUnwrap(
+                NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: modifiers,
+                    timestamp: 0,
+                    windowNumber: 0,
+                    context: nil,
+                    characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false,
+                    keyCode: 44
+                )
+            )
+        }
+        XCTAssertTrue(TerminalSidebarFilterKey.matches(try event("/", modifiers: [])))
+        XCTAssertFalse(TerminalSidebarFilterKey.matches(try event("/", modifiers: .command)))
+        XCTAssertFalse(TerminalSidebarFilterKey.matches(try event("/", modifiers: .option)))
+        XCTAssertFalse(TerminalSidebarFilterKey.matches(try event("a", modifiers: [])))
+    }
+
     // MARK: - Title weight ladder
 
     func testTitleWeightEmphasisStepsUpFromTheCellBaseWeight() {
@@ -189,7 +384,16 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
     // MARK: - No implicit animation
 
     func testRowLayerDisablesImplicitAnimationForHighlightKeys() throws {
-        let expectedKeys = ["backgroundColor", "position", "bounds"]
+        let expectedKeys = [
+            "backgroundColor",
+            "position",
+            "bounds",
+            "shadowColor",
+            "shadowOffset",
+            "shadowOpacity",
+            "shadowPath",
+            "shadowRadius",
+        ]
         XCTAssertEqual(TerminalSidebarRowHighlight.LayerAnimation.disabledKeys, expectedKeys)
 
         let actions = TerminalSidebarRowHighlight.LayerAnimation.disabledActions

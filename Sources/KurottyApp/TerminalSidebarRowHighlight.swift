@@ -4,10 +4,19 @@ import AppKit
 /// history, agent sessions, and the file explorer.
 ///
 /// The rule it enforces is that hover and selection must never be the same
-/// paint at two opacities. Hover is achromatic, selection is chromatic and adds
-/// two further cues — a leading accent rail and a heavier title — so a selected
-/// row stays identifiable on both themes and for color-vision-deficient users.
+/// paint at two opacities. Hover is a translucent achromatic wash over the
+/// panel; selection is an *opaque raised surface* lifted off it, and adds two
+/// further cues — a leading accent rail and a heavier title — so a selected row
+/// stays identifiable on both themes and for color-vision-deficient users.
 /// Keyboard focus adds a fourth, separate cue: a ring around the highlight.
+///
+/// Selection used to be a translucent accent wash, which cost two things. The
+/// accent rail was accent-on-accent and effectively invisible, so the three
+/// "independent" cues were two; and the row's text sat on a colour nothing had
+/// measured, which is why `DesignTokenColorRampTests` had to declare selected
+/// rows out of scope. An opaque `surfaceRaised` pill is a surface the ramp
+/// already owns and already guarantees, so the text on a selected row is now
+/// covered by the same contrast floors as text anywhere else.
 ///
 /// State resolution is a pure function (`appearance(for:theme:)`) so it can be
 /// tested without a window, a table view, or a first responder.
@@ -50,15 +59,30 @@ enum TerminalSidebarRowHighlight {
     /// The resolved paint for one row. `nil` means "draw nothing for this cue".
     struct Appearance: Equatable {
         var fill: NSColor?
+        /// Hairline around the pill.
+        ///
+        /// Not decoration: on the dark ramp `surfaceRaised` sits only ten
+        /// levels above the panel it is drawn on, which is *less* separation
+        /// than the hover wash carries, so fill alone left a selected row
+        /// reading quieter than a hovered one. A border is how the search pill
+        /// already makes the same surface read as an object on the same
+        /// background.
+        var border: NSColor?
         var rail: NSColor?
         var focusRing: NSColor?
+        /// Drop shadow under the highlight. Only an active selection carries
+        /// one: it is the cue that says the pill is a surface rather than a
+        /// tint, and a hovered or pressed row is not a surface.
+        var shadow: DesignTokens.Elevation.Shadow?
         var titleWeight: NSFont.Weight
         var titleColorRole: TitleColorRole
 
         static let rest = Appearance(
             fill: nil,
+            border: nil,
             rail: nil,
             focusRing: nil,
+            shadow: nil,
             titleWeight: Typography.restTitleWeight,
             titleColorRole: .primary
         )
@@ -88,17 +112,32 @@ enum TerminalSidebarRowHighlight {
         static var insetYPX: CGFloat { DesignTokens.Component.sidebarRowHighlightInsetYPX }
         static var cornerRadiusPX: CGFloat { DesignTokens.Component.sidebarRowHighlightCornerRadiusPX }
         static var railWidthPX: CGFloat { DesignTokens.Component.sidebarRowSelectionRailWidthPX }
+        static var borderWidthPX: CGFloat { DesignTokens.Component.sidebarRowSelectionBorderWidthPX }
         static var railCornerRadiusPX: CGFloat { DesignTokens.Component.sidebarRowSelectionRailCornerRadiusPX }
         static var focusRingWidthPX: CGFloat { DesignTokens.Component.sidebarRowFocusRingWidthPX }
         static var focusRingOutsetPX: CGFloat { DesignTokens.Component.sidebarRowFocusRingOutsetPX }
 
-        static func highlightRect(in bounds: NSRect) -> NSRect {
-            bounds.insetBy(dx: insetXPX, dy: insetYPX)
+        /// - Parameter topInsetPX: dead space at the top of the row that the
+        ///   highlight must not cover. Section-header rows reserve air above
+        ///   their content; painting over it would turn the gap between groups
+        ///   back into a tall row.
+        static func highlightRect(in bounds: NSRect, topInsetPX: CGFloat = 0) -> NSRect {
+            let inset = bounds.insetBy(dx: insetXPX, dy: insetYPX)
+            guard topInsetPX > 0 else {
+                return inset
+            }
+            // AppKit row views are unflipped, so "top" is the high-y edge.
+            return NSRect(
+                x: inset.minX,
+                y: inset.minY,
+                width: inset.width,
+                height: max(inset.height - topInsetPX, 0)
+            )
         }
 
         /// Leading rail: full highlight height, pinned to the highlight inset.
-        static func railRect(in bounds: NSRect) -> NSRect {
-            let highlight = highlightRect(in: bounds)
+        static func railRect(in bounds: NSRect, topInsetPX: CGFloat = 0) -> NSRect {
+            let highlight = highlightRect(in: bounds, topInsetPX: topInsetPX)
             return NSRect(
                 x: highlight.minX,
                 y: highlight.minY,
@@ -107,11 +146,22 @@ enum TerminalSidebarRowHighlight {
             )
         }
 
-        static func focusRingRect(in bounds: NSRect) -> NSRect {
-            highlightRect(in: bounds).insetBy(dx: -focusRingOutsetPX, dy: -focusRingOutsetPX)
+        static func focusRingRect(in bounds: NSRect, topInsetPX: CGFloat = 0) -> NSRect {
+            highlightRect(in: bounds, topInsetPX: topInsetPX)
+                .insetBy(dx: -focusRingOutsetPX, dy: -focusRingOutsetPX)
         }
 
         static var focusRingCornerRadiusPX: CGFloat { cornerRadiusPX + focusRingOutsetPX }
+
+        /// The pill's outline, for the layer shadow that seats it.
+        static func highlightPath(in bounds: NSRect, topInsetPX: CGFloat = 0) -> CGPath {
+            CGPath(
+                roundedRect: highlightRect(in: bounds, topInsetPX: topInsetPX),
+                cornerWidth: cornerRadiusPX,
+                cornerHeight: cornerRadiusPX,
+                transform: nil
+            )
+        }
     }
 
     /// Pure state resolution. No AppKit drawing, no view state.
@@ -132,48 +182,68 @@ enum TerminalSidebarRowHighlight {
                 }
                 return Appearance(
                     fill: theme.hoverFill,
+                    border: nil,
                     rail: nil,
                     focusRing: nil,
+                    shadow: nil,
                     titleWeight: Typography.restTitleWeight,
                     titleColorRole: .primary
                 )
             }
             return Appearance(
                 fill: theme.pressFill,
+                border: nil,
                 rail: nil,
                 focusRing: nil,
+                shadow: nil,
                 titleWeight: Typography.restTitleWeight,
                 titleColorRole: .primary
             )
         }
 
+        // A background window's selection is still a selection, so it keeps the
+        // raised surface: at `surfaceSidebar` it measured about 1.03:1 against
+        // the panel and simply could not be found again. What it gives up is
+        // everything that says "acting on this right now" — the accent rail, the
+        // elevation, and the title weight.
         guard isActiveSelection else {
             return Appearance(
-                fill: theme.textPrimary.withAlphaComponent(
-                    DesignTokens.Component.sidebarRowInactiveSelectionAlphaRATIO
-                ),
+                fill: theme.surfaceRaised,
+                border: theme.hairline,
                 rail: nil,
                 focusRing: nil,
+                shadow: nil,
                 titleWeight: Typography.restTitleWeight,
                 titleColorRole: .secondary
             )
         }
 
+        // Press takes the elevation away rather than repainting the pill: the
+        // gesture is pushing the row down, and swapping the surface for a wash
+        // would make a click look like the row lost its selection.
         return Appearance(
-            fill: state.isPressed ? theme.pressFill : theme.selectionFill,
+            fill: theme.surfaceRaised,
+            border: theme.borderStrong,
             rail: theme.accent,
             focusRing: isFocusedSelection ? theme.focusRing : nil,
+            shadow: state.isPressed ? nil : DesignTokens.Elevation.sidebarSelectedRow(for: theme),
             titleWeight: Typography.selectedTitleWeight,
             titleColorRole: .primary
         )
     }
 
     /// Draws the resolved appearance into the current graphics context.
-    static func paint(_ appearance: Appearance, in bounds: NSRect) {
+    ///
+    /// The shadow is deliberately not drawn here. A layer-backed row renders
+    /// `draw(_:)` into a backing store the size of its own bounds, so a shadow
+    /// painted through Core Graphics would be sheared off at the row edge — a
+    /// hard line, which is worse than no shadow. `TerminalSidebarRowView` hangs
+    /// it off the layer's `shadowPath` instead, which is not bounds-clipped.
+    static func paint(_ appearance: Appearance, in bounds: NSRect, topInsetPX: CGFloat = 0) {
         guard !bounds.isEmpty else {
             return
         }
-        let highlightRect = Geometry.highlightRect(in: bounds)
+        let highlightRect = Geometry.highlightRect(in: bounds, topInsetPX: topInsetPX)
         if let fill = appearance.fill {
             fill.setFill()
             NSBezierPath(
@@ -182,10 +252,26 @@ enum TerminalSidebarRowHighlight {
                 yRadius: Geometry.cornerRadiusPX
             ).fill()
         }
+        if let border = appearance.border {
+            border.setStroke()
+            // Stroked on the inside of the pill: a centred stroke would put
+            // half a hairline outside the highlight rect, and the rail drawn
+            // after it would then sit a half point in from the pill's edge.
+            let borderPath = NSBezierPath(
+                roundedRect: highlightRect.insetBy(
+                    dx: Geometry.borderWidthPX / 2,
+                    dy: Geometry.borderWidthPX / 2
+                ),
+                xRadius: Geometry.cornerRadiusPX - Geometry.borderWidthPX / 2,
+                yRadius: Geometry.cornerRadiusPX - Geometry.borderWidthPX / 2
+            )
+            borderPath.lineWidth = Geometry.borderWidthPX
+            borderPath.stroke()
+        }
         if let rail = appearance.rail {
             rail.setFill()
             NSBezierPath(
-                roundedRect: Geometry.railRect(in: bounds),
+                roundedRect: Geometry.railRect(in: bounds, topInsetPX: topInsetPX),
                 xRadius: Geometry.railCornerRadiusPX,
                 yRadius: Geometry.railCornerRadiusPX
             ).fill()
@@ -193,7 +279,7 @@ enum TerminalSidebarRowHighlight {
         if let focusRing = appearance.focusRing {
             focusRing.setStroke()
             let ringPath = NSBezierPath(
-                roundedRect: Geometry.focusRingRect(in: bounds),
+                roundedRect: Geometry.focusRingRect(in: bounds, topInsetPX: topInsetPX),
                 xRadius: Geometry.focusRingCornerRadiusPX,
                 yRadius: Geometry.focusRingCornerRadiusPX
             )
@@ -204,9 +290,20 @@ enum TerminalSidebarRowHighlight {
 
     /// Hover and selection must be instant. A fade makes a list feel laggy, so
     /// the row layers disable the implicit animations Core Animation would
-    /// otherwise attach to these keys.
+    /// otherwise attach to these keys. The shadow keys are here for the same
+    /// reason: an elevated selection that fades in trails the arrow key that
+    /// moved it.
     enum LayerAnimation {
-        static let disabledKeys = ["backgroundColor", "position", "bounds"]
+        static let disabledKeys = [
+            "backgroundColor",
+            "position",
+            "bounds",
+            "shadowColor",
+            "shadowOffset",
+            "shadowOpacity",
+            "shadowPath",
+            "shadowRadius",
+        ]
 
         static var disabledActions: [String: CAAction] {
             var actions: [String: CAAction] = [:]
@@ -222,6 +319,49 @@ enum TerminalSidebarRowHighlight {
             }
             layer.actions = disabledActions
         }
+    }
+}
+
+/// Shared row geometry for every sidebar cell.
+///
+/// One rule, applied everywhere: the leading glyph occupies a reserved column,
+/// never its own intrinsic width. SF Symbols are not a monospaced set — at 13pt
+/// `folder` is 19pt wide and `doc` is 15pt — so a tree drawn to each glyph's
+/// natural width has a filename column that moves depending on what kind of
+/// thing each row happens to be. The git column already solved this for the
+/// trailing marks; this is the same fix at the other end of the row.
+@MainActor
+enum TerminalSidebarRowLayout {
+    /// Pins a glyph into the reserved leading column. The image view *is* the
+    /// column: it takes the slot's width and centres whatever glyph it holds,
+    /// so the label after it starts at the same x on every row.
+    static func leadingSlotConstraints(
+        glyphView: NSImageView,
+        in cell: NSView,
+        leadingInsetPX: CGFloat = 0,
+        slotWidthPX: CGFloat = DesignTokens.Component.sidebarRowIconSlotWidthPX
+    ) -> [NSLayoutConstraint] {
+        glyphView.imageScaling = .scaleNone
+        glyphView.imageAlignment = .alignCenter
+        return [
+            glyphView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: leadingInsetPX),
+            glyphView.widthAnchor.constraint(equalToConstant: slotWidthPX),
+        ]
+    }
+}
+
+/// The one place that decides whether a key event is "jump to the filter
+/// field". Both sidebar outlines route it and the search pill advertises it, so
+/// the binding and the badge cannot drift apart.
+enum TerminalSidebarFilterKey {
+    static func matches(_ event: NSEvent) -> Bool {
+        // Modified `/` belongs to whoever bound it (⌘/ is a comment toggle in
+        // most editors); only the bare key is a navigation shortcut.
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else {
+            return false
+        }
+        return event.charactersIgnoringModifiers?.first
+            == DesignTokens.Component.sidebarSearchHintKeyCharacter
     }
 }
 
@@ -306,6 +446,13 @@ class TerminalSidebarRowView: NSTableRowView {
         didSet { refreshHighlight() }
     }
 
+    /// Dead space at the top of the row that no highlight may cover. Set by the
+    /// list delegate on section-header rows so the air above a group reads as a
+    /// gap between groups rather than as a taller hover target.
+    var highlightTopInsetPX: CGFloat = 0 {
+        didSet { refreshHighlight() }
+    }
+
     private var isMouseInside = false
     private var isPressed = false
     private var hoverTrackingArea: NSTrackingArea?
@@ -345,6 +492,9 @@ class TerminalSidebarRowView: NSTableRowView {
 
     private func configureLayerForInstantHighlight() {
         wantsLayer = true
+        // The selection shadow lives outside the pill, which is outside the row
+        // gutter; a clipping row layer would cut it into a hard edge.
+        layer?.masksToBounds = false
         TerminalSidebarRowHighlight.LayerAnimation.disableImplicitAnimations(on: layer)
     }
 
@@ -404,28 +554,66 @@ class TerminalSidebarRowView: NSTableRowView {
         refreshHighlight()
     }
 
+    override func layout() {
+        super.layout()
+        // The shadow is a path, so a row that changed width keeps the old
+        // outline until it is rebuilt here.
+        applySelectionShadow(currentAppearance)
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         guard !isSelected else {
             return
         }
-        TerminalSidebarRowHighlight.paint(currentAppearance, in: bounds)
+        TerminalSidebarRowHighlight.paint(
+            currentAppearance,
+            in: bounds,
+            topInsetPX: highlightTopInsetPX
+        )
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else {
             return
         }
-        TerminalSidebarRowHighlight.paint(currentAppearance, in: bounds)
+        TerminalSidebarRowHighlight.paint(
+            currentAppearance,
+            in: bounds,
+            topInsetPX: highlightTopInsetPX
+        )
     }
 
     private var currentAppearance: TerminalSidebarRowHighlight.Appearance {
         TerminalSidebarRowHighlight.appearance(for: highlightState, theme: chromeTheme)
     }
 
+    /// Hangs the pill's drop shadow off the row's own layer.
+    ///
+    /// `shadowPath` is independent of the layer's contents, so the shadow is
+    /// not clipped to the row the way anything drawn in `draw(_:)` would be.
+    /// That is the whole reason it lives here instead of in the painter.
+    private func applySelectionShadow(_ appearance: TerminalSidebarRowHighlight.Appearance) {
+        guard let layer else {
+            return
+        }
+        layer.masksToBounds = false
+        guard let shadow = appearance.shadow, !bounds.isEmpty else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        shadow.apply(to: layer)
+        layer.shadowPath = TerminalSidebarRowHighlight.Geometry.highlightPath(
+            in: bounds,
+            topInsetPX: highlightTopInsetPX
+        )
+    }
+
     private func refreshHighlight() {
         needsDisplay = true
         let appearance = currentAppearance
+        applySelectionShadow(appearance)
         for subview in subviews {
             guard let styling = subview as? TerminalSidebarRowTitleStyling else {
                 continue
