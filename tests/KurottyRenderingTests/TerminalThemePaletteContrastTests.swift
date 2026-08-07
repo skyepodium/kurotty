@@ -14,12 +14,12 @@ import XCTest
 /// apart, which is what makes a pale theme render red and magenta as the same
 /// pink. Both are computed here from the resolved sRGB components.
 ///
-/// Only Nacre is held to the full set. Lightty predates these floors and fails
-/// most of them — eight of its sixteen slots land under 4.5:1 on white, its
-/// "bright white" is white on white, and its closest cross-slot pair measures
-/// under 4 CIEDE2000. Pinning that as a regression baseline would be pinning a
-/// bug; the one thing asserted about it below is the part that is not
-/// negotiable for any theme, its foreground.
+/// Nacre and Lightty are both held to the full set. Lightty was exempt on the
+/// grounds that it predated these floors — nine of its sixteen slots sat under
+/// 4.5:1 on white and its "bright white" was `#FFFFFF` on `#FFFFFF` — and the
+/// exemption was wrong. Lightty was what users had selected, so the thing
+/// documented here as a known failure was what they were looking at: a terminal
+/// that rendered blank. Its palette is recut and the exemption is gone.
 final class TerminalThemePaletteContrastTests: XCTestCase {
     // MARK: - Thresholds
 
@@ -451,6 +451,95 @@ final class TerminalThemePaletteContrastTests: XCTestCase {
             nacre.backgroundColor
         )
         XCTAssertGreaterThanOrEqual(Double(ratio), WCAG.nonTextRATIO)
+    }
+
+    // MARK: - Lightty
+
+    private var lightty: TerminalColorSettings { .lightty }
+
+    /// The invariant that broke. Slot 15 shipped as `#FFFFFF` on a `#FFFFFF`
+    /// background — contrast 1.00 — and slots 7 and 15 are where a shell prompt
+    /// writes ordinary text, so the screen read as empty rather than as a theme
+    /// with one bad color in it.
+    func testLighttyEverySlotIsReadableAsTextOnItsBackground() throws {
+        for slot in 0..<TerminalColorSettings.requiredAnsiColorCount {
+            let ratio = try contrastRatio(lightty.ansi[slot], lightty.background)
+            XCTAssertGreaterThanOrEqual(
+                ratio,
+                WCAG.normalTextAARATIO,
+                "Lightty \(name(slot)) measured \(ratio):1 on its background"
+            )
+        }
+    }
+
+    func testLighttyForegroundClearsTheEnhancedFloor() throws {
+        let ratio = try contrastRatio(lightty.foreground, lightty.background)
+        XCTAssertGreaterThanOrEqual(
+            ratio,
+            WCAG.enhancedTextAAARATIO,
+            "Lightty foreground measured \(ratio):1 on its background"
+        )
+    }
+
+    /// Slot 3 shipped as `#9A4DB4`, a purple in the yellow position, one step
+    /// from slot 5's `#B445B8`. `git diff` and `ls --color` encode meaning in
+    /// which hue a slot carries, so two families rendering as the same color is
+    /// a functional failure rather than a cosmetic one.
+    func testLighttyChromaticSlotsCarrySeparableHues() throws {
+        for (index, lower) in Slot.chromatic.enumerated() {
+            for upper in Slot.chromatic.dropFirst(index + 1) {
+                guard abs(lower - upper) != 8 else { continue }
+                let difference = try colorDifference(lightty.ansi[lower], lightty.ansi[upper])
+                XCTAssertGreaterThanOrEqual(
+                    difference,
+                    Separation.chromaticSlotDE00,
+                    "Lightty \(name(lower)) and \(name(upper)) measured \(difference) CIEDE2000 apart"
+                )
+            }
+        }
+    }
+
+    func testLighttyBrightHalfIsADistinctStepOfItsOwnFamily() throws {
+        for normal in Slot.chromatic where normal < 8 {
+            let difference = try colorDifference(lightty.ansi[normal], lightty.ansi[normal + 8])
+            XCTAssertGreaterThanOrEqual(
+                difference,
+                Separation.brightPairDE00,
+                "Lightty \(name(normal)) and \(name(normal + 8)) measured \(difference) CIEDE2000 apart"
+            )
+        }
+    }
+
+    func testLighttyNeutralSlotsAreAnOrderedSeparatedRamp() throws {
+        var previousLuminance = -1.0
+        for slot in Slot.neutralRamp {
+            let luminance = relativeLuminance(try components(lightty.ansi[slot]))
+            XCTAssertGreaterThan(
+                luminance,
+                previousLuminance,
+                "Lightty \(name(slot)) breaks the dark-to-light order of the neutral ramp"
+            )
+            previousLuminance = luminance
+        }
+        for (lower, upper) in zip(Slot.neutralRamp, Slot.neutralRamp.dropFirst()) {
+            let difference = try colorDifference(lightty.ansi[lower], lightty.ansi[upper])
+            XCTAssertGreaterThanOrEqual(
+                difference,
+                Separation.neutralStepDE00,
+                "Lightty \(name(lower)) and \(name(upper)) measured \(difference) CIEDE2000 apart"
+            )
+        }
+    }
+
+    func testLighttyForegroundIsDistinguishableFromEveryInk() throws {
+        for slot in 0..<TerminalColorSettings.requiredAnsiColorCount {
+            let difference = try colorDifference(lightty.foreground, lightty.ansi[slot])
+            XCTAssertGreaterThanOrEqual(
+                difference,
+                Separation.foregroundToInkDE00,
+                "Lightty foreground and \(name(slot)) measured \(difference) CIEDE2000 apart"
+            )
+        }
     }
 
     // MARK: - Every shipped preset

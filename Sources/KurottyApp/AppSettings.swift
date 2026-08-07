@@ -534,27 +534,43 @@ enum TerminalThemePreset {
 }
 
 extension TerminalColorSettings {
+    /// Lightty draws on a white ground, and its palette was a dark-theme ramp
+    /// with the background flipped: nine of its sixteen slots sat under 4.5:1,
+    /// slot 15 was `#FFFFFF` on `#FFFFFF` -- contrast 1.00, invisible -- and
+    /// the yellow slot held a purple one step from magenta. A shell prompt
+    /// writes ordinary text in slots 7 and 15, so the terminal rendered blank.
+    ///
+    /// Recut against the floors Nacre is held to. Every slot clears 4.5:1 on
+    /// the background; the six hue families sit far enough apart to keep
+    /// `git diff` and `ls --color` legible; each bright variant goes darker and
+    /// more chromatic than its normal, because "brighter" on a white ground
+    /// cannot mean lighter without leaving the readable band.
+    ///
+    /// This reaches existing installs without a schema migration: a settings
+    /// file that names a preset has that preset's colors reapplied on load, so
+    /// the fix arrives with the build. `AppSettingsBehaviorTests` pins that
+    /// path, since it is what makes the migration unnecessary.
     static let lightty = TerminalColorSettings(
-        foreground: "#202124",
+        foreground: "#1D2228",
         background: "#FFFFFF",
         cursor: "#111111",
         ansi: [
-            "#AFA7F5",
-            "#AB4634",
-            "#55C236",
-            "#9A4DB4",
-            "#3347C3",
-            "#B445B8",
-            "#4FC3C7",
-            "#C9C9C9",
-            "#666666",
-            "#D47D78",
-            "#55B94A",
-            "#A452BD",
-            "#5B5AA2",
-            "#CF75D3",
-            "#35B9BD",
-            "#FFFFFF",
+            "#070B11",
+            "#C05053",
+            "#2E8441",
+            "#996C1B",
+            "#1877C9",
+            "#AA569D",
+            "#008283",
+            "#4E545D",
+            "#30353C",
+            "#A92735",
+            "#006A1E",
+            "#7D5100",
+            "#005DB8",
+            "#933186",
+            "#00676A",
+            "#6D7580",
         ]
     )
 
