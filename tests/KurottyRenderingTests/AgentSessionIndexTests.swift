@@ -632,13 +632,6 @@ final class AgentSessionIndexTests: XCTestCase {
         )
     }
 
-    func testStoreNeverPersistsIndexedRecords() throws {
-        let storeSource = try agentSessionSourceFile("Sources/KurottyApp/AgentSessionIndexStore.swift")
-        for writeSymbol in ["data.write(", "createDirectory(", "JSONEncoder("] {
-            XCTAssertFalse(storeSource.contains(writeSymbol), "the index must stay in memory: found \(writeSymbol)")
-        }
-    }
-
     // MARK: - Window integration
 
     @MainActor

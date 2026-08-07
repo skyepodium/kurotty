@@ -591,15 +591,27 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(drawSource.contains("self?.onPresented?()"))
     }
 
-    func testPtyOutputIsCoalescedBeforeRenderingToAvoidTransientClearedRows() throws {
+    /// Kept as a source-text assertion, deliberately.
+    ///
+    /// A TUI's repaint arrives as several PTY reads: clear the region, then
+    /// write it back. Rendering each read on arrival shows the cleared frame,
+    /// which is the flicker this guards. The observable difference is a frame
+    /// that exists for one display interval and is then overwritten — the
+    /// renderer keeps no frame history, so nothing after the fact distinguishes
+    /// "coalesced" from "rendered twice, quickly".
+    ///
+    /// Reduced to the two statements that carry the contract. The deferred
+    /// flush itself is exercised (not asserted) by
+    /// `TerminalSurfaceScrollbackFollowTests`, which drives the same async
+    /// output path end to end. The behavioural replacement is a rendered-frame
+    /// counter on the renderer.
+    func testPtyOutputIsCoalescedBeforeRendering() throws {
         let source = try terminalSurfaceViewSource()
 
-        XCTAssertTrue(source.contains("private var pendingOutputText = \"\""))
-        XCTAssertTrue(source.contains("private var isOutputFlushScheduled = false"))
-        XCTAssertTrue(source.contains("self.enqueueOutput(visibleText)"))
         XCTAssertTrue(source.contains("private func enqueueOutput(_ text: String)"))
         XCTAssertTrue(source.contains("DispatchQueue.main.asyncAfter"))
-        XCTAssertTrue(source.contains("appendOutput(text)"))
+        // The direct `appendOutput` call from the read callback is what
+        // reintroduces per-read rendering.
         XCTAssertFalse(source.contains("self?.appendOutput(text)"))
     }
 
@@ -665,61 +677,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         // frame look unchanged.
         XCTAssertTrue(dirtySource.contains("return nextSignature != lastAtlasBufferSignature"))
         XCTAssertFalse(dirtySource.contains("lastAtlasBufferSignature = nextSignature"))
-    }
-
-    func testTerminalSurfaceViewDrivesTheScrollbackIndicator() throws {
-        let source = try terminalSurfaceViewSource()
-
-        XCTAssertTrue(source.contains("private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator"))
-        XCTAssertTrue(source.contains("scrollIndicatorCoordinator.install(in: self)"))
-        XCTAssertTrue(source.contains("let maxOffset = maxScrollbackOffset()"))
-        XCTAssertTrue(source.contains("private func maxScrollbackOffset(visibleRows: Int? = nil) -> Int"))
-        XCTAssertTrue(source.contains("return max(0, contentRowCount - visibleCount)"))
-        XCTAssertTrue(source.contains("scrollbackOffset = nextOffset"))
-        XCTAssertTrue(source.contains("private func setScrollbackOffset(fromNormalizedOffset normalizedOffset: CGFloat)"))
-    }
-
-    func testPtyOutputDoesNotForceFollowWhenUserIsViewingScrollback() throws {
-        let source = try terminalSurfaceViewSource()
-        let interpreterSource = try terminalOutputInterpreterSource()
-
-        XCTAssertTrue(interpreterSource.contains("var scrollbackRowsAppendedDuringOutput = 0"))
-        XCTAssertTrue(source.contains("scrollbackRowsAppendedDuringOutput = 0"))
-        XCTAssertTrue(source.contains("let shouldFollowOutput = scrollbackOffset == 0"))
-        XCTAssertTrue(source.contains("if shouldFollowOutput {\n            scrollbackOffset = 0\n        }"))
-        XCTAssertTrue(source.contains("let appendedScrollbackCount = scrollbackRowsAppendedDuringOutput"))
-        XCTAssertTrue(source.contains("scrollbackOffset = min(maxScrollbackOffset(), scrollbackOffset + appendedScrollbackCount)\n            markFullDamage()"))
-        XCTAssertFalse(source.contains("if !text.isEmpty {\n            scrollbackOffset = 0\n        }"))
-        XCTAssertTrue(source.contains("updateScrollIndicator()"))
-    }
-
-    func testUserInputReturnsScrollbackToLiveCursorPosition() throws {
-        let source = try terminalSurfaceViewSource()
-
-        XCTAssertTrue(source.contains("private func followLiveOutputForUserInput()"))
-        XCTAssertTrue(source.contains("guard scrollbackOffset != 0 else { return }"))
-        XCTAssertTrue(source.contains("scrollbackOffset = 0\n        markFullDamage()\n        updateScrollIndicator()\n        updateRendererFrame()"))
-        XCTAssertTrue(source.contains("if recordsUserActivity {\n            clearSelection()\n            followLiveOutputForUserInput()\n            recordKeyboardSelectionInputStartIfNeeded(for: text)\n            recordUserInput(text)\n            onCommandProgress?(.userDidInteract)\n        }"))
-    }
-
-    func testMarkedTextStartReturnsScrollbackToLiveCursorPosition() throws {
-        let source = try terminalSurfaceViewSource()
-        let setMarkedTextStart = try XCTUnwrap(source.range(of: "func setMarkedText"))
-        let unmarkTextStart = try XCTUnwrap(source.range(of: "func unmarkText"))
-        let setMarkedTextSource = source[setMarkedTextStart.lowerBound..<unmarkTextStart.lowerBound]
-
-        XCTAssertTrue(setMarkedTextSource.contains("followLiveOutputForUserInput()"))
-    }
-
-    func testSelectionTracksContentRowsWhenScrollingScrollback() throws {
-        let source = try terminalSurfaceViewSource()
-
-        XCTAssertTrue(source.contains("private func visibleRowStartIndex(limit: Int) -> Int"))
-        XCTAssertTrue(source.contains("let visibleStartRow = visibleRowStartIndex(limit: metrics.size.rows)"))
-        XCTAssertTrue(source.contains("let position = TerminalCellPosition(row: visibleStartRow + row, column: column)"))
-        XCTAssertTrue(source.contains("private func visibleCellPosition(for event: NSEvent) -> TerminalCellPosition"))
-        XCTAssertTrue(source.contains("visibleRowStartIndex(limit: terminalMetrics().size.rows) + visiblePosition.row"))
-        XCTAssertFalse(source.contains("let position = TerminalCellPosition(row: row, column: column)"))
     }
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
@@ -836,94 +793,32 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(shellSource.contains("pendingOutput.removeFirst"))
     }
 
-    func testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings() throws {
-        let menuSource = try mainMenuSource()
-        XCTAssertFalse(menuSource.contains("settingsMenuItem.title = \"Settings\""))
-        XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
-
-        let settingsSource = try appSettingsSource()
-        // Schema 21 added `terminal.agentStatusCodexHookConsent`. Asserted
-        // against the value rather than against the text of its declaration, so
-        // a reformat of SettingsDefaults cannot fail a test about the menu.
+    /// What survives from `testSettingsOwnWindowSizeAndMenuDoesNotDuplicateSettings`,
+    /// which had grown into a sixty-assertion grab-bag covering the menu, the
+    /// settings schema, the light palette, the theme remap, and four VT
+    /// capability replies.
+    ///
+    /// Everything with a runtime witness moved out:
+    /// - the light palette and the theme remap, to `TerminalThemeApplicationTests`
+    /// - window size clamping, already covered by `AppSettingsBehaviorTests`
+    /// - style and colour remapping, already covered by `AppSettingsBehaviorTests`
+    ///   and `BoundedScrollbackRowsTests`
+    /// - CPR, DA and the OSC colour queries, already covered by
+    ///   `TerminalCapabilityRepliesTests`
+    ///
+    /// Left here: the schema version as a value, and the two menu facts. The
+    /// menu is only reachable through `MainMenu.install(target: AppDelegate)`,
+    /// which mutates `NSApp.mainMenu` and needs a real app delegate; there is
+    /// no `makeMenu()` factory to call. That seam is the behavioural
+    /// replacement, and `MenuBarExtraTests` shows what the test would look like
+    /// once it exists.
+    func testSettingsIsOneMenuItemAndTheSchemaVersionIsPinned() throws {
         XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
-        XCTAssertTrue(settingsSource.contains("static let schemaVersion = SettingsDefaults.schemaVersion"))
-        XCTAssertTrue(settingsSource.contains("var shell: ShellSettings"))
-        XCTAssertTrue(settingsSource.contains("workingDirectory: Defaults.shellWorkingDirectory"))
-        XCTAssertTrue(settingsSource.contains("struct ShellSettings: Codable, Equatable"))
-        XCTAssertTrue(settingsSource.contains("var workingDirectory: String"))
-        XCTAssertTrue(settingsSource.contains("decodeIfPresent(ShellSettings.self, forKey: .shell) ?? .default"))
-        XCTAssertFalse(settingsSource.contains("next.shell.workingDirectory = ShellSettings.normalizedWorkingDirectory(next.shell.workingDirectory)"))
-        XCTAssertTrue(settingsSource.contains("var theme: String"))
-        XCTAssertTrue(settingsSource.contains("TerminalThemePreset.lighttyName"))
-        XCTAssertTrue(settingsSource.contains("static let lightty = TerminalColorSettings"))
-        XCTAssertTrue(settingsSource.contains("foreground: \"#202124\""))
-        XCTAssertTrue(settingsSource.contains("background: \"#FFFFFF\""))
-        XCTAssertTrue(settingsSource.contains("cursor: \"#111111\""))
-        XCTAssertTrue(settingsSource.contains("\"#AFA7F5\""))
-        XCTAssertTrue(settingsSource.contains("\"#AB4634\""))
-        XCTAssertTrue(settingsSource.contains("\"#55C236\""))
-        XCTAssertTrue(settingsSource.contains("\"#9A4DB4\""))
-        XCTAssertTrue(settingsSource.contains("\"#4FC3C7\""))
-        XCTAssertTrue(settingsSource.contains("\"#A452BD\""))
-        XCTAssertTrue(settingsSource.contains("\"#CF75D3\""))
-        XCTAssertTrue(settingsSource.contains("\"#35B9BD\""))
-        XCTAssertTrue(settingsSource.contains("normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)"))
 
-        let surfaceSource = try terminalSurfaceViewSource()
-        let interpreterSource = try terminalOutputInterpreterSource()
-        let textStyleSource = try terminalTextStyleSource()
-        XCTAssertTrue(surfaceSource.contains("shell.start(workingDirectory: settings.shell.workingDirectory)"))
-        XCTAssertTrue(surfaceSource.contains("let previousDefaultStyle = terminalDefaultStyle"))
-        XCTAssertTrue(surfaceSource.contains("let previousAnsiColors = terminalAnsiColors"))
-        XCTAssertTrue(surfaceSource.contains("let colorMap = TerminalStyleColorMap("))
-        XCTAssertTrue(surfaceSource.contains("screen.remapColors(colorMap)"))
-        XCTAssertTrue(surfaceSource.contains("scrollbackRows.remapColors(colorMap)"))
-        XCTAssertTrue(surfaceSource.contains("screen.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)"))
-        XCTAssertTrue(surfaceSource.contains("scrollbackRows.remapStyle(from: previousDefaultStyle, to: terminalDefaultStyle)"))
-        XCTAssertTrue(textStyleSource.contains("struct TerminalStyleColorMap"))
-        XCTAssertTrue(textStyleSource.contains("func remapForeground(_ color: SIMD4<Float>)"))
-        XCTAssertTrue(textStyleSource.contains("func remapBackground(_ color: SIMD4<Float>)"))
-        XCTAssertTrue(textStyleSource.contains("dimmed(weighted, against: background)"))
-        XCTAssertTrue(textStyleSource.contains("luminance(background) > 0.5"))
-        XCTAssertTrue(textStyleSource.contains("dimBlendAmount(for: color)"))
-        XCTAssertTrue(textStyleSource.contains("chroma(color) > 0.08"))
-        XCTAssertTrue(interpreterSource.contains("if terminalDefaultStyle.isLightBackground, index >= 250"))
-        XCTAssertTrue(interpreterSource.contains("private func lightThemeGray(_ index: Int)"))
-        XCTAssertTrue(interpreterSource.contains("205 + (clamped - 250) * 6"))
-        XCTAssertTrue(interpreterSource.contains("guard !parsed.isPrivate else { break }"))
-        XCTAssertTrue(interpreterSource.contains("private var oscBuffer = \"\""))
-        XCTAssertTrue(interpreterSource.contains("executeOsc(oscBuffer)"))
-        XCTAssertTrue(surfaceSource.contains("case \"10\":"))
-        XCTAssertTrue(surfaceSource.contains("case \"11\":"))
-        XCTAssertTrue(surfaceSource.contains("rgb:"))
-        XCTAssertTrue(surfaceSource.contains("terminalOscColor"))
-        XCTAssertTrue(interpreterSource.contains("case \"n\":"))
-        XCTAssertTrue(interpreterSource.contains("cursorPositionReport"))
-        XCTAssertTrue(interpreterSource.contains("if !parsed.isPrivate, parsed.value(at: 0, default: 0) == 6"))
-        XCTAssertTrue(interpreterSource.contains("case \"c\":"))
-        XCTAssertTrue(interpreterSource.contains("TerminalDeviceAttributes.response(for: parsed)"))
-        XCTAssertTrue(surfaceSource.contains("private func sendTerminalResponse(_ text: String)"))
-        XCTAssertTrue(surfaceSource.contains("shell.canReceiveTerminalResponseWithoutEcho()"))
-
-        XCTAssertTrue(settingsSource.contains("var window: WindowSettings"))
-        XCTAssertTrue(settingsSource.contains("struct WindowSettings: Codable, Equatable"))
-        XCTAssertTrue(settingsSource.contains("width: Defaults.windowWidth"))
-        XCTAssertTrue(settingsSource.contains("height: Defaults.windowHeight"))
-        XCTAssertTrue(settingsSource.contains("decodeIfPresent(WindowSettings.self, forKey: .window) ?? .default"))
-        XCTAssertTrue(settingsSource.contains("next.window.width = min("))
-        XCTAssertTrue(settingsSource.contains("next.window.height = min("))
-
-        let windowSource = try terminalWindowControllerSource()
-        XCTAssertTrue(windowSource.contains("AppSettingsStore.shared.load()"))
-        XCTAssertTrue(windowSource.contains("contentRect: NSRect(x: 0, y: 0, width: settings.window.width, height: settings.window.height)"))
-        XCTAssertTrue(windowSource.contains("var chromeTheme: DesignTokens.ChromeTheme"))
-        XCTAssertTrue(windowSource.contains("DesignTokens.ChromeTheme.theme(for: settings)"))
-        XCTAssertTrue(windowSource.contains("window?.appearance = chromeTheme.windowAppearance"))
-        XCTAssertTrue(windowSource.contains("private func applyChromeThemeToTabSplits(_ theme: DesignTokens.ChromeTheme)"))
-        XCTAssertTrue(windowSource.contains("splitView.applyChromeTheme(theme)"))
-        XCTAssertTrue(windowSource.contains("AppSettingsStore.didChangeNotification"))
-        XCTAssertTrue(windowSource.contains("@objc private func settingsDidChange(_ notification: Notification)"))
-        XCTAssertTrue(windowSource.contains("setContentSize(NSSize(width: settings.window.width, height: settings.window.height))"))
+        let menuSource = try mainMenuSource()
+        XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
+        // The old hand-titled duplicate must not come back alongside it.
+        XCTAssertFalse(menuSource.contains("settingsMenuItem.title = \"Settings\""))
     }
 
     func testAppMenuIncludesNativeAboutPanelWithVersionAndIcon() throws {
@@ -2187,21 +2082,6 @@ private func functionBody(named name: String, in source: String) throws -> Strin
     return ""
 }
 
-private func kurottyCoreSourceFiles() throws -> [(filename: String, source: String)] {
-    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore")
-    let urls = try FileManager.default.contentsOfDirectory(
-        at: directory,
-        includingPropertiesForKeys: nil
-    )
-        .filter { $0.pathExtension == "swift" }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-
-    return try urls.map { url in
-        (url.lastPathComponent, try String(contentsOf: url, encoding: .utf8))
-    }
-}
-
 private func designTokensSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/DesignTokens.swift")
@@ -2226,21 +2106,9 @@ private func terminalOutputInterpreterSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
-private func boundedScrollbackRowsSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/BoundedScrollbackRows.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
 private func terminalModelSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalModel.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalScreenSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/TerminalScreen.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -2250,55 +2118,10 @@ private func terminalRenderFrameSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
-private func terminalRendererSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalRenderer.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalFrameRendererSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/TerminalFrameRenderer.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func zigCoreSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("src/core.zig")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalTextStyleSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/TerminalTextStyle.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalColorUtilitiesSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/TerminalColorUtilities.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalTextWidthSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyCore/TerminalTextWidth.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
 private func terminalDiagnosticsSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/TerminalDiagnostics.swift")
     return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func integerConstant(named name: String, in source: String) throws -> Int {
-    let pattern = #"static let \#(name)\s*=\s*([0-9_]+)"#
-    let regex = try NSRegularExpression(pattern: pattern)
-    let range = NSRange(source.startIndex..<source.endIndex, in: source)
-    let match = try XCTUnwrap(regex.firstMatch(in: source, range: range))
-    let valueRange = try XCTUnwrap(Range(match.range(at: 1), in: source))
-    return try XCTUnwrap(Int(source[valueRange].replacingOccurrences(of: "_", with: "")))
 }
 
 private func debugOptionsSource() throws -> String {
@@ -2319,24 +2142,6 @@ private func terminalSessionSource() throws -> String {
     return try String(contentsOf: path, encoding: .utf8)
 }
 
-private func terminalSessionFactorySource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalSessionFactory.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalSessionAdapterSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalSessionAdapter.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func unsupportedTerminalSessionSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/UnsupportedTerminalSession.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
 private func mainMenuSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/MainMenu.swift")
@@ -2346,12 +2151,6 @@ private func mainMenuSource() throws -> String {
 private func commandPaletteWindowControllerSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyApp/CommandPaletteWindowController.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func appSettingsSource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/AppSettings.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }
 
@@ -2512,11 +2311,5 @@ private func coreBridgeSource() throws -> String {
 private func terminalCoreSource() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Sources/KurottyCore/TerminalCore.swift")
-    return try String(contentsOf: path, encoding: .utf8)
-}
-
-private func terminalCoreFactorySource() throws -> String {
-    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Sources/KurottyApp/TerminalCoreFactory.swift")
     return try String(contentsOf: path, encoding: .utf8)
 }

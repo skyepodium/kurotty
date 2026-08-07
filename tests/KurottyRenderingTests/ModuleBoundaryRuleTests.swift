@@ -149,8 +149,11 @@ final class ModuleBoundaryBehaviourTests: XCTestCase {
             cursorColor: SIMD4<Float>(1, 1, 1, 1)
         )
 
-        XCTAssertTrue(renderer is any TerminalFrameRenderer)
+        // The compiler proves the conformance; what a test can add is that the
+        // renderer yields a view the surface can actually install, and that it
+        // accepts a frame without a device or a window.
         XCTAssertTrue(renderer.rendererView.isKind(of: NSView.self))
+        XCTAssertNil(renderer.rendererView.superview)
     }
 
     /// The session factory resolves to the Darwin PTY implementation here, and
@@ -158,20 +161,25 @@ final class ModuleBoundaryBehaviourTests: XCTestCase {
     func testSessionFactoryResolvesToThePlatformSession() {
         let session = TerminalSessionFactory.makeDefaultSession()
 
-        XCTAssertTrue(session is any TerminalSession)
         #if os(macOS)
         XCTAssertTrue(session is DarwinPTYTerminalSession)
         #endif
     }
 
-    /// The unsupported adapter is not a stub that crashes: it reports the
-    /// platform it refused, which is what the surface shows the user.
-    func testUnsupportedAdapterNamesThePlatformItRefused() {
+    /// The unsupported adapter is a real session, not a stub that traps: every
+    /// call has to be survivable, because it is what runs on a platform the app
+    /// has no PTY for.
+    func testUnsupportedAdapterReturnsASurvivableSession() {
         let session = UnsupportedTerminalSessionAdapter.makeSession(
             platformName: TerminalSessionPlatformNames.linux
         )
 
-        XCTAssertTrue(session is any TerminalSession)
+        session.start(workingDirectory: "/tmp")
+        session.write("echo hi\n")
+        session.resize(columns: 80, rows: 24)
+        session.stop()
+
+        XCTAssertNil(session.foregroundProcessName())
     }
 
     /// The portable core types compose without any AppKit help — the positive
