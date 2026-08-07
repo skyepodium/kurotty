@@ -285,7 +285,8 @@ final class MenuBarExtraTests: XCTestCase {
     /// Kurotty is a normal Dock app, so nothing it offers is otherwise
     /// unreachable.
     func testTheMenuBarExtraDefaultsOff() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
+        // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
         XCTAssertFalse(SettingsDefaults.menuBarExtraEnabled)
         XCTAssertFalse(AppSettings.default.terminal.menuBarExtraEnabled)
     }

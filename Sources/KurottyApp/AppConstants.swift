@@ -268,25 +268,54 @@ enum AppConstants {
         static let hookQueueLabel = "dev.kurotty.agent-status.hook-server"
         static let hookRequestTimeoutSeconds = 2
 
-        /// Claude Code hook installation (opt-in, off by default).
+        /// Agent hook installation. Claude Code and Codex use the same document
+        /// shape — a `hooks` object keyed by event name, each event holding
+        /// matcher objects with their own `hooks` array of `{type, command}`
+        /// entries — so one set of key names serves both files.
         static let claudeSettingsRelativePath = ".claude/settings.json"
-        static let claudeSettingsBackupRelativePath = ".claude/settings.json.kurotty-backup"
-        static let claudeHooksKey = "hooks"
-        static let claudeHookMatcherKey = "matcher"
-        static let claudeHookListKey = "hooks"
-        static let claudeHookTypeKey = "type"
-        static let claudeHookCommandKey = "command"
-        static let claudeHookCommandType = "command"
+        static let codexHooksRelativePath = ".codex/hooks.json"
+        /// Codex is only written to when this directory already exists. Creating
+        /// it would plant a configuration file for a program the user may not
+        /// have installed, and would raise a consent prompt about a product they
+        /// do not run.
+        static let codexConfigurationDirectoryRelativePath = ".codex"
+        /// Top-level keys Codex accepts in `hooks.json`, verified against
+        /// codex-cli 0.146.1, which reports `unknown field '<key>', expected
+        /// 'description' or 'hooks'` and then refuses the entire file. Kurotty
+        /// declines to rewrite a document whose top level it does not recognize;
+        /// a future Codex key therefore costs status reporting until this list
+        /// is updated, which is the failure direction that cannot eat someone
+        /// else's configuration.
+        static let codexPermittedTopLevelKeys: Set<String> = ["description", "hooks"]
+        /// Appended to the configuration file name to form its backup.
+        static let backupFileNameSuffix = ".kurotty-backup"
+        static let hookDocumentHooksKey = "hooks"
+        static let hookDocumentMatcherKey = "matcher"
+        static let hookDocumentEntryListKey = "hooks"
+        static let hookDocumentTypeKey = "type"
+        static let hookDocumentCommandKey = "command"
+        static let hookDocumentCommandType = "command"
+        /// Names reported in the status payload, and the product names shown in
+        /// the consent prompt. The payload names are what a pane displays, so
+        /// they match the short names an OSC 9999 producer would send for the
+        /// same agent rather than the product's full title.
+        static let claudeReportedAgentName = "claude"
+        static let codexReportedAgentName = "codex"
+        static let claudeProductName = "Claude Code"
+        static let codexProductName = "Codex"
         /// Marker embedded in every command Kurotty writes. Uninstall removes
         /// only entries carrying this marker; all other keys are preserved.
         static let managedCommandMarker = "kurotty-agent-status-hook"
         static let hookCurlExecutablePath = "/usr/bin/curl"
         static let settingsKeyPath = "terminal.agentStatusHooksEnabled"
-        /// On by default, but the default alone never edits the user's Claude
-        /// Code configuration: `AgentStatusHookConsentPolicy` still requires a
-        /// one-time yes before the first write.
+        /// On by default, but the default alone never edits an agent's
+        /// configuration: `AgentStatusHookConsentPolicy` still requires a
+        /// one-time yes per agent before the first write.
         static let hooksEnabledDefault = SettingsDefaults.agentStatusHooksEnabled
-        static let hookConsentSettingsKeyPath = "terminal.agentStatusHookConsent"
+        /// One recorded answer per agent: the prompt names the file it is about,
+        /// so a yes for one agent's configuration is not a yes for another's.
+        static let claudeHookConsentSettingsKeyPath = "terminal.agentStatusHookConsent"
+        static let codexHookConsentSettingsKeyPath = "terminal.agentStatusCodexHookConsent"
     }
 
     /// Per-project shell history derivation. Everything here is a filesystem

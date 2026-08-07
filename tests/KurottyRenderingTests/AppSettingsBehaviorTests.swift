@@ -580,18 +580,22 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // `terminal.commandProgressIndicatorEnabled`; the schema-12 keys below
         // keep their documented defaults.
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
+        // Re-pointed at schema 21, which added
+        // `terminal.agentStatusCodexHookConsent`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
             SettingsDefaults.agentStatusHooksEnabled,
             "hooks are on by default, but the write into the user's agent configuration still waits for consent"
         )
-        XCTAssertEqual(
-            AppSettings.default.terminal.agentStatusHookConsentChoice,
-            .unasked,
-            "a fresh install has answered nothing, so nothing may be written yet"
-        )
+        for target in AgentStatusHookTarget.allCases {
+            XCTAssertEqual(
+                AppSettings.default.terminal.agentStatusHookConsentChoice(for: target),
+                .unasked,
+                "a fresh install has answered nothing for \(target.rawValue), so nothing may be written yet"
+            )
+        }
         XCTAssertTrue(AppSettings.default.terminal.hideMouseCursorWhileTyping)
         XCTAssertTrue(AppSettings.default.shell.perProjectHistoryEnabled)
         XCTAssertTrue(AppSettings.default.terminal.agentStatusHooksEnabled)
@@ -718,7 +722,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 19, which added the command progress bar key;
         // the scrollback-restore default below is unchanged.
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
+        // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -783,7 +788,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
     /// on but must always be switchable off; turning it off stops the sampler
     /// rather than only hiding the view.
     func testStatusBarDefaultsOn() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
+        // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -831,7 +837,8 @@ final class AppSettingsBehaviorTests: XCTestCase {
     // MARK: - Schema 19 UI text scale
 
     func testUITextScaleDefaultsToOneHundredPercent() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 20)
+        // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 21)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }

@@ -30,6 +30,7 @@ struct AppSettings: Codable, Equatable {
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
             agentStatusHookConsent: Defaults.agentStatusHookConsent,
+            agentStatusCodexHookConsent: Defaults.agentStatusCodexHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
             menuBarExtraEnabled: Defaults.menuBarExtraEnabled
@@ -65,6 +66,7 @@ struct AppSettings: Codable, Equatable {
         static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
+        static let agentStatusCodexHookConsent = SettingsDefaults.agentStatusCodexHookConsent
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
@@ -124,7 +126,10 @@ struct AppSettings: Codable, Equatable {
 /// it never edits anything: it starts a loopback listener and expresses intent,
 /// while the first write of Kurotty-marked entries into the user's own agent
 /// hook configuration waits for the one-time answer recorded in
-/// `agentStatusHookConsent`. A denied answer leaves that file untouched forever.
+/// `agentStatusHookConsent` for Claude Code and `agentStatusCodexHookConsent`
+/// for Codex — one answer per agent, because the prompt names the file it is
+/// about. A denied answer leaves that agent's file untouched forever, and the
+/// visible checkbox only goes off once every agent on the machine is refused.
 /// `statusBarEnabled` is live-applied and defaults on: the bottom status bar is
 /// passive chrome, so turning it off collapses it to zero height and stops the
 /// resource sampler entirely rather than only hiding a view.
@@ -185,6 +190,10 @@ struct TerminalSettings: Codable, Equatable {
     /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
     /// this only remembers that the question was already answered.
     var agentStatusHookConsent: String
+    /// The same answer for Codex's `~/.codex/hooks.json`. Separate because the
+    /// prompt names the file, and that file is commonly owned by third-party
+    /// tooling, so a yes about Claude Code's settings says nothing about it.
+    var agentStatusCodexHookConsent: String
     /// Percentage applied to the chrome type ramp and to the boxes that hold it.
     /// Stored as a percentage rather than as a multiplier so the settings file
     /// and the Settings readout say the same thing.
@@ -202,8 +211,26 @@ struct TerminalSettings: Codable, Equatable {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
     }
 
-    var agentStatusHookConsentChoice: AgentStatusHookConsent {
-        AgentStatusHookConsent.parse(agentStatusHookConsent) ?? .default
+    func agentStatusHookConsentChoice(for target: AgentStatusHookTarget) -> AgentStatusHookConsent {
+        AgentStatusHookConsent.parse(rawAgentStatusHookConsent(for: target)) ?? .default
+    }
+
+    mutating func setAgentStatusHookConsent(_ consent: AgentStatusHookConsent, for target: AgentStatusHookTarget) {
+        switch target {
+        case .claudeCode:
+            agentStatusHookConsent = consent.rawValue
+        case .codex:
+            agentStatusCodexHookConsent = consent.rawValue
+        }
+    }
+
+    private func rawAgentStatusHookConsent(for target: AgentStatusHookTarget) -> String {
+        switch target {
+        case .claudeCode:
+            return agentStatusHookConsent
+        case .codex:
+            return agentStatusCodexHookConsent
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -226,6 +253,7 @@ struct TerminalSettings: Codable, Equatable {
         case notifyOnCommandFinish
         case minimumCommandDurationSeconds
         case agentStatusHookConsent
+        case agentStatusCodexHookConsent
         case uiTextScalePercent
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
@@ -251,6 +279,7 @@ struct TerminalSettings: Codable, Equatable {
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
         agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
+        agentStatusCodexHookConsent: String = SettingsDefaults.agentStatusCodexHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
         menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled
@@ -274,6 +303,7 @@ struct TerminalSettings: Codable, Equatable {
         self.notifyOnCommandFinish = notifyOnCommandFinish
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
         self.agentStatusHookConsent = agentStatusHookConsent
+        self.agentStatusCodexHookConsent = agentStatusCodexHookConsent
         self.uiTextScalePercent = uiTextScalePercent
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
@@ -333,6 +363,9 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.minimumCommandDurationSeconds
         agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
             ?? SettingsDefaults.agentStatusHookConsent
+        agentStatusCodexHookConsent = try container
+            .decodeIfPresent(String.self, forKey: .agentStatusCodexHookConsent)
+            ?? SettingsDefaults.agentStatusCodexHookConsent
         // Absent in schema versions below 19; those files fall back to 100,
         // which is the size every existing install is already running at.
         uiTextScalePercent = try container.decodeIfPresent(Double.self, forKey: .uiTextScalePercent)
@@ -552,6 +585,11 @@ struct AppSettingsNormalizer {
         static let commandProgressIndicatorSchemaVersion = 19
         /// Schema version that introduced `terminal.menuBarExtraEnabled`.
         static let menuBarExtraSchemaVersion = 20
+        // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
+        // migration branch for the same reason `terminal.agentStatusHookConsent`
+        // has none: it records an answer the user gave, not a preference with a
+        // default worth re-applying, and a file that predates the key has
+        // answered nothing — which `unasked` already says.
     }
 
     static func normalized(_ settings: AppSettings) -> AppSettings {
@@ -661,7 +699,12 @@ struct AppSettingsNormalizer {
         // record falls back to `unasked`, which asks again rather than assuming
         // a yes nobody gave.
         next.terminal.notifyOnCommandFinish = next.terminal.commandFinishNotificationMode.rawValue
-        next.terminal.agentStatusHookConsent = next.terminal.agentStatusHookConsentChoice.rawValue
+        for target in AgentStatusHookTarget.allCases {
+            next.terminal.setAgentStatusHookConsent(
+                next.terminal.agentStatusHookConsentChoice(for: target),
+                for: target
+            )
+        }
         next.terminal.minimumCommandDurationSeconds = min(
             SettingsDefaults.maximumAllowedCommandDurationSeconds,
             max(SettingsDefaults.minimumAllowedCommandDurationSeconds, next.terminal.minimumCommandDurationSeconds)
