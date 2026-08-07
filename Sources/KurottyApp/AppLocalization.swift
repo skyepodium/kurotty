@@ -56,7 +56,8 @@ enum L10nKey: String, CaseIterable {
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     // Close confirmation for a tab or window whose shell still runs a process.
     case closeRunningProcessTitle, closeRunningProcessMessage, closeRunningProcessConfirm
-    // One-time consent before Kurotty edits the user's Claude Code settings.
+    // One-time consent, asked once per agent, before Kurotty edits that
+    // agent's own hook configuration.
     case agentStatusHookConsentTitle, agentStatusHookConsentMessage
     case agentStatusHookConsentAllow, agentStatusHookConsentDeny
     case updateUnavailableTitle, updateUnavailableMessage, ok
@@ -74,6 +75,15 @@ enum L10nKey: String, CaseIterable {
     case insertIntoTerminal, runAgain, copyCommand, copyChangeDirectoryCommand, revealDirectoryInFinder
     case fileExplorer, fileExplorerSearchPlaceholder, fileExplorerSegmentName, fileExplorerSegmentContent
     case refresh, revealInFinder, copyPath, insertPathIntoTerminal
+    // Creating, renaming, and trashing an entry from the explorer. Naming is
+    // the one blocking question, so it has prompt copy of its own; everything
+    // that can go wrong afterwards is a sentence the panel shows inline.
+    case fileExplorerNewFile, fileExplorerNewFolder, fileExplorerRenameEntry, fileExplorerMoveToTrash
+    case fileExplorerNewFilePrompt, fileExplorerNewFolderPrompt, fileExplorerRenamePrompt
+    case fileExplorerCreateConfirm, fileExplorerRenameConfirm
+    case fileExplorerErrorNameEmpty, fileExplorerErrorNameReserved, fileExplorerErrorNameSeparator
+    case fileExplorerErrorNameTooLong, fileExplorerErrorNameExists
+    case fileExplorerErrorMissing, fileExplorerErrorDenied, fileExplorerErrorReadOnlyVolume, fileExplorerErrorUnclassified
     case editorBinaryFile, editorFileTooLarge, editorLoadFailed
     case unsavedChangesQuestion, save, discardChanges
     case agentSessions, agentSessionsSectionTitle, agentSessionsFilterPlaceholder
@@ -200,8 +210,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "Close and end the running process?",
             .closeRunningProcessMessage: "Closing will terminate: %@. Unsaved work in that process is lost.",
             .closeRunningProcessConfirm: "Close",
-            .agentStatusHookConsentTitle: "Let Kurotty add its status hooks to your Claude Code settings?",
-            .agentStatusHookConsentMessage: "Kurotty would add its own entries to %@ so agents can report working, waiting, and done. Your other settings and hooks are kept, the previous file is backed up, and Kurotty asks only this once.",
+            .agentStatusHookConsentTitle: "Let Kurotty add its status hooks to your %@ settings?",
+            .agentStatusHookConsentMessage: "Kurotty would add its own entries to %@ so this agent can report its activity in the pane. Your other settings and hooks are kept, the previous file is backed up, and Kurotty asks this once for this agent.",
             .agentStatusHookConsentAllow: "Add Hooks",
             .agentStatusHookConsentDeny: "Don't Add",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
@@ -220,6 +230,12 @@ enum AppLocalization {
             .insertIntoTerminal: "Insert into Terminal", .runAgain: "Run Again...", .copyCommand: "Copy Command", .copyChangeDirectoryCommand: "Copy 'cd' Command", .revealDirectoryInFinder: "Reveal Directory in Finder",
             .fileExplorer: "File Explorer", .fileExplorerSearchPlaceholder: "Find files", .fileExplorerSegmentName: "Name", .fileExplorerSegmentContent: "Content",
             .refresh: "Refresh", .revealInFinder: "Reveal in Finder", .copyPath: "Copy Path", .insertPathIntoTerminal: "Insert Path into Terminal",
+            .fileExplorerNewFile: "New File...", .fileExplorerNewFolder: "New Folder...", .fileExplorerRenameEntry: "Rename...", .fileExplorerMoveToTrash: "Move to Trash",
+            .fileExplorerNewFilePrompt: "New file in \"%@\"", .fileExplorerNewFolderPrompt: "New folder in \"%@\"", .fileExplorerRenamePrompt: "Rename \"%@\"",
+            .fileExplorerCreateConfirm: "Create", .fileExplorerRenameConfirm: "Rename",
+            .fileExplorerErrorNameEmpty: "Enter a name.", .fileExplorerErrorNameReserved: "\".\" and \"..\" are not names.", .fileExplorerErrorNameSeparator: "A name cannot contain \"/\".",
+            .fileExplorerErrorNameTooLong: "A name can be at most %d bytes.", .fileExplorerErrorNameExists: "\"%@\" already exists here.",
+            .fileExplorerErrorMissing: "That item is no longer on disk.", .fileExplorerErrorDenied: "You do not have permission to write here.", .fileExplorerErrorReadOnlyVolume: "This volume is read-only.", .fileExplorerErrorUnclassified: "Could not finish: %@",
             .editorBinaryFile: "Binary file", .editorFileTooLarge: "File too large", .editorLoadFailed: "Could not open file",
             .unsavedChangesQuestion: "Save changes to \"%@\"?", .save: "Save", .discardChanges: "Don't Save",
             .agentSessions: "Agent Sessions", .agentSessionsSectionTitle: "Agent Sessions", .agentSessionsFilterPlaceholder: "Search sessions",
@@ -303,8 +319,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "실행 중인 프로세스를 종료하고 닫을까요?",
             .closeRunningProcessMessage: "닫으면 다음 프로세스가 종료됩니다: %@. 해당 프로세스에서 저장하지 않은 작업은 사라집니다.",
             .closeRunningProcessConfirm: "닫기",
-            .agentStatusHookConsentTitle: "Kurotty가 Claude Code 설정에 상태 훅을 추가해도 될까요?",
-            .agentStatusHookConsentMessage: "에이전트가 작업 중·입력 대기·완료 상태를 보고할 수 있도록 %@ 파일에 Kurotty 항목을 추가합니다. 다른 설정과 훅은 그대로 유지되고, 이전 파일은 백업되며, 이 질문은 한 번만 표시됩니다.",
+            .agentStatusHookConsentTitle: "Kurotty가 %@ 설정에 상태 훅을 추가해도 될까요?",
+            .agentStatusHookConsentMessage: "이 에이전트가 패널에 활동 상태를 보고할 수 있도록 %@ 파일에 Kurotty 항목을 추가합니다. 다른 설정과 훅은 그대로 유지되고, 이전 파일은 백업되며, 이 질문은 에이전트마다 한 번만 표시됩니다.",
             .agentStatusHookConsentAllow: "훅 추가",
             .agentStatusHookConsentDeny: "추가 안 함",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
@@ -323,6 +339,12 @@ enum AppLocalization {
             .insertIntoTerminal: "터미널에 입력", .runAgain: "다시 실행...", .copyCommand: "명령 복사", .copyChangeDirectoryCommand: "'cd' 명령 복사", .revealDirectoryInFinder: "Finder에서 폴더 보기",
             .fileExplorer: "파일 탐색기", .fileExplorerSearchPlaceholder: "파일 찾기", .fileExplorerSegmentName: "이름", .fileExplorerSegmentContent: "내용",
             .refresh: "새로 고침", .revealInFinder: "Finder에서 보기", .copyPath: "경로 복사", .insertPathIntoTerminal: "터미널에 경로 입력",
+            .fileExplorerNewFile: "새 파일...", .fileExplorerNewFolder: "새 폴더...", .fileExplorerRenameEntry: "이름 변경...", .fileExplorerMoveToTrash: "휴지통으로 이동",
+            .fileExplorerNewFilePrompt: "\"%@\"에 새 파일 만들기", .fileExplorerNewFolderPrompt: "\"%@\"에 새 폴더 만들기", .fileExplorerRenamePrompt: "\"%@\" 이름 변경",
+            .fileExplorerCreateConfirm: "만들기", .fileExplorerRenameConfirm: "이름 변경",
+            .fileExplorerErrorNameEmpty: "이름을 입력하세요.", .fileExplorerErrorNameReserved: "\".\"과 \"..\"은 이름으로 사용할 수 없습니다.", .fileExplorerErrorNameSeparator: "이름에 \"/\"를 사용할 수 없습니다.",
+            .fileExplorerErrorNameTooLong: "이름은 최대 %d바이트까지 가능합니다.", .fileExplorerErrorNameExists: "\"%@\"이(가) 이미 있습니다.",
+            .fileExplorerErrorMissing: "해당 항목이 디스크에 더 이상 없습니다.", .fileExplorerErrorDenied: "여기에 쓸 권한이 없습니다.", .fileExplorerErrorReadOnlyVolume: "이 볼륨은 읽기 전용입니다.", .fileExplorerErrorUnclassified: "완료하지 못했습니다: %@",
             .editorBinaryFile: "바이너리 파일", .editorFileTooLarge: "파일이 너무 큽니다", .editorLoadFailed: "파일을 열 수 없습니다",
             .unsavedChangesQuestion: "\"%@\"의 변경 사항을 저장할까요?", .save: "저장", .discardChanges: "저장 안 함",
             .agentSessions: "에이전트 세션", .agentSessionsSectionTitle: "에이전트 세션", .agentSessionsFilterPlaceholder: "세션 검색",
@@ -406,8 +428,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "実行中のプロセスを終了して閉じますか？",
             .closeRunningProcessMessage: "閉じると次のプロセスが終了します: %@。そのプロセスの保存していない作業は失われます。",
             .closeRunningProcessConfirm: "閉じる",
-            .agentStatusHookConsentTitle: "KurottyのステータスフックをClaude Codeの設定に追加しますか？",
-            .agentStatusHookConsentMessage: "エージェントが作業中・入力待ち・完了を報告できるよう、%@ にKurottyの項目を追加します。他の設定とフックはそのまま残り、以前のファイルはバックアップされ、この確認は一度だけです。",
+            .agentStatusHookConsentTitle: "Kurottyのステータスフックを%@の設定に追加しますか？",
+            .agentStatusHookConsentMessage: "このエージェントがペインで状態を報告できるよう、%@ にKurottyの項目を追加します。他の設定とフックはそのまま残り、以前のファイルはバックアップされ、この確認はエージェントごとに一度だけです。",
             .agentStatusHookConsentAllow: "フックを追加",
             .agentStatusHookConsentDeny: "追加しない",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
@@ -426,6 +448,12 @@ enum AppLocalization {
             .insertIntoTerminal: "ターミナルに入力", .runAgain: "再実行...", .copyCommand: "コマンドをコピー", .copyChangeDirectoryCommand: "'cd'コマンドをコピー", .revealDirectoryInFinder: "Finderでフォルダを表示",
             .fileExplorer: "ファイルエクスプローラ", .fileExplorerSearchPlaceholder: "ファイルを検索", .fileExplorerSegmentName: "名前", .fileExplorerSegmentContent: "内容",
             .refresh: "再読み込み", .revealInFinder: "Finderで表示", .copyPath: "パスをコピー", .insertPathIntoTerminal: "ターミナルにパスを挿入",
+            .fileExplorerNewFile: "新規ファイル...", .fileExplorerNewFolder: "新規フォルダ...", .fileExplorerRenameEntry: "名前を変更...", .fileExplorerMoveToTrash: "ゴミ箱に入れる",
+            .fileExplorerNewFilePrompt: "\"%@\" に新規ファイルを作成", .fileExplorerNewFolderPrompt: "\"%@\" に新規フォルダを作成", .fileExplorerRenamePrompt: "\"%@\" の名前を変更",
+            .fileExplorerCreateConfirm: "作成", .fileExplorerRenameConfirm: "変更",
+            .fileExplorerErrorNameEmpty: "名前を入力してください。", .fileExplorerErrorNameReserved: "\".\" と \"..\" は名前として使えません。", .fileExplorerErrorNameSeparator: "名前に \"/\" は使えません。",
+            .fileExplorerErrorNameTooLong: "名前は最大 %d バイトです。", .fileExplorerErrorNameExists: "\"%@\" はすでに存在します。",
+            .fileExplorerErrorMissing: "その項目はディスク上にもうありません。", .fileExplorerErrorDenied: "ここに書き込む権限がありません。", .fileExplorerErrorReadOnlyVolume: "このボリュームは読み出し専用です。", .fileExplorerErrorUnclassified: "完了できませんでした: %@",
             .editorBinaryFile: "バイナリファイル", .editorFileTooLarge: "ファイルが大きすぎます", .editorLoadFailed: "ファイルを開けませんでした",
             .unsavedChangesQuestion: "\"%@\"の変更内容を保存しますか？", .save: "保存", .discardChanges: "保存しない",
             .agentSessions: "エージェントセッション", .agentSessionsSectionTitle: "エージェントセッション", .agentSessionsFilterPlaceholder: "セッションを検索",

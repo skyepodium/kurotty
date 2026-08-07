@@ -34,6 +34,16 @@ final class TerminalFileExplorerPanelView: NSView {
     /// user action or a root change.
     private let agentSessionIndexStore: AgentSessionIndexStore
     private var agentProvenance = AgentFileProvenanceIndex.empty
+    /// Create, rename, and trash. Injected so a test can exercise the panel's
+    /// delete path without moving a fixture into the real Trash.
+    private let entryWriter: FileExplorerEntryWriter
+    /// Prompts and writes; the panel reconciles the tree against the one
+    /// outcome it hands back. Lazy because that outcome closure needs `self`.
+    private lazy var entryActions = TerminalFileExplorerEntryActions(
+        writer: entryWriter
+    ) { [weak self] revealing, failure in
+        self?.applyOutcome(revealing: revealing, failure: failure)
+    }
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
     private let directoryNameLabel = NSTextField(labelWithString: "")
@@ -47,14 +57,19 @@ final class TerminalFileExplorerPanelView: NSView {
     private let searchPillView = TerminalSidebarSearchPillView(
         placeholder: { AppLocalization.string(.fileExplorerSearchPlaceholder) }
     )
+    private let actionErrorRow = TerminalFileExplorerActionErrorRow(chromeTheme: .dark)
     private let listContainerView = NSView()
     private let scrollView = NSScrollView()
-    private let outlineView = NSOutlineView()
+    private let outlineView = TerminalFileExplorerOutlineView()
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
-    init(agentSessionIndexStore: AgentSessionIndexStore = .shared) {
+    init(
+        agentSessionIndexStore: AgentSessionIndexStore = .shared,
+        entryWriter: FileExplorerEntryWriter = .live
+    ) {
         self.agentSessionIndexStore = agentSessionIndexStore
+        self.entryWriter = entryWriter
         super.init(frame: .zero)
         configureSubviews()
         NotificationCenter.default.addObserver(
@@ -89,6 +104,11 @@ final class TerminalFileExplorerPanelView: NSView {
 
     func update(rootDirectory: URL) {
         let standardized = rootDirectory.standardizedFileURL
+        // A failure belongs to the directory it happened in; carrying it into
+        // the next one would accuse a tree that never refused anything.
+        if self.rootDirectory != standardized {
+            actionErrorRow.present(nil)
+        }
         if remoteLocation != nil {
             remoteLocation = nil
             self.rootDirectory = nil
@@ -125,6 +145,7 @@ final class TerminalFileExplorerPanelView: NSView {
         rootDirectory = nil
         rootItem = nil
         filterMatchItems = nil
+        actionErrorRow.present(nil)
         // Invalidate any in-flight filter scan started for the previous local
         // root so its result cannot repopulate the tree after the switch.
         filterGeneration += 1
@@ -159,6 +180,7 @@ final class TerminalFileExplorerPanelView: NSView {
         DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
         searchPillView.applyChromeTheme(theme)
         refreshButton.applyChromeTheme(theme)
+        actionErrorRow.applyChromeTheme(theme)
         applyEmptyStateIcon(tint: theme.textMuted)
         emptyStateLabel.textColor = theme.textMuted
         updateRemoteEmptyState()
@@ -206,6 +228,65 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
+    func rowNamesForTesting() -> [String] {
+        (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? TerminalFileExplorerOutlineItem)?.node.name
+        }
+    }
+
+    var selectedRowNameForTesting: String? {
+        let row = outlineView.selectedRow
+        guard row >= 0 else {
+            return nil
+        }
+        return (outlineView.item(atRow: row) as? TerminalFileExplorerOutlineItem)?.node.name
+    }
+
+    /// The inline failure sentence, or `nil` while the row is collapsed away.
+    var actionErrorMessageForTesting: String? {
+        actionErrorRow.message
+    }
+
+    var actionErrorRowHeightForTesting: CGFloat {
+        actionErrorRow.frame.height
+    }
+
+    var listContainerHeightForTesting: CGFloat {
+        listContainerView.frame.height
+    }
+
+    /// The create and rename paths minus their modal, which a test cannot
+    /// answer. Everything after the typed name — validation, the write, the
+    /// re-list, and the inline failure — is the code the menu items run.
+    func createForTesting(_ action: FileExplorerEntryAction, named name: String) {
+        guard let rootDirectory else {
+            return
+        }
+        entryActions.create(
+            action,
+            named: name,
+            in: FileExplorerCreationTarget.directory(
+                forSelectedNode: clickedOrSelectedItem()?.node,
+                rootDirectory: rootDirectory
+            )
+        )
+    }
+
+    func renameSelectionForTesting(to name: String) {
+        guard let item = clickedOrSelectedItem() else {
+            return
+        }
+        entryActions.rename(item.node.url, to: name)
+    }
+
+    func moveSelectionToTrashForTesting() {
+        moveToTrashFromContextMenu(nil)
+    }
+
+    func entryActionIsAvailableForTesting(_ action: FileExplorerEntryAction) -> Bool {
+        action.isAvailable(in: entryActionContext(for: clickedOrSelectedItem()))
+    }
+
     // MARK: Setup
 
     private func configureSubviews() {
@@ -243,6 +324,10 @@ final class TerminalFileExplorerPanelView: NSView {
         searchPillView.applyChromeTheme(chromeTheme)
         searchPillView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchPillView)
+
+        actionErrorRow.applyChromeTheme(chromeTheme)
+        actionErrorRow.present(nil)
+        addSubview(actionErrorRow)
 
         listContainerView.wantsLayer = true
         listContainerView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
@@ -329,6 +414,12 @@ final class TerminalFileExplorerPanelView: NSView {
         outlineView.action = #selector(rowClicked(_:))
         outlineView.target = self
         outlineView.doubleAction = #selector(rowDoubleClicked(_:))
+        outlineView.onRenameKey = { [weak self] in
+            self?.renameFromContextMenu(nil)
+        }
+        outlineView.onTrashKey = { [weak self] in
+            self?.moveToTrashFromContextMenu(nil)
+        }
         outlineView.menu = makeContextMenu()
     }
 
@@ -336,6 +427,14 @@ final class TerminalFileExplorerPanelView: NSView {
         let insetX = DesignTokens.Component.fileExplorerPanelInsetXPX
         let insetY = DesignTokens.Component.fileExplorerPanelInsetYPX
         let controlGap = DesignTokens.Component.fileExplorerControlGapPX
+        // No gap of its own: the row carries its own top padding and collapses
+        // that padding with itself, so a panel with nothing to say lands the
+        // list exactly where it did before the row existed.
+        NSLayoutConstraint.activate([
+            actionErrorRow.topAnchor.constraint(equalTo: searchPillView.bottomAnchor),
+            actionErrorRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
+            actionErrorRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
+        ])
         NSLayoutConstraint.activate([
             panelTitleLabel.topAnchor.constraint(equalTo: topAnchor, constant: insetY),
             panelTitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insetX),
@@ -371,7 +470,7 @@ final class TerminalFileExplorerPanelView: NSView {
             searchPillView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insetX),
 
             listContainerView.topAnchor.constraint(
-                equalTo: searchPillView.bottomAnchor,
+                equalTo: actionErrorRow.bottomAnchor,
                 constant: controlGap
             ),
             listContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -502,7 +601,7 @@ final class TerminalFileExplorerPanelView: NSView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        let entries: [(L10nKey, Selector)] = [
+        let readingEntries: [(L10nKey, Selector)] = [
             (.open, #selector(openFromContextMenu(_:))),
             (.revealInFinder, #selector(revealFromContextMenu(_:))),
             (.copyPath, #selector(copyPathFromContextMenu(_:))),
@@ -511,12 +610,55 @@ final class TerminalFileExplorerPanelView: NSView {
             // disables it otherwise rather than presenting a dead action.
             (.revealTranscriptInFinder, #selector(revealAgentTranscriptFromContextMenu(_:))),
         ]
-        for (key, action) in entries {
+        for (key, action) in readingEntries {
             let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
+        // The items above read; everything below writes. A separator between
+        // them is the only thing keeping a slip aimed at Copy Path off Rename.
+        menu.addItem(.separator())
+        let writingEntries: [(L10nKey, Selector)] = [
+            (.fileExplorerNewFile, #selector(newFileFromContextMenu(_:))),
+            (.fileExplorerNewFolder, #selector(newFolderFromContextMenu(_:))),
+            (.fileExplorerRenameEntry, #selector(renameFromContextMenu(_:))),
+        ]
+        for (key, action) in writingEntries {
+            let item = NSMenuItem(title: AppLocalization.string(key), action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        // Trash is separated again and last, the position every Finder-like
+        // menu gives the one action that removes something.
+        menu.addItem(.separator())
+        let trashItem = NSMenuItem(
+            title: AppLocalization.string(.fileExplorerMoveToTrash),
+            action: #selector(moveToTrashFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        trashItem.target = self
+        menu.addItem(trashItem)
+        applyKeyEquivalents(in: menu)
         return menu
+    }
+
+    /// The shortcuts are shown beside their actions for discoverability. They
+    /// are not what makes the keys work — a contextual menu's key equivalents
+    /// only fire while that menu is open — so `TerminalFileExplorerOutlineView`
+    /// carries the working bindings and these two must stay in step with it.
+    private func applyKeyEquivalents(in menu: NSMenu) {
+        for item in menu.items {
+            switch item.action {
+            case #selector(renameFromContextMenu(_:)):
+                item.keyEquivalent = "\r"
+                item.keyEquivalentModifierMask = []
+            case #selector(moveToTrashFromContextMenu(_:)):
+                item.keyEquivalent = String(UnicodeScalar(NSBackspaceCharacter)!)
+                item.keyEquivalentModifierMask = .command
+            default:
+                continue
+            }
+        }
     }
 
     @objc private func openFromContextMenu(_ sender: Any?) {
@@ -567,6 +709,131 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         return agentProvenance.mostRecentTouch(forAbsolutePath: item.node.url.path) != nil
     }
+
+    // MARK: Entry actions
+
+    @objc private func newFileFromContextMenu(_ sender: Any?) {
+        promptAndCreate(.newFile)
+    }
+
+    @objc private func newFolderFromContextMenu(_ sender: Any?) {
+        promptAndCreate(.newFolder)
+    }
+
+    @objc private func renameFromContextMenu(_ sender: Any?) {
+        guard let item = clickedOrSelectedItem(),
+              FileExplorerEntryAction.rename.isAvailable(in: entryActionContext(for: item))
+        else {
+            return
+        }
+        entryActions.promptAndRename(item.node.url)
+    }
+
+    @objc private func moveToTrashFromContextMenu(_ sender: Any?) {
+        guard let item = clickedOrSelectedItem(),
+              FileExplorerEntryAction.moveToTrash.isAvailable(in: entryActionContext(for: item))
+        else {
+            return
+        }
+        entryActions.moveToTrash(item.node.url)
+    }
+
+    private func promptAndCreate(_ action: FileExplorerEntryAction) {
+        let selectedItem = clickedOrSelectedItem()
+        guard let rootDirectory, action.isAvailable(in: entryActionContext(for: selectedItem)) else {
+            return
+        }
+        entryActions.promptAndCreate(
+            action,
+            in: FileExplorerCreationTarget.directory(
+                forSelectedNode: selectedItem?.node,
+                rootDirectory: rootDirectory
+            )
+        )
+    }
+
+    /// The single place a write's outcome reaches the tree.
+    ///
+    /// Both outcomes re-list from disk, and the panel never inserts, renames,
+    /// or removes a row itself. That is what keeps this from racing its own
+    /// watcher: `refresh()` rebuilds every loaded directory from
+    /// `contentsOfDirectory`, so running it here and again when the watcher's
+    /// debounce fires converges on the same tree rather than adding the new row
+    /// twice — and a failed write cannot leave a row on screen for a path that
+    /// is no longer there.
+    private func applyOutcome(revealing url: URL?, failure: FileExplorerEntryFailure?) {
+        actionErrorRow.present(failure.map { FileExplorerEntryFailureCopy.message(for: $0) })
+        refresh()
+        guard let url else {
+            return
+        }
+        revealAndSelect(url)
+    }
+
+    /// Expands the directories between the root and `url`, then selects it. A
+    /// create inside a folder the user had collapsed would otherwise look like
+    /// nothing happened.
+    private func revealAndSelect(_ url: URL) {
+        // The filtered list is flat and holds only search results, so there is
+        // no chain to expand and the new row may not belong in it at all.
+        guard filterMatchItems == nil, let rootDirectory, let rootItem else {
+            return
+        }
+        let rootComponents = rootDirectory.pathComponents
+        let targetComponents = url.standardizedFileURL.pathComponents
+        guard targetComponents.count > rootComponents.count,
+              Array(targetComponents.prefix(rootComponents.count)) == rootComponents
+        else {
+            return
+        }
+        let chain = rootItem.chain(toPathComponents: targetComponents[rootComponents.count...])
+        guard let target = chain.last else {
+            return
+        }
+        for ancestor in chain.dropLast() {
+            outlineView.expandItem(ancestor)
+        }
+        let row = outlineView.row(forItem: target)
+        guard row >= 0 else {
+            return
+        }
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outlineView.scrollRowToVisible(row)
+    }
+
+    /// Gathers the disk facts `FileExplorerEntryAction` judges. Kept in one
+    /// place so the menu, the shortcuts, and the handlers cannot disagree about
+    /// when a write is legal.
+    private func entryActionContext(
+        for item: TerminalFileExplorerOutlineItem?
+    ) -> FileExplorerEntryActionContext {
+        guard let rootDirectory, remoteLocation == nil else {
+            return FileExplorerEntryActionContext(
+                isRemote: remoteLocation != nil,
+                hasRootDirectory: rootDirectory != nil,
+                hasSelection: item != nil,
+                selectionExists: false,
+                isCreationDirectoryWritable: false,
+                isSelectionDirectoryWritable: false
+            )
+        }
+        let fileManager = FileManager.default
+        let creationDirectory = FileExplorerCreationTarget.directory(
+            forSelectedNode: item?.node,
+            rootDirectory: rootDirectory
+        )
+        let selectionDirectory = item?.node.url.deletingLastPathComponent()
+        return FileExplorerEntryActionContext(
+            isRemote: false,
+            hasRootDirectory: true,
+            hasSelection: item != nil,
+            selectionExists: item.map { fileManager.fileExists(atPath: $0.node.url.path) } ?? false,
+            isCreationDirectoryWritable: fileManager.isWritableFile(atPath: creationDirectory.path),
+            isSelectionDirectoryWritable: selectionDirectory
+                .map { fileManager.isWritableFile(atPath: $0.path) } ?? false
+        )
+    }
+
 }
 
 // MARK: - Outline data source / delegate
@@ -637,12 +904,35 @@ extension TerminalFileExplorerPanelView: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         let item = clickedOrSelectedItem()
         let hasTranscript = hasAgentTranscript(for: item)
+        // Built once per opening: every writable action asks the same rule, and
+        // the rule's inputs are filesystem calls worth making one time.
+        let actionContext = entryActionContext(for: item)
         for menuItem in menu.items {
+            if let action = Self.entryAction(for: menuItem) {
+                menuItem.isEnabled = action.isAvailable(in: actionContext)
+                continue
+            }
             guard menuItem.action == #selector(revealAgentTranscriptFromContextMenu(_:)) else {
                 menuItem.isEnabled = item != nil
                 continue
             }
             menuItem.isEnabled = hasTranscript
+        }
+    }
+
+    /// `nil` for the reading half of the menu and for separators.
+    private static func entryAction(for menuItem: NSMenuItem) -> FileExplorerEntryAction? {
+        switch menuItem.action {
+        case #selector(newFileFromContextMenu(_:)):
+            return .newFile
+        case #selector(newFolderFromContextMenu(_:)):
+            return .newFolder
+        case #selector(renameFromContextMenu(_:)):
+            return .rename
+        case #selector(moveToTrashFromContextMenu(_:)):
+            return .moveToTrash
+        default:
+            return nil
         }
     }
 }
