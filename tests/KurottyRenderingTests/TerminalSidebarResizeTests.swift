@@ -21,7 +21,14 @@ final class TerminalSidebarResizeTests: XCTestCase {
     /// of the requested position.
     private let tolerance: CGFloat = 2
 
-    private func makeController(width: CGFloat = 1400) -> TerminalWindowController {
+    /// Window widths wide enough for both sidebars at their default plus the
+    /// terminal's floor, so nothing here is testing the over-subscribed case.
+    private let roomyWidths: [CGFloat] = [1200, 1400, 1800, 2400]
+
+    private func makeController(
+        width: CGFloat = 1400,
+        showingHistoryPanel: Bool = true
+    ) -> TerminalWindowController {
         let session = TmuxPaneSession(
             writeHandler: { _ in },
             resizeHandler: { _, _ in },
@@ -32,7 +39,12 @@ final class TerminalSidebarResizeTests: XCTestCase {
             paneDragCoordinator: TerminalPaneDragCoordinator()
         )
         controller.window?.setContentSize(NSSize(width: width, height: 900))
-        controller.setCommandHistoryPanelVisible(true)
+        // The split view has to have a real width before a panel opens, the way
+        // it does when the user hits the toggle on a window already on screen.
+        layOut(controller)
+        if showingHistoryPanel {
+            controller.setCommandHistoryPanelVisible(true)
+        }
         controller.setFileExplorerPanelVisible(true)
         layOut(controller)
         return controller
@@ -48,9 +60,15 @@ final class TerminalSidebarResizeTests: XCTestCase {
         layOut(controller)
     }
 
+    /// Drives the explorer's divider the way a drag does. The divider sits
+    /// between the terminal and the explorer, so the position that leaves the
+    /// explorer `width` is a divider thickness short of the plain difference.
     private func setExplorerWidth(_ width: CGFloat, in controller: TerminalWindowController) {
         let split = controller.commandHistorySplitView
-        split.setPosition(split.bounds.width - width, ofDividerAt: split.arrangedSubviews.count - 2)
+        split.setPosition(
+            split.bounds.width - width - split.dividerThickness,
+            ofDividerAt: split.arrangedSubviews.count - 2
+        )
         layOut(controller)
     }
 
@@ -164,5 +182,104 @@ final class TerminalSidebarResizeTests: XCTestCase {
             DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
             accuracy: tolerance
         )
+    }
+
+    // MARK: - The explorer's divider is not always divider 1
+
+    /// With the history panel hidden the explorer's divider *is* divider 0, so
+    /// the delegate's limits — keyed off the index — handed the explorer the
+    /// history panel's, and it opened at everything right of 460pt: 1339pt in
+    /// an 1800pt window. These cover both panel arrangements at every width.
+
+    func testTheExplorerOpensAtItsDefaultWidthWhicheverPanelsAreShown() {
+        for showingHistory in [true, false] {
+            for windowWidth in roomyWidths {
+                let controller = makeController(
+                    width: windowWidth,
+                    showingHistoryPanel: showingHistory
+                )
+                XCTAssertEqual(
+                    controller.fileExplorerPanel.frame.width,
+                    DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
+                    accuracy: tolerance,
+                    "explorer opened wrong at window \(windowWidth), history shown \(showingHistory)"
+                )
+            }
+        }
+    }
+
+    func testTheExplorerStopsAtItsMaximumWhenDraggedWider() {
+        for showingHistory in [true, false] {
+            for windowWidth in roomyWidths {
+                let controller = makeController(
+                    width: windowWidth,
+                    showingHistoryPanel: showingHistory
+                )
+                // Past the maximum, and then past the whole window.
+                for attempt in [Width.explorerMax + 200, windowWidth] {
+                    setExplorerWidth(attempt, in: controller)
+                    XCTAssertLessThanOrEqual(
+                        controller.fileExplorerPanel.frame.width,
+                        Width.explorerMax + tolerance,
+                        "explorer passed its maximum dragging to \(attempt) "
+                            + "at window \(windowWidth), history shown \(showingHistory)"
+                    )
+                }
+            }
+        }
+    }
+
+    func testTheExplorerStopsAtItsMinimumWhenDraggedNarrower() {
+        for showingHistory in [true, false] {
+            for windowWidth in roomyWidths {
+                let controller = makeController(
+                    width: windowWidth,
+                    showingHistoryPanel: showingHistory
+                )
+                for attempt in [Width.explorerMin - 100, 0] {
+                    setExplorerWidth(attempt, in: controller)
+                    XCTAssertGreaterThanOrEqual(
+                        controller.fileExplorerPanel.frame.width,
+                        Width.explorerMin - tolerance,
+                        "explorer fell under its minimum dragging to \(attempt) "
+                            + "at window \(windowWidth), history shown \(showingHistory)"
+                    )
+                }
+            }
+        }
+    }
+
+    /// A drag between the limits has to land where it was dropped, not snap to
+    /// one of them — that is what "the resize is broken" looked like.
+    func testADragInsideTheLimitsLandsWhereItWasDropped() {
+        for showingHistory in [true, false] {
+            let controller = makeController(width: 1800, showingHistoryPanel: showingHistory)
+            for width in [Width.explorerMin, 280, 350, 420, Width.explorerMax] {
+                setExplorerWidth(width, in: controller)
+                XCTAssertEqual(
+                    controller.fileExplorerPanel.frame.width,
+                    width,
+                    accuracy: tolerance,
+                    "explorer did not follow the divider to \(width), "
+                        + "history shown \(showingHistory)"
+                )
+            }
+        }
+    }
+
+    func testTheExplorerKeepsItsWidthAcrossAWindowResize() {
+        for showingHistory in [true, false] {
+            let controller = makeController(width: 1400, showingHistoryPanel: showingHistory)
+            for windowWidth in roomyWidths + [1400] {
+                controller.window?.setContentSize(NSSize(width: windowWidth, height: 900))
+                layOut(controller)
+                XCTAssertEqual(
+                    controller.fileExplorerPanel.frame.width,
+                    DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
+                    accuracy: tolerance,
+                    "explorer drifted at window \(windowWidth), history shown \(showingHistory)"
+                )
+            }
+        }
     }
 }
