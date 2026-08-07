@@ -1870,7 +1870,6 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         } else {
             markDirty(row: previousCursorRow)
         }
-        core.feed(text)
         let wasUsingAlternateScreen = isUsingAlternateScreen
         interpreter.interpret(text)
         if !wasUsingAlternateScreen, isUsingAlternateScreen {

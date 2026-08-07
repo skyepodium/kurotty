@@ -9,7 +9,6 @@ private typealias FeedFn = @convention(c) (TerminalHandle?, UnsafePointer<UInt8>
 private typealias TimestampFn = @convention(c) (TerminalHandle?, UInt64) -> Void
 private typealias LastLatencyFn = @convention(c) (TerminalHandle?) -> UInt64
 private typealias LastErrorFn = @convention(c) (TerminalHandle?) -> UInt32
-private typealias MarkDamageFn = @convention(c) (TerminalHandle?, UInt32, UInt32, UInt32, UInt32) -> Void
 private typealias BeginFrameFn = @convention(c) (TerminalHandle?, UInt32) -> UInt32
 private typealias EndFrameFn = @convention(c) (TerminalHandle?) -> Void
 private typealias ResizeFn = @convention(c) (TerminalHandle?, UInt32, UInt32) -> Void
@@ -123,13 +122,22 @@ final class CoreBridge: TerminalCore,
         symbols?.destroy(handle)
     }
 
+    /// Drives the Zig parser for ABI conformance checks only — deliberately not
+    /// a `TerminalCore` requirement. This used to run on every PTY chunk in
+    /// front of `TerminalOutputInterpreter`, parsing bytes twice and discarding
+    /// the Zig result; it was the largest measured cost on that path. The dylib
+    /// still ships, so the tests that prove it loads and copies rows still need
+    /// a way in.
+    ///
+    /// The paired `mark_damage` call is gone with it. It marked the whole grid
+    /// damaged per chunk to feed a rect accumulator whose only readers,
+    /// `begin_frame` and `end_frame`, have no callers — so it maintained a
+    /// count nobody consumed.
     func feed(_ text: String) {
-        if let symbols {
-            let bytes = Array(text.utf8)
-            _ = bytes.withUnsafeBufferPointer { buffer in
-                symbols.feed(handle, buffer.baseAddress!, buffer.count)
-            }
-            symbols.markDamage(handle, 0, 0, rows, columns)
+        guard let symbols else { return }
+        let bytes = Array(text.utf8)
+        _ = bytes.withUnsafeBufferPointer { buffer in
+            symbols.feed(handle, buffer.baseAddress!, buffer.count)
         }
     }
 
@@ -205,7 +213,6 @@ private struct CoreSymbols {
     let recordPresent: TimestampFn
     let lastLatency: LastLatencyFn
     let lastError: LastErrorFn
-    let markDamage: MarkDamageFn
     let beginFrame: BeginFrameFn
     let endFrame: EndFrameFn
     let resize: ResizeFn
@@ -228,7 +235,6 @@ private struct CoreSymbols {
             let recordPresent: TimestampFn = symbol(dylib, "kurotty_terminal_record_present"),
             let lastLatency: LastLatencyFn = symbol(dylib, "kurotty_terminal_last_latency"),
             let lastError: LastErrorFn = symbol(dylib, "kurotty_terminal_last_error"),
-            let markDamage: MarkDamageFn = symbol(dylib, "kurotty_terminal_mark_damage"),
             let beginFrame: BeginFrameFn = symbol(dylib, "kurotty_terminal_begin_frame"),
             let endFrame: EndFrameFn = symbol(dylib, "kurotty_terminal_end_frame"),
             let resize: ResizeFn = symbol(dylib, "kurotty_terminal_resize"),
@@ -250,7 +256,6 @@ private struct CoreSymbols {
             recordPresent: recordPresent,
             lastLatency: lastLatency,
             lastError: lastError,
-            markDamage: markDamage,
             beginFrame: beginFrame,
             endFrame: endFrame,
             resize: resize,

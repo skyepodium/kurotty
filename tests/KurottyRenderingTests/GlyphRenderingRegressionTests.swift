@@ -1958,7 +1958,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(inputSource.contains("guard window?.firstResponder === self else"))
         XCTAssertTrue(inputSource.contains("return handleCommandKey(event) || handleKeyEquivalentTerminalControl(event) || super.performKeyEquivalent(with: event)"))
         XCTAssertTrue(inputSource.contains("private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool"))
-        XCTAssertTrue(inputSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            core.feed(commandControlText)\n            return true\n        }"))
+        XCTAssertTrue(inputSource.contains("if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {\n            resetMarkedTextForInputSourceChange()\n            send(commandControlText)\n            return true\n        }"))
     }
 
     func testEscapeKeyIsSentToTerminalFromAppKitCancelOperation() throws {
@@ -2579,7 +2579,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("private let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore("))
         XCTAssertFalse(surfaceSource.contains("CoreBridge("))
         XCTAssertTrue(inputSource.contains("private let core: any TerminalCore"))
-        XCTAssertTrue(inputSource.contains("init(core: any TerminalCore)"))
+        XCTAssertTrue(inputSource.contains("init(core: any TerminalCore, send: @escaping (String) -> Void)"))
         XCTAssertTrue(source.contains("static let appBundleExtension = \"app\""))
         XCTAssertTrue(source.contains("Bundle.main.bundleURL.pathExtension == CoreLibraryPath.appBundleExtension"))
         XCTAssertTrue(source.contains("Bundle.main.url(forResource: CoreLibraryPath.dylibName, withExtension: CoreLibraryPath.dylibExtension)"))
@@ -2613,7 +2613,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
             throw XCTSkip("zig build has not produced libkurotty_core.dylib")
         }
 
-        let core: any TerminalCore = TerminalCoreFactory.makeDefaultCore(cols: 5, rows: 2)
+        // Deliberately the concrete bridge, not `any TerminalCore`: `feed` is no
+        // longer a protocol requirement, precisely so no production path can
+        // reach the Zig parser. This is the one remaining caller, and it exists
+        // to prove the shipped dylib still loads and copies rows.
+        let core = CoreBridge(cols: 5, rows: 2)
         core.feed("abcde")
         core.feed("xy")
         var firstRow = [UInt8](repeating: 0, count: 5)
