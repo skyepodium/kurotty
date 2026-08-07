@@ -59,23 +59,23 @@ final class TerminalCommandRegistryTests: XCTestCase {
 
         XCTAssertEqual(
             TerminalCommandTooltip.text(for: .newTab, registry: registry),
-            "New Tab(⌘T)"
+            "New Tab (⌘T)"
         )
         XCTAssertEqual(
             TerminalCommandTooltip.text(for: .splitVertically, registry: registry),
-            "Split Vertically(⌘D)"
+            "Split Vertically (⌘D)"
         )
         XCTAssertEqual(
             TerminalCommandTooltip.text(for: .splitHorizontally, registry: registry),
-            "Split Horizontally(⇧⌘D)"
+            "Split Horizontally (⇧⌘D)"
         )
         XCTAssertEqual(
             TerminalCommandTooltip.text(for: .toggleCommandHistoryPanel, registry: registry),
-            "Command History(⇧⌘Y)"
+            "Command History (⇧⌘Y)"
         )
         XCTAssertEqual(
             TerminalCommandTooltip.text(for: .toggleFileExplorerPanel, registry: registry),
-            "File Explorer(⇧⌘E)"
+            "File Explorer (⇧⌘E)"
         )
         XCTAssertEqual(
             TerminalCommandTooltip.text(
@@ -83,7 +83,7 @@ final class TerminalCommandRegistryTests: XCTestCase {
                 title: "Close Pane or Tab",
                 registry: registry
             ),
-            "Close Pane or Tab(⌘W)"
+            "Close Pane or Tab (⌘W)"
         )
     }
 

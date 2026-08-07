@@ -189,7 +189,7 @@ enum TerminalCommandTooltip {
         guard let shortcut = command.shortcut else {
             return title
         }
-        return "\(title)(\(shortcut.displayLabel))"
+        return "\(title) (\(shortcut.displayLabel))"
     }
 }
 
