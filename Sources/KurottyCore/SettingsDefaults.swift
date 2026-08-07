@@ -27,16 +27,15 @@ public enum SettingsDefaults {
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
     public static let statusBarEnabled = true
-    /// Live-applied and **off** by default. Every other chrome switch defaults
-    /// on because the surface it governs lives inside Kurotty's own window,
-    /// where the app is entitled to spend the space. The system menu bar is
-    /// not Kurotty's space: it is shared, finite, and already contested by
-    /// everything else the user runs. Kurotty is also a normal Dock app rather
-    /// than an `LSUIElement` agent, so every row the extra offers — open,
-    /// settings, update check, quit — is already reachable from the Dock icon
-    /// and the main menu bar. Nothing is unreachable while this is off, which
-    /// is what makes off the honest default for a slot we are only borrowing.
-    public static let menuBarExtraEnabled = false
+    /// Live-applied and on by default, like every other chrome switch here.
+    /// It is the one that governs a surface outside Kurotty's own window — a
+    /// slot in the system menu bar, which is shared and finite — and it stays a
+    /// switch for exactly that reason: a user who does not want Kurotty in that
+    /// bar turns it off once and it is gone, slot and all, with no zero-width
+    /// item left behind. Flipping this default does not reach an install that
+    /// already has the key written; see the migration note in
+    /// `AppSettingsNormalizer`.
+    public static let menuBarExtraEnabled = true
     /// Live-applied and on by default. The prompt navigator rail is a 6pt strip
     /// down the terminal's trailing edge carrying one mark per completed
     /// command, driven by the OSC 133 boundaries Kurotty already tracks. On by

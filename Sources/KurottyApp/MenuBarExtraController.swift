@@ -54,8 +54,9 @@ final class SystemMenuBarExtraSlot: MenuBarExtraSlot {
 /// Lifecycle contract: one instance, created at launch and held by the app
 /// delegate. The setting is live-applied, so turning it on adds the slot at
 /// once and turning it off gives it back; nothing waits for a relaunch. The
-/// setting defaults off, which means the common path at launch is to do
-/// nothing at all and never touch `NSStatusBar`.
+/// setting defaults on, so the common path at launch takes a slot; a user who
+/// turns it off gets it handed back to `NSStatusBar` rather than kept at zero
+/// width, so the app leaves nothing behind in a bar it does not own.
 ///
 /// This deliberately does not set `LSUIElement`. The extra is an addition to a
 /// normal Dock app, not a conversion into a menu-bar-only one, so the Dock icon
