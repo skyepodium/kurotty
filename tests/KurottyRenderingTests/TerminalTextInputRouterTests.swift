@@ -6,8 +6,8 @@ import XCTest
 final class TerminalTextInputRouterTests: XCTestCase {
     @MainActor
     func testPromptInputViewMarkedTextIsOverlayOnlyUntilCommit() throws {
-        let core = SpyTerminalCore()
-        let view = TerminalInputView(core: core)
+        var sent: [String] = []
+        let view = TerminalInputView(core: SpyTerminalCore(), send: { sent.append($0) })
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 96)
 
         view.setMarkedText("ㅇ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -15,17 +15,17 @@ final class TerminalTextInputRouterTests: XCTestCase {
         view.setMarkedText("안", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 1))
 
         XCTAssertTrue(view.hasMarkedText())
-        XCTAssertEqual(core.fedText, [])
+        XCTAssertEqual(sent, [])
 
         view.insertText("안", replacementRange: NSRange(location: 0, length: 1))
 
         XCTAssertFalse(view.hasMarkedText())
-        XCTAssertEqual(core.fedText, ["안"])
+        XCTAssertEqual(sent, ["안"])
     }
 
     @MainActor
     func testPromptInputViewInvalidatesWhenMarkedTextStartsBeforeCommit() throws {
-        let view = TerminalInputView(core: CoreBridge(cols: 80, rows: 24))
+        let view = TerminalInputView(core: CoreBridge(cols: 80, rows: 24), send: { _ in })
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 96)
 
         view.setMarkedText("ㅇ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -166,7 +166,7 @@ final class TerminalTextInputRouterTests: XCTestCase {
         XCTAssertLessThan(surfaceFlush.lowerBound, surfaceSend.lowerBound)
 
         let inputFlush = try XCTUnwrap(inputDoCommandSource.range(of: "flushAccumulatedCommittedText()"))
-        let inputFeed = try XCTUnwrap(inputDoCommandSource.range(of: "core.feed(sequence)"))
+        let inputFeed = try XCTUnwrap(inputDoCommandSource.range(of: "send(sequence)"))
         XCTAssertLessThan(inputFlush.lowerBound, inputFeed.lowerBound)
 
         XCTAssertTrue(surfaceSource.contains("private func flushAccumulatedCommittedText() -> Bool"))
@@ -597,12 +597,6 @@ final class TerminalTextInputRouterTests: XCTestCase {
 }
 
 private final class SpyTerminalCore: TerminalCore {
-    private(set) var fedText: [String] = []
-
-    func feed(_ text: String) {
-        fedText.append(text)
-    }
-
     func recordKeyEvent() {}
     func recordFramePresented() {}
     func beginFrame(visibleCells: UInt32) -> UInt32 { 0 }

@@ -4,6 +4,11 @@ import KurottyCore
 @MainActor
 final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     private let core: any TerminalCore
+    /// Where this view's keystrokes, pastes and control sequences go. These used
+    /// to be handed to `core.feed`, which parsed them into a Zig grid nothing
+    /// read — so typing here reached no shell. The sink is now the caller's to
+    /// supply, which is what makes that wiring gap visible instead of silent.
+    private let send: (String) -> Void
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var textInputEventDepth = 0
@@ -11,8 +16,9 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     private var isTextInputRendererFrameScheduled = false
     private var keyTextAccumulator: [String]?
 
-    init(core: any TerminalCore) {
+    init(core: any TerminalCore, send: @escaping (String) -> Void) {
         self.core = core
+        self.send = send
         super.init(frame: .zero)
         observeInputSourceChanges()
     }
@@ -54,7 +60,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        core.feed(text)
+        send(text)
         needsDisplay = true
     }
 
@@ -97,11 +103,11 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     private func handleTerminalControlKey(_ event: NSEvent) -> Bool {
         if let controlText = TerminalTextInputRouter.terminalControlText(for: event) {
-            core.feed(controlText)
+            send(controlText)
             return true
         }
         if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
-            core.feed(commandControlText)
+            send(commandControlText)
             return true
         }
 
@@ -111,7 +117,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
     private func handleKeyEquivalentTerminalControl(_ event: NSEvent) -> Bool {
         if let commandControlText = TerminalTextInputRouter.commandShortcutControlText(for: event) {
             resetMarkedTextForInputSourceChange()
-            core.feed(commandControlText)
+            send(commandControlText)
             return true
         }
         guard !hasMarkedText() else {
@@ -139,7 +145,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
         }
         if let sequence = TerminalKeyEncoder.sequence(for: selector) {
             flushAccumulatedCommittedText()
-            core.feed(sequence)
+            send(sequence)
         }
     }
 
@@ -220,7 +226,7 @@ final class TerminalInputView: NSView, @preconcurrency NSTextInputClient {
 
     private func sendCommittedText(_ text: String, source: String) {
         TerminalTextInputRouter.logPTYWrite(text, source: source)
-        core.feed(text)
+        send(text)
     }
 
     func hasMarkedText() -> Bool { markedText.length > 0 }
