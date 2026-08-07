@@ -50,6 +50,7 @@ These rules apply to the whole repository. Follow the closest `AGENTS.md` first 
 - Do not perform filesystem existence checks during settings load/save on the main actor. Validation that touches the filesystem must be isolated from UI-thread config serialization or deferred to the launch boundary.
 - Keep settings keys stable and documented. Rename keys only with a migration path.
 - Do not persist secrets, raw terminal output, pasted text, command history, or environment dumps in settings.
+- The structural invariants of the schema — one migration block per `Migration` constant, no migration block nested inside another, every optionally-decoded key either migrated or exempt on the record, coding keys and initializer parameters matching the stored properties — are enforced by `tests/KurottyRenderingTests/SettingsSchemaLinter.swift`. It runs inside `swift test` and standalone via `./scripts/check-settings-schema.sh`, which works on a tree that does not compile. Run the script after resolving any conflict in `AppSettings.swift`: the conflict region for two settings changes never contains the closing brace of a migration block, so keeping both sides nests one guard inside the other.
 
 ## Project Structure
 
