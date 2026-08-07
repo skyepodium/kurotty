@@ -22,6 +22,7 @@ enum AppSettingKey: String, Codable, Hashable {
     case terminalNotifyOnCommandFinish
     case terminalMinimumCommandDurationSeconds
     case terminalAgentStatusHookConsent
+    case terminalAgentStatusCodexHookConsent
     case terminalColorsForeground
     case terminalColorsBackground
     case terminalColorsCursor
@@ -84,6 +85,7 @@ enum AppSettingsValidation {
              .terminalNotifyOnCommandFinish,
              .terminalMinimumCommandDurationSeconds,
              .terminalAgentStatusHookConsent,
+             .terminalAgentStatusCodexHookConsent,
              .terminalColorsForeground,
              .terminalColorsBackground,
              .terminalColorsCursor,
@@ -159,6 +161,12 @@ enum AppSettingsValidation {
         validateSupportedValue(
             key: .terminalAgentStatusHookConsent,
             isSupported: AgentStatusHookConsent.parse(settings.terminal.agentStatusHookConsent) != nil,
+            supported: AgentStatusHookConsent.allCases.map(\.rawValue),
+            issues: &issues
+        )
+        validateSupportedValue(
+            key: .terminalAgentStatusCodexHookConsent,
+            isSupported: AgentStatusHookConsent.parse(settings.terminal.agentStatusCodexHookConsent) != nil,
             supported: AgentStatusHookConsent.allCases.map(\.rawValue),
             issues: &issues
         )

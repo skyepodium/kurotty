@@ -56,7 +56,8 @@ enum L10nKey: String, CaseIterable {
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     // Close confirmation for a tab or window whose shell still runs a process.
     case closeRunningProcessTitle, closeRunningProcessMessage, closeRunningProcessConfirm
-    // One-time consent before Kurotty edits the user's Claude Code settings.
+    // One-time consent, asked once per agent, before Kurotty edits that
+    // agent's own hook configuration.
     case agentStatusHookConsentTitle, agentStatusHookConsentMessage
     case agentStatusHookConsentAllow, agentStatusHookConsentDeny
     case updateUnavailableTitle, updateUnavailableMessage, ok
@@ -200,8 +201,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "Close and end the running process?",
             .closeRunningProcessMessage: "Closing will terminate: %@. Unsaved work in that process is lost.",
             .closeRunningProcessConfirm: "Close",
-            .agentStatusHookConsentTitle: "Let Kurotty add its status hooks to your Claude Code settings?",
-            .agentStatusHookConsentMessage: "Kurotty would add its own entries to %@ so agents can report working, waiting, and done. Your other settings and hooks are kept, the previous file is backed up, and Kurotty asks only this once.",
+            .agentStatusHookConsentTitle: "Let Kurotty add its status hooks to your %@ settings?",
+            .agentStatusHookConsentMessage: "Kurotty would add its own entries to %@ so this agent can report its activity in the pane. Your other settings and hooks are kept, the previous file is backed up, and Kurotty asks this once for this agent.",
             .agentStatusHookConsentAllow: "Add Hooks",
             .agentStatusHookConsentDeny: "Don't Add",
             .updateUnavailableTitle: "Automatic Updates Unavailable", .updateUnavailableMessage: "This build is not signed for updates, so automatic download and installation cannot start. Official release builds download and install updates automatically.", .ok: "OK",
@@ -303,8 +304,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "실행 중인 프로세스를 종료하고 닫을까요?",
             .closeRunningProcessMessage: "닫으면 다음 프로세스가 종료됩니다: %@. 해당 프로세스에서 저장하지 않은 작업은 사라집니다.",
             .closeRunningProcessConfirm: "닫기",
-            .agentStatusHookConsentTitle: "Kurotty가 Claude Code 설정에 상태 훅을 추가해도 될까요?",
-            .agentStatusHookConsentMessage: "에이전트가 작업 중·입력 대기·완료 상태를 보고할 수 있도록 %@ 파일에 Kurotty 항목을 추가합니다. 다른 설정과 훅은 그대로 유지되고, 이전 파일은 백업되며, 이 질문은 한 번만 표시됩니다.",
+            .agentStatusHookConsentTitle: "Kurotty가 %@ 설정에 상태 훅을 추가해도 될까요?",
+            .agentStatusHookConsentMessage: "이 에이전트가 패널에 활동 상태를 보고할 수 있도록 %@ 파일에 Kurotty 항목을 추가합니다. 다른 설정과 훅은 그대로 유지되고, 이전 파일은 백업되며, 이 질문은 에이전트마다 한 번만 표시됩니다.",
             .agentStatusHookConsentAllow: "훅 추가",
             .agentStatusHookConsentDeny: "추가 안 함",
             .updateUnavailableTitle: "자동 업데이트를 사용할 수 없습니다", .updateUnavailableMessage: "이 빌드에는 업데이트 서명이 없어 자동 다운로드와 설치를 시작할 수 없습니다. 정식 배포 빌드에서는 업데이트를 자동으로 내려받고 설치합니다.", .ok: "확인",
@@ -406,8 +407,8 @@ enum AppLocalization {
             .closeRunningProcessTitle: "実行中のプロセスを終了して閉じますか？",
             .closeRunningProcessMessage: "閉じると次のプロセスが終了します: %@。そのプロセスの保存していない作業は失われます。",
             .closeRunningProcessConfirm: "閉じる",
-            .agentStatusHookConsentTitle: "KurottyのステータスフックをClaude Codeの設定に追加しますか？",
-            .agentStatusHookConsentMessage: "エージェントが作業中・入力待ち・完了を報告できるよう、%@ にKurottyの項目を追加します。他の設定とフックはそのまま残り、以前のファイルはバックアップされ、この確認は一度だけです。",
+            .agentStatusHookConsentTitle: "Kurottyのステータスフックを%@の設定に追加しますか？",
+            .agentStatusHookConsentMessage: "このエージェントがペインで状態を報告できるよう、%@ にKurottyの項目を追加します。他の設定とフックはそのまま残り、以前のファイルはバックアップされ、この確認はエージェントごとに一度だけです。",
             .agentStatusHookConsentAllow: "フックを追加",
             .agentStatusHookConsentDeny: "追加しない",
             .updateUnavailableTitle: "自動アップデートを利用できません", .updateUnavailableMessage: "このビルドにはアップデート用の署名がないため、自動ダウンロードとインストールを開始できません。正式リリースではアップデートを自動的にダウンロードしてインストールします。", .ok: "OK",
