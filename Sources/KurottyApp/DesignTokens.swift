@@ -81,8 +81,14 @@ enum DesignTokens {
         var activeTabBackground: NSColor { surfaceRaised }
         var inactiveTabBackground: NSColor { surfaceChrome }
         var inactiveTabHoverBackground: NSColor { surfaceSidebar }
-        var paneHeaderBackground: NSColor { surfaceChrome }
-        var paneHeaderHoverBackground: NSColor { surfaceSidebar }
+        /// The pane header is the top edge of a card that floats on
+        /// `terminalPaneGround`, so it cannot be the ground's own surface: at
+        /// `surfaceChrome` the card had no visible top and the rounded corners
+        /// cut into a color identical to what was behind them. One step up is
+        /// enough to give the card an edge without turning the header into a
+        /// second piece of chrome.
+        var paneHeaderBackground: NSColor { surfaceSidebar }
+        var paneHeaderHoverBackground: NSColor { surfaceRaised }
         var borderHairline: NSColor { hairline }
         var divider: NSColor { hairline }
         var textMuted: NSColor { textTertiary }
@@ -95,6 +101,22 @@ enum DesignTokens {
         var activeBorder: NSColor {
             accent.withAlphaComponent(Color.activeBorderAlphaRATIO)
         }
+
+        // MARK: Terminal pane ground
+        //
+        // The ground a terminal pane card floats on. It is the chrome surface,
+        // not the canvas, and deliberately so: the tab bar above it is already
+        // `surfaceChrome`, so the two fuse into one continuous plane and the
+        // card is the only thing on it. That is what removed the hairline under
+        // the tab bar — a rule between two identical colors is a stray line.
+        //
+        // The ground cannot be chosen to sit "under" the card, because the card
+        // is filled with the user's terminal background and its luminance is
+        // theirs. A light theme reads raised on this ground and a very dark one
+        // reads recessed; both read as a distinct surface, which is the whole
+        // job. This is also why no pane drop shadow exists: a shadow asserts an
+        // elevation direction that is only right half the time.
+        var terminalPaneGround: NSColor { surfaceChrome }
 
         static func theme(for settings: AppSettings) -> ChromeTheme {
             settings.terminal.colors.backgroundColor.isLightTerminalBackground ? .light : .dark
@@ -664,10 +686,19 @@ enum DesignTokens {
 
         /// Exempt from the scale: these are cell-grid alignment for the terminal
         /// surface, not layout rhythm, so they must not be rounded onto a step.
+        ///
+        /// They are also the terminal's corner clearance. The pane is a rounded
+        /// card now, so the grid has to stop short of the arc or the corner
+        /// cells get shaved; these four numbers are the only thing standing
+        /// between a glyph and the mask. Every one of them must stay at or above
+        /// `TerminalPaneCard.minimumGridInsetPX` — `TerminalPaneCardGeometryTests`
+        /// measures that against the real cell rects rather than trusting it.
+        /// The horizontal pair went 6 -> 8 for exactly that reason, which also
+        /// made the terminal's own margin square.
         static let terminalTopPX: CGFloat = 8
-        static let terminalLeftPX: CGFloat = 6
+        static let terminalLeftPX: CGFloat = 8
         static let terminalBottomPX: CGFloat = 8
-        static let terminalRightPX: CGFloat = 6
+        static let terminalRightPX: CGFloat = 8
         static let preferencesInsetPX: CGFloat = 24
         static let preferencesGapPX: CGFloat = 14
     }
@@ -680,6 +711,72 @@ enum DesignTokens {
         static let mdPX: CGFloat = 8
         static let lgPX: CGFloat = 12
         static let fullPX: CGFloat = 999
+    }
+
+    // MARK: - Terminal pane card
+    //
+    // The terminal pane is a rounded card inset from the window edge, sitting
+    // on `ChromeTheme.terminalPaneGround`. One shape, one gutter, one ground —
+    // the panes read as separate surfaces, so the hairlines that used to do
+    // that job are gone.
+    //
+    // What was deliberately left out: a drop shadow (see `terminalPaneGround`
+    // for why the elevation direction is not knowable), a border on the card
+    // (it would put back the hairline the rounding just removed), and a radius
+    // above `Radius.lgPX` (a terminal is dense; a bigger arc starts eating the
+    // first and last cell of the top and bottom rows instead of empty margin).
+    //
+    // This is also the decision that settles the tab grammar. A Safari-style
+    // tab is merged: it shares an edge with the content, which is how it says
+    // "this tab is that document". A tab in Kurotty does not contain a
+    // document, it contains a split tree — a merged tab in a four-way split
+    // would share its edge with a gutter, and with a sidebar open it would have
+    // to merge past a column that is not the content. So the tab stays a pill
+    // on the chrome plane (`TerminalTabItemView`, radius on all four corners,
+    // inset inside the bar), associated with the card by sitting on the same
+    // ground rather than by touching it. Merged tabs and inset cards are
+    // mutually exclusive and the cards win; a tab that almost touches the card
+    // would only read as a misalignment.
+
+    /// Geometry of the terminal pane card and the ground around it.
+    ///
+    /// Nothing here scales with `UIScale`: a corner radius and a gutter are
+    /// shapes in the window, not containers for type.
+    enum TerminalPaneCard {
+        /// Corner radius of the pane card. The largest step on the scale and
+        /// the ceiling for this surface — see `minimumGridInsetPX` for what
+        /// raising it would cost.
+        static let cornerRadiusPX = Radius.lgPX
+
+        /// Gap between the window's chrome edges and the outermost card. The
+        /// ground shows through here, which is the whole effect.
+        static let groundInsetPX = Space.x3PX
+
+        /// Gap between two adjacent cards in a split. This is the split
+        /// divider's full thickness — the divider no longer draws a line, so
+        /// the band it reserves *is* the gutter, and it stays wide enough to
+        /// grab for a resize drag.
+        static let gutterPX = Component.terminalSplitDividerHitAreaPX
+
+        /// How far a rounded corner of radius 1 cuts into the content rect,
+        /// measured along one axis.
+        ///
+        /// The corner arc is centred at `(r, r)`. A point `(p, p)` inset from
+        /// the card's corner is inside the arc when `sqrt(2) * (r - p) <= r`,
+        /// which solves to `p >= r * (1 - 1/sqrt(2))`. That is this ratio.
+        static let cornerContentInsetRATIO: CGFloat = 1 - 1 / 2.squareRoot()
+
+        /// Smallest terminal grid inset that keeps the corner cells whole.
+        ///
+        /// This is the number that makes the rounding safe. Masking the layer
+        /// would shave the corner glyphs; instead the grid stops short, so the
+        /// arc only ever cuts through padding. `Space.terminal*PX` are all at or
+        /// above this, and because those insets are subtracted *before* the
+        /// columns/rows division in `TerminalSurfaceView.terminalMetrics()`, the
+        /// size reported to the PTY already accounts for the corners.
+        static var minimumGridInsetPX: CGFloat {
+            cornerRadiusPX * cornerContentInsetRATIO
+        }
     }
 
     /// Component metrics.
@@ -1245,8 +1342,12 @@ enum DesignTokens {
         static let terminalPaneDragPreviewMaxWidthPX: CGFloat = 420
         static let terminalPaneDragPreviewTextInsetXPX = Space.x4PX
         static let terminalPaneDragPreviewTextInsetYPX = Space.x3PX
+        /// Width of the band between two pane cards. Read through
+        /// `TerminalPaneCard.gutterPX`, which is what the split view asks for:
+        /// the band is the gutter now, not a hit area wrapped around a rule.
+        /// The rule it used to carry (`terminalSplitDividerLinePX`) is gone —
+        /// the rounding separates the panes.
         static let terminalSplitDividerHitAreaPX = Space.x3PX
-        static let terminalSplitDividerLinePX: CGFloat = 1
         static let hairlinePX: CGFloat = 1
         static let ptyOutputCoalescingDelaySeconds: TimeInterval = 0.006
 

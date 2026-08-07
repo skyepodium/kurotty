@@ -13,6 +13,12 @@ final class TmuxGatewayPanePlaceholder: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        // A placeholder stands in a real pane's slot, so it has to be the same
+        // shape as one; a square hole in a row of cards reads as a broken pane
+        // rather than a pending one.
+        layer?.cornerRadius = DesignTokens.TerminalPaneCard.cornerRadiusPX
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
     }
 
     required init?(coder: NSCoder) {
