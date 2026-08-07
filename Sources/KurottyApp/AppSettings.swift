@@ -590,7 +590,7 @@ extension TerminalColorSettings {
     /// reading as the lightest step.
     static let nacre = TerminalColorSettings(
         foreground: "#2E2D40",
-        background: "#F8F6FC",
+        background: "#FFFFFF",
         // Violet, at a hue no ANSI slot occupies, so the caret cannot be read
         // as a colored glyph. Lighter than the foreground on purpose: it has to
         // be found without outweighing the text it sits in.

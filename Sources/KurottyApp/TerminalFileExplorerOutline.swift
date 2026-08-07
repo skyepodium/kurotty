@@ -40,6 +40,53 @@ final class TerminalFileExplorerOutlineView: NSOutlineView {
     /// The badge in the field advertises the same key in both panels.
     var onFilterKey: (() -> Void)?
 
+    /// Tint for the disclosure chevron, kept in step with the panel's theme.
+    var disclosureTintColor: NSColor = DesignTokens.ChromeTheme.dark.textTertiary {
+        didSet {
+            guard disclosureTintColor != oldValue else { return }
+            reloadData()
+        }
+    }
+
+    /// AppKit's stock disclosure triangle is a filled system triangle drawn in
+    /// a system colour, so it ignores the chrome ramp entirely -- on a themed
+    /// panel it lands somewhere between invisible and wrong. The history list
+    /// already replaces it with a quiet chevron; this is the same substitution,
+    /// so both sidebars disclose the same way.
+    override func makeView(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier,
+        owner: Any?
+    ) -> NSView? {
+        let view = super.makeView(withIdentifier: identifier, owner: owner)
+        guard identifier == NSOutlineView.disclosureButtonIdentifier,
+              let button = view as? NSButton
+        else {
+            return view
+        }
+        let pointSizePT = DesignTokens.Component.commandHistoryDisclosurePointSizePT
+        button.image = Icon.symbol(
+            IconSymbol.disclosureCollapsed,
+            pointSizePT: pointSizePT,
+            weight: .semibold,
+            tint: disclosureTintColor
+        )
+        button.alternateImage = Icon.symbol(
+            IconSymbol.disclosureExpanded,
+            pointSizePT: pointSizePT,
+            weight: .semibold,
+            tint: disclosureTintColor
+        )
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.contentTintColor = disclosureTintColor
+        let boxSize = DesignTokens.Component.commandHistoryDisclosureBoxSizePX
+        button.frame = NSRect(
+            origin: button.frame.origin,
+            size: NSSize(width: boxSize, height: boxSize)
+        )
+        return button
+    }
+
     private static let returnCharacter: Character = "\r"
     private static let enterCharacter = Character(UnicodeScalar(NSEnterCharacter)!)
     private static let deleteCharacter = Character(UnicodeScalar(NSDeleteCharacter)!)
