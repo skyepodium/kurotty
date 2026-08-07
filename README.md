@@ -41,6 +41,7 @@ Release notes, checksums, and older builds are available on [GitHub Releases](ht
 - OSC title, working-directory, color query, and terminal-generated notifications.
 - Local tmux control-mode integration: `tmux -CC` windows become native tabs and panes become native splits.
 - Sidebar panels for command history, the file explorer, and stored coding-agent sessions, plus a Command Palette and a status bar.
+- A menu bar extra carrying Kurotty's own mark, with rows to open the app, open Settings, check for updates, and quit. On by default; `terminal.menuBarExtraEnabled` turns it off and hands the slot straight back to macOS.
 - First-class support for working alongside Claude Code and Codex: live agent status, a session vault, token, context, and rate-limit accounting, per-file change provenance, and git worktree awareness. See [Working With Coding Agents](#working-with-coding-agents).
 
 ### tmux
