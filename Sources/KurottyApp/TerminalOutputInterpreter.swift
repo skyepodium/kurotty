@@ -126,7 +126,7 @@ final class TerminalOutputInterpreter {
                 case 8:
                     cursorColumn = max(0, cursorColumn - 1)
                 case 9:
-                    cursorColumn = tabStops.filter { $0 > cursorColumn }.min() ?? max(0, screen.columns - 1)
+                    horizontalTab()
                 case 7:
                     ringTerminalBell()
                 case 0..<32, 127:
@@ -262,6 +262,25 @@ final class TerminalOutputInterpreter {
         lineFeed()
     }
 
+    /// HT advances to the next tab stop but never past the last column.
+    ///
+    /// `tabStops` holds every multiple of 8 up to 992 regardless of the current
+    /// width, so an unclamped "next stop" lands outside the screen on any
+    /// narrower pane — three tabs on a 20-column screen reached column 24, and
+    /// the CPR issued there reported a column that does not exist.
+    ///
+    /// The VT510 programmer reference is explicit: "Moves the cursor to the
+    /// next tab stop. If there are no more tab stops, the cursor moves to the
+    /// right margin. HT does not cause text to auto wrap." xterm implements
+    /// exactly that in `tabs.c`'s `TabToNextStop` (`if (next > max) next =
+    /// max;` where `max` is `max_col`, the last column), as do ghostty and
+    /// kitty.
+    private func horizontalTab() {
+        let lastColumn = max(0, screen.columns - 1)
+        let nextStop = tabStops.filter { $0 > cursorColumn }.min() ?? lastColumn
+        cursorColumn = min(nextStop, lastColumn)
+    }
+
     private func consumeControl(_ scalar: UnicodeScalar) -> Bool {
         switch parserState {
         case .normal:
@@ -278,6 +297,16 @@ final class TerminalOutputInterpreter {
             case "]":
                 oscBuffer = ""
                 parserState = .osc
+            case "P", "X", "^", "_":
+                // DCS, SOS, PM, APC (ECMA-48 §8.3.27, §8.3.128, §8.3.94,
+                // §8.3.2). Their payloads are addressed to the terminal, not
+                // the screen, so they are consumed to their string terminator
+                // and dropped — the same "ignored" xterm gives SOS, PM and APC.
+                // Nothing here is parsed: answering DECRQSS would be a new
+                // feature, whereas the bug is that a DECRQSS probe
+                // (`ESC P 1 $ r ... ESC \`) or a Kitty graphics envelope
+                // (`ESC _ G ... ESC \`) painted its whole payload as text.
+                parserState = .stringControl
             case let scalar where TerminalEscapeSequence.beginsTwoByteDesignator(scalar):
                 parserState = .escapeDesignator
             case let scalar where TerminalEscapeSequence.beginsTwoByteDecPrivate(scalar):
@@ -322,33 +351,92 @@ final class TerminalOutputInterpreter {
             parserState = .normal
             return true
         case .csi:
-            if scalar.value >= 0x40 && scalar.value <= 0x7e {
+            if isCsiFinal(scalar) {
                 executeCsi(final: Character(scalar), params: csiBuffer)
                 csiBuffer = ""
                 parserState = .normal
+            } else if csiBuffer.utf8.count >= AppConstants.Terminal.maximumCsiParameterBytes {
+                csiBuffer = ""
+                parserState = .csiDiscard
             } else {
                 csiBuffer.append(Character(scalar))
             }
             return true
+        case .csiDiscard:
+            if isCsiFinal(scalar) {
+                parserState = .normal
+            }
+            return true
         case .osc:
             if scalar.value == 0x07 {
-                executeOsc(oscBuffer)
-                oscBuffer = ""
-                parserState = .normal
+                finishOsc(dispatch: true)
             } else if scalar.value == 0x1b {
                 parserState = .oscEscape
+            } else if oscBuffer.utf8.count >= AppConstants.Terminal.maximumStringPayloadBytes {
+                oscBuffer = ""
+                parserState = .oscDiscard
             } else {
                 oscBuffer.append(Character(scalar))
             }
             return true
-        case .oscEscape:
-            if scalar == "\\" {
-                executeOsc(oscBuffer)
+        case .oscDiscard:
+            if scalar.value == 0x07 {
+                parserState = .normal
+            } else if scalar.value == 0x1b {
+                parserState = .oscDiscardEscape
             }
-            oscBuffer = ""
-            parserState = .normal
             return true
+        case .oscEscape, .oscDiscardEscape:
+            let payloadWasDropped = parserState == .oscDiscardEscape
+            if scalar == "\\" {
+                finishOsc(dispatch: !payloadWasDropped)
+                return true
+            }
+            // An ESC that is not ST abandons the string rather than resuming
+            // print mid-payload. That is xterm — only `esc_table['\\']` reaches
+            // `do_osc`, every other byte leaves the accumulator unused — and
+            // vte, whose `ST_ESC` dispatches on `\` alone. The byte after the
+            // ESC still introduces whatever sequence it names, so it is
+            // re-dispatched from the escape state instead of being swallowed:
+            // `ESC ] 0 ; t ESC X …` drops the title and enters SOS, which is
+            // where the remaining bytes belong. src/parser.zig instead keeps
+            // the OSC open and folds the ESC into the payload; this follows
+            // xterm because that is the terminal Kurotty claims to be in TERM.
+            oscBuffer = ""
+            parserState = .escape
+            return consumeControl(scalar)
+        case .stringControl:
+            // ST only. BEL closes an OSC and nothing else: ECMA-48 §8.3.27 and
+            // §8.3.94 close DCS and PM with ST, and xterm's `CASE_BELL` rings
+            // the bell and keeps accumulating unless the string mode is OSC.
+            // tmux's DCS passthrough is why this matters in practice — it wraps
+            // whatever the inner program emitted, BEL-terminated OSCs included,
+            // and treating that BEL as the end of the DCS would spray the rest
+            // of the passthrough onto the screen.
+            if scalar.value == 0x1b {
+                parserState = .stringEscape
+            }
+            return true
+        case .stringEscape:
+            if scalar == "\\" {
+                parserState = .normal
+                return true
+            }
+            parserState = .escape
+            return consumeControl(scalar)
         }
+    }
+
+    private func isCsiFinal(_ scalar: UnicodeScalar) -> Bool {
+        scalar.value >= 0x40 && scalar.value <= 0x7e
+    }
+
+    private func finishOsc(dispatch: Bool) {
+        if dispatch {
+            executeOsc(oscBuffer)
+        }
+        oscBuffer = ""
+        parserState = .normal
     }
 
     private func executeOsc(_ command: String) {

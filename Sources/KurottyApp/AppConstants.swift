@@ -60,6 +60,29 @@ enum AppConstants {
         static let cursorWidthPX: Float = 2
         static let cursorBlinkIntervalSeconds: TimeInterval = 0.55
         static let minimumCellWidthPX: CGFloat = 8
+        /// Bounds on the parser's accumulating buffers. An unterminated `ESC [`
+        /// or `ESC ]` otherwise grows a main-actor String for as long as the
+        /// child keeps writing. Past the bound the sequence is discarded whole
+        /// and the parser resynchronizes at the terminator, matching
+        /// `src/parser.zig` — and xterm, ghostty, kitty and tmux, which all
+        /// drop an over-long sequence rather than execute a truncated one.
+        ///
+        /// 256 bytes of CSI parameters is far more than any real sequence:
+        /// tmux, the program most likely to sit between Kurotty and an
+        /// application, parses parameters into a 64-byte `param_buf` and
+        /// discards anything longer, so nothing arriving through tmux can
+        /// exceed 64. xterm caps at 30 parameters, vte at 32, ghostty at 24;
+        /// 32 five-digit parameters with separators is under 200 bytes.
+        static let maximumCsiParameterBytes = 256
+        /// 1 MiB of string payload is what tmux allows in one sequence
+        /// (`INPUT_BUF_DEFAULT_SIZE`), so it is the ceiling for anything
+        /// reaching Kurotty through a multiplexer anyway. It is well above
+        /// xterm's `maxStringParse` default and kitty's 256 KiB per escape.
+        /// The payloads that actually get large are OSC 52 clipboard writes —
+        /// 1 MiB of base64 is roughly 768 KiB of selected text — and Kitty
+        /// graphics, whose protocol requires clients to chunk at 4096 bytes
+        /// per escape.
+        static let maximumStringPayloadBytes = 1024 * 1024
     }
 
     /// Domain values behind the bottom status bar. These are thresholds, units,
