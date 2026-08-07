@@ -104,16 +104,34 @@ enum IconSymbol {
     static let refresh = "arrow.clockwise"
     static let search = "magnifyingglass"
     static let clearSearch = "xmark.circle.fill"
-    /// Filled, because the icon is what carries the outline level: a group name
-    /// is the same type rank as the rows under it.
-    /// Outline, not `folder.fill`. A filled glyph at this size next to a
-    /// disclosure chevron reads as a second, heavier mark competing with the
-    /// row title; the outline sits back and lets the name lead.
+    /// Outline. The quiet folder, for chrome that only *refers* to a directory:
+    /// the explorer's toggle button and the working-directory group headers in
+    /// the history and agent-session lists, which are all `textTertiary` marks
+    /// standing behind their labels.
     static let folder = "folder"
+    /// Filled. The mark for a row that *is* a directory, which is only the file
+    /// explorer's tree (`FileExplorerIcon.folderSymbolName`).
+    ///
+    /// The explorer used the outline one for a release, on the theory that a
+    /// solid mark competes with the disclosure chevron beside it. It does not:
+    /// the chevron is a small tertiary hairline in its own column and the
+    /// folder is a tinted 13pt glyph in another, so the two were never in the
+    /// same contest. What the outline actually cost was *kind* — at 13pt an
+    /// outline `folder` and an outline `doc` are the same rounded rectangle
+    /// with a nick in one edge, so the leading column stopped saying whether a
+    /// row was a directory and the tree read as one undifferentiated list.
+    /// Filled against outline is a silhouette difference, which survives being
+    /// glanced at, being small, and being greyscale.
+    static let folderFilled = "folder.fill"
     static let remove = "minus"
 
+    /// The command-history mark: used by the panel's toggle and by its own
+    /// empty state, so the button that opens the panel and the art inside it
+    /// are the same glyph.
+    static let history = "clock.arrow.circlepath"
+
     // MARK: Empty states
-    static let commandHistoryEmptyState = "clock.arrow.circlepath"
+    static let commandHistoryEmptyState = history
     static let agentSessionEmptyState = "bubble.left.and.text.bubble.right"
 
     // MARK: Getting Started

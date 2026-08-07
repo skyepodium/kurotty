@@ -54,15 +54,15 @@ final class TerminalLeftSidebarPanelView: NSView {
         sectionStrip.selectedSection = section
         // Off-screen (tests, a panel built but never installed) there is nothing
         // to animate, and a queued completion handler would leave both lists
-        // visible. On screen the underline travels and the lists crossfade.
+        // visible. On screen the pill travels and the lists crossfade.
         guard window != nil, previousSection != section else {
             applySectionVisibility()
             refreshIndexIfNeeded(for: section)
             return
         }
         SidebarMotion.animateSectionChange(
-            underline: sectionStrip.underlineView,
-            toFrame: sectionStrip.underlineFrame(for: section),
+            selectionPill: sectionStrip.selectionPillView,
+            toFrame: sectionStrip.selectionPillFrame(for: section),
             outgoing: panelView(for: previousSection),
             incoming: panelView(for: section)
         )
@@ -156,8 +156,18 @@ final class TerminalLeftSidebarPanelView: NSView {
 /// Deliberately not `NSSegmentedControl`: AppKit has no legal 22pt
 /// segmented-control height, so forcing one rendered a squashed control and
 /// needed `setWidth(0…)` plus a lowered compression resistance just to stay
-/// inside the panel. A pair of plain views with an accent underline expresses
-/// the same choice at the height the sidebar actually wants.
+/// inside the panel. A pair of plain views expresses the same choice at the
+/// height the sidebar actually wants.
+///
+/// The strip used to mark its selected tab with a bare 2pt accent underline,
+/// which made this the third selection language in one window: the terminal tab
+/// bar raises a `surfaceRaised` tab under an accent rail, the sidebar lists
+/// raise a `surfaceRaised` pill under an accent rail, and this drew a rule and
+/// nothing else. Three devices for one meaning is three things to learn, and
+/// the weakest of them was carrying the sidebar's own navigation. It now uses
+/// the list's device — the *same* `TerminalSidebarRowHighlight` appearance, the
+/// same surface, the same hairline, the same accent rail — with the rail on the
+/// bottom edge, because that is the edge nearest the list the tab introduces.
 @MainActor
 final class TerminalLeftSidebarSectionStripView: NSView {
     var onSelect: ((TerminalLeftSidebarSection) -> Void)?
@@ -166,10 +176,10 @@ final class TerminalLeftSidebarSectionStripView: NSView {
         didSet { applySelection() }
     }
 
-    /// Selection underline. A real view rather than a per-item `draw` so it can
+    /// The selection pill. A real view rather than a per-item `draw` so it can
     /// travel across the strip when the section changes; `SidebarMotion` owns
     /// that animation.
-    let underlineView = NSView()
+    let selectionPillView = TerminalLeftSidebarSectionSelectionView()
 
     private var itemViews: [TerminalLeftSidebarSectionItemView] = []
     private var chromeTheme = DesignTokens.ChromeTheme.dark
@@ -185,36 +195,33 @@ final class TerminalLeftSidebarSectionStripView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        underlineView.layer?.backgroundColor = theme.accent.cgColor
+        selectionPillView.chromeTheme = theme
         for itemView in itemViews {
             itemView.applyChromeTheme(theme)
         }
     }
 
-    /// Where the underline sits for a section, in strip coordinates. Inset from
-    /// the item's own width so two adjacent selections could never read as one
-    /// continuous rule.
-    func underlineFrame(for section: TerminalLeftSidebarSection) -> NSRect {
-        guard let itemView = itemViews.first(where: { $0.section == section }) else {
-            return .zero
-        }
-        let inset = DesignTokens.Component.leftSidebarSectionUnderlineInsetXPX
-        return NSRect(
-            x: itemView.frame.minX + inset,
-            y: bounds.minY,
-            width: max(itemView.frame.width - 2 * inset, 0),
-            height: DesignTokens.Component.leftSidebarSectionUnderlineHeightPX
-        )
+    /// Where the pill sits for a section, in strip coordinates: the item's own
+    /// frame. The shared painter applies the row inset inside it, so the pill's
+    /// gutter is the list's gutter rather than a second set of numbers.
+    func selectionPillFrame(for section: TerminalLeftSidebarSection) -> NSRect {
+        itemViews.first { $0.section == section }?.frame ?? .zero
     }
 
     override func layout() {
         super.layout()
-        // A resize repositions the underline outright; only a section change
+        // A resize repositions the pill outright; only a section change
         // animates it.
-        underlineView.frame = underlineFrame(for: selectedSection)
+        selectionPillView.frame = selectionPillFrame(for: selectedSection)
     }
 
     private func configure() {
+        // Deliberately not `disableImplicitAnimations`: this is the one chrome
+        // layer that is supposed to move. Added before the items so the pill
+        // sits behind the labels rather than over them.
+        addSubview(selectionPillView)
+        selectionPillView.chromeTheme = chromeTheme
+
         let stackView = NSStackView()
         stackView.orientation = .horizontal
         stackView.distribution = .fillEqually
@@ -237,13 +244,6 @@ final class TerminalLeftSidebarSectionStripView: NSView {
             itemViews.append(itemView)
             stackView.addArrangedSubview(itemView)
         }
-
-        // Deliberately not `disableImplicitAnimations`: this is the one chrome
-        // layer that is supposed to move.
-        underlineView.wantsLayer = true
-        underlineView.layer?.cornerRadius = DesignTokens.Radius.xsPX
-        underlineView.layer?.backgroundColor = chromeTheme.accent.cgColor
-        addSubview(underlineView)
 
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -283,8 +283,89 @@ final class TerminalLeftSidebarSectionStripView: NSView {
     }
 }
 
-/// One item of the section strip. Owns its own hover, selection, and focus
-/// paint so the strip stays a layout container.
+/// The travelling selection pill behind the strip's selected tab.
+///
+/// Holds no state of its own beyond the theme: the paint comes from
+/// `TerminalSidebarRowHighlight.appearance(for:theme:)` for a selected row, so
+/// the strip cannot drift from the lists it sits above. If the pill ever stops
+/// matching a sidebar row it will be because that one function changed, which
+/// is the point.
+@MainActor
+final class TerminalLeftSidebarSectionSelectionView: NSView {
+    var chromeTheme: DesignTokens.ChromeTheme = .dark {
+        didSet { refresh() }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        // The pill's drop shadow lives outside its own bounds, so a clipping
+        // layer would cut it into a hard edge — the same reason
+        // `TerminalSidebarRowView` unsets this.
+        layer?.masksToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// Always the *active* selection appearance, whether or not the window is
+    /// key. This is the one place the strip departs from a list row, and the
+    /// reason is that the two are not the same kind of selection.
+    ///
+    /// A selected list row is a selection the user made; a background window
+    /// demoting it — dropping the accent rail and the elevation — is the window
+    /// saying "nothing here is being acted on". The strip's selected tab is not
+    /// that. It is a statement about which list is on screen right now, and
+    /// that stays true while the window is in the background. Demoting it made
+    /// the light theme's strip a white pill on near-white with a hairline that
+    /// measures about 1.06:1 — a background window simply stopped saying which
+    /// section it was showing.
+    ///
+    /// The terminal tab bar already draws this distinction the same way: its
+    /// active tab keeps its accent rail in a background window, because it too
+    /// answers "which one am I looking at" rather than "which one is focused".
+    var currentAppearance: TerminalSidebarRowHighlight.Appearance {
+        TerminalSidebarRowHighlight.appearance(
+            for: .init(isSelected: true, isWindowActive: true),
+            theme: chromeTheme
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        TerminalSidebarRowHighlight.paint(currentAppearance, in: bounds, railEdge: .bottom)
+    }
+
+    override func layout() {
+        super.layout()
+        applyShadow()
+    }
+
+    private func refresh() {
+        needsDisplay = true
+        applyShadow()
+    }
+
+    /// Same reason as `TerminalSidebarRowView`: `shadowPath` is not clipped to
+    /// the layer's contents, so the shadow can sit outside the pill.
+    private func applyShadow() {
+        guard let layer else {
+            return
+        }
+        layer.masksToBounds = false
+        guard let shadow = currentAppearance.shadow, !bounds.isEmpty else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        shadow.apply(to: layer)
+        layer.shadowPath = TerminalSidebarRowHighlight.Geometry.highlightPath(in: bounds)
+    }
+}
+
+/// One item of the section strip. Owns its own hover and focus paint; the
+/// selected state is the strip's travelling pill, not a per-item fill.
 @MainActor
 final class TerminalLeftSidebarSectionItemView: NSView {
     let section: TerminalLeftSidebarSection
@@ -391,33 +472,33 @@ final class TerminalLeftSidebarSectionItemView: NSView {
         }
     }
 
+    /// Hover and focus only. Selection is painted by the strip's pill, which
+    /// sits behind this view, so a selected item must draw no fill of its own —
+    /// a hover wash over the pill would be the two-opacities-of-one-paint
+    /// mistake `TerminalSidebarRowHighlight` exists to prevent.
+    ///
+    /// Geometry comes from the shared row geometry rather than from strip-local
+    /// insets, so the hover target and the focus ring line up with the pill
+    /// underneath instead of merely looking about right.
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let hoverRect = bounds.insetBy(
-            dx: DesignTokens.Component.leftSidebarSectionHoverInsetPX,
-            dy: DesignTokens.Component.leftSidebarSectionHoverInsetPX
-        )
         if isHovered, !isSelectedSection {
-            chromeTheme.hoverFill.setFill()
-            NSBezierPath(
-                roundedRect: hoverRect,
-                xRadius: DesignTokens.Radius.smPX,
-                yRadius: DesignTokens.Radius.smPX
-            ).fill()
+            let hovered = TerminalSidebarRowHighlight.appearance(
+                for: .init(isHovered: true, isWindowActive: window?.isKeyWindow ?? false),
+                theme: chromeTheme
+            )
+            TerminalSidebarRowHighlight.paint(hovered, in: bounds, railEdge: .bottom)
         }
         guard window?.firstResponder === self else {
             return
         }
         chromeTheme.focusRing.setStroke()
         let ringPath = NSBezierPath(
-            roundedRect: hoverRect.insetBy(
-                dx: -DesignTokens.Component.leftSidebarSectionFocusRingOutsetPX,
-                dy: -DesignTokens.Component.leftSidebarSectionFocusRingOutsetPX
-            ),
-            xRadius: DesignTokens.Radius.smPX,
-            yRadius: DesignTokens.Radius.smPX
+            roundedRect: TerminalSidebarRowHighlight.Geometry.focusRingRect(in: bounds),
+            xRadius: TerminalSidebarRowHighlight.Geometry.focusRingCornerRadiusPX,
+            yRadius: TerminalSidebarRowHighlight.Geometry.focusRingCornerRadiusPX
         )
-        ringPath.lineWidth = DesignTokens.Component.leftSidebarSectionFocusRingWidthPX
+        ringPath.lineWidth = TerminalSidebarRowHighlight.Geometry.focusRingWidthPX
         ringPath.stroke()
     }
 

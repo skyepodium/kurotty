@@ -164,6 +164,110 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
         XCTAssertEqual(items.filter(\.isSelectedSection).map(\.section), [.commandHistory])
     }
 
+    // MARK: - One selection device
+
+    /// The strip marked its selected tab with a bare 2pt accent underline while
+    /// the lists below it and the tab bar above it both raised a filled pill.
+    /// Three devices for one meaning; the strip now uses the lists'.
+    ///
+    /// This asserts the pill *covers the selected tab* rather than that some
+    /// view exists: an underline is also a view, and it also moves.
+    func testTheSelectedSectionCarriesAPillThatCoversIt() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        guard let strip = descendants(of: sidebar)
+            .compactMap({ $0 as? TerminalLeftSidebarSectionStripView })
+            .first
+        else {
+            XCTFail("the sidebar must host a section strip")
+            return
+        }
+        let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
+
+        for section in TerminalLeftSidebarSection.allCases {
+            sidebar.showSection(section)
+            strip.layoutSubtreeIfNeeded()
+            let pill = strip.selectionPillView.frame
+            guard let selected = items.first(where: { $0.section == section }) else {
+                XCTFail("no item for \(section)")
+                continue
+            }
+            XCTAssertEqual(pill, selected.frame, "the pill must sit on the selected tab")
+            // Not an underline: a rule is a couple of points tall and this has
+            // to be a surface the tab's label sits on.
+            XCTAssertGreaterThan(
+                pill.height,
+                DesignTokens.Component.leftSidebarSectionStripHeightPX / 2,
+                "the pill must be a surface, not a rule under one"
+            )
+            for other in items where other.section != section {
+                XCTAssertFalse(
+                    pill.intersects(other.frame),
+                    "the pill must not reach the unselected tab"
+                )
+            }
+        }
+    }
+
+    /// The strip's pill and an actively selected list row are painted from the
+    /// same resolved appearance, so "selected" cannot come to mean two things
+    /// one token edit apart.
+    func testTheStripPillAndASelectedListRowResolveToTheSamePaint() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+            let shared = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: true),
+                theme: theme
+            )
+            let pill = TerminalLeftSidebarSectionSelectionView()
+            pill.chromeTheme = theme
+            XCTAssertEqual(
+                pill.currentAppearance,
+                shared,
+                "the strip pill diverged from the list row's paint"
+            )
+        }
+    }
+
+    /// The strip is the one selection in the window that does *not* demote in a
+    /// background window, and the reason is that it means something different:
+    /// a list row's selection is "what you picked", which a background window
+    /// is right to quieten, while the strip's tab is "which list is on screen",
+    /// which stays true whatever the window is doing.
+    ///
+    /// It matters most on the light ramp, where the demoted pill is a white
+    /// surface on near-white behind a hairline that measures about 1.06:1 — the
+    /// strip stopped saying which section it was showing at all.
+    func testTheStripKeepsItsAccentRailWhileTheWindowIsInTheBackground() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+            let pill = TerminalLeftSidebarSectionSelectionView()
+            pill.chromeTheme = theme
+            XCTAssertEqual(pill.currentAppearance.rail, theme.accent)
+            XCTAssertNotNil(pill.currentAppearance.shadow)
+            // The list row it borrows its paint from does demote, which is what
+            // makes this an explicit choice rather than an oversight.
+            let backgroundRow = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: false),
+                theme: theme
+            )
+            XCTAssertNil(backgroundRow.rail)
+        }
+    }
+
+    /// A tab that is not selected paints no fill of its own. Selection is the
+    /// pill behind it, so an item fill would be a second surface stacked on the
+    /// first — and a hover wash over the pill is the two-opacities-of-one-paint
+    /// mistake the shared painter exists to prevent.
+    func testAnUnselectedSectionTabHasNoSurfaceOfItsOwn() {
+        let sidebar = makeLaidOutSidebar(width: PanelWidth.defaultPX)
+        sidebar.showSection(.commandHistory)
+        let items = descendants(of: sidebar).compactMap { $0 as? TerminalLeftSidebarSectionItemView }
+        for item in items {
+            XCTAssertNil(
+                item.layer?.backgroundColor,
+                "\(item.section) painted a fill the strip's pill already owns"
+            )
+        }
+    }
+
     // MARK: - Shared search pill
 
     /// All three sidebar sections had their own near-identical pill before it

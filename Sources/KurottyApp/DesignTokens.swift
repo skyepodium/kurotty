@@ -660,7 +660,7 @@ enum DesignTokens {
     /// preferences pane switching must all be instant. `ChromeMotion` and
     /// `SidebarMotion` are the behaviour helpers that read these tokens.
     enum Motion {
-        /// Sidebar section switch. Long enough to read the underline
+        /// Sidebar section switch. Long enough to read the selection pill
         /// travelling, short enough that a fast click never queues.
         static let sectionSwitchDurationMS = 160
         /// Each half of the sidebar list crossfade.
@@ -1359,13 +1359,12 @@ enum DesignTokens {
         static let leftSidebarSectionStripTopInsetPX = Space.x3PX
         static let leftSidebarSectionStripInsetXPX = Space.x4PX
         static let leftSidebarSectionStripBottomGapPX = Space.x3PX
-        static let leftSidebarSectionUnderlineHeightPX: CGFloat = 2
-        /// Underline is inset from the item's own width so two adjacent
-        /// selections could never read as one continuous rule.
-        static let leftSidebarSectionUnderlineInsetXPX = Space.x1PX
-        static let leftSidebarSectionHoverInsetPX: CGFloat = 2
-        static let leftSidebarSectionFocusRingWidthPX: CGFloat = 2
-        static let leftSidebarSectionFocusRingOutsetPX: CGFloat = 1
+        // The strip's selection geometry — pill inset, radius, rail thickness,
+        // focus ring — is deliberately not tokenised here. It is the sidebar
+        // row's geometry (`sidebarRowHighlight*`, `sidebarRowSelection*`),
+        // because the strip now uses the row's selection device rather than an
+        // underline of its own. A second set of numbers for the same object is
+        // how the two drifted apart in the first place.
         static let imagePreviewInsetPX = Space.x6PX
         /// 40, down from 44: four digits fit at 11pt with `x3` of trailing air.
         /// The gutter draws in `Typography.monoGutter`, which is a chrome rung,
