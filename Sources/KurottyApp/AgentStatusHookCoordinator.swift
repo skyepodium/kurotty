@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 
-/// Owns the hook path: the loopback server, the Claude Code settings entries,
-/// and the PTY environment contract.
+/// Owns the hook path: the loopback server, the per-agent hook entries, and the
+/// PTY environment contract.
 ///
 /// Lifecycle contract: one instance, started from app launch and stopped on
 /// termination. When `terminal.agentStatusHooksEnabled` is false nothing is
@@ -11,8 +11,8 @@ import Foundation
 ///
 /// The setting now defaults to on, which is why the install path runs through
 /// `AgentStatusHookConsentPolicy`: a default must never be the reason a file
-/// Kurotty does not own gets rewritten. Nothing here writes to
-/// `~/.claude/settings.json` until the user has answered once.
+/// Kurotty does not own gets rewritten. Nothing here writes to an agent's
+/// configuration until the user has answered for that agent.
 ///
 /// The OSC 9999 channel is independent of this coordinator and always on.
 @MainActor
@@ -22,9 +22,20 @@ final class AgentStatusHookCoordinator: NSObject {
     private let registry: AgentActivityRegistry
     private let server: AgentStatusHookServer
     private let consentStore: AgentStatusHookConsentStore
-    /// Returns true when the user allows the write. Injected so tests never
-    /// raise a modal, and so the decision is separable from the presentation.
-    private let requestConsent: @MainActor () -> Bool
+    /// Returns true when the user allows the write into that agent's file.
+    /// Injected so tests never raise a modal, and so the decision is separable
+    /// from the presentation.
+    private let requestConsent: @MainActor (AgentStatusHookTarget) -> Bool
+    /// Where the agent configuration files are looked up. Injected rather than
+    /// resolved per call because the settings observer reaches `setEnabled`
+    /// without arguments, and a test that could not redirect it would write into
+    /// the real `~/.claude` and `~/.codex`.
+    private let homeDirectory: URL
+    /// Recording an answer saves Kurotty's settings, which posts a change the
+    /// observer turns straight back into `setEnabled`. Re-entering mid-pass
+    /// would put the same question twice, so a nested call is dropped and the
+    /// pass already running finishes the job.
+    private var isApplyingSetting = false
     private(set) var isEnabled = false
     private(set) var lastDiagnostic: String?
 
@@ -33,21 +44,28 @@ final class AgentStatusHookCoordinator: NSObject {
         server: AgentStatusHookServer = AgentStatusHookServer(),
         observesSettingsChanges: Bool = true,
         consentStore: AgentStatusHookConsentStore = .appSettings,
-        requestConsent: @escaping @MainActor () -> Bool = AgentStatusHookConsentPrompt.ask
+        requestConsent: @escaping @MainActor (AgentStatusHookTarget) -> Bool = AgentStatusHookConsentPrompt.ask,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) {
         self.registry = registry
         self.server = server
         self.consentStore = consentStore
         self.requestConsent = requestConsent
+        self.homeDirectory = homeDirectory
         super.init()
         guard observesSettingsChanges else {
             return
         }
+        // Scoped to Kurotty's own store, like every other settings observer in
+        // the app. An unscoped registration would let anything in the process
+        // that posts this name trigger a write into the user's agent
+        // configuration; only the store has the standing to say the setting
+        // changed.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(settingsDidChange(_:)),
             name: AppSettingsStore.didChangeNotification,
-            object: nil
+            object: AppSettingsStore.shared
         )
     }
 
@@ -66,6 +84,15 @@ final class AgentStatusHookCoordinator: NSObject {
         guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
             return
         }
+        // Live-apply belongs to a running app. Outside one there is no user to
+        // put the consent question to and no session the install serves, and
+        // this broadcast is reachable by anything in the process — a unit test
+        // exercising another observer of the same notification will otherwise
+        // rewrite the developer's own `~/.claude` and block on a modal nobody
+        // can answer.
+        guard NSApplication.shared.isRunning else {
+            return
+        }
         // Settings only change because someone edited them, so this path is the
         // user asking — unlike `applyStoredSetting`, which is just a launch.
         setEnabled(settings.terminal.agentStatusHooksEnabled, isExplicitUserRequest: true)
@@ -74,57 +101,102 @@ final class AgentStatusHookCoordinator: NSObject {
     /// Applies the setting. Safe to call repeatedly with the same value.
     ///
     /// Turning it on may do nothing at all: an unanswered or refused consent
-    /// leaves the listener stopped and the user's configuration untouched, so
+    /// leaves the listener stopped and that agent's configuration untouched, so
     /// `isEnabled` reports what actually happened rather than what the setting
-    /// asked for.
+    /// asked for. It becomes true when at least one agent was installed.
     func setEnabled(
         _ enabled: Bool,
-        settingsFileURL: URL? = nil,
         isExplicitUserRequest: Bool = true
     ) {
+        guard !isApplyingSetting else { return }
+        isApplyingSetting = true
+        defer { isApplyingSetting = false }
+
         guard enabled else {
             guard isEnabled else { return }
             isEnabled = false
             server.stop()
-            applyUninstall(settingsFileURL: settingsFileURL)
+            applyToEachTarget { target, fileURL in
+                AgentStatusHookInstaller.uninstall(for: target, at: fileURL)
+            }
             return
         }
         guard !isEnabled else { return }
 
-        switch AgentStatusHookConsentPolicy.decision(
-            isEnabled: true,
-            consent: consentStore.read(),
-            hasExistingManagedEntries: hasManagedEntries(settingsFileURL: settingsFileURL),
-            isExplicitUserRequest: isExplicitUserRequest
-        ) {
-        case .leaveConfigurationAlone:
+        var permittedTargets: [AgentStatusHookTarget] = []
+        var wasAnythingRefused = false
+        for target in AgentStatusHookTarget.allCases where target.isInstallable(homeDirectory: homeDirectory) {
+            switch AgentStatusHookConsentPolicy.decision(
+                isEnabled: true,
+                consent: consentStore.read(target),
+                hasExistingManagedEntries: hasManagedEntries(for: target),
+                isExplicitUserRequest: isExplicitUserRequest
+            ) {
+            case .leaveConfigurationAlone:
+                continue
+            case .askBeforeInstalling:
+                let granted = requestConsent(target)
+                consentStore.record(target, granted ? .granted : .denied)
+                guard granted else {
+                    wasAnythingRefused = true
+                    continue
+                }
+            case .install:
+                break
+            }
+            permittedTargets.append(target)
+        }
+
+        guard !permittedTargets.isEmpty else {
+            if wasAnythingRefused {
+                consentStore.disableHooksSetting()
+            }
             return
-        case .askBeforeInstalling:
-            let granted = requestConsent()
-            consentStore.record(granted ? .granted : .denied)
-            guard granted else { return }
-            // Recording posts a settings change, and the observer may have
-            // already run this same path to completion before we get here.
-            guard !isEnabled else { return }
-        case .install:
-            break
         }
 
         isEnabled = true
         startServer()
-        applyInstall(settingsFileURL: settingsFileURL)
+        var diagnostics: [String] = []
+        for target in permittedTargets {
+            guard case .failure(let error) = AgentStatusHookInstaller.install(
+                for: target,
+                at: configurationFileURL(for: target)
+            ) else {
+                continue
+            }
+            diagnostics.append(error.diagnostic)
+            NSLog("%@", error.diagnostic)
+        }
+        lastDiagnostic = diagnostics.isEmpty ? nil : diagnostics.joined(separator: "; ")
     }
 
-    /// True when the target file already carries Kurotty's marker, which makes
+    /// True when the agent's file already carries Kurotty's marker, which makes
     /// an install a refresh rather than a first intrusion.
-    private func hasManagedEntries(settingsFileURL: URL?) -> Bool {
-        let target = settingsFileURL ?? AgentStatusHookInstaller.settingsFileURL()
-        guard let data = try? Data(contentsOf: target),
+    private func hasManagedEntries(for target: AgentStatusHookTarget) -> Bool {
+        guard let data = try? Data(contentsOf: configurationFileURL(for: target)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return false
         }
         return AgentStatusHookInstaller.containsKurottyEntries(object)
+    }
+
+    private func configurationFileURL(for target: AgentStatusHookTarget) -> URL {
+        AgentStatusHookInstaller.configurationFileURL(for: target, homeDirectory: homeDirectory)
+    }
+
+    private func applyToEachTarget(
+        _ body: (AgentStatusHookTarget, URL) -> Result<Void, AgentStatusHookInstaller.InstallError>
+    ) {
+        var diagnostics: [String] = []
+        for target in AgentStatusHookTarget.allCases {
+            guard case .failure(let error) = body(target, configurationFileURL(for: target)) else {
+                continue
+            }
+            diagnostics.append(error.diagnostic)
+            NSLog("%@", error.diagnostic)
+        }
+        lastDiagnostic = diagnostics.isEmpty ? nil : diagnostics.joined(separator: "; ")
     }
 
     /// Environment for a PTY spawn. Empty unless hooks are enabled and the
@@ -162,36 +234,20 @@ final class AgentStatusHookCoordinator: NSObject {
         }
     }
 
-    private func applyInstall(settingsFileURL: URL?) {
-        guard case .failure(let error) = AgentStatusHookInstaller.install(at: settingsFileURL) else {
-            lastDiagnostic = nil
-            return
-        }
-        lastDiagnostic = error.diagnostic
-        NSLog("%@", error.diagnostic)
-    }
-
-    private func applyUninstall(settingsFileURL: URL?) {
-        guard case .failure(let error) = AgentStatusHookInstaller.uninstall(at: settingsFileURL) else {
-            lastDiagnostic = nil
-            return
-        }
-        lastDiagnostic = error.diagnostic
-        NSLog("%@", error.diagnostic)
-    }
 }
 
 /// The modal that asks for hook consent, kept apart from the coordinator so the
-/// decision path stays free of AppKit. The path is spelled out in the message
-/// because the file being changed is the user's, not Kurotty's.
+/// decision path stays free of AppKit. The agent and the exact path are spelled
+/// out because the file being changed is the user's, not Kurotty's — and
+/// because the answer is recorded for that agent only.
 enum AgentStatusHookConsentPrompt {
     @MainActor
-    static func ask() -> Bool {
+    static func ask(for target: AgentStatusHookTarget) -> Bool {
         let alert = NSAlert()
-        alert.messageText = AppLocalization.string(.agentStatusHookConsentTitle)
+        alert.messageText = AppLocalization.format(.agentStatusHookConsentTitle, target.productName)
         alert.informativeText = AppLocalization.format(
             .agentStatusHookConsentMessage,
-            AgentStatusHookInstaller.settingsFileURL().path
+            AgentStatusHookInstaller.configurationFileURL(for: target).path
         )
         alert.alertStyle = .informational
         alert.addButton(withTitle: AppLocalization.string(.agentStatusHookConsentAllow))

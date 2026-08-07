@@ -70,13 +70,13 @@ The JSON contract is producer-neutral. `body` (or the legacy aliases `message`, 
 
 Explicit OSC 9/777/1337 and bridge events preserve producer-supplied content. When a producer emits only BEL, Kurotty can show only the fixed `Check your terminal.` fallback; it never reconstructs a response from submitted input, rendered cells, output volume, or a quiet timer. OSC 0 window titles and their BEL terminators remain title protocol, not task notifications.
 
-Kurotty exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` from the running bundle for every child shell. Nothing on this path edits another program's configuration or assumes `/Applications`, a username, a checkout path, or a particular producer. The single place Kurotty writes to a file it does not own is the Claude Code hook installer described below, which is off by default and reversible.
+Kurotty exports `KUROTTY_NOTIFY_SOCKET` and `KUROTTY_NOTIFY_COMMAND` from the running bundle for every child shell. Nothing on this path edits another program's configuration or assumes `/Applications`, a username, a checkout path, or a particular producer. The only place Kurotty writes to a file it does not own is the agent hook installer described below, which covers Claude Code and Codex, asks once per agent before its first write, and is reversible.
 
 ## Working With Coding Agents
 
 Kurotty treats Claude Code and Codex as first-class tenants of a pane. Everything in this section is either observation of files those agents already wrote to disk, or an explicit protocol a producer opts into. Nothing here reads rendered terminal text, and no surface described below runs a command for you: commands are inserted at the prompt and you press Return.
 
-Two settings gate this, both under Preferences and both mirrored in the JSON settings file. `terminal.agentSessionIndexEnabled` defaults to on and controls reading agent transcripts. `terminal.agentStatusHooksEnabled` defaults to off and controls the hook path, because turning it on edits a file Kurotty does not own.
+Two settings gate this, both under Preferences and both mirrored in the JSON settings file. `terminal.agentSessionIndexEnabled` defaults to on and controls reading agent transcripts. `terminal.agentStatusHooksEnabled` defaults to on and controls the hook path, but the setting alone never edits anything: the first write into each agent's own configuration waits for a one-time prompt naming that exact file, recorded per agent in `terminal.agentStatusHookConsent` (Claude Code) and `terminal.agentStatusCodexHookConsent` (Codex).
 
 ### Agent status in the pane header and status bar
 
@@ -90,24 +90,35 @@ printf '\033]9999;{"state":"working","agent":"claude","detail":"running tests"}\
 
 `ESC \` is accepted as a terminator alongside BEL. `state` is required and must be one of the four values; an unknown value is ignored rather than guessed at. `agent` and `detail` are optional display metadata, capped at 40 and 200 characters. The sequence is always stripped from the visible stream, including when it is malformed, oversized, or carries an unknown state, and a sequence split across PTY reads is reassembled through a bounded 4 KB buffer that discards to the next terminator on overflow. What this does not include is a producer. Kurotty ships nothing that emits the sequence, and neither agent emits it on its own, so this channel is one you wire up from a wrapper script or from any program willing to adopt it. In exchange it is the one status path that survives a hop: the sequence is ordinary bytes in the pane's output stream, so it works for an agent running over SSH or inside a container, where the hook below cannot reach.
 
-The second input is a loopback HTTP endpoint, off by default. When enabled, Kurotty binds a listener on `127.0.0.1` on an OS-assigned port and generates a fresh 256-bit token per launch. A post must carry that exact token in `X-Kurotty-Hook-Token`, compared byte by byte in constant time; anything else is answered `401` and dropped. Requests are capped at 8 KB and bodies at 4 KB. The body is parsed as data only: no field is executed, interpolated into a command, or written to disk, and the token and payload are never logged. The listener is not reachable off-host, so this path covers local panes only.
+The second input is a loopback HTTP endpoint, which runs only once an agent's hooks are actually installed. When enabled, Kurotty binds a listener on `127.0.0.1` on an OS-assigned port and generates a fresh 256-bit token per launch. A post must carry that exact token in `X-Kurotty-Hook-Token`, compared byte by byte in constant time; anything else is answered `401` and dropped. Requests are capped at 8 KB and bodies at 4 KB. The body is parsed as data only: no field is executed, interpolated into a command, or written to disk, and the token and payload are never logged. The listener is not reachable off-host, so this path covers local panes only.
 
 Every state carries a maximum age — 5 minutes for `working`, 30 minutes for `waiting` and `blocked`, 10 minutes for `done`. Past that the status is cleared rather than downgraded, so an agent that was killed, suspended, or disconnected without ever reporting a terminal state cannot leave a stuck spinner behind.
 
-### The Claude Code hook installer (opt-in)
+### The agent hook installer (Claude Code and Codex)
 
-Turning on `terminal.agentStatusHooksEnabled` writes three hook entries into `~/.claude/settings.json` so status works without the agent knowing anything about OSC 9999: `UserPromptSubmit` reports `working`, `Notification` reports `waiting`, and `Stop` reports `done`. This is Claude Code only. There is no Codex equivalent, and Claude Code's own `blocked` state has no lifecycle event, so `blocked` arrives only over OSC 9999.
+Turning on `terminal.agentStatusHooksEnabled` writes hook entries into each agent's own configuration so status works without the agent knowing anything about OSC 9999. **These two agents are the whole list.** Any other agent in a pane reports status only over OSC 9999, and shows nothing at all if it does not emit it.
 
-The installer is deliberately narrow about a file it does not own:
+| Agent | File | Events written | States reported |
+| --- | --- | --- | --- |
+| Claude Code | `~/.claude/settings.json` | `UserPromptSubmit`, `Notification`, `Stop` | `working`, `waiting`, `done` |
+| Codex | `~/.codex/hooks.json` | `UserPromptSubmit`, `Stop` | `working`, `done` |
 
+Codex emits nothing that honestly means "the agent is waiting for you". Its `PreToolUse` fires for every tool call whether or not approval is required, so reading it as `waiting` would report a state the agent is usually not in; Kurotty leaves `waiting` unreported for Codex rather than approximating it. `blocked` has no lifecycle event in either agent. Both states still arrive over OSC 9999 from a producer that sends them.
+
+Codex is only touched when `~/.codex` already exists. Kurotty does not create a configuration directory for a program you may not have installed, and does not raise a prompt about one.
+
+The installer is deliberately narrow about files it does not own:
+
+- Nothing is written until you say yes. The prompt names the exact file, and the answer is recorded per agent — a yes about Claude Code's settings is not a yes about Codex's hooks. Refusing every agent turns the setting back off, so the checkbox is never a switch that does nothing.
 - No tool-use hook is installed, so no prompt, tool argument, or file path is observed through this path.
-- Claude Code's hook stdin payload is ignored and never forwarded. The generated command posts a fixed JSON body assembled from environment variables Kurotty injected into the PTY, so nothing from inside the conversation leaves the agent.
-- Every entry Kurotty writes carries the marker `kurotty-agent-status-hook`. Uninstall removes only entries carrying that marker and prunes the empty containers left behind, so it cannot eat a hook you wrote.
-- The existing file is copied to `~/.claude/settings.json.kurotty-backup` before any write, and every other key is preserved.
+- The agent's hook stdin payload is ignored and never forwarded. The generated command posts a fixed JSON body assembled from environment variables Kurotty injected into the PTY, so nothing from inside the conversation leaves the agent.
+- Every entry Kurotty writes carries the marker `kurotty-agent-status-hook`. Uninstall removes only entries carrying that marker and prunes the empty containers left behind, so it cannot eat a hook you wrote — including one written by third-party tooling such as `oh-my-codex`, which commonly owns `~/.codex/hooks.json`.
+- The existing file is copied to `<name>.kurotty-backup` before any write, and every other key is preserved.
+- A configuration Kurotty cannot fully recognize is reported and left byte-identical: unreadable, not JSON, not a JSON object, or — for Codex, whose schema accepts only `description` and `hooks` at the top level — carrying a key Codex itself would reject. Kurotty neither repairs such a file nor writes through it, because someone else's hooks are not Kurotty's to lose. That refusal covers uninstall too, so entries can be left behind by it; they are inert everywhere outside Kurotty.
 - The command is inert in any other terminal: it exits 0 when `KUROTTY_HOOK_PORT` and `KUROTTY_PANE_ID` are absent. It shells out to `/usr/bin/curl` with a 2-second timeout.
-- Turning the setting back off stops the listener and removes the entries.
+- Turning the setting back off stops the listener and removes the entries from every agent.
 
-Failures are reported, never fatal: an unreadable settings file, a settings file that is not a JSON object, or a listener that cannot bind leaves hooks unavailable and the rest of the app untouched.
+Failures are reported, never fatal: an unreadable configuration file, one that is not a JSON object, one whose shape Kurotty declines to rewrite, or a listener that cannot bind leaves hooks unavailable and the rest of the app untouched.
 
 ### The session vault
 

@@ -114,6 +114,67 @@ enum FileExplorerIcon {
     }
 }
 
+// MARK: - Inline action error
+
+/// One-line notice for a create, rename, or trash that did not happen.
+///
+/// A failed write is ordinary in this panel — no permission, a read-only
+/// volume, a path the terminal beside it already moved — so it is said here
+/// while the tree stays put, rather than in an alert that stops the window.
+///
+/// The row collapses to nothing when there is no message, its top padding
+/// included, so a panel that has refused nothing keeps exactly the layout it
+/// had before this existed.
+@MainActor
+final class TerminalFileExplorerActionErrorRow: NSView {
+    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private lazy var collapsedHeightConstraint = heightAnchor.constraint(equalToConstant: 0)
+
+    /// `nil` while the row is collapsed away.
+    private(set) var message: String?
+
+    init(chromeTheme: DesignTokens.ChromeTheme) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
+        applyChromeTheme(chromeTheme)
+
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        // The collapsed height is what keeps the quiet panel unchanged, so the
+        // label has to yield to it rather than insist on its intrinsic height.
+        messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        addSubview(messageLabel)
+
+        collapsedHeightConstraint.isActive = true
+        NSLayoutConstraint.activate([
+            messageLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            messageLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            messageLabel.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: DesignTokens.Component.fileExplorerActionErrorPaddingYPX
+            ),
+            messageLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// `nil` clears the row and gives its space back.
+    func present(_ message: String?) {
+        self.message = message
+        messageLabel.stringValue = message ?? ""
+        isHidden = message == nil
+        collapsedHeightConstraint.isActive = message == nil
+        needsLayout = true
+    }
+
+    func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
+        DesignTokens.Typography.rowSecondary.apply(to: messageLabel, color: theme.error)
+    }
+}
+
 // MARK: - Row cell
 
 /// File-explorer sidebar row. Painting lives in the shared

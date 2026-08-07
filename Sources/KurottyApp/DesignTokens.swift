@@ -165,29 +165,31 @@ enum DesignTokens {
         /// `NSColor(srgbRed:…)`; a generic-RGB constructor does not reproduce
         /// the specified hex on screen.
         enum Dark {
-            static let surfaceCanvas = NSColor.designTokenSRGB(0x17_17_16)
-            static let surfaceChrome = NSColor.designTokenSRGB(0x1D_1D_1C)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0x21_21_20)
-            static let surfaceRaised = NSColor.designTokenSRGB(0x26_26_24)
-            static let hairline = NSColor.designTokenSRGB(0x30_2F_2C)
-            static let borderStrong = NSColor.designTokenSRGB(0x3F_3E_3A)
-            static let textPrimary = NSColor.designTokenSRGB(0xED_ED_EA)
-            static let textSecondary = NSColor.designTokenSRGB(0xAD_AD_A7)
-            /// The ramp is warm-neutral: every step used to run bluer than it
-            /// ran grey (`#16181D` through `#262A31`), which read as a cold cast
-            /// over everything rather than as a ground. Lightness steps are
-            /// preserved; only the hue moved. This rank has no headroom — it is
+            static let surfaceCanvas = NSColor.designTokenSRGB(0x16_16_18)
+            static let surfaceChrome = NSColor.designTokenSRGB(0x1C_1C_1E)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x20_20_22)
+            static let surfaceRaised = NSColor.designTokenSRGB(0x26_26_2A)
+            static let hairline = NSColor.designTokenSRGB(0x2E_2E_32)
+            static let borderStrong = NSColor.designTokenSRGB(0x3C_3C_42)
+            static let textPrimary = NSColor.designTokenSRGB(0xF2_F2_F4)
+            static let textSecondary = NSColor.designTokenSRGB(0xA8_A8_AE)
+            /// Near-neutral, a whisper cool. The ramp began blue (`#16181D`
+            /// through `#262A31`), which read as a cold film; correcting it to a
+            /// warm neutral overshot and read yellow, most visibly in the text
+            /// ranks where the cast reached R-B +7. These sit where Apple's own
+            /// greys sit -- `#1D1D1F`, `#F5F5F7` -- which is close enough to
+            /// neutral that no hue reads at all. This rank has no headroom — it is
             /// the lightest value still clearing AA 4.5 on `surfaceRaised`, the
             /// selected tab, where a title has to be read.
-            static let textTertiary = NSColor.designTokenSRGB(0x90_90_89)
-            static let accent = NSColor.designTokenSRGB(0x6B_A5_FF)
+            static let textTertiary = NSColor.designTokenSRGB(0x90_90_97)
+            static let accent = NSColor.designTokenSRGB(0x0A_84_FF)
             static let success = NSColor.designTokenSRGB(0x5F_D0_8A)
             /// Sequential ramp for the daily usage strip, low -> high. One warm
             /// hue, rising in chroma, not the `error` step: a heavy day is a
             /// magnitude, not a fault, and reusing a status colour for it would
             /// make the two mean the same thing. Both stops clear 3:1 against
             /// `surfaceSidebar`, the ground the strip is drawn on.
-            static let usageRampLow = NSColor.designTokenSRGB(0x8A_7F_79)
+            static let usageRampLow = NSColor.designTokenSRGB(0x85_85_8C)
             static let usageRampHigh = NSColor.designTokenSRGB(0xE0_65_5C)
             static let warning = NSColor.designTokenSRGB(0xE0_A9_4F)
             static let error = NSColor.designTokenSRGB(0xE8_75_6E)
@@ -207,25 +209,25 @@ enum DesignTokens {
         /// `success` to roughly 1.6:1 against `surfaceCanvas`.
         enum Light {
             static let surfaceCanvas = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let surfaceChrome = NSColor.designTokenSRGB(0xF4_F4_F2)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xF9_F9_F7)
+            static let surfaceChrome = NSColor.designTokenSRGB(0xF0_F0_F2)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF5_F5_F7)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
-            static let hairline = NSColor.designTokenSRGB(0xE9_E9_E5)
-            static let borderStrong = NSColor.designTokenSRGB(0xD5_D5_D0)
-            static let textPrimary = NSColor.designTokenSRGB(0x1A_1A_18)
-            static let textSecondary = NSColor.designTokenSRGB(0x52_52_4D)
+            static let hairline = NSColor.designTokenSRGB(0xE4_E4_E7)
+            static let borderStrong = NSColor.designTokenSRGB(0xD0_D0_D5)
+            static let textPrimary = NSColor.designTokenSRGB(0x1D_1D_1F)
+            static let textSecondary = NSColor.designTokenSRGB(0x4E_4E_52)
             /// Warm-neutral, matching the dark ramp. Light chrome has no room
             /// to spend on a quiet rank: this is the lightest value that still
             /// clears AA 4.5 on every light surface, and it sits far enough
             /// below `textSecondary` that the two read as different ranks —
             /// they were 1.2:1 apart before, which looked like one rank twice.
-            static let textTertiary = NSColor.designTokenSRGB(0x6B_6B_65)
-            static let accent = NSColor.designTokenSRGB(0x1F_63_D6)
+            static let textTertiary = NSColor.designTokenSRGB(0x6A_6A_70)
+            static let accent = NSColor.designTokenSRGB(0x00_71_E3)
             static let success = NSColor.designTokenSRGB(0x17_72_45)
             /// Light counterpart of the usage ramp. On a light ground a
             /// sequential scale runs light -> dark, so the stops darken as the
             /// day gets heavier rather than brightening.
-            static let usageRampLow = NSColor.designTokenSRGB(0x9C_8A_82)
+            static let usageRampLow = NSColor.designTokenSRGB(0x86_86_8B)
             static let usageRampHigh = NSColor.designTokenSRGB(0xA0_2D_22)
             static let warning = NSColor.designTokenSRGB(0x8A_53_00)
             static let error = NSColor.designTokenSRGB(0xC0_27_1F)
@@ -940,6 +942,18 @@ enum DesignTokens {
         static let fileExplorerAgentRingDiameterPX: CGFloat = 6
         static let fileExplorerAgentRingLineWidthPX: CGFloat = 1.5
         static let fileExplorerAgentRingAlphaRATIO: CGFloat = 0.90
+        /// Inline notice for a create, rename, or trash that did not happen.
+        /// It sits between the search pill and the tree and collapses to
+        /// nothing when there is no message, so a panel with no failure keeps
+        /// exactly the layout it had before this feature existed. The row is a
+        /// sentence, so its padding scales with the type ramp around it.
+        static var fileExplorerActionErrorPaddingYPX: CGFloat { UIScale.scaledMetric(Space.x2PX) }
+        /// The name field in the create/rename prompt. Both dimensions hold
+        /// type, so both scale: a 24px field with a 20pt ramp clips its own
+        /// text, and a fixed 240px field truncates a filename the user can
+        /// still read at a larger size.
+        static var fileExplorerNamePromptFieldWidthPX: CGFloat { UIScale.scaledMetric(260) }
+        static var fileExplorerNamePromptFieldHeightPX: CGFloat { UIScale.scaledMetric(24) }
 
         // MARK: Shared sidebar search pill
 

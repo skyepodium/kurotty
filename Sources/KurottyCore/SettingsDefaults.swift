@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 20
+    public static let schemaVersion = 21
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. A 2px bar across the top edge of each
     /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
@@ -78,12 +78,18 @@ public enum SettingsDefaults {
     /// On by default, because agent status is most of what the status bar is
     /// for and agents that do not emit OSC 9999 need the hook to report at all.
     /// The default only expresses intent: writing Kurotty's entries into the
-    /// user's own `~/.claude/settings.json` still waits for the one-time consent
-    /// recorded in `agentStatusHookConsent`.
+    /// user's own agent hook configuration still waits for the one-time consent
+    /// recorded per agent in `agentStatusHookConsent` and
+    /// `agentStatusCodexHookConsent`.
     public static let agentStatusHooksEnabled = true
-    /// Raw value of the app-side hook consent record. `unasked` means the first
-    /// install attempt must ask; the answer is stored so it is asked once, ever.
+    /// Raw value of the app-side hook consent record for Claude Code's
+    /// `~/.claude/settings.json`. `unasked` means the first install attempt must
+    /// ask; the answer is stored so it is asked once, ever.
     public static let agentStatusHookConsent = "unasked"
+    /// The same record for Codex's `~/.codex/hooks.json`, kept separate because
+    /// the prompt names the file it is about: a yes for one agent's
+    /// configuration is not a yes for another's.
+    public static let agentStatusCodexHookConsent = "unasked"
     public static let terminalFontName = "Menlo"
     public static let terminalFontSizePT = 15.0
     public static let maximumScrollbackRows = 1_000_000
