@@ -179,6 +179,7 @@ final class TerminalFileExplorerPanelView: NSView {
         DesignTokens.Typography.rowTitleSel.apply(to: directoryNameLabel, color: theme.textPrimary)
         DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
         searchPillView.applyChromeTheme(theme)
+        outlineView.disclosureTintColor = theme.textTertiary
         refreshButton.applyChromeTheme(theme)
         actionErrorRow.applyChromeTheme(theme)
         applyEmptyStateIcon(tint: theme.textMuted)

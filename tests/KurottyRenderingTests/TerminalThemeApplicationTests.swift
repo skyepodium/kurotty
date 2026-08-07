@@ -40,7 +40,7 @@ final class TerminalThemeApplicationTests: XCTestCase {
         let nacre = try XCTUnwrap(TerminalThemePreset.colors(named: TerminalThemePreset.nacreName))
 
         XCTAssertEqual(nacre.foreground, "#2E2D40")
-        XCTAssertEqual(nacre.background, "#F8F6FC")
+        XCTAssertEqual(nacre.background, "#FFFFFF")
         XCTAssertEqual(nacre.cursor, "#6A4BC8")
         XCTAssertEqual(nacre.ansi, [
             "#1F1D29", "#A43F3C", "#3B6D2F", "#755E2D",
