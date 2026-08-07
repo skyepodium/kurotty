@@ -14,6 +14,47 @@ extension TerminalWindowController: NSSplitViewDelegate {
         commandHistorySplitView.arrangedSubviews
     }
 
+    /// Which sidebar a divider belongs to.
+    ///
+    /// Panes are added and removed as the sidebars toggle, so a divider's index
+    /// says nothing about which one it is: with the history panel hidden the
+    /// explorer's divider *is* divider 0. Reading the index as "0 means left"
+    /// clamped the explorer's divider to the history panel's limits, which is
+    /// how the explorer ended up owning everything right of 460pt.
+    private enum SidebarDivider {
+        case history
+        case explorer
+        case other
+    }
+
+    private func sidebarDivider(at dividerIndex: Int) -> SidebarDivider {
+        let panes = sidebarSplitPanes
+        guard dividerIndex >= 0, dividerIndex + 1 < panes.count else {
+            return .other
+        }
+        if panes[dividerIndex] === leftSidebarPanel {
+            return .history
+        }
+        if panes[dividerIndex + 1] === fileExplorerPanel {
+            return .explorer
+        }
+        return .other
+    }
+
+    /// A divider's position is the trailing edge of the pane before it, so the
+    /// explorer gets whatever is left once the divider itself is subtracted.
+    private func explorerDividerPosition(forWidth explorerWidth: CGFloat) -> CGFloat {
+        commandHistorySplitView.bounds.width
+            - explorerWidth
+            - commandHistorySplitView.dividerThickness
+    }
+
+    /// Where the terminal column starts, so the explorer's divider knows how
+    /// much room is left for it. Zero when the history panel is hidden.
+    private var terminalColumnLeadingEdge: CGFloat {
+        terminalContentHostView.frame.minX
+    }
+
     func splitView(
         _ splitView: NSSplitView,
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
@@ -22,13 +63,28 @@ extension TerminalWindowController: NSSplitViewDelegate {
         guard splitView === commandHistorySplitView else {
             return proposedMinimumPosition
         }
-        if dividerIndex == 0 {
-            // Left divider: position is the history panel's trailing edge.
+        switch sidebarDivider(at: dividerIndex) {
+        case .history:
+            // Position is the history panel's trailing edge.
             return DesignTokens.Component.commandHistoryPanelMinWidthPX
+        case .explorer:
+            // Keep the explorer no wider than its maximum, which means the
+            // divider cannot move further left than that — and no further left
+            // than leaves the terminal its own floor. On a window too narrow to
+            // satisfy both, the explorer's minimum still wins, matching how
+            // `resizeSubviewsWithOldSize` refuses to take a sidebar below it.
+            let widest = explorerDividerPosition(
+                forWidth: DesignTokens.Component.fileExplorerPanelMaxWidthPX
+            )
+            let terminalFloor = terminalColumnLeadingEdge
+                + DesignTokens.Component.terminalColumnMinWidthPX
+            let narrowest = explorerDividerPosition(
+                forWidth: DesignTokens.Component.fileExplorerPanelMinWidthPX
+            )
+            return min(max(widest, terminalFloor), narrowest)
+        case .other:
+            return proposedMinimumPosition
         }
-        // Right divider: keep the explorer no wider than its maximum, which
-        // means the divider cannot move further left than that.
-        return splitView.bounds.width - DesignTokens.Component.fileExplorerPanelMaxWidthPX
     }
 
     func splitView(
@@ -39,10 +95,16 @@ extension TerminalWindowController: NSSplitViewDelegate {
         guard splitView === commandHistorySplitView else {
             return proposedMaximumPosition
         }
-        if dividerIndex == 0 {
+        switch sidebarDivider(at: dividerIndex) {
+        case .history:
             return DesignTokens.Component.commandHistoryPanelMaxWidthPX
+        case .explorer:
+            return explorerDividerPosition(
+                forWidth: DesignTokens.Component.fileExplorerPanelMinWidthPX
+            )
+        case .other:
+            return proposedMaximumPosition
         }
-        return splitView.bounds.width - DesignTokens.Component.fileExplorerPanelMinWidthPX
     }
 
     func splitView(
@@ -118,10 +180,10 @@ extension TerminalWindowController: NSSplitViewDelegate {
     /// Places a newly revealed panel at its designed width.
     private func openSidebarPanelAtDefaultWidth(_ panel: NSView) {
         let splitView = commandHistorySplitView
-        guard let index = splitView.arrangedSubviews.firstIndex(of: panel) else {
+        guard splitView.arrangedSubviews.contains(panel) else {
             return
         }
-        if index == 0 {
+        if panel === leftSidebarPanel {
             splitView.setPosition(
                 DesignTokens.Component.commandHistoryPanelDefaultWidthPX,
                 ofDividerAt: 0
@@ -130,7 +192,7 @@ extension TerminalWindowController: NSSplitViewDelegate {
         }
         let dividerIndex = max(0, splitView.arrangedSubviews.count - 2)
         splitView.setPosition(
-            splitView.bounds.width - DesignTokens.Component.fileExplorerPanelDefaultWidthPX,
+            explorerDividerPosition(forWidth: DesignTokens.Component.fileExplorerPanelDefaultWidthPX),
             ofDividerAt: dividerIndex
         )
     }
@@ -243,10 +305,10 @@ extension TerminalWindowController: NSSplitViewDelegate {
     /// Push the divider back out to the panel's default width in that case.
     func restoreSidebarWidthIfCollapsed(_ panel: NSView) {
         let splitView = commandHistorySplitView
-        guard let index = splitView.arrangedSubviews.firstIndex(of: panel) else {
+        guard splitView.arrangedSubviews.contains(panel) else {
             return
         }
-        let isLeading = index == 0
+        let isLeading = panel === leftSidebarPanel
         let minimumWidth = isLeading
             ? DesignTokens.Component.commandHistoryPanelMinWidthPX
             : DesignTokens.Component.fileExplorerPanelMinWidthPX
@@ -260,7 +322,10 @@ extension TerminalWindowController: NSSplitViewDelegate {
             splitView.setPosition(defaultWidth, ofDividerAt: 0)
         } else {
             let dividerIndex = max(0, splitView.arrangedSubviews.count - 2)
-            splitView.setPosition(splitView.bounds.width - defaultWidth, ofDividerAt: dividerIndex)
+            splitView.setPosition(
+                explorerDividerPosition(forWidth: defaultWidth),
+                ofDividerAt: dividerIndex
+            )
         }
     }
 }
