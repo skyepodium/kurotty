@@ -583,35 +583,40 @@ extension TerminalColorSettings {
     ///
     /// The four neutral slots are a deliberate ordered value ramp — black,
     /// bright black, white, bright white, darkest to lightest — carrying a
-    /// faint hue drift so they separate by more than lightness alone. Slot 15
-    /// is the one value in the palette that cannot clear 4.5:1: "bright white"
-    /// on a light ground is a contradiction, and it is held instead to the
-    /// WCAG non-text floor of 3:1 rather than being darkened until it stops
-    /// reading as the lightest step.
+    /// faint hue drift so they separate by more than lightness alone.
+    ///
+    /// Slot 15 clears 4.5:1 like every other slot. It was previously held to
+    /// the 3:1 non-text floor on the argument that a readable "bright white"
+    /// on a light ground is a contradiction -- but a shell prompt writes
+    /// ordinary text in slots 7 and 15 constantly, so that exemption rendered
+    /// whole screens unreadable. The ramp is instead cut to fit the band a
+    /// white ground actually leaves: slot 15 sits at the darkest point that is
+    /// still the lightest step, and the other three are spread below it. All
+    /// four are darker than a ramp drawn for a dark background would be.
     static let nacre = TerminalColorSettings(
-        foreground: "#2E2D40",
+        foreground: "#1F1E2D",
         background: "#FFFFFF",
         // Violet, at a hue no ANSI slot occupies, so the caret cannot be read
         // as a colored glyph. Lighter than the foreground on purpose: it has to
         // be found without outweighing the text it sits in.
         cursor: "#6A4BC8",
         ansi: [
-            "#1F1D29",
+            "#0C0C12",
             "#A43F3C",
             "#3B6D2F",
             "#755E2D",
             "#465F97",
             "#8F4099",
             "#3A6969",
-            "#706E77",
-            "#49535E",
+            "#514F61",
+            "#333141",
             "#D72935",
             "#248119",
             "#8D6B17",
             "#306FC9",
             "#B92ACC",
             "#247D7D",
-            "#948C96",
+            "#727084",
         ]
     )
 }

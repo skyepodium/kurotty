@@ -39,14 +39,14 @@ final class TerminalThemeApplicationTests: XCTestCase {
     func testNacrePresetPinsItsShippedPalette() throws {
         let nacre = try XCTUnwrap(TerminalThemePreset.colors(named: TerminalThemePreset.nacreName))
 
-        XCTAssertEqual(nacre.foreground, "#2E2D40")
+        XCTAssertEqual(nacre.foreground, "#1F1E2D")
         XCTAssertEqual(nacre.background, "#FFFFFF")
         XCTAssertEqual(nacre.cursor, "#6A4BC8")
         XCTAssertEqual(nacre.ansi, [
-            "#1F1D29", "#A43F3C", "#3B6D2F", "#755E2D",
-            "#465F97", "#8F4099", "#3A6969", "#706E77",
-            "#49535E", "#D72935", "#248119", "#8D6B17",
-            "#306FC9", "#B92ACC", "#247D7D", "#948C96",
+            "#0C0C12", "#A43F3C", "#3B6D2F", "#755E2D",
+            "#465F97", "#8F4099", "#3A6969", "#514F61",
+            "#333141", "#D72935", "#248119", "#8D6B17",
+            "#306FC9", "#B92ACC", "#247D7D", "#727084",
         ])
         XCTAssertEqual(nacre, TerminalColorSettings.nacre)
     }
