@@ -20,6 +20,47 @@ struct TerminalFileExplorerCallbacks {
     }
 }
 
+// MARK: - Outline view
+
+/// Outline that hands Finder's two entry shortcuts to the panel.
+///
+/// `NSOutlineView` routes neither on its own, and a key equivalent on a
+/// contextual menu item only fires while that menu is open — so the item still
+/// carries one, for the shortcut to be visible where the action is, but the
+/// working binding is read off the key event here.
+@MainActor
+final class TerminalFileExplorerOutlineView: NSOutlineView {
+    /// Return, as Finder renames.
+    var onRenameKey: (() -> Void)?
+    /// Command-Delete, as Finder trashes. Bare Delete is deliberately not
+    /// bound: this list sits beside a terminal and takes focus on a click, and
+    /// a single unmodified keystroke is too small a gesture for a delete.
+    var onTrashKey: (() -> Void)?
+
+    private static let returnCharacter: Character = "\r"
+    private static let enterCharacter = Character(UnicodeScalar(NSEnterCharacter)!)
+    private static let deleteCharacter = Character(UnicodeScalar(NSDeleteCharacter)!)
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard let character = event.charactersIgnoringModifiers?.first else {
+            super.keyDown(with: event)
+            return
+        }
+        if modifiers.isEmpty,
+           character == Self.returnCharacter || character == Self.enterCharacter,
+           let onRenameKey {
+            onRenameKey()
+            return
+        }
+        if modifiers == .command, character == Self.deleteCharacter, let onTrashKey {
+            onTrashKey()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 // MARK: - Outline item
 
 /// Reference wrapper around `FileExplorerNode` so `NSOutlineView` keeps stable
@@ -49,6 +90,25 @@ final class TerminalFileExplorerOutlineItem {
             .map { TerminalFileExplorerOutlineItem(node: $0) }
         loadedChildItems = children
         return children
+    }
+
+    /// The items from this one down to `pathComponents`, one per component,
+    /// listing each directory on the way. Empty when any component is missing,
+    /// which is the ordinary answer for a path that went away.
+    ///
+    /// Used to walk to an entry the panel just created: every item but the last
+    /// has to be expanded for the new row to be on screen at all.
+    func chain(toPathComponents pathComponents: ArraySlice<String>) -> [TerminalFileExplorerOutlineItem] {
+        var chain: [TerminalFileExplorerOutlineItem] = []
+        var current = self
+        for component in pathComponents {
+            guard let child = current.childItems().first(where: { $0.node.name == component }) else {
+                return []
+            }
+            chain.append(child)
+            current = child
+        }
+        return chain
     }
 
     /// Re-lists every already-loaded directory, reusing existing item objects
