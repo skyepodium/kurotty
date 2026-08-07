@@ -355,44 +355,7 @@ private extension TerminalCommandSpanCategory {
 
 private extension TerminalCommandShortcut {
     var paletteDisplayLabel: String {
-        var label = ""
-        if modifiers.contains(.control) {
-            label += "⌃"
-        }
-        if modifiers.contains(.option) {
-            label += "⌥"
-        }
-        if modifiers.contains(.shift) {
-            label += "⇧"
-        }
-        if modifiers.contains(.command) {
-            label += "⌘"
-        }
-
-        if let keyEquivalent {
-            label += keyEquivalent.uppercased()
-        } else if let keyCode {
-            label += keyCode.paletteDisplayLabel
-        }
-
-        return label
-    }
-}
-
-private extension UInt16 {
-    var paletteDisplayLabel: String {
-        switch self {
-        case 123:
-            return "←"
-        case 124:
-            return "→"
-        case 125:
-            return "↓"
-        case 126:
-            return "↑"
-        default:
-            return "#\(self)"
-        }
+        displayLabel
     }
 }
 

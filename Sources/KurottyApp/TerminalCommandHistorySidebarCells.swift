@@ -76,6 +76,33 @@ final class TerminalCommandHistoryOutlineView: NSOutlineView {
         )
         return button
     }
+
+    /// `makeView` replaces AppKit's smaller stock disclosure image with our
+    /// 16pt box. Keeping the stock origin after that resize pushes the chevron
+    /// below the folder/title band. Recompute the whole frame from the row so
+    /// all three elements share the same visual centre.
+    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
+        Self.disclosureFrame(
+            rowFrame: rect(ofRow: row),
+            baseFrame: super.frameOfOutlineCell(atRow: row)
+        )
+    }
+
+    static func disclosureFrame(rowFrame: NSRect, baseFrame: NSRect) -> NSRect {
+        let size = DesignTokens.Component.commandHistoryDisclosureBoxSizePX
+        // NSOutlineView is flipped: the group cell moves its folder/title up
+        // by half of the reserved top air, so the disclosure must subtract the
+        // same amount. Adding it places the chevron below the shared centreline
+        // in both the history and agent-session sections.
+        let visualContentCenterY = rowFrame.midY
+            - DesignTokens.Component.commandHistoryGroupRowTopAirPX / 2
+        return NSRect(
+            x: baseFrame.minX,
+            y: visualContentCenterY - size / 2,
+            width: size,
+            height: size
+        )
+    }
 }
 
 /// Command-history and agent-session sidebar row. All painting lives in the
@@ -129,7 +156,7 @@ final class TerminalCommandHistoryGroupCellView: NSTableCellView {
         addSubview(nameLabel)
 
         let parentLabel = NSTextField(labelWithString: group.display.parentDisplay)
-        DesignTokens.Typography.rowSecondary.apply(to: parentLabel, color: chromeTheme.textTertiary)
+        DesignTokens.Typography.rowSecondary.apply(to: parentLabel, color: chromeTheme.textSecondary)
         parentLabel.lineBreakMode = .byTruncatingMiddle
         parentLabel.maximumNumberOfLines = 1
         parentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -192,7 +219,7 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
         commandLabel = NSTextField(labelWithString: entry.commandText)
         titleStyler = TerminalSidebarRowTitleStyler(
             role: DesignTokens.Typography.monoBody,
-            restColor: chromeTheme.textSecondary,
+            restColor: chromeTheme.textPrimary,
             selectedColor: chromeTheme.textPrimary,
             chromeTheme: chromeTheme
         )
@@ -225,7 +252,7 @@ final class TerminalCommandHistoryCommandCellView: NSTableCellView {
             ofSize: DesignTokens.Typography.rowSecondary.sizePT,
             weight: DesignTokens.Typography.rowSecondary.weight
         )
-        detailLabel.textColor = chromeTheme.textTertiary
+        detailLabel.textColor = chromeTheme.textSecondary
         detailLabel.alignment = .right
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(detailLabel)

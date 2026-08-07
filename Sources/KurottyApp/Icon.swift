@@ -17,7 +17,7 @@ enum Icon {
         case micro
         /// 11pt / medium. Row accessories, badges, search-pill glyphs.
         case small
-        /// 13pt / regular. Toolbar and chrome buttons.
+        /// 14pt / regular. Toolbar and chrome buttons.
         case regular
         /// 20pt / regular. Empty-state art.
         case large
@@ -27,7 +27,7 @@ enum Icon {
             switch self {
             case .micro: return 9
             case .small: return 11
-            case .regular: return 13
+            case .regular: return 14
             case .large: return 20
             }
         }

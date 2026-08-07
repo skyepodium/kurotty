@@ -1023,12 +1023,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("DesignTokens.Component.terminalTabButtonHoverAlphaRATIO"))
         XCTAssertEqual(DesignTokens.Component.terminalTabButtonHoverAlphaRATIO, 0.18)
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
-        // Re-pointed 2026-08: chrome icon buttons use the arrow cursor. The
-        // pointing hand is the macOS convention for a web link, so it marked
-        // every chrome button as not-native. The assertion is kept (rather
-        // than deleted) so a silent revert to .pointingHand still fails.
-        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .arrow)"))
-        XCTAssertFalse(try chromeIconButtonSource().contains(".pointingHand"))
+        // Icon-only controls use a hand cursor so their hover state reads as
+        // actionable before the tooltip delay completes.
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(windowSource.contains("override func updateTrackingAreas()"))
         XCTAssertTrue(windowSource.contains("override func mouseEntered(with event: NSEvent)"))
         XCTAssertTrue(windowSource.contains("override func mouseExited(with event: NSEvent)"))
@@ -1036,12 +1033,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(windowSource.contains("guard !bounds.contains(location) else { return }"))
         XCTAssertTrue(windowSource.contains("private func updateAppearance()"))
         // Re-pointed: the tab radius moved onto the shared `Radius` scale, the
-        // selected outline was replaced by an accent top rail, and hover became
-        // the achromatic `hoverFill` wash so it cannot borrow the accent's
-        // meaning. An unselected tab now has no fill of its own at all.
+        // selected outline was replaced by an accent top rail, and hover uses
+        // a stronger tab-specific achromatic wash so it stays visible without
+        // borrowing the accent's meaning. An unselected tab has no resting fill.
         XCTAssertTrue(windowSource.contains("layer?.cornerRadius = DesignTokens.Radius.mdPX"))
-        XCTAssertTrue(windowSource.contains("selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor"))
-        XCTAssertTrue(windowSource.contains("hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor"))
+        XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
+        XCTAssertFalse(windowSource.contains("selectionRailView"))
+        XCTAssertTrue(windowSource.contains("Self.hoverOverlayColor(for: chromeTheme).cgColor"))
+        XCTAssertEqual(DesignTokens.Component.terminalTabHoverFillAlphaRATIO, 0.10)
         XCTAssertTrue(windowSource.contains("selected ? chromeTheme.surfaceRaised : .clear"))
         XCTAssertFalse(windowSource.contains("terminalTabShadow"))
         XCTAssertTrue(windowSource.contains("onSelect: { [weak self] in self?.selectTab(at: index) }"))
@@ -1068,7 +1067,6 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(designSource.contains("terminalTabCloseWidthPX"))
         XCTAssertTrue(designSource.contains("terminalTabStackGapPX"))
         XCTAssertTrue(designSource.contains("terminalTabStackInsetTopPX"))
-        XCTAssertTrue(designSource.contains("terminalTabTopRailHeightPX"))
         // The shadow tokens were dead: `terminalTabShadowOpacity` was 0.
         XCTAssertFalse(designSource.contains("terminalTabShadowOpacity"))
         XCTAssertTrue(windowSource.contains("private let topBarSeparatorView = NSView()"))
@@ -1312,12 +1310,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(try chromeIconButtonSource().contains("let location = convert(event.locationInWindow, from: nil)"))
         XCTAssertTrue(try chromeIconButtonSource().contains("guard !bounds.contains(location) else { return }"))
         XCTAssertTrue(try chromeIconButtonSource().contains("override func resetCursorRects()"))
-        // Re-pointed 2026-08: chrome icon buttons use the arrow cursor. The
-        // pointing hand is the macOS convention for a web link, so it marked
-        // every chrome button as not-native. The assertion is kept (rather
-        // than deleted) so a silent revert to .pointingHand still fails.
-        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .arrow)"))
-        XCTAssertFalse(try chromeIconButtonSource().contains(".pointingHand"))
+        // All top-chrome icon buttons share the same hand cursor affordance.
+        XCTAssertTrue(try chromeIconButtonSource().contains("addCursorRect(bounds, cursor: .pointingHand)"))
         XCTAssertTrue(paneSource.contains("func applyChromeTheme(_ theme: DesignTokens.ChromeTheme)"))
         XCTAssertTrue(paneSource.contains("var closeRequested: ((TerminalPaneView) -> Void)?"))
         XCTAssertTrue(paneSource.contains("var focusChanged: ((TerminalPaneView) -> Void)?"))

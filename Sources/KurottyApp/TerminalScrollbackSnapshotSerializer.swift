@@ -79,10 +79,12 @@ enum TerminalScrollbackSnapshotSerializer {
         return payload
     }
 
-    /// One row as text plus SGR runs, with trailing default-styled blanks
-    /// dropped so a mostly empty row costs a few bytes rather than a full line.
+    /// One row as text plus SGR runs, with trailing blanks dropped. Terminal
+    /// prompts commonly erase the rest of a line while an ANSI background is
+    /// active; persisting those styled blanks turns the restored viewport into
+    /// a large color block even though the blanks carry no text.
     static func encoded(row: [TerminalScreenCell], defaultStyle: TerminalTextStyle) -> String {
-        let significantCount = significantCellCount(row: row, defaultStyle: defaultStyle)
+        let significantCount = significantCellCount(row: row)
         guard significantCount > 0 else {
             return ""
         }
@@ -106,14 +108,11 @@ enum TerminalScrollbackSnapshotSerializer {
         return output
     }
 
-    private static func significantCellCount(
-        row: [TerminalScreenCell],
-        defaultStyle: TerminalTextStyle
-    ) -> Int {
+    private static func significantCellCount(row: [TerminalScreenCell]) -> Int {
         var count = row.count
         while count > 0 {
             let cell = row[count - 1]
-            let isBlank = cell.character == " " && cell.style == defaultStyle && cell.linkURL == nil
+            let isBlank = cell.character == " " && cell.linkURL == nil
             guard isBlank else {
                 break
             }

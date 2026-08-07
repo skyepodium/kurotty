@@ -50,6 +50,7 @@ extension TerminalWindowController {
 
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
+        alignTrafficLightsWithChrome()
         statusBarView.startSampling()
     }
 

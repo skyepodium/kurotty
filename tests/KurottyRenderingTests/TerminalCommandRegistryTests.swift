@@ -54,6 +54,39 @@ final class TerminalCommandRegistryTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count)
     }
 
+    func testToolbarTooltipsUseLocalizedCommandTitlesAndShortcutGlyphs() {
+        let registry = TerminalCommandRegistry.default
+
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(for: .newTab, registry: registry),
+            "New Tab (⌘T)"
+        )
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(for: .splitVertically, registry: registry),
+            "Split Vertically (⌘D)"
+        )
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(for: .splitHorizontally, registry: registry),
+            "Split Horizontally (⇧⌘D)"
+        )
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(for: .toggleCommandHistoryPanel, registry: registry),
+            "Command History (⇧⌘Y)"
+        )
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(for: .toggleFileExplorerPanel, registry: registry),
+            "File Explorer (⇧⌘E)"
+        )
+        XCTAssertEqual(
+            TerminalCommandTooltip.text(
+                for: .closeCurrentPane,
+                title: "Close Pane or Tab",
+                registry: registry
+            ),
+            "Close Pane or Tab (⌘W)"
+        )
+    }
+
     func testTmuxControlRegistryAddsAdvancedCommandsWithoutChangingDefaultRegistry() {
         let defaultIDs = Set(TerminalCommandRegistry.default.windowCommands.map(\.id))
         let tmuxCommands = TerminalCommandRegistry.tmuxControl.windowCommands

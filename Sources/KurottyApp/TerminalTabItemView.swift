@@ -1,7 +1,8 @@
 import AppKit
 
-/// One tab in the window's custom tab bar: title, close button, hover wash,
-/// and the selection rail. Extracted from `TerminalWindowController.swift`;
+/// One tab in the window's custom tab bar: title, close button, and hover wash.
+/// The active tab is grounded into the bar like Dia's connected tab shape.
+/// Extracted from `TerminalWindowController.swift`;
 /// the controller rebuilds these in `updateTabBar()`.
 @MainActor
 final class TerminalTabItemView: NSView {
@@ -17,9 +18,6 @@ final class TerminalTabItemView: NSView {
     /// hover reads the same on the selected and unselected tab and can never be
     /// mistaken for the accent.
     private let hoverOverlayView = NSView()
-    /// Selection marker: a 2pt accent rail across the tab's top edge, clipped to
-    /// the tab's corner radius.
-    private let selectionRailView = NSView()
     private let selected: Bool
     private let chromeTheme: DesignTokens.ChromeTheme
     private var isHovered = false
@@ -52,6 +50,12 @@ final class TerminalTabItemView: NSView {
     /// first click on another window's tab closed it instead of focusing it.
     nonisolated static func closesTab(atLocation location: CGPoint, closeButtonFrame: CGRect, closeButtonAlpha: CGFloat) -> Bool {
         closeButtonAlpha > 0 && closeButtonFrame.contains(location)
+    }
+
+    nonisolated static func hoverOverlayColor(for theme: DesignTokens.ChromeTheme) -> NSColor {
+        theme.textPrimary.withAlphaComponent(
+            DesignTokens.Component.terminalTabHoverFillAlphaRATIO
+        )
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -96,27 +100,21 @@ final class TerminalTabItemView: NSView {
     private func configure(title: String) {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        // A tab's fill, hover wash, and selection rail all change on the same
+        // A tab's fill and hover wash both change on the same
         // click that moves it; none of them may fade.
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.cornerRadius = DesignTokens.Radius.mdPX
-        // Clipping is what lets the top rail stop at the rounded corners instead
-        // of overhanging them.
         layer?.masksToBounds = true
+        layer?.maskedCorners = selected
+            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
 
         hoverOverlayView.wantsLayer = true
         hoverOverlayView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
         hoverOverlayView.isHidden = true
-        hoverOverlayView.layer?.backgroundColor = chromeTheme.hoverFill.cgColor
+        hoverOverlayView.layer?.backgroundColor = Self.hoverOverlayColor(for: chromeTheme).cgColor
         hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hoverOverlayView)
-
-        selectionRailView.wantsLayer = true
-        selectionRailView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        selectionRailView.isHidden = !selected
-        selectionRailView.layer?.backgroundColor = chromeTheme.accent.cgColor
-        selectionRailView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(selectionRailView)
 
         titleField.stringValue = title
         titleField.lineBreakMode = .byTruncatingMiddle
@@ -126,6 +124,10 @@ final class TerminalTabItemView: NSView {
 
         closeButton.target = self
         closeButton.action = #selector(closePressed(_:))
+        closeButton.toolTip = TerminalCommandTooltip.text(
+            for: .closeCurrentPane,
+            title: AppLocalization.string(.closePaneOrTab)
+        )
         closeButton.applyChromeTheme(chromeTheme)
         // Same deliberate accent hover as the add button.
         closeButton.hoverBackgroundColor = chromeTheme.activeIndicator.withAlphaComponent(
@@ -142,13 +144,6 @@ final class TerminalTabItemView: NSView {
             hoverOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
             hoverOverlayView.topAnchor.constraint(equalTo: topAnchor),
             hoverOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            selectionRailView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            selectionRailView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            selectionRailView.topAnchor.constraint(equalTo: topAnchor),
-            selectionRailView.heightAnchor.constraint(
-                equalToConstant: DesignTokens.Component.terminalTabTopRailHeightPX
-            ),
 
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabTitleLeadingPX),
             titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -DesignTokens.Component.terminalTabTitleCloseGapPX),
@@ -174,8 +169,9 @@ final class TerminalTabItemView: NSView {
         closeButton.alphaValue = selected || isHovered ? 1 : 0
     }
 
-    /// The unselected tab has no fill of its own: it sits directly on
-    /// `surfaceChrome`, so only the selected tab is raised out of the bar.
+    /// The unselected tab has no fill of its own. The selected fill reaches the
+    /// bar's bottom edge, so it reads as connected instead of as a floating
+    /// capsule.
     private var tabBackgroundColor: NSColor {
         selected ? chromeTheme.surfaceRaised : .clear
     }

@@ -1,7 +1,7 @@
 import XCTest
 @testable import KurottyApp
 
-/// The theme popup's order used to be spelled out in three coordinated
+/// The theme popup's order used to be spelled out in coordinated
 /// switches; `PreferencesThemePopup` is now the single source. These tests
 /// pin the mappings the switches used to encode.
 final class PreferencesThemePopupTests: XCTestCase {

@@ -509,6 +509,43 @@ final class TerminalStatusBarTests: XCTestCase {
         XCTAssertEqual(summary.action, .showStatusHistory)
     }
 
+    func testDetectedCodexProcessPreventsAFalseNoAgentSummaryWhenHooksCannotLoad() {
+        let summary = TerminalStatusBarAgentComposer.summary(
+            statuses: [],
+            detectedAgentNames: ["codex"],
+            areStatusHooksInstalled: false,
+            hasEverReported: false,
+            language: .korean
+        )
+
+        XCTAssertEqual(summary.label, "codex · 실행 중")
+        XCTAssertEqual(summary.dot, .filled(.idle))
+        XCTAssertFalse(summary.showsSpinner)
+        XCTAssertTrue(summary.showsAgentGlyph)
+        XCTAssertFalse(summary.isCallToAction)
+    }
+
+    func testReportedHookStatusTakesPriorityOverProcessDetectionFallback() {
+        let summary = TerminalStatusBarAgentComposer.summary(
+            statuses: [AgentActivityStatus(state: .working, agentName: "codex")],
+            detectedAgentNames: ["codex"],
+            areStatusHooksInstalled: false,
+            hasEverReported: true,
+            language: .english
+        )
+
+        XCTAssertEqual(summary.label, "codex · Working")
+        XCTAssertTrue(summary.showsSpinner)
+    }
+
+    func testAgentProcessDetectorRecognizesOnlySupportedAgentExecutables() {
+        XCTAssertEqual(TerminalAgentProcessDetector.agentName(forCommandName: "codex"), "codex")
+        XCTAssertEqual(TerminalAgentProcessDetector.agentName(forCommandName: "codex-aarch64-apple-darwin"), "codex")
+        XCTAssertEqual(TerminalAgentProcessDetector.agentName(forCommandName: "/opt/bin/claude"), "claude")
+        XCTAssertNil(TerminalAgentProcessDetector.agentName(forCommandName: "code"))
+        XCTAssertNil(TerminalAgentProcessDetector.agentName(forCommandName: "zsh"))
+    }
+
     func testNoAgentUsesAHollowRingAfterAnAgentHasReportedBefore() {
         let summary = TerminalStatusBarAgentComposer.summary(
             statuses: [],

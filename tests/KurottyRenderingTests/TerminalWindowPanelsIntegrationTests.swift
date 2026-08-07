@@ -88,6 +88,42 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertFalse(controller.isFileExplorerPanelVisible)
     }
 
+    @MainActor
+    func testOrthogonalSplitsInheritTheVisibleChromeGround() throws {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let root = try XCTUnwrap(controller.selectedSplitViewForTesting)
+        root.applyChromeTheme(.light)
+        root.focusFirstPane()
+
+        controller.splitVertically()
+        controller.splitHorizontally()
+
+        let splits = allSplitViews(from: root)
+        XCTAssertGreaterThan(splits.count, 1, "an orthogonal split must create a nested split")
+        for split in splits {
+            XCTAssertEqual(
+                split.layer?.backgroundColor,
+                DesignTokens.ChromeTheme.light.terminalPaneGround.cgColor,
+                "a nested split must not expose its default dark ground inside a light window"
+            )
+        }
+    }
+
+    @MainActor
+    func testSplitButtonsReceiveTheVisibleChromeTheme() {
+        let controller = makeWindowController()
+        defer { controller.close() }
+        let theme = controller.chromeThemeForTesting
+
+        for button in controller.splitButtonsForTesting {
+            XCTAssertEqual(button.normalTintColor, theme.textSecondary)
+            XCTAssertEqual(button.hoverTintColor, theme.textPrimary)
+            XCTAssertEqual(button.hoverBackgroundColor, theme.hoverFill)
+            XCTAssertEqual(button.pressBackgroundColor, theme.pressFill)
+        }
+    }
+
     /// A hidden pane must leave the split view entirely: while it merely had
     /// `isHidden` set, the split view kept the pane's last frame and drew a
     /// divider hairline plus an empty strip at the window edge.
@@ -228,6 +264,28 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
         XCTAssertTrue(explorerSource.contains("surface.workingDirectoryLocation"))
         XCTAssertTrue(explorerSource.contains("TerminalSurfaceView.focusDidChangeNotification"))
         XCTAssertTrue(explorerSource.contains("homeDirectoryForCurrentUser"))
+    }
+
+    func testTabTitleRefreshDoesNotRescheduleTrafficLightAlignment() throws {
+        let controllerSource = try sourceFile("Sources/KurottyApp/TerminalWindowController.swift")
+        let updateStart = try XCTUnwrap(controllerSource.range(of: "func updateTabBar()"))
+        let tail = controllerSource[updateStart.lowerBound...]
+        let nextFunction = try XCTUnwrap(tail.range(of: "private func scheduleTrafficLightAlignment"))
+        let updateBody = tail[..<nextFunction.lowerBound]
+
+        XCTAssertFalse(
+            updateBody.contains("scheduleTrafficLightAlignment"),
+            "changing a tab title must not move the macOS traffic lights"
+        )
+
+        let titleHandlerStart = try XCTUnwrap(controllerSource.range(of: "func terminalTitleDidChange"))
+        let titleHandlerTail = controllerSource[titleHandlerStart.lowerBound...]
+        let nextTitleHandlerFunction = try XCTUnwrap(titleHandlerTail.range(of: "func currentSplitView"))
+        let titleHandlerBody = titleHandlerTail[..<nextTitleHandlerFunction.lowerBound]
+        XCTAssertFalse(
+            titleHandlerBody.contains("window?.title"),
+            "the hidden native title must stay stable so AppKit does not relayout the traffic lights"
+        )
     }
 
     // MARK: - Remote working directories
@@ -432,6 +490,14 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
             explorerSource.contains("quoted(path) + \"\\n\""),
             "insert must never append a newline"
         )
+    }
+}
+
+@MainActor
+private func allSplitViews(from root: SplitTerminalView) -> [SplitTerminalView] {
+    [root] + root.arrangedSubviews.flatMap { subview -> [SplitTerminalView] in
+        guard let split = subview as? SplitTerminalView else { return [] }
+        return allSplitViews(from: split)
     }
 }
 

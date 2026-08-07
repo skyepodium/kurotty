@@ -31,6 +31,7 @@ final class TerminalAgentSessionPanelView: NSView {
     private let quotaSummaryView = TerminalAgentQuotaSummaryView()
     private let usageSummaryView = TerminalAgentUsageSummaryView()
     private let scrollView = NSScrollView()
+    private let sidebarScroller = TerminalSidebarScroller(frame: .zero)
     private let outlineView = TerminalCommandHistoryOutlineView()
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
@@ -63,7 +64,8 @@ final class TerminalAgentSessionPanelView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
+        sidebarScroller.applyChromeTheme(theme)
         searchPillView.applyChromeTheme(theme)
         quotaSummaryView.applyChromeTheme(theme)
         usageSummaryView.applyChromeTheme(theme)
@@ -126,7 +128,7 @@ final class TerminalAgentSessionPanelView: NSView {
     private func configure() {
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         configureSearchPill()
         configureListContainer()
         configureOutline()
@@ -190,7 +192,10 @@ final class TerminalAgentSessionPanelView: NSView {
         outlineView.menu = makeContextMenu()
 
         scrollView.documentView = outlineView
+        scrollView.verticalScroller = sidebarScroller
         scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(scrollView)

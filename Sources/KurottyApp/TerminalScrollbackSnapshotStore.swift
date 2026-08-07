@@ -2,7 +2,7 @@ import Foundation
 
 /// Filesystem half of scrollback persistence.
 ///
-/// Every path is derived from a validated `v1-<hash>` reference, so nothing a
+/// Every path is derived from a validated versioned hash reference, so nothing a
 /// caller supplies can escape the snapshot directory. Writes are atomic: bytes
 /// land in a uniquely named temporary file that is renamed over the target, and
 /// a failed write removes the temporary file rather than leaving a partial

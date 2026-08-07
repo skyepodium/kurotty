@@ -26,6 +26,9 @@ final class TerminalFileExplorerPanelView: NSView {
     private var gitOverlay = FileExplorerGitOverlay.empty
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var watcher: TerminalFileExplorerRootWatcher?
+    private var projectIconSourceCache: [URL: FileExplorerProjectIconSource] = [:]
+    private var resolvedProjectIconURLs: Set<URL> = []
+    private var projectIconResolutionTask: Task<Void, Never>?
     private var filterGeneration = 0
     private let gitStatusService = TerminalGitStatusService()
     /// Read-only source of "which agent wrote this file, from which prompt".
@@ -46,6 +49,7 @@ final class TerminalFileExplorerPanelView: NSView {
     }
 
     private let panelTitleLabel = NSTextField(labelWithString: "")
+    private let glassBackgroundView = TerminalSidebarGlassBackgroundView(frame: .zero)
     private let directoryNameLabel = NSTextField(labelWithString: "")
     private let refreshButton = ChromeIconButton(
         symbolName: FileExplorerIcon.refreshSymbolName,
@@ -61,6 +65,7 @@ final class TerminalFileExplorerPanelView: NSView {
     private let listContainerView = NSView()
     private let scrollView = NSScrollView()
     private let outlineView = TerminalFileExplorerOutlineView()
+    private let sidebarScroller = TerminalSidebarScroller(frame: .zero)
     private let emptyStateIconView = NSImageView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
@@ -116,6 +121,7 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         if self.rootDirectory != standardized {
             self.rootDirectory = standardized
+            invalidateProjectIconSources()
             directoryNameLabel.stringValue = standardized.lastPathComponent
             rootItem = TerminalFileExplorerOutlineItem(
                 node: FileExplorerNode(url: standardized, kind: .directory)
@@ -144,6 +150,7 @@ final class TerminalFileExplorerPanelView: NSView {
         remoteLocation = location
         rootDirectory = nil
         rootItem = nil
+        invalidateProjectIconSources()
         filterMatchItems = nil
         actionErrorRow.present(nil)
         // Invalidate any in-flight filter scan started for the previous local
@@ -166,6 +173,10 @@ final class TerminalFileExplorerPanelView: NSView {
         }
         _ = rootItem.childItems()
         rootItem.refreshLoadedSubtree()
+        resolveProjectIconsIfNeeded(
+            in: loadedProjectCandidateItems(in: rootItem.childItems()),
+            rootDirectory: rootDirectory
+        )
         outlineView.reloadData()
         reapplyFilterIfNeeded()
         gitStatusService.requestStatus(rootDirectory: rootDirectory) { [weak self] result in
@@ -175,7 +186,9 @@ final class TerminalFileExplorerPanelView: NSView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = theme.topChromeBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
+        glassBackgroundView.applyChromeTheme(theme)
+        sidebarScroller.applyChromeTheme(theme)
         DesignTokens.Typography.rowTitleSel.apply(to: directoryNameLabel, color: theme.textPrimary)
         DesignTokens.Typography.sectionHeader.apply(to: panelTitleLabel, color: theme.textTertiary)
         searchPillView.applyChromeTheme(theme)
@@ -227,6 +240,15 @@ final class TerminalFileExplorerPanelView: NSView {
 
     func selectRowForTesting(_ row: Int) {
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    func expandRowForTesting(_ row: Int) {
+        guard row >= 0, let item = outlineView.item(atRow: row) else { return }
+        outlineView.expandItem(item)
+    }
+
+    func projectIconSourceForTesting(at url: URL) -> FileExplorerProjectIconSource? {
+        projectIconSourceCache[url.standardizedFileURL]
     }
 
     func rowNamesForTesting() -> [String] {
@@ -295,6 +317,16 @@ final class TerminalFileExplorerPanelView: NSView {
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
         layer?.backgroundColor = chromeTheme.topChromeBackground.cgColor
 
+        glassBackgroundView.applyChromeTheme(chromeTheme)
+        glassBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassBackgroundView)
+        NSLayoutConstraint.activate([
+            glassBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            glassBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
         panelTitleLabel.stringValue = AppLocalization.string(.fileExplorer).localizedUppercase
         DesignTokens.Typography.sectionHeader.apply(
             to: panelTitleLabel,
@@ -338,7 +370,10 @@ final class TerminalFileExplorerPanelView: NSView {
 
         configureOutlineView()
         scrollView.documentView = outlineView
+        scrollView.verticalScroller = sidebarScroller
         scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         listContainerView.addSubview(scrollView)
@@ -550,7 +585,16 @@ final class TerminalFileExplorerPanelView: NSView {
 
     @objc private func refreshClicked(_ sender: Any?) {
         agentSessionIndexStore.refresh()
+        invalidateProjectIconSources()
         refresh()
+    }
+
+    private func invalidateProjectIconSources() {
+        projectIconResolutionTask?.cancel()
+        projectIconResolutionTask = nil
+        projectIconSourceCache.removeAll()
+        resolvedProjectIconURLs.removeAll()
+        FileExplorerProjectIconLoader.shared.invalidate()
     }
 
     @objc private func agentSessionIndexDidChange(_ notification: Notification) {
@@ -899,8 +943,87 @@ extension TerminalFileExplorerPanelView: NSOutlineViewDataSource, NSOutlineViewD
                 provenance: agentProvenance,
                 now: Date()
             ),
+            projectIconSource: projectIconSource(for: outlineItem),
             chromeTheme: chromeTheme
         )
+    }
+
+    func outlineViewItemDidExpand(_ notification: Notification) {
+        guard filterMatchItems == nil,
+              let rootDirectory,
+              let item = notification.userInfo?["NSObject"] as? TerminalFileExplorerOutlineItem
+        else { return }
+        resolveProjectIconsIfNeeded(
+            in: item.childItems(),
+            rootDirectory: rootDirectory
+        )
+    }
+
+    private func projectIconSource(
+        for item: TerminalFileExplorerOutlineItem
+    ) -> FileExplorerProjectIconSource? {
+        guard filterMatchItems == nil,
+              item.node.kind == .directory
+        else {
+            return nil
+        }
+        return projectIconSourceCache[item.node.url.standardizedFileURL]
+    }
+
+    private func resolveProjectIconsIfNeeded(
+        in items: [TerminalFileExplorerOutlineItem],
+        rootDirectory: URL
+    ) {
+        let unresolvedURLs = items.compactMap { item -> URL? in
+            guard item.node.kind == .directory else { return nil }
+            let url = item.node.url.standardizedFileURL
+            return resolvedProjectIconURLs.contains(url) ? nil : url
+        }
+        guard !unresolvedURLs.isEmpty, projectIconResolutionTask == nil else { return }
+        resolvedProjectIconURLs.formUnion(unresolvedURLs)
+        projectIconResolutionTask = Task { [weak self] in
+            let resolved = await FileExplorerProjectIconResolver.sources(for: unresolvedURLs)
+            guard !Task.isCancelled,
+                  let self,
+                  self.rootDirectory == rootDirectory
+            else {
+                return
+            }
+            for (url, source) in resolved {
+                if let source {
+                    projectIconSourceCache[url] = source
+                } else {
+                    projectIconSourceCache.removeValue(forKey: url)
+                }
+            }
+            outlineView.reloadData()
+            projectIconResolutionTask = nil
+            if let rootItem {
+                resolveProjectIconsIfNeeded(
+                    in: loadedProjectCandidateItems(in: rootItem.childItems()),
+                    rootDirectory: rootDirectory
+                )
+            }
+        }
+    }
+
+
+    /// Project identity discovery follows only the tree the user has already
+    /// opened. It never turns a sidebar refresh into a recursive filesystem
+    /// crawl, while still branding repositories at any visible depth.
+    private func loadedProjectCandidateItems(
+        in items: [TerminalFileExplorerOutlineItem]
+    ) -> [TerminalFileExplorerOutlineItem] {
+        var result: [TerminalFileExplorerOutlineItem] = []
+        var pending = items
+        while let item = pending.popLast() {
+            guard item.node.kind == .directory else { continue }
+            result.append(item)
+            if let loadedChildren = item.loadedChildItems {
+                pending.append(contentsOf: loadedChildren)
+            }
+        }
+        return result
     }
 }
 
