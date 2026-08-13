@@ -106,6 +106,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// own fields.
     private var agentWaitingNotificationPolicy = AgentWaitingNotificationPolicy()
     private let pasteLimits = TerminalPasteLimits.default
+    /// Tracks the drop border so repeated `draggingUpdated` callbacks — AppKit
+    /// sends one per mouse move — do not re-set the same layer properties.
+    private var isFileDropHighlighted = false
     var automaticallyFocusesWhenAttached = true
     /// Raised once when this surface's child process is gone. The owning pane
     /// decides what to show and whether to close; the surface only reports.
@@ -170,6 +173,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
+        // Only file URLs. Kurotty's own pane drags carry a private pasteboard
+        // type that is deliberately not registered here, so a pane dragged over
+        // a surface still resolves to the window's pane drop target.
+        registerForDraggedTypes([.fileURL])
         let rendererView = renderer.rendererView
         rendererView.translatesAutoresizingMaskIntoConstraints = false
         renderer.onPresented = { [weak self] in
@@ -843,6 +850,105 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             result.bytesWritten,
             result.redactedDiagnostic
         )
+    }
+
+    // MARK: - File drops
+
+    /// A file dropped onto a pane inserts its path at the shell's cursor rather
+    /// than opening or moving anything: the terminal is a place to compose a
+    /// command line, and the path is the part that is tedious to type.
+    ///
+    /// The text goes through the ordinary paste pipeline, so bracketed paste,
+    /// the size limit, and the PTY backpressure pacing all apply — a drop of a
+    /// thousand files is a paste, and is treated like one.
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(for: sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(for: sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        setFileDropHighlighted(false)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        setFileDropHighlighted(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        setFileDropHighlighted(false)
+        let urls = droppedFileURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+        guard let text = TerminalFileDropFormatter.text(
+            for: urls,
+            style: TerminalFileDropModifiers.style(for: NSEvent.modifierFlags),
+            workingDirectory: fileDropWorkingDirectory
+        ) else { return false }
+        window?.makeFirstResponder(self)
+        insertDroppedFileText(text)
+        return true
+    }
+
+    private func fileDropOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard !droppedFileURLs(from: sender).isEmpty else {
+            setFileDropHighlighted(false)
+            return []
+        }
+        setFileDropHighlighted(true)
+        // Copy, not link or move: nothing on disk is touched, and `.copy` is the
+        // operation Finder's own drag feedback promises for this gesture.
+        return .copy
+    }
+
+    private func droppedFileURLs(from sender: NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let objects = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options)
+        return (objects as? [URL]) ?? []
+    }
+
+    /// The directory a relative drop resolves against, or `nil` when there is
+    /// none to resolve against. A remote OSC 7 directory names a path on the
+    /// other host, so a local file is never under it.
+    private var fileDropWorkingDirectory: String? {
+        guard workingDirectoryLocation.remoteHost == nil else { return nil }
+        let path = workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    private func setFileDropHighlighted(_ isHighlighted: Bool) {
+        guard isFileDropHighlighted != isHighlighted else { return }
+        isFileDropHighlighted = isHighlighted
+        // Border only. The layer's background is the terminal's own background
+        // and the renderer draws into a subview above it, so tinting the fill
+        // would either be invisible or fight the renderer for the same pixels.
+        layer?.borderWidth = isHighlighted ? DesignTokens.Component.paneDropTargetBorderWidthPX : 0
+        layer?.borderColor = isHighlighted ? DesignTokens.Color.paneDropTargetBorder.cgColor : nil
+    }
+
+    private func insertDroppedFileText(_ text: String) {
+        let plan = TerminalPastePlanner.plan(
+            text: text,
+            bracketedPasteEnabled: bracketedPasteEnabled,
+            confirmMultilinePaste: confirmMultilinePasteEnabled,
+            limits: pasteLimits
+        )
+        logPastePlan(plan)
+        guard plan.isExecutable else {
+            presentPasteRejection(plan)
+            return
+        }
+        // A file name may legally contain a newline, which makes a drop a
+        // multi-line paste and earns the same confirmation an ordinary one gets.
+        guard plan.requiresConfirmation else {
+            executePaste(plan: plan, text: text)
+            return
+        }
+        presentMultilinePasteConfirmation(plan) { [weak self] confirmed in
+            guard let self, confirmed else { return }
+            executePaste(plan: plan, text: text)
+        }
     }
 
     @objc func copy(_ sender: Any?) {
