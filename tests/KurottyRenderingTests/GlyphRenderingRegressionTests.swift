@@ -1429,7 +1429,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("let linkRanges = visibleLinkRanges("))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
-        XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for link: TerminalLinkRange)"))
+        // The sheet is handed the activation decision, not the raw link: the
+        // target it prints comes from `safeTarget`, never from the payload.
+        XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for decision: TerminalLinkActivation.Decision)"))
         XCTAssertTrue(surfaceSource.contains("NSWorkspace.shared.open(url)"))
         XCTAssertTrue(surfaceSource.contains("messageText = AppLocalization.string(.openLinkQuestion)"))
     }

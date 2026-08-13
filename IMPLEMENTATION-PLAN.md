@@ -150,15 +150,48 @@ the shell as typed input.
       `terminal.notifyOnAgentWaiting`; a security opt-in nobody should reach for
       casually does not need a row in Preferences
 
-### 0.4 Clipboard and hyperlink trust `[ ]`
+### 0.4 Clipboard and hyperlink trust `[~] feat/clipboard-link-trust`
 
 *From ghostty `macos: defer OSC52 clipboard read confirmations until focused`
 and `macos: handled untrusted OSC8 hyperlinks more carefully`.*
 
-- [ ] Queue OSC 52 confirmation sheets while the window is unfocused, present on
-      focus return
-- [ ] Tag link records with their provenance (OSC 8 payload vs. text scan) and
+- [x] Queue OSC 52 confirmation sheets while the window is unfocused, present on
+      focus return. `TerminalClipboardConfirmationQueue` is a pure value type;
+      the surface only presents what it hands back
+- [x] **Coalescing rule: newest wins.** At most one request is ever pending and a
+      newer one replaces it. The pasteboard holds a single value, so approving a
+      superseded write would leave stale text on it while the program that sent
+      the *last* write believes that one took; and returning to a stack of sheets
+      is the failure the queue exists to prevent. The queue also refuses to open
+      a second sheet while one is up, and drains when it closes
+- [x] A held request dies with its pane: `cancelPending()` on child exit and on
+      `viewWillMove(toWindow: nil)`
+- [x] Focus comes from `TerminalCursorPresentationPolicy.isFocusedForUser`
+      through the surface's existing `isTerminalFocusedForUser`; the queue takes
+      it as a parameter rather than defining a second rule
+- [x] Tag link records with their provenance (OSC 8 payload vs. text scan) and
       always show the real target URL for the untrusted tier
+- [x] Untrusted tiers: OSC 8 whose visible text is not its target, a scheme
+      outside http/https/file/mailto, `user:pass@host`, control characters or a
+      newline in the target, an unparsable target. The tier only ever *narrows*
+      `TerminalSecurityPolicy` — it downgrades a silent open to a confirmation
+      and never promotes a refused scheme into a question
+- [x] The confirmation prints `safeTarget`, never the raw payload: control
+      characters removed, userinfo redacted, and the real host on its own line.
+      What opens keeps the userinfo, because dropping it would open a different
+      address than the one shown
+- [x] No new prompt for the honest case. A scanned URL is its own display text,
+      so it keeps opening on the ⌘-click alone; so does an OSC 8 link whose label
+      *is* its target, which used to be indistinguishable from a mismatched one
+- [ ] **Found while wiring this:** an OSC 52 write evaluated `ask` was previously
+      dropped in silence — there was no confirmation UI at all, only the `allow`
+      path. It now presents. Reachability is unchanged for now: the surface
+      classifies every OSC as `origin: .local` because session transport
+      awareness does not exist yet, and a local write is `allow`. The sheet
+      becomes live the day remote-origin classification lands
+- [ ] OSC 52 *read* (`52;c;?`) is still ignored rather than answered. Replying
+      would be a new outbound clipboard-to-PTY capability, not a deferral, so it
+      stays out of this change
 
 ---
 
