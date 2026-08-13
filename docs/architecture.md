@@ -307,7 +307,8 @@ flowchart LR
 - OSC 9, OSC 777 `notify;title;body`, and supported rich OSC 1337 become typed notification payloads.
 - OSC 7 updates `TerminalShellIntegration` and the surface-owned working directory.
 - OSC 133 updates prompt/command boundaries and command spans.
-- OSC 52 is evaluated by `TerminalOSC52Policy` before clipboard interaction.
+- OSC 52 is evaluated by `TerminalOSC52Policy` before clipboard interaction. A write the policy answers with `ask` goes through `TerminalClipboardConfirmationQueue`, which holds the confirmation while the pane is not the one the user is looking at and presents it when focus returns. At most one request is ever pending — a newer one replaces it, because the pasteboard holds a single value and the user must not come back to a stack of sheets — and a held request is cancelled when the pane or its session is torn down.
+- OSC 8 hyperlinks are tagged with their provenance. `TerminalLinkTrust` treats an OSC 8 link whose visible text is not its target, a scheme outside http/https/file/mailto, embedded `user:pass@host`, or a target carrying control characters as untrusted: those are confirmed against the real target, printed from `TerminalLinkTrust.SafeTarget` with the userinfo redacted and the host on its own line. The tier only narrows what `TerminalSecurityPolicy` already allows; it never grants an open.
 - DECSET 1004 focus reporting emits standard xterm focus-in/focus-out responses so applications can apply their own unfocused-notification policy.
 
 The explicit path never reads the rendered screen to reconstruct fields. If a producer sends a body such as `Release notes are ready.`, that exact semantic field is the notification body, subject only to bounded presentation length and safe whitespace normalization.

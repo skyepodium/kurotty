@@ -357,7 +357,9 @@ final class MenuBarExtraTests: XCTestCase {
     func testTheMenuBarExtraDefaultsOn() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertTrue(SettingsDefaults.menuBarExtraEnabled)
         XCTAssertTrue(AppSettings.default.terminal.menuBarExtraEnabled)
     }
@@ -366,7 +368,10 @@ final class MenuBarExtraTests: XCTestCase {
     /// it implied: adding one would drag every stored `false` back to the new
     /// default, including the ones a user chose.
     func testFlippingTheDefaultDidNotIntroduceANewSchemaVersion() {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Schema versions added since are unrelated keys, so what this pins is
+        // that the menu-bar migration still guards 20 and the flip added no
+        // second branch of its own.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
     }
 
     func testTheKeyIsLiveApplied() {

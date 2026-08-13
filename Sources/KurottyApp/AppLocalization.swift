@@ -53,6 +53,10 @@ enum L10nKey: String, CaseIterable {
     case closePane, focusPaneLeft, focusPaneRight, focusPaneDown, focusPaneUp
     case splitRight, splitLeft, splitDown, splitUp
     case replayCommandQuestion, openLinkQuestion, cancel, open, openInBrowser, replay
+    // The real target of a link whose printed text cannot be trusted to name it.
+    case openLinkHost, openLinkVisibleText
+    // OSC 52: a program asking to put text on the pasteboard.
+    case clipboardWriteQuestion, clipboardWriteExplanation, clipboardWriteConfirm
     case pasteLinesQuestion, pasteLinesExplanation, pasteConfirm, pasteTooLargeTitle, pasteTooLargeExplanation
     // Close confirmation for a tab or window whose shell still runs a process.
     case closeRunningProcessTitle, closeRunningProcessMessage, closeRunningProcessConfirm
@@ -237,6 +241,10 @@ enum AppLocalization {
             .closePane: "Close Pane", .focusPaneLeft: "Focus Pane Left", .focusPaneRight: "Focus Pane Right", .focusPaneDown: "Focus Pane Down", .focusPaneUp: "Focus Pane Up",
             .splitRight: "Split Right", .splitLeft: "Split Left", .splitDown: "Split Down", .splitUp: "Split Up",
             .replayCommandQuestion: "Replay Command?", .openLinkQuestion: "Open Link?", .cancel: "Cancel", .open: "Open", .openInBrowser: "Open in Browser", .replay: "Replay",
+            .openLinkHost: "Host: %@", .openLinkVisibleText: "Shown as: %@",
+            .clipboardWriteQuestion: "Let this program set the clipboard?",
+            .clipboardWriteExplanation: "A program in this pane asked to replace your clipboard with %d bytes. Its content is not shown here.",
+            .clipboardWriteConfirm: "Set Clipboard",
             .pasteLinesQuestion: "Paste %d lines?", .pasteLinesExplanation: "The shell can run every line this paste contains.", .pasteConfirm: "Paste",
             .pasteTooLargeTitle: "Paste Too Large", .pasteTooLargeExplanation: "This clipboard content is %d bytes, above the %d byte paste limit.",
             .closeRunningProcessTitle: "Close and end the running process?",
@@ -371,6 +379,10 @@ enum AppLocalization {
             .closePane: "패널 닫기", .focusPaneLeft: "왼쪽 패널로 이동", .focusPaneRight: "오른쪽 패널로 이동", .focusPaneDown: "아래 패널로 이동", .focusPaneUp: "위 패널로 이동",
             .splitRight: "오른쪽으로 분할", .splitLeft: "왼쪽으로 분할", .splitDown: "아래로 분할", .splitUp: "위로 분할",
             .replayCommandQuestion: "명령을 다시 실행할까요?", .openLinkQuestion: "링크를 열까요?", .cancel: "취소", .open: "열기", .openInBrowser: "브라우저에서 열기", .replay: "다시 실행",
+            .openLinkHost: "호스트: %@", .openLinkVisibleText: "화면에 표시된 문구: %@",
+            .clipboardWriteQuestion: "이 프로그램이 클립보드를 바꾸도록 할까요?",
+            .clipboardWriteExplanation: "이 패널의 프로그램이 클립보드를 %d바이트로 바꾸려고 합니다. 내용은 여기에 표시하지 않습니다.",
+            .clipboardWriteConfirm: "클립보드 바꾸기",
             .pasteLinesQuestion: "%d줄을 붙여넣을까요?", .pasteLinesExplanation: "이 붙여넣기에 포함된 모든 줄이 셸에서 실행될 수 있습니다.", .pasteConfirm: "붙여넣기",
             .pasteTooLargeTitle: "붙여넣기 내용이 너무 큽니다", .pasteTooLargeExplanation: "클립보드 내용이 %d바이트로, 붙여넣기 한도 %d바이트를 넘습니다.",
             .closeRunningProcessTitle: "실행 중인 프로세스를 종료하고 닫을까요?",
@@ -505,6 +517,10 @@ enum AppLocalization {
             .closePane: "ペインを閉じる", .focusPaneLeft: "左のペインに移動", .focusPaneRight: "右のペインに移動", .focusPaneDown: "下のペインに移動", .focusPaneUp: "上のペインに移動",
             .splitRight: "右に分割", .splitLeft: "左に分割", .splitDown: "下に分割", .splitUp: "上に分割",
             .replayCommandQuestion: "コマンドを再実行しますか？", .openLinkQuestion: "リンクを開きますか？", .cancel: "キャンセル", .open: "開く", .openInBrowser: "ブラウザで開く", .replay: "再実行",
+            .openLinkHost: "ホスト: %@", .openLinkVisibleText: "画面上の表示: %@",
+            .clipboardWriteQuestion: "このプログラムにクリップボードの変更を許可しますか？",
+            .clipboardWriteExplanation: "このペインのプログラムがクリップボードを %d バイトに置き換えようとしています。内容はここには表示しません。",
+            .clipboardWriteConfirm: "クリップボードを変更",
             .pasteLinesQuestion: "%d行をペーストしますか？", .pasteLinesExplanation: "このペーストに含まれるすべての行がシェルで実行される可能性があります。", .pasteConfirm: "ペースト",
             .pasteTooLargeTitle: "ペースト内容が大きすぎます", .pasteTooLargeExplanation: "クリップボードの内容は %d バイトで、ペースト上限の %d バイトを超えています。",
             .closeRunningProcessTitle: "実行中のプロセスを終了して閉じますか？",

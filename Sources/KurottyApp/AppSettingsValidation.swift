@@ -47,6 +47,11 @@ enum AppSettingKey: String, Codable, Hashable {
     /// the edge it sits on, so it cannot be mistaken for a sibling of the
     /// scrollback indicator sharing that edge.
     case terminalPromptNavigatorRailEnabled
+    /// Declared for its lifecycle contract only, like
+    /// `terminalPromptNavigatorRailEnabled`. Live-applied because it governs
+    /// how the parser answers a sequence: turning it off must stop the next
+    /// `CSI 21 t` in an already-running pane, not the next launch.
+    case terminalTitleReportsEnabled
     /// Declared for its lifecycle contract only. Launch-only rather than
     /// live-applied: it records that the Getting Started tab was already shown
     /// once, and a hand-edit that flips it back to `false` cannot make a tab
@@ -106,6 +111,7 @@ enum AppSettingsValidation {
              .terminalCommandProgressIndicatorEnabled,
              .terminalMenuBarExtraEnabled,
              .terminalPromptNavigatorRailEnabled,
+             .terminalTitleReportsEnabled,
              .windowWidth,
              .windowHeight:
             return .liveApplied

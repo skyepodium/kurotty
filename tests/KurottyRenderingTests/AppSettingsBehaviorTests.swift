@@ -631,7 +631,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 22, which added
         // `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 22, which added `terminal.hasSeenGettingStarted`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -773,7 +775,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 20, which added `terminal.menuBarExtraEnabled`.
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -840,7 +844,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testStatusBarDefaultsOn() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -890,7 +896,9 @@ final class AppSettingsBehaviorTests: XCTestCase {
     func testUITextScaleDefaultsToOneHundredPercent() {
         // Re-pointed at schema 21, which added `terminal.agentStatusCodexHookConsent`.
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }

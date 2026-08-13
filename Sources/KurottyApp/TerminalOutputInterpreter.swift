@@ -49,6 +49,10 @@ final class TerminalOutputInterpreter {
     var scrollRegionTop = 0
     var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
     var cursorVisible = true
+    /// DECSCUSR (`CSI Ps SP q`) state. Survives the alternate screen on
+    /// purpose: `vim` sets a bar on entering insert mode and restores the shape
+    /// itself on exit, so swapping screens must not undo either.
+    var cursorStyle = TerminalCursorStyle.default
     var isUsingAlternateScreen = false
     private var alternateScreenRestoresCursor = false
     var insertModeEnabled = false
@@ -63,6 +67,14 @@ final class TerminalOutputInterpreter {
     /// DEC private mode 2031. While enabled, an appearance change pushes a
     /// color-scheme notification so subscribed TUIs can re-theme live.
     var colorSchemeUpdateModeEnabled = false
+    /// Mirror of `terminal.titleReportsEnabled`, which is off by default. While
+    /// off, `CSI 20 t` and `CSI 21 t` are parsed, recognised, and answered with
+    /// nothing at all — the behavior Kurotty had before the reports existed.
+    var titleReportsEnabled = false
+    /// XTWINOPS title stack (`CSI 22 ; Ps t` / `CSI 23 ; Ps t`). One stack for
+    /// one title: a Kurotty surface has a single name, so the icon/window
+    /// selector addresses the same entry either way.
+    private var titleStack: [String] = []
     /// While true, every terminal reply is suppressed. Persisted scrollback
     /// being replayed into the interpreter can contain the *old* session's
     /// capability queries; answering those would inject stray bytes into the
@@ -77,6 +89,14 @@ final class TerminalOutputInterpreter {
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var oscBuffer = ""
+    /// Payload scalars consumed by the DCS/SOS/PM/APC currently being skipped.
+    /// Nothing accumulates on that path, so this counter is the only thing that
+    /// can end a string control whose terminator never arrives.
+    private var stringControlScalarCount = 0
+    /// Whether the parser is between sequences rather than mid-escape. Tests
+    /// assert resynchronization directly instead of inferring it from what the
+    /// bytes after a discarded sequence happen to paint.
+    var isParsingBetweenSequences: Bool { parserState == .normal }
     var terminalTitle = "-zsh"
     var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     /// `user@host` when the shell reported an OSC 7 directory on another
@@ -113,6 +133,12 @@ final class TerminalOutputInterpreter {
                 continue
             }
 
+            // Anything that is not printable text ends the syllable that was
+            // open: a control byte, an escape, a CSI parameter. Whatever cell
+            // the jamo landed in is finished, so a trailing consonant arriving
+            // after this belongs to no syllable and stays its own cell.
+            pendingHangulSyllable = nil
+
             for scalar in character.unicodeScalars {
                 if consumeControl(scalar) {
                     continue
@@ -140,9 +166,34 @@ final class TerminalOutputInterpreter {
 
     private func appendPrintable(_ text: String) {
         for character in text {
-            let width = character.terminalColumnWidth
+            if let extended = hangulSyllableExtended(by: character) {
+                writeHangulSyllable(extended)
+                continue
+            }
+
+            // Composed before the width is read, so the cell holds the
+            // precomposed syllable a Korean user expects to copy, serialize and
+            // search for rather than the NFD jamo the filesystem handed out.
+            //
+            // The grapheme bound applies to the composed result, and here as
+            // well as to marks arriving one at a time below: one `interpret`
+            // call can hand a whole cluster over at once. Composition only ever
+            // shortens a Hangul cluster, so it can never push one past the
+            // bound that was not already past it.
+            let printable = TerminalGraphemeBound.clamped(
+                TerminalHangulComposition.composed(character),
+                maximumScalarCount: AppConstants.Terminal.maximumCellGraphemeScalarCount
+            )
+            let arrivedAsJamo = TerminalHangulComposition.isConjoiningJamoCluster(character)
+            let width = printable.terminalColumnWidth
             guard width > 0 else {
-                screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)
+                pendingHangulSyllable = nil
+                screen.appendCombining(
+                    character: printable,
+                    row: cursorRow,
+                    before: cursorColumn,
+                    maximumScalarCount: AppConstants.Terminal.maximumCellGraphemeScalarCount
+                )
                 markDirty(row: cursorRow)
                 continue
             }
@@ -167,21 +218,111 @@ final class TerminalOutputInterpreter {
                 )
             }
 
+            let writtenRow = cursorRow
+            let writtenColumn = cursorColumn
             screen.set(
-                character: character,
-                row: cursorRow,
-                column: cursorColumn,
+                character: printable,
+                row: writtenRow,
+                column: writtenColumn,
                 width: width,
                 style: currentStyle,
                 linkURL: activeHyperlinkURL
             )
-            markDirty(row: cursorRow)
+            markDirty(row: writtenRow)
             if wraparoundModeEnabled {
                 cursorColumn += width
             } else {
                 cursorColumn = min(screen.columns - 1, cursorColumn + width)
             }
+
+            pendingHangulSyllable = arrivedAsJamo
+                ? PendingHangulSyllable(
+                    row: writtenRow,
+                    column: writtenColumn,
+                    width: width,
+                    character: printable,
+                    style: currentStyle,
+                    linkURL: activeHyperlinkURL
+                )
+                : nil
         }
+    }
+
+    // MARK: - Hangul syllable composition
+
+    /// A syllable already written to a cell that a later jamo may still extend.
+    ///
+    /// WHY the cell is rewritten rather than the syllable buffered: the jamo of
+    /// one syllable can be split across PTY chunks, so a `ᄀ` can arrive in one
+    /// `interpret` call and its `ᅡ`/`ᆨ` in the next. Buffering the incomplete
+    /// syllable until the next character would hold it back indefinitely —
+    /// there is no flush signal, and a prompt or a `read -p` ending in Korean
+    /// would sit on screen with its last syllable missing until the user typed
+    /// something. Writing immediately and replacing the cell in place keeps
+    /// output latency identical to every other character and converges on the
+    /// same grid, at the cost of one extra dirty mark on the row that was going
+    /// to be redrawn anyway.
+    ///
+    /// Only a write that *arrived* as conjoining jamo becomes pending. A program
+    /// that printed a precomposed `가` and later, separately, a lone `ᆨ` meant
+    /// two things, and merging them would corrupt its output; decomposed text
+    /// never contains a precomposed syllable, so this loses no real case.
+    private struct PendingHangulSyllable {
+        let row: Int
+        let column: Int
+        let width: Int
+        let character: Character
+        let style: TerminalTextStyle
+        let linkURL: String?
+    }
+
+    private var pendingHangulSyllable: PendingHangulSyllable?
+
+    /// The pending syllable grown by `character`, or `nil` when `character` does
+    /// not continue it. The cursor and the cell contents are both re-checked:
+    /// the cursor must still sit immediately after the pending cell, and that
+    /// cell must still hold what was written there, so any intervening cursor
+    /// move, erase, scroll, resize or overwrite drops the merge instead of
+    /// rewriting a cell that now belongs to something else.
+    private func hangulSyllableExtended(by character: Character) -> PendingHangulSyllable? {
+        guard let pending = pendingHangulSyllable,
+              TerminalHangulComposition.isSyllableContinuationCluster(character),
+              cursorRow == pending.row,
+              cursorColumn == pending.column + pending.width,
+              screen.cells.indices.contains(pending.row),
+              screen.cells[pending.row].indices.contains(pending.column),
+              screen.cells[pending.row][pending.column].character == pending.character,
+              let composed = TerminalHangulComposition.merging(pending.character, with: character)
+        else {
+            return nil
+        }
+        return PendingHangulSyllable(
+            row: pending.row,
+            column: pending.column,
+            width: composed.terminalColumnWidth,
+            character: composed,
+            style: pending.style,
+            linkURL: pending.linkURL
+        )
+    }
+
+    private func writeHangulSyllable(_ syllable: PendingHangulSyllable) {
+        screen.set(
+            character: syllable.character,
+            row: syllable.row,
+            column: syllable.column,
+            width: syllable.width,
+            style: syllable.style,
+            linkURL: syllable.linkURL
+        )
+        markDirty(row: syllable.row)
+        // The syllable occupies the same columns it did before the merge, so
+        // the cursor lands where it already was. Recomputing it keeps the two
+        // in step if a jamo ever changes the composed width.
+        cursorColumn = wraparoundModeEnabled
+            ? syllable.column + syllable.width
+            : min(screen.columns - 1, syllable.column + syllable.width)
+        pendingHangulSyllable = syllable
     }
 
     private func lineFeed() {
@@ -306,6 +447,7 @@ final class TerminalOutputInterpreter {
                 // feature, whereas the bug is that a DECRQSS probe
                 // (`ESC P 1 $ r ... ESC \`) or a Kitty graphics envelope
                 // (`ESC _ G ... ESC \`) painted its whole payload as text.
+                stringControlScalarCount = 0
                 parserState = .stringControl
             case let scalar where TerminalEscapeSequence.beginsTwoByteDesignator(scalar):
                 parserState = .escapeDesignator
@@ -415,7 +557,9 @@ final class TerminalOutputInterpreter {
             // of the passthrough onto the screen.
             if scalar.value == 0x1b {
                 parserState = .stringEscape
+                return true
             }
+            consumeStringControlPayloadScalar()
             return true
         case .stringEscape:
             if scalar == "\\" {
@@ -425,6 +569,17 @@ final class TerminalOutputInterpreter {
             parserState = .escape
             return consumeControl(scalar)
         }
+    }
+
+    /// Drops one payload scalar of the string control being skipped, and
+    /// abandons the sequence once the payload passes its bound. The scalar that
+    /// crosses the bound is dropped with the rest: it belongs to the payload,
+    /// not to the text that follows.
+    private func consumeStringControlPayloadScalar() {
+        stringControlScalarCount += 1
+        guard stringControlScalarCount > AppConstants.Terminal.maximumStringControlScalarCount else { return }
+        stringControlScalarCount = 0
+        parserState = .normal
     }
 
     private func isCsiFinal(_ scalar: UnicodeScalar) -> Bool {
@@ -581,8 +736,14 @@ final class TerminalOutputInterpreter {
             if let response = TerminalDeviceAttributes.response(for: parsed) {
                 sendTerminalResponse(response)
             }
+        case "q":
+            applyCursorStyle(rawParameters: params, parsed: parsed)
         case "t", "p":
-            respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
+            if let titleOperation = TerminalTitleReports.operation(final: final, parsed: parsed) {
+                applyTitleOperation(titleOperation)
+            } else {
+                respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
+            }
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":
@@ -595,6 +756,55 @@ final class TerminalOutputInterpreter {
             markDirty(row: cursorRow)
         }
         logCsi(final: final, params: params, parsed: parsed, phase: "after")
+    }
+
+    /// DECSCUSR. An unrecognised parameter leaves the cursor alone rather than
+    /// snapping it to a nearby shape, and the cursor row is only re-damaged
+    /// when the shape actually changed, so a TUI that re-asserts the same style
+    /// on every keystroke costs nothing.
+    private func applyCursorStyle(rawParameters: String, parsed: CsiParameters) {
+        guard let style = TerminalCursorStyle.decscusr(
+            rawParameters: rawParameters,
+            parsed: parsed
+        ) else {
+            return
+        }
+        guard style != cursorStyle else { return }
+        cursorStyle = style
+        markDirty(row: cursorRow)
+    }
+
+    /// `CSI 20 t` and `CSI 21 t` hand the current title back on the *input*
+    /// stream, and the same child sets that title with OSC 0/1/2. The pair is
+    /// therefore a write-then-read primitive into the shell's stdin, so the two
+    /// reports answer only while `terminal.titleReportsEnabled` is on, and they
+    /// answer through `TerminalTitleReports.report(_:title:)`, which strips
+    /// control characters and caps the length even then.
+    ///
+    /// Push and pop are deliberately not gated. They move a title Kurotty
+    /// already accepts from OSC 0/1/2 and send nothing back to the child, so
+    /// they carry none of the exposure the reports do — and `less`, `vim` and
+    /// `ssh` push a title on entry and pop it on exit whether or not anyone
+    /// ever reads one back.
+    private func applyTitleOperation(_ operation: TerminalTitleOperation) {
+        switch operation {
+        case .pushTitle:
+            titleStack.append(terminalTitle)
+            if titleStack.count > AppConstants.Terminal.maximumTitleStackDepth {
+                titleStack.removeFirst()
+            }
+        case .popTitle:
+            // An empty stack pops nothing rather than clearing the title: a pop
+            // with no matching push is a program's bookkeeping error, and
+            // blanking the tab is a worse answer to it than doing nothing.
+            guard let restoredTitle = titleStack.popLast() else { return }
+            terminalTitle = restoredTitle
+            publishTitle()
+        case .reportWindowTitle, .reportIconTitle:
+            guard titleReportsEnabled else { return }
+            guard let report = TerminalTitleReports.report(operation, title: terminalTitle) else { return }
+            sendTerminalResponse(report)
+        }
     }
 
     private func respondToCapabilityQuery(final: Character, rawParameters: String, parsed: CsiParameters) {
@@ -843,6 +1053,7 @@ final class TerminalOutputInterpreter {
         cursorRow = 0
         cursorColumn = 0
         cursorVisible = true
+        cursorStyle = .default
         insertModeEnabled = false
         originModeEnabled = false
         wraparoundModeEnabled = true

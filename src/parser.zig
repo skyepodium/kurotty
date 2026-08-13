@@ -17,12 +17,24 @@ pub const Event = union(enum) {
 pub const Parser = struct {
     pub const max_csi_sequence_bytes: usize = 256;
     pub const max_string_sequence_bytes: usize = 4096;
+    /// Bound on a DCS/SOS/PM/APC payload. Nothing is buffered on that path — the
+    /// bytes are dropped one by one — so the exposure is not memory but the
+    /// stream: a string control whose terminator never arrives consumes every
+    /// byte that follows it, forever, and no later sequence can be parsed. A
+    /// program killed between `ESC P` and `ESC \` is enough to reach it.
+    /// 4 MiB is four times tmux's whole input buffer and far above the 4096
+    /// bytes per escape the Kitty graphics protocol requires clients to chunk
+    /// at, so no payload this parser is meant to understand comes close.
+    /// Mirrors `AppConstants.Terminal.maximumStringControlScalarCount`.
+    pub const max_string_control_bytes: usize = 4 * 1024 * 1024;
 
     allocator: std.mem.Allocator,
     state: State = .normal,
     printable: std.ArrayList(u8) = .empty,
     control: std.ArrayList(u8) = .empty,
     string: std.ArrayList(u8) = .empty,
+    /// Payload bytes consumed by the string control currently being skipped.
+    string_control_consumed: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) Parser {
         return .{ .allocator = allocator };
@@ -74,6 +86,7 @@ pub const Parser = struct {
                     },
                     'P', '^', '_' => {
                         self.string.clearRetainingCapacity();
+                        self.string_control_consumed = 0;
                         self.state = .string_control;
                     },
                     '(', ')', '*', '+', '-', '.', '/', '%' => {
@@ -164,7 +177,7 @@ pub const Parser = struct {
                         self.state = .normal;
                     },
                     0x1b => self.state = .string_escape,
-                    else => {},
+                    else => self.consumeStringControlByte(),
                 },
                 .string_escape => {
                     if (byte == '\\') {
@@ -207,6 +220,17 @@ pub const Parser = struct {
         if (self.printable.items.len == 0) return;
         const owned = try self.printable.toOwnedSlice(self.allocator);
         try events.append(self.allocator, .{ .printable = .{ .bytes = owned } });
+    }
+
+    /// Drops one payload byte of the string control being skipped, and abandons
+    /// the sequence once the payload passes its bound. The byte that crosses the
+    /// bound is dropped with the rest: it belongs to the payload, not to the
+    /// text that follows.
+    fn consumeStringControlByte(self: *Parser) void {
+        self.string_control_consumed += 1;
+        if (self.string_control_consumed <= max_string_control_bytes) return;
+        self.string_control_consumed = 0;
+        self.state = .normal;
     }
 
     fn appendBoundedControlByte(self: *Parser, byte: u8) !BoundedAppendResult {

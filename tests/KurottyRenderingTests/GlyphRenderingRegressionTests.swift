@@ -813,7 +813,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     /// replacement, and `MenuBarExtraTests` shows what the test would look like
     /// once it exists.
     func testSettingsIsOneMenuItemAndTheSchemaVersionIsPinned() throws {
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
 
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
@@ -1427,7 +1429,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(surfaceSource.contains("let linkRanges = visibleLinkRanges("))
         XCTAssertTrue(surfaceSource.contains("private func linkRange(at position: TerminalCellPosition) -> TerminalLinkRange?"))
         XCTAssertTrue(surfaceSource.contains("hoveredLinkRange?.contains(row: row, column: column)"))
-        XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for link: TerminalLinkRange)"))
+        // The sheet is handed the activation decision, not the raw link: the
+        // target it prints comes from `safeTarget`, never from the payload.
+        XCTAssertTrue(surfaceSource.contains("private func presentOpenLinkDialog(for decision: TerminalLinkActivation.Decision)"))
         XCTAssertTrue(surfaceSource.contains("NSWorkspace.shared.open(url)"))
         XCTAssertTrue(surfaceSource.contains("messageText = AppLocalization.string(.openLinkQuestion)"))
     }

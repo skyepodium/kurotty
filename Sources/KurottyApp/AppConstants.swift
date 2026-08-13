@@ -57,7 +57,11 @@ enum AppConstants {
         static let maximumSearchWrappedRowJoinCount = 512
         static let searchInputDebounceNanoseconds: UInt64 = 20_000_000
         static let searchContentRefreshDebounceNanoseconds: UInt64 = 35_000_000
+        /// Thickness of the two DECSCUSR line shapes. The bar keeps the width
+        /// Kurotty's cursor has always had; the underline matches it so the two
+        /// read as the same pen turned on its side.
         static let cursorWidthPX: Float = 2
+        static let cursorUnderlineHeightPX: Float = 2
         static let cursorBlinkIntervalSeconds: TimeInterval = 0.55
         static let minimumCellWidthPX: CGFloat = 8
         /// Bounds on the parser's accumulating buffers. An unterminated `ESC [`
@@ -83,6 +87,49 @@ enum AppConstants {
         /// graphics, whose protocol requires clients to chunk at 4096 bytes
         /// per escape.
         static let maximumStringPayloadBytes = 1024 * 1024
+        /// Bound on a DCS/SOS/PM/APC payload. Nothing is buffered on this path —
+        /// the bytes are dropped one by one — so the exposure is not memory but
+        /// the stream itself: a string control whose terminator never arrives
+        /// swallows every byte the child writes for the rest of the session, and
+        /// the pane looks frozen with no way back short of a reset. A program
+        /// killed between `ESC P` and `ESC \` is enough to reach it.
+        ///
+        /// 4 MiB is four times tmux's whole input buffer, and Kitty graphics —
+        /// the string control most likely to carry bulk data — must chunk at
+        /// 4096 bytes per escape, so no payload Kurotty is meant to understand
+        /// comes close. Past the bound the sequence is abandoned and the stream
+        /// is handed back to the user. The trade is deliberate: a payload
+        /// Kurotty does not render anyway (a single sixel frame larger than the
+        /// bound, say) prints its tail as text instead of vanishing, which is
+        /// visible and recoverable, whereas the swallowed stream is neither.
+        static let maximumStringControlScalarCount = 4 * 1024 * 1024
+        /// Bound on the grapheme cluster one cell may hold. A cell's character
+        /// is a Swift `Character`, so a base plus N combining marks stays a
+        /// single cluster and a single heap string that grows with every mark
+        /// the child writes: `printf 'a'` followed by an endless run of
+        /// U+0301 grows one cell without limit, and the shaper re-lays out the
+        /// whole cluster on every frame that touches it.
+        ///
+        /// 30 is the non-starter limit of the Unicode Stream-Safe Text Format
+        /// (UAX #15), which exists for this class of input; one base scalar
+        /// makes 31. No script needs more — Thai, Devanagari and Vietnamese
+        /// stacks and emoji ZWJ families all stay in the single digits.
+        static let maximumCellGraphemeScalarCount = 31
+        /// Bound on a title handed back to the child by `CSI 20 t` / `CSI 21 t`.
+        /// The title the report returns was written by the same child through
+        /// OSC 0/1/2, so its length is the child's choice and the reply lands on
+        /// the shell's standard input: without a cap, a megabyte of title is a
+        /// megabyte typed at the prompt. 256 scalars is longer than any title a
+        /// tab or window can show, so the cap only ever trims a title nobody was
+        /// reading anyway.
+        static let maximumReportedTitleScalarCount = 256
+        /// Depth of the XTWINOPS title stack (`CSI 22 ; Ps t`). A push is child
+        /// input like any other, so an unbounded stack is a main-actor array a
+        /// program grows by writing one sequence in a loop. Past the bound the
+        /// *oldest* entry is dropped rather than the newest, so the pops that
+        /// follow still restore the titles most recently pushed — which is the
+        /// nesting a program that pushes this deep actually cares about.
+        static let maximumTitleStackDepth = 16
     }
 
     /// Domain values behind the bottom status bar. These are thresholds, units,
@@ -315,6 +362,13 @@ enum AppConstants {
         static let blockedStaleAfterSeconds: TimeInterval = 1_800
         static let doneStaleAfterSeconds: TimeInterval = 600
 
+        /// Shortest gap between two waiting banners for the same pane. Sized
+        /// against the reporting channel rather than against human patience: an
+        /// agent that reports `waiting` and then `blocked` while it settles into
+        /// a prompt does so in well under a second, and both are the same
+        /// interruption.
+        static let waitingNotificationDebounceSeconds: TimeInterval = 10
+
         /// Environment contract injected into the PTY for hook-based reporting.
         static let paneIdentifierEnvironmentName = "KUROTTY_PANE_ID"
         static let hookPortEnvironmentName = "KUROTTY_HOOK_PORT"
@@ -503,6 +557,15 @@ enum AppConstants {
         static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"
         static let bellIdentifierPrefix = "dev.kurotty.terminal.bell"
         static let commandCompletionIdentifierPrefix = "dev.kurotty.terminal.command-completion"
+        /// Waiting banners take the pane identifier as their suffix rather than
+        /// a fresh UUID: the identifier is what withdraws the banner once the
+        /// prompt is answered, and a pane may only ever have one up.
+        static let agentWaitingIdentifierPrefix = "dev.kurotty.terminal.agent-waiting"
+        /// Shown when the producer reported no name for itself. A role, not a
+        /// product: Kurotty never names the vendor of the agent in a pane.
+        static let agentWaitingDefaultTitle = "Coding agent"
+        static let agentWaitingForInputBody = "Waiting for your input."
+        static let agentBlockedBody = "Blocked, waiting for you."
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
         static let terminalAlertTitle = "Alert"

@@ -801,7 +801,9 @@ final class TerminalPromptRailTests: XCTestCase {
     func testTheRailDefaultsOn() {
         // Re-pointed at schema 22, which added
         // `terminal.promptNavigatorRailEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
         XCTAssertTrue(SettingsDefaults.promptNavigatorRailEnabled)
         XCTAssertTrue(AppSettings.default.terminal.promptNavigatorRailEnabled)
     }

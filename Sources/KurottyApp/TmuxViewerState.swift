@@ -440,6 +440,7 @@ enum TmuxCommandEncoder {
             "pane_id", "pane_width", "pane_height", "alternate_on",
             "alternate_saved_x", "alternate_saved_y", "cursor_x", "cursor_y",
             "scroll_region_upper", "scroll_region_lower", "pane_tabs", "cursor_flag",
+            "cursor_shape", "cursor_blinking",
             "insert_flag", "origin_flag", "keypad_cursor_flag", "keypad_flag", "wrap_flag",
             "mouse_standard_flag", "mouse_button_flag", "mouse_any_flag",
             "mouse_utf8_flag", "mouse_sgr_flag", "bracket_paste_flag", "pane_key_mode",
