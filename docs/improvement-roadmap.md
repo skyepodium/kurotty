@@ -160,8 +160,9 @@ well-built house with no plumbing to the OS.
    has no weight or slant field — and the correct composite key already exists in
    `TerminalGlyphRun.swift`, a 991-line file with zero production call sites.
    Every prompt, `man` page and `git log` renders flat. **(M)**
-4. **One cursor shape, DECSCUSR ignored.** vim's insert/normal indicator does
-   nothing. **(M)**
+4. ~~**One cursor shape, DECSCUSR ignored.** vim's insert/normal indicator does
+   nothing.~~ Done: `CSI Ps SP q` selects block, underline or bar, steady or
+   blinking, and the shape survives a tmux reattach. **(M)**
 5. **Two scrollbars drawn on top of each other. (S)** A legacy `NSScroller`
    draws its own track and knob, with a hand-rolled thumb stacked over it. Never
    auto-hides, permanently occupies 12pt, and the thumb is theme-blind — on the
@@ -263,7 +264,7 @@ Against the Swift interpreter, which is the real render path.
 | No charset designation / DEC Special Graphics | `dialog`, `mc`, `nmtui` draw borders as `lqqqk` |
 | Erase fills with the full SGR pen, not background-only | `less` and `vim` status lines turn the rest of the line inverse |
 | No soft reset (`CSI ! p`) | `reset` / `tput init` leaves the scroll region wedged |
-| No DECSCUSR, no synchronized output (2026) | neovim's bar cursor absent; fzf and neovim tear |
+| No synchronized output (2026) | fzf and neovim tear (DECSCUSR now lands; `CSI ? 2026 h/l` is still ignored, and nothing advertises it) |
 | Underline styles collapsed to one Bool; `wcwidth` misses U+1F680–1F6FF and CJK Ext B/C | Undercurl wrong; column drift on emoji |
 
 ---

@@ -29,12 +29,14 @@ struct AppSettings: Codable, Equatable {
             restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch,
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
+            notifyOnAgentWaiting: Defaults.notifyOnAgentWaiting,
             agentStatusHookConsent: Defaults.agentStatusHookConsent,
             agentStatusCodexHookConsent: Defaults.agentStatusCodexHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
             menuBarExtraEnabled: Defaults.menuBarExtraEnabled,
             promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled,
+            titleReportsEnabled: Defaults.titleReportsEnabled,
             hasSeenGettingStarted: Defaults.hasSeenGettingStarted
         ),
         window: WindowSettings(
@@ -67,12 +69,14 @@ struct AppSettings: Codable, Equatable {
         static let restoreScrollbackOnLaunch = SettingsDefaults.restoreScrollbackOnLaunch
         static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
+        static let notifyOnAgentWaiting = SettingsDefaults.notifyOnAgentWaiting
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
         static let agentStatusCodexHookConsent = SettingsDefaults.agentStatusCodexHookConsent
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
         static let promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        static let titleReportsEnabled = SettingsDefaults.titleReportsEnabled
         static let hasSeenGettingStarted = SettingsDefaults.hasSeenGettingStarted
     }
 
@@ -145,6 +149,13 @@ struct AppSettings: Codable, Equatable {
 /// and gate command-finish banners together: without them every background `ls`
 /// in an unfocused pane raised one, and a user who answers that by muting
 /// Kurotty loses the OSC 9/777/1337 notifications too.
+/// `notifyOnAgentWaiting` is live-applied and defaults **on**. It is the same
+/// bargain as `notifyOnCommandFinish` for a different event: a coding agent that
+/// reports it has stopped and needs the user raises one banner per transition
+/// into that state, only while the user is looking elsewhere, and the banner is
+/// withdrawn as soon as the state clears or the user reaches the pane. Nothing
+/// fires for a producer that never reports its state, so an install that gains
+/// the key gains no banners it did not already have a reporter for.
 /// `uiTextScalePercent` is live-applied and defaults to 100: it scales Kurotty's
 /// own chrome and never terminal or editor content. It lives under `terminal`
 /// rather than in a section of its own because that is where every other
@@ -188,6 +199,11 @@ struct TerminalSettings: Codable, Equatable {
     var notifyOnCommandFinish: String
     /// Commands that finish faster than this never notify, in either mode.
     var minimumCommandDurationSeconds: Double
+    /// Raises a banner for a pane whose coding agent reported that it has
+    /// stopped and needs the user. Independent of `notifyOnCommandFinish`: that
+    /// one is about a command that ended, this one is about a turn that cannot
+    /// end until someone answers it.
+    var notifyOnAgentWaiting: Bool
     /// Raw value of `AgentStatusHookConsent`: the user's one-time answer to
     /// "may Kurotty write its hook entries into your Claude Code settings?".
     /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
@@ -213,6 +229,12 @@ struct TerminalSettings: Codable, Equatable {
     /// from the scrollback indicator sharing that edge: the indicator says where
     /// the viewport is, the rail says where the commands are.
     var promptNavigatorRailEnabled: Bool
+    /// Answers `CSI 21 t` and `CSI 20 t`, which ask the terminal to report the
+    /// window and icon titles back on the shell's *input* stream. Off by
+    /// default: a program sets the title too, so the pair lets it type whatever
+    /// it likes at the prompt. Even on, a reported title is control-stripped
+    /// and length-capped.
+    var titleReportsEnabled: Bool
     /// Whether the Getting Started tab has already been shown once. A record of
     /// an event, not a preference: it is written by the app rather than by the
     /// user, and no Settings control reads it.
@@ -263,12 +285,14 @@ struct TerminalSettings: Codable, Equatable {
         case codeEditorWrapsLines
         case notifyOnCommandFinish
         case minimumCommandDurationSeconds
+        case notifyOnAgentWaiting
         case agentStatusHookConsent
         case agentStatusCodexHookConsent
         case uiTextScalePercent
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
         case promptNavigatorRailEnabled
+        case titleReportsEnabled
         case hasSeenGettingStarted
     }
 
@@ -291,12 +315,14 @@ struct TerminalSettings: Codable, Equatable {
         codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines,
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
+        notifyOnAgentWaiting: Bool = SettingsDefaults.notifyOnAgentWaiting,
         agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
         agentStatusCodexHookConsent: String = SettingsDefaults.agentStatusCodexHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
         menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled,
         promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled,
+        titleReportsEnabled: Bool = SettingsDefaults.titleReportsEnabled,
         hasSeenGettingStarted: Bool = SettingsDefaults.hasSeenGettingStarted
     ) {
         self.theme = theme
@@ -317,12 +343,14 @@ struct TerminalSettings: Codable, Equatable {
         self.codeEditorWrapsLines = codeEditorWrapsLines
         self.notifyOnCommandFinish = notifyOnCommandFinish
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
+        self.notifyOnAgentWaiting = notifyOnAgentWaiting
         self.agentStatusHookConsent = agentStatusHookConsent
         self.agentStatusCodexHookConsent = agentStatusCodexHookConsent
         self.uiTextScalePercent = uiTextScalePercent
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
         self.promptNavigatorRailEnabled = promptNavigatorRailEnabled
+        self.titleReportsEnabled = titleReportsEnabled
         self.hasSeenGettingStarted = hasSeenGettingStarted
     }
 
@@ -378,6 +406,10 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.notifyOnCommandFinish
         minimumCommandDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .minimumCommandDurationSeconds)
             ?? SettingsDefaults.minimumCommandDurationSeconds
+        // Absent in schema versions below 23; those files fall back to the
+        // current default rather than failing to decode.
+        notifyOnAgentWaiting = try container.decodeIfPresent(Bool.self, forKey: .notifyOnAgentWaiting)
+            ?? SettingsDefaults.notifyOnAgentWaiting
         agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
             ?? SettingsDefaults.agentStatusHookConsent
         agentStatusCodexHookConsent = try container
@@ -403,6 +435,14 @@ struct TerminalSettings: Codable, Equatable {
             Bool.self,
             forKey: .promptNavigatorRailEnabled
         ) ?? SettingsDefaults.promptNavigatorRailEnabled
+        // Absent in schema versions below 24; those files fall back to the
+        // current default, which is off. A file that predates the key was
+        // written by an install whose `CSI 21 t` answered nothing, so the
+        // fallback and the migration below both say what was already true.
+        titleReportsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .titleReportsEnabled
+        ) ?? SettingsDefaults.titleReportsEnabled
         // Absent in schema versions below 22. The fallback is `false` — "not
         // shown yet" — and the migration below is what stops an existing
         // install from being told it is new.
@@ -704,6 +744,10 @@ struct AppSettingsNormalizer {
         /// deliberate rather than two branches bumping to the same number.
         /// schema-lint: shared-version-ok
         static let gettingStartedSchemaVersion = 22
+        /// Schema version that introduced `terminal.notifyOnAgentWaiting`.
+        static let agentWaitingNotificationSchemaVersion = 23
+        /// Schema version that introduced `terminal.titleReportsEnabled`.
+        static let titleReportsSchemaVersion = 24
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -835,6 +879,20 @@ struct AppSettingsNormalizer {
             // tab in front of an existing user on the upgrade that introduced
             // it, which is exactly the surprise the tab exists to avoid.
             next.terminal.hasSeenGettingStarted = true
+        }
+        if sourceSchemaVersion < Migration.agentWaitingNotificationSchemaVersion {
+            // Settings written before schema 23 predate agent-waiting banners,
+            // so the key carries no user intent. Migrated files land on the
+            // current default; from schema 23 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.notifyOnAgentWaiting = SettingsDefaults.notifyOnAgentWaiting
+        }
+        if sourceSchemaVersion < Migration.titleReportsSchemaVersion {
+            // Settings written before schema 24 predate title reports, so the
+            // key carries no user intent — and the install that wrote them
+            // answered `CSI 21 t` with nothing, which is exactly what the
+            // default says. From schema 24 on, an explicit opt-in is preserved.
+            next.terminal.titleReportsEnabled = SettingsDefaults.titleReportsEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

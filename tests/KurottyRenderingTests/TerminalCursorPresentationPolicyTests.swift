@@ -40,16 +40,19 @@ final class TerminalCursorPresentationPolicyTests: XCTestCase {
     func testInactiveTerminalRendersCursorEvenDuringBlinkOffPhase() {
         XCTAssertTrue(TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
             isFocusedForUser: false,
+            cursorStyleBlinks: true,
             cursorBlinkOn: false,
             hasMarkedText: false
         ))
         XCTAssertFalse(TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
             isFocusedForUser: true,
+            cursorStyleBlinks: true,
             cursorBlinkOn: false,
             hasMarkedText: false
         ))
         XCTAssertTrue(TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
             isFocusedForUser: true,
+            cursorStyleBlinks: true,
             cursorBlinkOn: false,
             hasMarkedText: true
         ))

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 22
+    public static let schemaVersion = 24
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. A 2px bar across the top edge of each
     /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
@@ -23,6 +23,15 @@ public enum SettingsDefaults {
     /// the mode switch is the honest way to say "never".
     public static let minimumAllowedCommandDurationSeconds = 0.0
     public static let maximumAllowedCommandDurationSeconds = 3_600.0
+    /// Live-applied and on by default. An agent that has stopped and needs the
+    /// user raises a banner for the pane it is in, but only on the transition
+    /// into that state and only while the user is elsewhere — the same focus
+    /// rule `notifyOnCommandFinish` uses. On by default because the state is
+    /// only ever reported by a producer that chose to report it, and a prompt
+    /// nobody sees is the whole cost of running agents in background panes; the
+    /// switch exists because muting Kurotty to escape these would take every
+    /// OSC 9/777/1337 notification with it.
+    public static let notifyOnAgentWaiting = true
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
@@ -51,6 +60,18 @@ public enum SettingsDefaults {
     /// record of an event, so nothing in Settings toggles it — the same shape
     /// as `agentStatusHookConsent`.
     public static let hasSeenGettingStarted = false
+    /// Live-applied and **off** by default, which is the point of it existing.
+    /// `CSI 21 t` and `CSI 20 t` ask the terminal to report the window and icon
+    /// titles, and the report arrives on the shell's standard input rather than
+    /// on its screen. Since the same program sets the title with OSC 0/1/2, the
+    /// pair is a write-then-read primitive: set the title to a command, ask for
+    /// it back, and the terminal types it at the prompt. That is why every
+    /// serious terminal now ships these off, and Kurotty had never implemented
+    /// them at all, so off costs nothing an existing session was relying on. A
+    /// user who turns it on for a program that genuinely wants its title back
+    /// still gets a report that is control-stripped and length-capped; the
+    /// switch removes the read, not the hardening.
+    public static let titleReportsEnabled = false
     /// Launch-only and on by default. Restoring stored scrollback only repaints
     /// the screen model; it never writes to a PTY and never runs a command, so
     /// it stays separate from the command-replay opt-in.

@@ -870,3 +870,57 @@ test "parser survives an oversized parameter mid-stream and keeps parsing" {
     defer parser.freeEvents(second);
     try std.testing.expectEqualStrings("ok", second[0].printable.bytes);
 }
+
+// The DCS/SOS/PM/APC payload has no buffer to overflow — it is dropped byte by
+// byte — so what an unbounded string control costs is the stream: every byte
+// after a missing `ESC \` is consumed forever and no later sequence parses.
+// Deliberately not an arena: an arena's `free` is a no-op, which is what hid
+// the invalid free on this parser for so long.
+test "parser abandons an unterminated string control instead of swallowing the stream" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const payload_chunk = "x" ** 4096;
+    const opening = try parser.feed("\x1bP");
+    defer parser.freeEvents(opening);
+    try std.testing.expectEqual(@as(usize, 0), opening.len);
+
+    var consumed: usize = 0;
+    while (consumed < core.Parser.max_string_control_bytes) : (consumed += payload_chunk.len) {
+        const events = try parser.feed(payload_chunk);
+        defer parser.freeEvents(events);
+        try std.testing.expectEqual(@as(usize, 0), events.len);
+    }
+    try std.testing.expectEqual(core.Parser.max_string_control_bytes, consumed);
+
+    // The byte that crosses the bound belongs to the payload and is dropped
+    // with it; `ok` is the first byte the abandoned sequence no longer owns.
+    const resynchronized = try parser.feed("xok");
+    defer parser.freeEvents(resynchronized);
+    try std.testing.expectEqual(@as(usize, 1), resynchronized.len);
+    try std.testing.expectEqualStrings("ok", resynchronized[0].printable.bytes);
+}
+
+// The other half of the bound. A payload that stays inside it is still
+// consumed whole, terminator and all — a bound that abandons real sequences
+// would be the worse bug.
+test "parser consumes a string control up to the bound and resynchronizes at its terminator" {
+    var parser = core.Parser.init(std.testing.allocator);
+    defer parser.deinit();
+
+    const payload_chunk = "x" ** 4096;
+    const opening = try parser.feed("\x1b_G");
+    defer parser.freeEvents(opening);
+
+    var consumed: usize = "G".len;
+    while (consumed + payload_chunk.len <= core.Parser.max_string_control_bytes) : (consumed += payload_chunk.len) {
+        const events = try parser.feed(payload_chunk);
+        defer parser.freeEvents(events);
+        try std.testing.expectEqual(@as(usize, 0), events.len);
+    }
+
+    const terminated = try parser.feed("\x1b\\ok");
+    defer parser.freeEvents(terminated);
+    try std.testing.expectEqual(@as(usize, 1), terminated.len);
+    try std.testing.expectEqualStrings("ok", terminated[0].printable.bytes);
+}

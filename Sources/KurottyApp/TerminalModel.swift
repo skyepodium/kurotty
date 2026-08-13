@@ -36,12 +36,16 @@ enum TerminalCursorPresentationPolicy {
         isApplicationActive && isKeyWindow && isFirstResponder
     }
 
+    /// A steady DECSCUSR style (`CSI 2 SP q` and friends) opts out of the blink
+    /// phase without stopping the shared blink timer, so switching back to a
+    /// blinking style resumes immediately and mid-phase.
     static func shouldRenderBlinkPhase(
         isFocusedForUser: Bool,
+        cursorStyleBlinks: Bool,
         cursorBlinkOn: Bool,
         hasMarkedText: Bool
     ) -> Bool {
-        !isFocusedForUser || cursorBlinkOn || hasMarkedText
+        !isFocusedForUser || !cursorStyleBlinks || cursorBlinkOn || hasMarkedText
     }
 
     static func visibleColor(
@@ -190,19 +194,31 @@ struct TerminalLinkRange: Equatable {
     let urlString: String
     /// Non-nil for `path:line:col` links that open in a Kurotty editor tab.
     let fileTarget: TerminalFileLinkTarget?
+    /// Whether the program chose this target (OSC 8) or the scanner read it off
+    /// the rendered text. `TerminalLinkTrust` needs it to tell a label that can
+    /// lie about its target from one that cannot.
+    let provenance: TerminalLinkProvenance
+    /// The complete text the link is printed as, identical on every physical
+    /// row of a wrapped link. Defaults to the target, which is what a
+    /// text-scanned link is printed as by construction.
+    let displayText: String
 
     init(
         row: Int,
         startColumn: Int,
         endColumn: Int,
         urlString: String,
-        fileTarget: TerminalFileLinkTarget? = nil
+        fileTarget: TerminalFileLinkTarget? = nil,
+        provenance: TerminalLinkProvenance = .textScan,
+        displayText: String? = nil
     ) {
         self.row = row
         self.startColumn = startColumn
         self.endColumn = endColumn
         self.urlString = urlString
         self.fileTarget = fileTarget
+        self.provenance = provenance
+        self.displayText = displayText ?? urlString
     }
 
     func contains(row: Int, column: Int) -> Bool {
@@ -245,6 +261,7 @@ struct TerminalLinkRange: Equatable {
         var text = ""
         var positionsByCharacterOffset: [(row: Int, column: Int)] = []
         var linkURLsByCharacterOffset: [String?] = []
+        var charactersByOffset: [Character] = []
         var cellsByRow: [Int: [TerminalScreenCell]] = [:]
         for (rowOffset, cells) in rows.enumerated() {
             let row = startingRow + rowOffset
@@ -253,6 +270,7 @@ struct TerminalLinkRange: Equatable {
                 text.append(cell.character)
                 positionsByCharacterOffset.append((row: row, column: cellColumn))
                 linkURLsByCharacterOffset.append(cell.linkURL)
+                charactersByOffset.append(cell.character)
             }
         }
         guard !text.isEmpty else { return [] }
@@ -261,7 +279,8 @@ struct TerminalLinkRange: Equatable {
         var ranges = explicitLinkRanges(
             cellsByRow: cellsByRow,
             positionsByCharacterOffset: positionsByCharacterOffset,
-            linkURLsByCharacterOffset: linkURLsByCharacterOffset
+            linkURLsByCharacterOffset: linkURLsByCharacterOffset,
+            charactersByOffset: charactersByOffset
         )
         for match in linkRegex.matches(in: text, range: searchRange) {
             guard let textRange = Range(match.range, in: text) else { continue }
@@ -366,7 +385,8 @@ struct TerminalLinkRange: Equatable {
                 cellsByRow: cellsByRow,
                 offsets: startOffset..<endOffset,
                 urlString: URL(fileURLWithPath: resolution.absolutePath).absoluteString,
-                fileTarget: target
+                fileTarget: target,
+                displayText: characterRangeText(in: text, offsets: startOffset..<endOffset)
             )
             guard !candidateRanges.contains(where: { candidateRange in
                 existingRanges.contains(where: { $0.overlaps(candidateRange) })
@@ -375,6 +395,15 @@ struct TerminalLinkRange: Equatable {
             ranges.append(contentsOf: candidateRanges)
         }
         return ranges
+    }
+
+    /// The text a character-offset range is printed as, for links whose visible
+    /// text and target are not the same string.
+    private static func characterRangeText(in text: String, offsets: Range<Int>) -> String? {
+        guard offsets.lowerBound >= 0, offsets.upperBound <= text.count else { return nil }
+        let start = text.index(text.startIndex, offsetBy: offsets.lowerBound)
+        let end = text.index(text.startIndex, offsetBy: offsets.upperBound)
+        return String(text[start..<end])
     }
 
     static func find(in cells: [TerminalScreenCell], row: Int, column: Int) -> TerminalLinkRange? {
@@ -386,7 +415,8 @@ struct TerminalLinkRange: Equatable {
     private static func explicitLinkRanges(
         cellsByRow: [Int: [TerminalScreenCell]],
         positionsByCharacterOffset: [(row: Int, column: Int)],
-        linkURLsByCharacterOffset: [String?]
+        linkURLsByCharacterOffset: [String?],
+        charactersByOffset: [Character]
     ) -> [TerminalLinkRange] {
         var ranges: [TerminalLinkRange] = []
         var offset = 0
@@ -406,7 +436,9 @@ struct TerminalLinkRange: Equatable {
                 positions: positionsByCharacterOffset,
                 cellsByRow: cellsByRow,
                 offsets: startOffset..<offset,
-                urlString: urlString
+                urlString: urlString,
+                provenance: .oscHyperlink,
+                displayText: String(charactersByOffset[startOffset..<offset])
             ))
         }
         return ranges
@@ -417,7 +449,9 @@ struct TerminalLinkRange: Equatable {
         cellsByRow: [Int: [TerminalScreenCell]],
         offsets: Range<Int>,
         urlString: String,
-        fileTarget: TerminalFileLinkTarget? = nil
+        fileTarget: TerminalFileLinkTarget? = nil,
+        provenance: TerminalLinkProvenance = .textScan,
+        displayText: String? = nil
     ) -> [TerminalLinkRange] {
         var ranges: [TerminalLinkRange] = []
         var segmentStart = offsets.lowerBound
@@ -437,7 +471,9 @@ struct TerminalLinkRange: Equatable {
                 startColumn: positions[segmentStart].column,
                 endColumn: endLeadColumn + endWidth,
                 urlString: urlString,
-                fileTarget: fileTarget
+                fileTarget: fileTarget,
+                provenance: provenance,
+                displayText: displayText
             ))
             segmentStart = segmentEnd
         }

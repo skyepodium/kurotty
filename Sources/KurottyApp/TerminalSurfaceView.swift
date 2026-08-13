@@ -18,6 +18,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
     private let securityPolicy = TerminalSecurityPolicy.default
+    /// Holds an OSC 52 confirmation until this pane is the one the user is
+    /// looking at. Owned by the surface and cleared on teardown, so nothing it
+    /// holds can outlive the session that produced it.
+    private var clipboardConfirmationQueue = TerminalClipboardConfirmationQueue()
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
@@ -98,7 +102,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// they must never touch the filesystem.
     private var commandFinishNotificationMode: TerminalCommandFinishNotificationMode
     private var minimumCommandDurationSeconds: Double
+    /// Live mirror of `terminal.notifyOnAgentWaiting`, read on every reported
+    /// agent state and on every focus change.
+    private var notifyOnAgentWaitingEnabled: Bool
+    /// This pane's waiting-banner state machine. One per surface, so the
+    /// per-pane debounce and the outstanding-banner bookkeeping are simply its
+    /// own fields.
+    private var agentWaitingNotificationPolicy = AgentWaitingNotificationPolicy()
     private let pasteLimits = TerminalPasteLimits.default
+    /// Tracks the drop border so repeated `draggingUpdated` callbacks — AppKit
+    /// sends one per mouse move — do not re-set the same layer properties.
+    private var isFileDropHighlighted = false
     var automaticallyFocusesWhenAttached = true
     /// Raised once when this surface's child process is gone. The owning pane
     /// decides what to show and whether to close; the surface only reports.
@@ -143,6 +157,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
         let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
@@ -162,6 +177,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = terminalDefaultStyle.background.cgColor
+        // Only file URLs. Kurotty's own pane drags carry a private pasteboard
+        // type that is deliberately not registered here, so a pane dragged over
+        // a surface still resolves to the window's pane drop target.
+        registerForDraggedTypes([.fileURL])
         let rendererView = renderer.rendererView
         rendererView.translatesAutoresizingMaskIntoConstraints = false
         renderer.onPresented = { [weak self] in
@@ -182,6 +201,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             self?.scrollToAbsoluteRow(absoluteRow)
         }
         scrollIndicatorCoordinator.install(in: self)
+        interpreter.titleReportsEnabled = settings.terminal.titleReportsEnabled
         interpreter.host = TerminalOutputInterpreterHost(
             sendTerminalResponse: { [weak self] text in self?.sendTerminalResponse(text) },
             respondToOscQuery: { [weak self] code in self?.respondToOscQuery(code) },
@@ -232,6 +252,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 // is flattened here and nowhere else; `onChildExit` keeps the
                 // full outcome for the pane that owns the exit banner.
                 self.tmuxControlModeDriver.transportDidExit(status: status.status.shellExitCode)
+                // The program that asked for the clipboard is gone; answering
+                // it now would write on behalf of a finished session.
+                self.clipboardConfirmationQueue.cancelPending()
                 self.onChildExit?(status)
             }
         }
@@ -266,6 +289,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             object: TerminalFontZoomCoordinator.shared
         )
         observeTerminalFocusChanges()
+        observeAgentActivityForNotifications()
         observeInputSourceChanges()
         // Resolved here, on the main actor, and handed to the session before the
         // child is spawned. The hook environment is empty unless
@@ -477,7 +501,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         if didBecomeFirstResponder {
             startCursorBlinking()
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
-            reportTerminalFocusIfNeeded()
+            handleTerminalFocusStateChange()
         }
         return didBecomeFirstResponder
     }
@@ -487,7 +511,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         if didResignFirstResponder {
             stopCursorBlinking(showCursor: true)
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
-            reportTerminalFocusIfNeeded()
+            handleTerminalFocusStateChange()
         }
         return didResignFirstResponder
     }
@@ -507,6 +531,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
             stopCursorBlinking(showCursor: true)
+            // The pane is being torn down. A held confirmation has no window to
+            // open on and no session to answer for.
+            clipboardConfirmationQueue.cancelPending()
         }
         removeWindowScreenObserver()
     }
@@ -836,6 +863,105 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         )
     }
 
+    // MARK: - File drops
+
+    /// A file dropped onto a pane inserts its path at the shell's cursor rather
+    /// than opening or moving anything: the terminal is a place to compose a
+    /// command line, and the path is the part that is tedious to type.
+    ///
+    /// The text goes through the ordinary paste pipeline, so bracketed paste,
+    /// the size limit, and the PTY backpressure pacing all apply — a drop of a
+    /// thousand files is a paste, and is treated like one.
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(for: sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(for: sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        setFileDropHighlighted(false)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        setFileDropHighlighted(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        setFileDropHighlighted(false)
+        let urls = droppedFileURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+        guard let text = TerminalFileDropFormatter.text(
+            for: urls,
+            style: TerminalFileDropModifiers.style(for: NSEvent.modifierFlags),
+            workingDirectory: fileDropWorkingDirectory
+        ) else { return false }
+        window?.makeFirstResponder(self)
+        insertDroppedFileText(text)
+        return true
+    }
+
+    private func fileDropOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard !droppedFileURLs(from: sender).isEmpty else {
+            setFileDropHighlighted(false)
+            return []
+        }
+        setFileDropHighlighted(true)
+        // Copy, not link or move: nothing on disk is touched, and `.copy` is the
+        // operation Finder's own drag feedback promises for this gesture.
+        return .copy
+    }
+
+    private func droppedFileURLs(from sender: NSDraggingInfo) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let objects = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options)
+        return (objects as? [URL]) ?? []
+    }
+
+    /// The directory a relative drop resolves against, or `nil` when there is
+    /// none to resolve against. A remote OSC 7 directory names a path on the
+    /// other host, so a local file is never under it.
+    private var fileDropWorkingDirectory: String? {
+        guard workingDirectoryLocation.remoteHost == nil else { return nil }
+        let path = workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    private func setFileDropHighlighted(_ isHighlighted: Bool) {
+        guard isFileDropHighlighted != isHighlighted else { return }
+        isFileDropHighlighted = isHighlighted
+        // Border only. The layer's background is the terminal's own background
+        // and the renderer draws into a subview above it, so tinting the fill
+        // would either be invisible or fight the renderer for the same pixels.
+        layer?.borderWidth = isHighlighted ? DesignTokens.Component.paneDropTargetBorderWidthPX : 0
+        layer?.borderColor = isHighlighted ? DesignTokens.Color.paneDropTargetBorder.cgColor : nil
+    }
+
+    private func insertDroppedFileText(_ text: String) {
+        let plan = TerminalPastePlanner.plan(
+            text: text,
+            bracketedPasteEnabled: bracketedPasteEnabled,
+            confirmMultilinePaste: confirmMultilinePasteEnabled,
+            limits: pasteLimits
+        )
+        logPastePlan(plan)
+        guard plan.isExecutable else {
+            presentPasteRejection(plan)
+            return
+        }
+        // A file name may legally contain a newline, which makes a drop a
+        // multi-line paste and earns the same confirmation an ordinary one gets.
+        guard plan.requiresConfirmation else {
+            executePaste(plan: plan, text: text)
+            return
+        }
+        presentMultilinePasteConfirmation(plan) { [weak self] confirmed in
+            guard let self, confirmed else { return }
+            executePaste(plan: plan, text: text)
+        }
+    }
+
     @objc func copy(_ sender: Any?) {
         // Without a selection there is nothing to copy. Falling back to the
         // whole visible screen clobbers the pasteboard with unselected text.
@@ -1135,6 +1261,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     deinit {
         searchTask?.cancel()
         NotificationCenter.default.removeObserver(self)
+        // A pane that is torn down while its agent still waits would otherwise
+        // leave a banner pointing at a tab that no longer exists. Unconditional
+        // because a deinitializer may not read the policy's isolated state, and
+        // withdrawing an identifier that was never posted is a no-op.
+        let paneIdentifier = agentPaneIdentifier
+        // The notifier is main-actor isolated; deinit may run off it, so hop.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                TerminalNotifier.shared.withdrawAgentWaitingNotification(paneIdentifier: paneIdentifier)
+            }
+        }
     }
 
     private func observeInputSourceChanges() {
@@ -1168,7 +1305,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         updateCursorBlinkStateForFocus()
+        handleTerminalFocusStateChange()
+    }
+
+    /// Everything that has to happen when the user arrives at or leaves this
+    /// pane: the program hears about it through DEC focus reporting, and a
+    /// waiting banner the user has now answered comes down.
+    private func handleTerminalFocusStateChange() {
         reportTerminalFocusIfNeeded()
+        updateAgentWaitingNotification()
+        presentDeferredClipboardConfirmationIfNeeded()
     }
 
     private func reportTerminalFocusIfNeeded() {
@@ -1397,9 +1543,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             // terminal that is focused for user input follows the blink phase.
             cursorBlinkOn: TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
                 isFocusedForUser: isTerminalFocusedForUser,
+                cursorStyleBlinks: cursorStyle.blinks,
                 cursorBlinkOn: cursorBlinkOn,
                 hasMarkedText: hasMarkedText()
             ),
+            cursorStyle: cursorStyle,
             markedTextColumn: displayCursorColumn,
             markedText: compositionText,
             markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix),
@@ -2029,6 +2177,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             updateRendererFrame()
             return
         }
+        // A steady DECSCUSR style is drawn on every frame regardless of the
+        // phase, so advancing it would cost a full-surface redraw per tick for
+        // no visible change.
+        guard cursorStyle.blinks else { return }
         cursorBlinkOn.toggle()
         markFullDamage()
         updateRendererFrame()
@@ -2318,28 +2470,30 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
-    /// The ⌘-click is already the user's intent, so a trusted scheme opens
-    /// straight away. Only the schemes the policy still wants a second look at
-    /// reach the confirmation sheet.
+    /// The ⌘-click is already the user's intent, so a link whose printed text
+    /// *is* its target opens straight away under a trusted scheme. A link whose
+    /// target the program chose independently of the text — an OSC 8 label — or
+    /// one carrying a scheme, userinfo, or control characters the user cannot
+    /// read off the screen goes through the sheet, which shows the real target.
     private func activateLink(_ link: TerminalLinkRange) {
-        guard let url = URL(string: link.urlString) else { return }
-        switch securityPolicy.userActivatedLinkDecision(for: url) {
+        let decision = TerminalLinkActivation.decision(for: link, policy: securityPolicy)
+        guard let url = decision.openURL else { return }
+        switch decision.outcome {
         case .allow:
             NSWorkspace.shared.open(url)
         case .ask:
-            presentOpenLinkDialog(for: link)
+            presentOpenLinkDialog(for: decision)
         case .deny:
             break
         }
     }
 
-    private func presentOpenLinkDialog(for link: TerminalLinkRange) {
-        guard let url = URL(string: link.urlString) else { return }
-        guard securityPolicy.userActivatedLinkDecision(for: url) == .ask else { return }
+    private func presentOpenLinkDialog(for decision: TerminalLinkActivation.Decision) {
+        guard decision.requiresConfirmation, let url = decision.openURL else { return }
         let alert = NSAlert()
         alert.messageText = AppLocalization.string(.openLinkQuestion)
-        alert.informativeText = link.urlString
-        alert.alertStyle = .informational
+        alert.informativeText = openLinkDialogDetail(for: decision)
+        alert.alertStyle = decision.tier.isTrusted ? .informational : .warning
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: AppLocalization.string(url.isFileURL ? .open : .openInBrowser))
         alert.addButton(withTitle: AppLocalization.string(.cancel))
@@ -2352,6 +2506,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         } else if alert.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// The target always comes from `safeTarget`, never from the raw payload:
+    /// the host is printed on its own line so a `user:pass@host` prefix cannot
+    /// be read as the destination, and the userinfo itself is redacted.
+    private func openLinkDialogDetail(for decision: TerminalLinkActivation.Decision) -> String {
+        var lines = [decision.safeTarget.displayURLString]
+        if let host = decision.safeTarget.host {
+            lines.append(AppLocalization.format(.openLinkHost, host))
+        }
+        if case .untrusted(.displayTextMismatch) = decision.tier {
+            lines.append(AppLocalization.format(.openLinkVisibleText, decision.displayText))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func clearSelection() {
@@ -2696,6 +2864,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
+        // Live, not next-session: the switch governs how the parser answers a
+        // sequence, so turning it off must silence the next `CSI 21 t` in a pane
+        // that is already running.
+        interpreter.titleReportsEnabled = settings.terminal.titleReportsEnabled
+        // Turning the setting off takes down a banner that is on screen at that
+        // moment rather than leaving it parked until the agent moves on.
+        updateAgentWaitingNotification()
         let nextFont = Self.terminalFont(for: settings)
         let previousDefaultStyle = terminalDefaultStyle
         let previousColorSchemeMode = terminalColorSchemeMode
@@ -2959,16 +3135,83 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         guard case let .osc52(evaluation, base64Payload) = event else {
             return
         }
-        guard evaluation.operation == .write, evaluation.decision == .allow else {
+        guard evaluation.operation == .write else {
             return
         }
-        guard let text = TerminalOSC52Policy.decodedText(fromBase64Payload: base64Payload),
-              !text.isEmpty
-        else {
+        switch evaluation.decision {
+        case .deny:
             return
+        case .allow:
+            guard let text = TerminalOSC52Policy.decodedText(fromBase64Payload: base64Payload),
+                  !text.isEmpty
+            else {
+                return
+            }
+            writeToPasteboard(text)
+        case .ask:
+            guard let request = TerminalClipboardConfirmationRequest(
+                evaluation: evaluation,
+                base64Payload: base64Payload
+            ) else {
+                return
+            }
+            // A pane the user is not looking at must not open a sheet on the
+            // window they are working in; the request waits for focus instead.
+            switch clipboardConfirmationQueue.submit(request, isFocused: isTerminalFocusedForUser) {
+            case .present(let request):
+                presentClipboardConfirmation(request)
+            case .deferred:
+                break
+            }
         }
+    }
+
+    private func writeToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Presents a held OSC 52 confirmation, then drains whatever the coalescing
+    /// rule kept while the sheet was up.
+    private func presentClipboardConfirmation(_ request: TerminalClipboardConfirmationRequest) {
+        let alert = NSAlert()
+        alert.messageText = AppLocalization.string(.clipboardWriteQuestion)
+        // Deliberately omits the payload: a confirmation dialog is not a place
+        // to print what a program wants to put on the pasteboard.
+        alert.informativeText = AppLocalization.format(.clipboardWriteExplanation, request.byteCount)
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: AppLocalization.string(.clipboardWriteConfirm))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
+
+        let apply: (Bool) -> Void = { [weak self] approved in
+            guard let self else { return }
+            if approved {
+                writeToPasteboard(request.text)
+            }
+            if let next = clipboardConfirmationQueue.didFinishPresenting(
+                isFocused: isTerminalFocusedForUser
+            ) {
+                presentClipboardConfirmation(next)
+            }
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window) { response in
+                apply(response == .alertFirstButtonReturn)
+            }
+        } else {
+            apply(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func presentDeferredClipboardConfirmationIfNeeded() {
+        guard let request = clipboardConfirmationQueue.focusDidChange(
+            isFocused: isTerminalFocusedForUser
+        ) else {
+            return
+        }
+        presentClipboardConfirmation(request)
     }
 
     private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
@@ -3025,6 +3268,55 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 )
             )
         )
+    }
+
+    /// The waiting banner is driven from the registry rather than from the
+    /// pane's own OSC 9999 channel, because the loopback hook reports into the
+    /// same registry without passing through this surface's PTY at all.
+    private func observeAgentActivityForNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(agentActivityDidChangeForNotifications(_:)),
+            name: AgentActivityRegistry.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func agentActivityDidChangeForNotifications(_ notification: Notification) {
+        let changedPaneIdentifier = notification.userInfo?[
+            AgentActivityRegistry.paneIdentifierNotificationKey
+        ] as? String
+        guard changedPaneIdentifier == nil || changedPaneIdentifier == agentPaneIdentifier else {
+            return
+        }
+        updateAgentWaitingNotification()
+    }
+
+    /// Thin glue: read the pane's resolved status, ask the policy, do what it
+    /// says. Every rule about when a banner is owed lives in the policy.
+    private func updateAgentWaitingNotification() {
+        let status = AgentActivityRegistry.shared.status(for: agentPaneIdentifier)
+        switch agentWaitingNotificationPolicy.decide(
+            state: status?.state,
+            isEnabled: notifyOnAgentWaitingEnabled,
+            isFocused: isTerminalFocusedForUser,
+            now: Date()
+        ) {
+        case .doNothing:
+            return
+        case .withdraw:
+            notifier.withdrawAgentWaitingNotification(paneIdentifier: agentPaneIdentifier)
+        case .notify(let state):
+            notifier.notifyAgentWaiting(
+                content: AgentWaitingNotificationContent.make(
+                    state: state,
+                    agentName: status?.agentName,
+                    detail: status?.detail,
+                    paneTitle: notificationSessionTitle()
+                ),
+                paneIdentifier: agentPaneIdentifier
+            )
+        }
     }
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {
@@ -3203,6 +3495,11 @@ extension TerminalSurfaceView {
     private var cursorVisible: Bool {
         get { interpreter.cursorVisible }
         set { interpreter.cursorVisible = newValue }
+    }
+
+    private var cursorStyle: TerminalCursorStyle {
+        get { interpreter.cursorStyle }
+        set { interpreter.cursorStyle = newValue }
     }
 
     private var isUsingAlternateScreen: Bool {

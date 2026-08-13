@@ -112,7 +112,14 @@ final class TerminalLinkRangeTests: XCTestCase {
         let ranges = TerminalLinkRange.findAll(in: row, row: 0)
 
         XCTAssertEqual(ranges, [
-            TerminalLinkRange(row: 0, startColumn: 0, endColumn: 8, urlString: "https://x.ai/grok"),
+            TerminalLinkRange(
+                row: 0,
+                startColumn: 0,
+                endColumn: 8,
+                urlString: "https://x.ai/grok",
+                provenance: .oscHyperlink,
+                displayText: "Ask Grok"
+            ),
         ])
         XCTAssertEqual(TerminalLinkRange.find(in: row, row: 0, column: 4)?.urlString, "https://x.ai/grok")
     }
@@ -137,7 +144,14 @@ final class TerminalLinkRangeTests: XCTestCase {
         let ranges = TerminalLinkRange.findAll(in: row, row: 1)
 
         XCTAssertEqual(ranges, [
-            TerminalLinkRange(row: 1, startColumn: 0, endColumn: 23, urlString: "https://target.example"),
+            TerminalLinkRange(
+                row: 1,
+                startColumn: 0,
+                endColumn: 23,
+                urlString: "https://target.example",
+                provenance: .oscHyperlink,
+                displayText: "https://visible.example"
+            ),
         ])
     }
 

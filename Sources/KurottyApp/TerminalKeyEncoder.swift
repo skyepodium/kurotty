@@ -20,6 +20,23 @@ enum TerminalKeyEncoder {
         var extendedKeyFormat: TerminalExtendedKeyFormat = .xterm
     }
 
+    /// The Korean layout puts ₩ where ANSI puts the backquote, and offers no
+    /// other way to reach it: `` ` `` is unreachable, which takes out command
+    /// substitution, Markdown code fences and every fenced block an AI agent
+    /// asks for. Pressing the physical backquote key sends a backquote.
+    ///
+    /// This keys off the physical key and the character together. `keyCode`
+    /// alone would rewrite `~` on Shift and the plain backquote every other
+    /// layout already produces; the character alone would rewrite a ₩ the user
+    /// genuinely meant — one committed through the IME, or pasted — which is
+    /// why neither is used on its own and why the check lives here in the
+    /// key-event path rather than anywhere text is written to the PTY.
+    private enum KoreanWonKey {
+        static let backquoteKeyCode: UInt16 = 50
+        static let wonSign: Character = "\u{20a9}"
+        static let backquote = "`"
+    }
+
     private enum KeyCode {
         static let tab: UInt16 = 48
         static let returnKey: UInt16 = 36
@@ -61,6 +78,10 @@ enum TerminalKeyEncoder {
         let flags = event.modifierFlags.terminalInputModifiers
         guard !flags.contains(.command) else {
             return nil
+        }
+
+        if let backquote = koreanWonBackquote(for: event, flags: flags) {
+            return backquote
         }
 
         switch event.keyCode {
@@ -168,6 +189,25 @@ enum TerminalKeyEncoder {
         default:
             return nil
         }
+    }
+
+    /// See `KoreanWonKey`. Modifiers are required to be clear: Control+₩ is a
+    /// control sequence the ordinary path already encodes, Option+₩ is a Meta
+    /// prefix, and Shift on this key produces `~` on the Korean layout, so none
+    /// of them is the unreachable-backquote problem.
+    private static func koreanWonBackquote(
+        for event: NSEvent,
+        flags: NSEvent.ModifierFlags
+    ) -> String? {
+        guard event.keyCode == KoreanWonKey.backquoteKeyCode,
+              flags.subtracting([.numericPad, .function]).isEmpty,
+              let characters = event.charactersIgnoringModifiers,
+              characters.count == 1,
+              characters.first == KoreanWonKey.wonSign
+        else {
+            return nil
+        }
+        return KoreanWonKey.backquote
     }
 
     private static func modifierParameter(for flags: NSEvent.ModifierFlags) -> Int? {
