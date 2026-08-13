@@ -105,7 +105,7 @@ final class DesignTokenScaleTests: XCTestCase {
     func testSidebarRowAndSegmentRadiiComeFromTheRadiusScale() {
         XCTAssertEqual(
             DesignTokens.Component.sidebarRowHighlightCornerRadiusPX,
-            DesignTokens.Radius.smPX
+            DesignTokens.Radius.mdPX
         )
         XCTAssertEqual(DesignTokens.Component.StatusBar.segmentCornerRadiusPX, DesignTokens.Radius.xsPX)
         // Re-pointed 2026-08: `Component.radiusSmallPX` was a temporary alias

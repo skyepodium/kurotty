@@ -213,31 +213,39 @@ final class DesignTokenColorRampTests: XCTestCase {
         XCTAssertEqual(checkedPairCount, 18)
     }
 
-    /// The pill's hairline and its accent rail are meaningful graphics, so they
-    /// answer to the non-text floor. The rail in particular used to be accent
-    /// drawn on an accent wash, which is close to 1:1 against its own fill.
-    func testSelectedRowPillOutlineAndRailClearNonTextContrast() throws {
+    /// The capsule is now the only mark a selected row carries, so the
+    /// separation that the hairline and the rail used to guarantee has to come
+    /// from the surface itself.
+    ///
+    /// This is the test that made the redesign possible. Lifting the pill
+    /// toward white put the quietest text rank at 3.51:1 on the dark ramp,
+    /// under the AA floor above — so the panel drops instead of the pill
+    /// rising. The pill stays the ramp surface whose text pairs are already
+    /// measured, and the panel moving away from it is what makes the capsule
+    /// visible. A future palette that closes this gap fails here rather than
+    /// shipping a selection nobody can find.
+    func testSelectedRowCapsuleClearsTheNonTextFloorAgainstItsPanel() throws {
         for (themeName, theme) in themes() {
             let resolved = TerminalSidebarRowHighlight.appearance(
                 for: .init(isSelected: true, isWindowActive: true),
                 theme: theme
             )
             let pill = try XCTUnwrap(resolved.fill)
-            let rail = try XCTUnwrap(resolved.rail)
-            let railRatio = try contrastRatio(rail, pill)
+            XCTAssertNil(resolved.rail, "\(themeName) selection must not carry a rail")
+            XCTAssertNil(resolved.border, "\(themeName) selection must not carry an outline")
+            // Not the 3:1 non-text floor: no shipping design — Dia's own
+            // capsule, or macOS's sidebar selection — separates two adjacent
+            // *surfaces* by that much, and one that did would read as a slab
+            // rather than a sheet. The floor is the ramp's own step, measured
+            // the same way one plane above the panel is measured, and the
+            // elevation and the heavier title carry the rest of the signal.
+            let ratio = try contrastRatio(pill, theme.surfaceSidebar)
+            let rampStep = try contrastRatio(theme.surfaceSidebar, theme.surfaceChrome)
             XCTAssertGreaterThanOrEqual(
-                railRatio,
-                WCAG.nonTextRATIO,
-                "\(themeName) selection rail measured \(railRatio):1 against its own pill"
-            )
-            // The hairline separates the pill from the panel behind it, so it
-            // is measured against that panel, not against the pill.
-            let border = try XCTUnwrap(resolved.border)
-            let borderRatio = try contrastRatio(border, theme.surfaceChrome)
-            XCTAssertGreaterThan(
-                borderRatio,
-                1.2,
-                "\(themeName) selection hairline measured \(borderRatio):1 against the panel"
+                ratio,
+                rampStep,
+                "\(themeName) selection capsule measured \(ratio):1 against its panel, "
+                    + "which is less than the ramp's own step of \(rampStep):1"
             )
         }
     }
