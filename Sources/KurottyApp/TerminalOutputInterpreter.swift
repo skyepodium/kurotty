@@ -67,6 +67,14 @@ final class TerminalOutputInterpreter {
     /// DEC private mode 2031. While enabled, an appearance change pushes a
     /// color-scheme notification so subscribed TUIs can re-theme live.
     var colorSchemeUpdateModeEnabled = false
+    /// Mirror of `terminal.titleReportsEnabled`, which is off by default. While
+    /// off, `CSI 20 t` and `CSI 21 t` are parsed, recognised, and answered with
+    /// nothing at all — the behavior Kurotty had before the reports existed.
+    var titleReportsEnabled = false
+    /// XTWINOPS title stack (`CSI 22 ; Ps t` / `CSI 23 ; Ps t`). One stack for
+    /// one title: a Kurotty surface has a single name, so the icon/window
+    /// selector addresses the same entry either way.
+    private var titleStack: [String] = []
     /// While true, every terminal reply is suppressed. Persisted scrollback
     /// being replayed into the interpreter can contain the *old* session's
     /// capability queries; answering those would inject stray bytes into the
@@ -731,7 +739,11 @@ final class TerminalOutputInterpreter {
         case "q":
             applyCursorStyle(rawParameters: params, parsed: parsed)
         case "t", "p":
-            respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
+            if let titleOperation = TerminalTitleReports.operation(final: final, parsed: parsed) {
+                applyTitleOperation(titleOperation)
+            } else {
+                respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
+            }
         case "h":
             setMode(params: parsed, enabled: true)
         case "l":
@@ -760,6 +772,39 @@ final class TerminalOutputInterpreter {
         guard style != cursorStyle else { return }
         cursorStyle = style
         markDirty(row: cursorRow)
+    }
+
+    /// `CSI 20 t` and `CSI 21 t` hand the current title back on the *input*
+    /// stream, and the same child sets that title with OSC 0/1/2. The pair is
+    /// therefore a write-then-read primitive into the shell's stdin, so the two
+    /// reports answer only while `terminal.titleReportsEnabled` is on, and they
+    /// answer through `TerminalTitleReports.report(_:title:)`, which strips
+    /// control characters and caps the length even then.
+    ///
+    /// Push and pop are deliberately not gated. They move a title Kurotty
+    /// already accepts from OSC 0/1/2 and send nothing back to the child, so
+    /// they carry none of the exposure the reports do — and `less`, `vim` and
+    /// `ssh` push a title on entry and pop it on exit whether or not anyone
+    /// ever reads one back.
+    private func applyTitleOperation(_ operation: TerminalTitleOperation) {
+        switch operation {
+        case .pushTitle:
+            titleStack.append(terminalTitle)
+            if titleStack.count > AppConstants.Terminal.maximumTitleStackDepth {
+                titleStack.removeFirst()
+            }
+        case .popTitle:
+            // An empty stack pops nothing rather than clearing the title: a pop
+            // with no matching push is a program's bookkeeping error, and
+            // blanking the tab is a worse answer to it than doing nothing.
+            guard let restoredTitle = titleStack.popLast() else { return }
+            terminalTitle = restoredTitle
+            publishTitle()
+        case .reportWindowTitle, .reportIconTitle:
+            guard titleReportsEnabled else { return }
+            guard let report = TerminalTitleReports.report(operation, title: terminalTitle) else { return }
+            sendTerminalResponse(report)
+        }
     }
 
     private func respondToCapabilityQuery(final: Character, rawParameters: String, parsed: CsiParameters) {

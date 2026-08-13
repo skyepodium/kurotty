@@ -36,6 +36,7 @@ struct AppSettings: Codable, Equatable {
             commandProgressIndicatorEnabled: Defaults.commandProgressIndicatorEnabled,
             menuBarExtraEnabled: Defaults.menuBarExtraEnabled,
             promptNavigatorRailEnabled: Defaults.promptNavigatorRailEnabled,
+            titleReportsEnabled: Defaults.titleReportsEnabled,
             hasSeenGettingStarted: Defaults.hasSeenGettingStarted
         ),
         window: WindowSettings(
@@ -75,6 +76,7 @@ struct AppSettings: Codable, Equatable {
         static let commandProgressIndicatorEnabled = SettingsDefaults.commandProgressIndicatorEnabled
         static let menuBarExtraEnabled = SettingsDefaults.menuBarExtraEnabled
         static let promptNavigatorRailEnabled = SettingsDefaults.promptNavigatorRailEnabled
+        static let titleReportsEnabled = SettingsDefaults.titleReportsEnabled
         static let hasSeenGettingStarted = SettingsDefaults.hasSeenGettingStarted
     }
 
@@ -227,6 +229,12 @@ struct TerminalSettings: Codable, Equatable {
     /// from the scrollback indicator sharing that edge: the indicator says where
     /// the viewport is, the rail says where the commands are.
     var promptNavigatorRailEnabled: Bool
+    /// Answers `CSI 21 t` and `CSI 20 t`, which ask the terminal to report the
+    /// window and icon titles back on the shell's *input* stream. Off by
+    /// default: a program sets the title too, so the pair lets it type whatever
+    /// it likes at the prompt. Even on, a reported title is control-stripped
+    /// and length-capped.
+    var titleReportsEnabled: Bool
     /// Whether the Getting Started tab has already been shown once. A record of
     /// an event, not a preference: it is written by the app rather than by the
     /// user, and no Settings control reads it.
@@ -284,6 +292,7 @@ struct TerminalSettings: Codable, Equatable {
         case commandProgressIndicatorEnabled
         case menuBarExtraEnabled
         case promptNavigatorRailEnabled
+        case titleReportsEnabled
         case hasSeenGettingStarted
     }
 
@@ -313,6 +322,7 @@ struct TerminalSettings: Codable, Equatable {
         commandProgressIndicatorEnabled: Bool = SettingsDefaults.commandProgressIndicatorEnabled,
         menuBarExtraEnabled: Bool = SettingsDefaults.menuBarExtraEnabled,
         promptNavigatorRailEnabled: Bool = SettingsDefaults.promptNavigatorRailEnabled,
+        titleReportsEnabled: Bool = SettingsDefaults.titleReportsEnabled,
         hasSeenGettingStarted: Bool = SettingsDefaults.hasSeenGettingStarted
     ) {
         self.theme = theme
@@ -340,6 +350,7 @@ struct TerminalSettings: Codable, Equatable {
         self.commandProgressIndicatorEnabled = commandProgressIndicatorEnabled
         self.menuBarExtraEnabled = menuBarExtraEnabled
         self.promptNavigatorRailEnabled = promptNavigatorRailEnabled
+        self.titleReportsEnabled = titleReportsEnabled
         self.hasSeenGettingStarted = hasSeenGettingStarted
     }
 
@@ -424,6 +435,14 @@ struct TerminalSettings: Codable, Equatable {
             Bool.self,
             forKey: .promptNavigatorRailEnabled
         ) ?? SettingsDefaults.promptNavigatorRailEnabled
+        // Absent in schema versions below 24; those files fall back to the
+        // current default, which is off. A file that predates the key was
+        // written by an install whose `CSI 21 t` answered nothing, so the
+        // fallback and the migration below both say what was already true.
+        titleReportsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .titleReportsEnabled
+        ) ?? SettingsDefaults.titleReportsEnabled
         // Absent in schema versions below 22. The fallback is `false` — "not
         // shown yet" — and the migration below is what stops an existing
         // install from being told it is new.
@@ -727,6 +746,8 @@ struct AppSettingsNormalizer {
         static let gettingStartedSchemaVersion = 22
         /// Schema version that introduced `terminal.notifyOnAgentWaiting`.
         static let agentWaitingNotificationSchemaVersion = 23
+        /// Schema version that introduced `terminal.titleReportsEnabled`.
+        static let titleReportsSchemaVersion = 24
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -865,6 +886,13 @@ struct AppSettingsNormalizer {
             // current default; from schema 23 on, an explicit choice in either
             // direction is preserved.
             next.terminal.notifyOnAgentWaiting = SettingsDefaults.notifyOnAgentWaiting
+        }
+        if sourceSchemaVersion < Migration.titleReportsSchemaVersion {
+            // Settings written before schema 24 predate title reports, so the
+            // key carries no user intent — and the install that wrote them
+            // answered `CSI 21 t` with nothing, which is exactly what the
+            // default says. From schema 24 on, an explicit opt-in is preserved.
+            next.terminal.titleReportsEnabled = SettingsDefaults.titleReportsEnabled
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
