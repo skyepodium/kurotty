@@ -79,7 +79,17 @@ enum TerminalScrollbackSnapshotSerializer {
         return payload
     }
 
-    /// One row as text plus SGR runs, with trailing blanks dropped. Terminal
+    /// One row as text plus SGR runs, with trailing blanks dropped.
+    ///
+    /// Cell characters are emitted verbatim, which is what keeps the snapshot in
+    /// the same normalization form as the screen: `TerminalOutputInterpreter`
+    /// composes conjoining Hangul jamo before a cell is written, so a row that
+    /// arrived decomposed from the filesystem serializes as precomposed
+    /// syllables and replays into the identical grid. Composing the joined row
+    /// text here instead would be wrong — two cells that each hold a standalone
+    /// jamo are two columns, and merging them would move everything after them.
+    ///
+    /// Terminal
     /// prompts commonly erase the rest of a line while an ANSI background is
     /// active; persisting those styled blanks turns the restored viewport into
     /// a large color block even though the blanks carry no text.

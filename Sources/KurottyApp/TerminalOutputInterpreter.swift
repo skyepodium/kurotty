@@ -113,6 +113,12 @@ final class TerminalOutputInterpreter {
                 continue
             }
 
+            // Anything that is not printable text ends the syllable that was
+            // open: a control byte, an escape, a CSI parameter. Whatever cell
+            // the jamo landed in is finished, so a trailing consonant arriving
+            // after this belongs to no syllable and stays its own cell.
+            pendingHangulSyllable = nil
+
             for scalar in character.unicodeScalars {
                 if consumeControl(scalar) {
                     continue
@@ -140,8 +146,19 @@ final class TerminalOutputInterpreter {
 
     private func appendPrintable(_ text: String) {
         for character in text {
-            let width = character.terminalColumnWidth
+            if let extended = hangulSyllableExtended(by: character) {
+                writeHangulSyllable(extended)
+                continue
+            }
+
+            // Composed before the width is read, so the cell holds the
+            // precomposed syllable a Korean user expects to copy, serialize and
+            // search for rather than the NFD jamo the filesystem handed out.
+            let printable = TerminalHangulComposition.composed(character)
+            let arrivedAsJamo = TerminalHangulComposition.isConjoiningJamoCluster(character)
+            let width = printable.terminalColumnWidth
             guard width > 0 else {
+                pendingHangulSyllable = nil
                 screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)
                 markDirty(row: cursorRow)
                 continue
@@ -167,21 +184,111 @@ final class TerminalOutputInterpreter {
                 )
             }
 
+            let writtenRow = cursorRow
+            let writtenColumn = cursorColumn
             screen.set(
-                character: character,
-                row: cursorRow,
-                column: cursorColumn,
+                character: printable,
+                row: writtenRow,
+                column: writtenColumn,
                 width: width,
                 style: currentStyle,
                 linkURL: activeHyperlinkURL
             )
-            markDirty(row: cursorRow)
+            markDirty(row: writtenRow)
             if wraparoundModeEnabled {
                 cursorColumn += width
             } else {
                 cursorColumn = min(screen.columns - 1, cursorColumn + width)
             }
+
+            pendingHangulSyllable = arrivedAsJamo
+                ? PendingHangulSyllable(
+                    row: writtenRow,
+                    column: writtenColumn,
+                    width: width,
+                    character: printable,
+                    style: currentStyle,
+                    linkURL: activeHyperlinkURL
+                )
+                : nil
         }
+    }
+
+    // MARK: - Hangul syllable composition
+
+    /// A syllable already written to a cell that a later jamo may still extend.
+    ///
+    /// WHY the cell is rewritten rather than the syllable buffered: the jamo of
+    /// one syllable can be split across PTY chunks, so a `ᄀ` can arrive in one
+    /// `interpret` call and its `ᅡ`/`ᆨ` in the next. Buffering the incomplete
+    /// syllable until the next character would hold it back indefinitely —
+    /// there is no flush signal, and a prompt or a `read -p` ending in Korean
+    /// would sit on screen with its last syllable missing until the user typed
+    /// something. Writing immediately and replacing the cell in place keeps
+    /// output latency identical to every other character and converges on the
+    /// same grid, at the cost of one extra dirty mark on the row that was going
+    /// to be redrawn anyway.
+    ///
+    /// Only a write that *arrived* as conjoining jamo becomes pending. A program
+    /// that printed a precomposed `가` and later, separately, a lone `ᆨ` meant
+    /// two things, and merging them would corrupt its output; decomposed text
+    /// never contains a precomposed syllable, so this loses no real case.
+    private struct PendingHangulSyllable {
+        let row: Int
+        let column: Int
+        let width: Int
+        let character: Character
+        let style: TerminalTextStyle
+        let linkURL: String?
+    }
+
+    private var pendingHangulSyllable: PendingHangulSyllable?
+
+    /// The pending syllable grown by `character`, or `nil` when `character` does
+    /// not continue it. The cursor and the cell contents are both re-checked:
+    /// the cursor must still sit immediately after the pending cell, and that
+    /// cell must still hold what was written there, so any intervening cursor
+    /// move, erase, scroll, resize or overwrite drops the merge instead of
+    /// rewriting a cell that now belongs to something else.
+    private func hangulSyllableExtended(by character: Character) -> PendingHangulSyllable? {
+        guard let pending = pendingHangulSyllable,
+              TerminalHangulComposition.isSyllableContinuationCluster(character),
+              cursorRow == pending.row,
+              cursorColumn == pending.column + pending.width,
+              screen.cells.indices.contains(pending.row),
+              screen.cells[pending.row].indices.contains(pending.column),
+              screen.cells[pending.row][pending.column].character == pending.character,
+              let composed = TerminalHangulComposition.merging(pending.character, with: character)
+        else {
+            return nil
+        }
+        return PendingHangulSyllable(
+            row: pending.row,
+            column: pending.column,
+            width: composed.terminalColumnWidth,
+            character: composed,
+            style: pending.style,
+            linkURL: pending.linkURL
+        )
+    }
+
+    private func writeHangulSyllable(_ syllable: PendingHangulSyllable) {
+        screen.set(
+            character: syllable.character,
+            row: syllable.row,
+            column: syllable.column,
+            width: syllable.width,
+            style: syllable.style,
+            linkURL: syllable.linkURL
+        )
+        markDirty(row: syllable.row)
+        // The syllable occupies the same columns it did before the merge, so
+        // the cursor lands where it already was. Recomputing it keeps the two
+        // in step if a jamo ever changes the composed width.
+        cursorColumn = wraparoundModeEnabled
+            ? syllable.column + syllable.width
+            : min(screen.columns - 1, syllable.column + syllable.width)
+        pendingHangulSyllable = syllable
     }
 
     private func lineFeed() {
