@@ -231,6 +231,102 @@ final class TerminalKeyEncoderTests: XCTestCase {
         )
     }
 
+    // MARK: - Korean Won key
+
+    /// On the Korean layout the physical backquote key emits ₩, which leaves the
+    /// backquote unreachable — no command substitution, no code fences.
+    func testKoreanWonKeySendsABackquote() throws {
+        let event = try keyEvent(
+            characters: WonKey.wonSign,
+            modifiers: [],
+            charactersIgnoringModifiers: WonKey.wonSign,
+            keyCode: WonKey.backquoteKeyCode
+        )
+
+        XCTAssertEqual(TerminalKeyEncoder.sequence(for: event), "`")
+    }
+
+    /// A ₩ that did not come from that physical key is a ₩ the user meant. The
+    /// IME commits one through `insertText` and a paste never reaches the
+    /// encoder at all, so both are represented here by a ₩ carrying another
+    /// key code.
+    func testWonSignFromAnotherKeyIsNotRewritten() throws {
+        let imeCommit = try keyEvent(
+            characters: WonKey.wonSign,
+            modifiers: [],
+            charactersIgnoringModifiers: WonKey.wonSign,
+            keyCode: 0
+        )
+
+        XCTAssertNil(TerminalKeyEncoder.sequence(for: imeCommit))
+    }
+
+    /// The other half of the pair: the physical key on a layout that already
+    /// produces something usable must keep producing it. Shift on the Korean
+    /// layout gives `~`, and every ASCII layout gives `` ` `` unshifted — all of
+    /// which belong to the IME/`insertText` path, which is what returning `nil`
+    /// here leaves them to.
+    func testBackquoteKeyIsLeftAloneWhenItDoesNotProduceAWonSign() throws {
+        let tilde = try keyEvent(
+            characters: "~",
+            modifiers: .shift,
+            charactersIgnoringModifiers: "~",
+            keyCode: WonKey.backquoteKeyCode
+        )
+        let ansiBackquote = try keyEvent(
+            characters: "`",
+            modifiers: [],
+            charactersIgnoringModifiers: "`",
+            keyCode: WonKey.backquoteKeyCode
+        )
+
+        XCTAssertNil(TerminalKeyEncoder.sequence(for: tilde))
+        XCTAssertNil(TerminalKeyEncoder.sequence(for: ansiBackquote))
+    }
+
+    /// Modifiers keep their own meaning. Control+₩ is the control sequence the
+    /// ordinary path encodes; Option+₩ is a Meta prefix under
+    /// `modifyOtherKeys`. Neither is the unreachable-backquote problem.
+    func testModifiedWonKeyKeepsItsOrdinaryEncoding() throws {
+        let controlWon = try keyEvent(
+            characters: WonKey.wonSign,
+            modifiers: .control,
+            charactersIgnoringModifiers: WonKey.wonSign,
+            keyCode: WonKey.backquoteKeyCode
+        )
+        let optionWon = try keyEvent(
+            characters: WonKey.wonSign,
+            modifiers: .option,
+            charactersIgnoringModifiers: WonKey.wonSign,
+            keyCode: WonKey.backquoteKeyCode
+        )
+
+        XCTAssertNotEqual(TerminalKeyEncoder.sequence(for: controlWon), "`")
+        XCTAssertNotEqual(
+            TerminalKeyEncoder.sequence(for: optionWon, state: .init(modifyOtherKeysMode: 1)),
+            "`"
+        )
+    }
+
+    /// The mapping has to reach the PTY, and it only does if the router treats
+    /// the key as terminal control instead of handing it to the IME — which is
+    /// what would otherwise commit the ₩ through `insertText`.
+    func testRouterSendsTheWonKeyAsTerminalControlText() throws {
+        let event = try keyEvent(
+            characters: WonKey.wonSign,
+            modifiers: [],
+            charactersIgnoringModifiers: WonKey.wonSign,
+            keyCode: WonKey.backquoteKeyCode
+        )
+
+        XCTAssertEqual(TerminalTextInputRouter.terminalControlText(for: event), "`")
+    }
+
+    private enum WonKey {
+        static let wonSign = "\u{20a9}"
+        static let backquoteKeyCode: UInt16 = 50
+    }
+
     private var arrowCases: [(keyCode: UInt16, character: Int, plain: String, application: String, shifted: String, control: String, shiftControl: String)] {
         [
             (123, NSLeftArrowFunctionKey, "\u{1b}[D", "\u{1b}OD", "\u{1b}[1;2D", "\u{1b}[1;5D", "\u{1b}[1;6D"),

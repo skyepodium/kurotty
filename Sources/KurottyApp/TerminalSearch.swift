@@ -167,6 +167,13 @@ struct TerminalSearchPattern {
     /// error, so it matches nothing until it parses instead of throwing.
     init?(query: String, options: TerminalSearchOptions = .default) {
         guard !query.isEmpty else { return nil }
+        // Screen cells hold Hangul precomposed, because that is what
+        // `TerminalOutputInterpreter` writes; a query pasted from Finder or from
+        // a shell that echoed a filename arrives decomposed. The literal path
+        // would survive that on canonical equivalence, but the regular
+        // expression path compares scalars and would silently find nothing, so
+        // both sides are put in the same form here rather than at one of them.
+        let query = TerminalHangulComposition.composed(query)
         self.query = query
         if options.usesRegularExpression {
             let regularExpressionOptions: NSRegularExpression.Options =
