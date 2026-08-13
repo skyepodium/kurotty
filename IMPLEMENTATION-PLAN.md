@@ -29,26 +29,46 @@ drag-and-drop reordering all exist today.
 ## Status legend
 
 - `[ ]` not started
-- `[~]` implemented on a branch, not yet merged to `develop`
+- `[~]` implemented on a branch, not yet merged
 - `[x]` done
 
-## Branches in flight
+## What has landed
 
-All five branch off `develop` at `14097c9`. Each carries its own tests and each
-kept the full Swift suite green on its own branch.
+Seven branches, each written and tested independently against `develop` at
+`14097c9`, then merged in this order:
 
 | Branch | Item | Commit |
 |---|---|---|
-| `feat/terminal-file-drop` | 0.1, plus this plan | `42e25e1` |
 | `feat/parser-resource-limits` | 0.2 | `245a62b` |
-| `feat/korean-input-fixes` | 1.1, 1.2 | `dd7004f` |
 | `feat/agent-waiting-notifications` | 2.1 | `9002cae` |
+| `feat/korean-input-fixes` | 1.1, 1.2 | `dd7004f` |
 | `feat/decscusr-cursor-shapes` | 3.3 | `321e3e3` |
+| `feat/terminal-file-drop` | 0.1, plus this plan | `42e25e1` |
+| `feat/title-report-optin` | 0.3 | `83f0b91` |
+| `feat/clipboard-link-trust` | 0.4 | `af397ca` |
 
-Merge order matters in two places: `feat/agent-waiting-notifications` is the only
-branch that changes `AppSettings.swift` (schema 22 → 23), and it shares
-`AppConstants.swift` with `feat/parser-resource-limits`. Land the parser branch
-first and the settings branch second, and the rest are disjoint.
+One real conflict, in `TerminalOutputInterpreter.appendPrintable`: the Hangul
+composition and the grapheme bound rewrote the same point of the same loop. The
+resolution composes first and bounds the composed result, which is safe in that
+order because composition only ever shortens a Hangul cluster — it cannot push
+one past a bound it was not already past.
+
+The settings schema moved 22 → 23 (`terminal.notifyOnAgentWaiting`) → 24
+(`terminal.titleReportsEnabled`).
+
+Merged state: `swift test` 2426 passing, `zig build test` and
+`zig build leak-check` clean, `check-settings-schema.sh` green, and the app
+bundle builds, signs, and passes `--release-artifact-smoke-test`.
+
+### Gates unit tests cannot close
+
+Every one of these needs a human at a GUI session:
+
+- Drag a file from Finder onto a pane, a split, and an SSH pane (0.1)
+- The `₩` key on a real Korean layout, including pressing it mid-composition,
+  and keyCode 50 on JIS-physical hardware (1.2)
+- An agent driven into a waiting state in an unfocused pane, with the banner
+  observed appearing and then being withdrawn (2.1)
 
 ---
 
@@ -56,7 +76,7 @@ first and the settings branch second, and the rest are disjoint.
 
 Nothing else should land on top of these.
 
-### 0.1 Terminal file drop — insert dropped paths at the cursor `[~] feat/terminal-file-drop`
+### 0.1 Terminal file drop — insert dropped paths at the cursor `[x] feat/terminal-file-drop`
 
 Dragging a file from Finder onto a pane does nothing today: the only registered
 drag destination is `TerminalPaneDropTargetView`, and it accepts only Kurotty's
@@ -90,7 +110,7 @@ behavior in Terminal.app, iTerm2, kitty, and ghostty.
       a split, and an SSH pane). Unit tests cannot exercise AppKit's drag
       session
 
-### 0.2 Parser resource limits `[~] feat/parser-resource-limits`
+### 0.2 Parser resource limits `[x] feat/parser-resource-limits`
 
 *From ghostty `terminal: bound OSC and grapheme allocations`,
 `terminal/kitty: limit png decoder allocations`.*
@@ -124,7 +144,7 @@ states). Two accumulations on the same path were genuinely unbounded.
       so a payload Kurotty does not render anyway (a >4 MiB sixel frame) prints
       its tail as text. Ghostty keeps consuming to ST instead
 
-### 0.3 Title reports stay opt-in `[~] feat/title-report-optin`
+### 0.3 Title reports stay opt-in `[x] feat/title-report-optin`
 
 *From ghostty `terminal: require opt-in for title reports`.*
 
@@ -150,7 +170,7 @@ the shell as typed input.
       `terminal.notifyOnAgentWaiting`; a security opt-in nobody should reach for
       casually does not need a row in Preferences
 
-### 0.4 Clipboard and hyperlink trust `[~] feat/clipboard-link-trust`
+### 0.4 Clipboard and hyperlink trust `[x] feat/clipboard-link-trust`
 
 *From ghostty `macos: defer OSC52 clipboard read confirmations until focused`
 and `macos: handled untrusted OSC8 hyperlinks more carefully`.*
@@ -197,7 +217,7 @@ and `macos: handled untrusted OSC8 hyperlinks more carefully`.*
 
 ## Tier 1 — Korean input
 
-### 1.1 Compose decomposed Hangul `[~] feat/korean-input-fixes`
+### 1.1 Compose decomposed Hangul `[x] feat/korean-input-fixes`
 
 *From iTerm2 `Compose decomposed Hangul instead of splitting jamo` (issue
 3063).*
@@ -230,7 +250,7 @@ columns), and `precomposedStringWithCanonicalMapping` does **not** compose
 `U+AC00 U+11A8` — exactly the cross-chunk case — which is why the arithmetic is
 hand-rolled.
 
-### 1.2 Korean Won key → backquote `[~] feat/korean-input-fixes`
+### 1.2 Korean Won key → backquote `[x] feat/korean-input-fixes`
 
 *From orca `#13104`.*
 
@@ -263,7 +283,7 @@ not the kitty protocol. Agent TUIs increasingly assume it.
 
 ## Tier 2 — The agent bet
 
-### 2.1 Waiting / blocked agent notifications `[~] feat/agent-waiting-notifications`
+### 2.1 Waiting / blocked agent notifications `[x] feat/agent-waiting-notifications`
 
 *From orca Prime Agent status hooks (`#13384`, `#13430`), cmux
 `ingest native agent hooks losslessly`. Also `docs/improvement-roadmap.md` §2,
@@ -353,7 +373,7 @@ get right on the first try.
 
 ---
 
-### 3.3 Cursor shapes and synchronized output `[~] feat/decscusr-cursor-shapes`
+### 3.3 Cursor shapes and synchronized output `[x] feat/decscusr-cursor-shapes`
 
 Baseline in ghostty and kitty, and every agent TUI sits on top of both.
 
