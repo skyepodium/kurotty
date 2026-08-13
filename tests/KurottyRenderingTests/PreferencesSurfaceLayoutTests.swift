@@ -62,7 +62,10 @@ final class PreferencesSurfaceLayoutTests: XCTestCase {
                 (child as? NSButton).map { [$0] } ?? buttons(child)
             }
         }
-        let navButtons = buttons(view).filter { $0.bezelStyle == .recessed }
+        // Identified by type, not by bezel: the nav rows stopped being recessed
+        // buttons when they took the window's capsule selection language, and a
+        // bezel filter would have silently matched nothing.
+        let navButtons = buttons(view).compactMap { $0 as? PreferencesNavRowButton }
         XCTAssertFalse(navButtons.isEmpty)
         for button in navButtons {
             XCTAssertEqual(button.bounds.width, expected, accuracy: 1, "nav row width")

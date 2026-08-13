@@ -560,3 +560,57 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         XCTAssertFalse(rowView.highlightState.isListFocused)
     }
 }
+
+/// The Settings pane list.
+///
+/// It used to be `NSButton(bezelStyle: .recessed)`, which draws a grey capsule
+/// behind every row and marks selection by darkening one a step — three rows
+/// that read as the same object. It paints through the shared highlight now, so
+/// these assert the property the capsule language depends on and that the
+/// row-vs-panel tests could not see: an *unselected* row must have no surface of
+/// its own, or the selected one has nothing to stand out from.
+final class PreferencesNavRowButtonTests: XCTestCase {
+    @MainActor
+    private func row(selected: Bool, hovered: Bool = false) -> PreferencesNavRowButton {
+        let button = PreferencesNavRowButton()
+        button.chromeTheme = .light
+        button.state = selected ? .on : .off
+        if hovered {
+            button.mouseEntered(with: NSEvent())
+        }
+        return button
+    }
+
+    @MainActor
+    func testAnUnselectedRowPaintsNoSurface() {
+        XCTAssertNil(row(selected: false).currentAppearance.fill)
+    }
+
+    @MainActor
+    func testTheSelectedRowIsTheSameCapsuleAsEveryOtherList() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
+            let button = PreferencesNavRowButton()
+            button.chromeTheme = theme
+            button.state = .on
+            // A view built outside a window reports no key window, which is the
+            // background-selection state. The row's own job is the mapping from
+            // its control state, so the key-window case is resolved here rather
+            // than by faking a window.
+            var state = button.highlightState
+            XCTAssertTrue(state.isSelected)
+            state.isWindowActive = true
+            let resolved = TerminalSidebarRowHighlight.appearance(for: state, theme: theme)
+            XCTAssertEqual(resolved.fill, theme.sidebarSelectionPaper)
+            XCTAssertNil(resolved.rail)
+            XCTAssertNil(resolved.border)
+        }
+    }
+
+    /// The row is a button, not a list row, so it must never claim the ring the
+    /// focused list uses.
+    @MainActor
+    func testANavRowNeverCarriesAFocusRing() {
+        XCTAssertNil(row(selected: true).currentAppearance.focusRing)
+        XCTAssertFalse(row(selected: true).highlightState.isListFocused)
+    }
+}
