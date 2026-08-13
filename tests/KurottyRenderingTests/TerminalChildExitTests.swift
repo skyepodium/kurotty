@@ -208,9 +208,9 @@ final class TerminalChildExitTests: XCTestCase {
     func testDefaultModeIsOnCleanExit() {
         // Re-pointed at schema 19, which added `terminal.uiTextScalePercent`;
         // the child-exit default below is unchanged.
-        // Schema 22 today; `closeOnChildExit` arrived in 18 and its default is
+        // Schema 23 today; `closeOnChildExit` arrived in 18 and its default is
         // unchanged by the keys added since.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 22)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 23)
         XCTAssertEqual(SettingsDefaults.closeOnChildExit, .onCleanExit)
         XCTAssertEqual(AppSettings.default.terminal.closeOnChildExit, .onCleanExit)
     }

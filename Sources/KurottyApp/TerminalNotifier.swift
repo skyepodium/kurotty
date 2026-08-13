@@ -87,6 +87,34 @@ final class TerminalNotifier: NSObject {
         )
     }
 
+    /// An agent that has stopped and needs the user, in a pane they are not
+    /// looking at. Keyed by pane rather than by delivery: a pane may have one
+    /// banner up, a newer state replaces it in place, and answering the prompt
+    /// withdraws it through the same identifier.
+    @MainActor
+    func notifyAgentWaiting(content: AgentWaitingNotificationContent, paneIdentifier: String) {
+        deliver(
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
+            identifierPrefix: AppConstants.Notifications.agentWaitingIdentifierPrefix,
+            identifierSuffix: paneIdentifier
+        )
+    }
+
+    /// Takes back a pane's waiting banner, delivered or still pending. Safe to
+    /// call for a pane that never raised one.
+    @MainActor
+    func withdrawAgentWaitingNotification(paneIdentifier: String) {
+        guard let center else { return }
+        let identifier = Self.agentWaitingIdentifier(paneIdentifier: paneIdentifier)
+        terminalNotificationLogger.info(
+            "withdraw identifierPrefix=\(AppConstants.Notifications.agentWaitingIdentifierPrefix, privacy: .public)"
+        )
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
+
     @MainActor
     func notifyBell() {
         deliver(
@@ -107,8 +135,23 @@ final class TerminalNotifier: NSObject {
         )
     }
 
+    /// The identifier a pane's waiting banner is posted and withdrawn under.
+    static func agentWaitingIdentifier(paneIdentifier: String) -> String {
+        "\(AppConstants.Notifications.agentWaitingIdentifierPrefix).\(paneIdentifier)"
+    }
+
+    /// - Parameter identifierSuffix: defaults to a fresh UUID, which is what a
+    ///   notification that is only ever posted wants. A banner that has to be
+    ///   found again later — to replace or to withdraw it — passes something
+    ///   stable instead.
     @MainActor
-    private func deliver(title: String, subtitle: String, body: String, identifierPrefix: String) {
+    private func deliver(
+        title: String,
+        subtitle: String,
+        body: String,
+        identifierPrefix: String,
+        identifierSuffix: String = UUID().uuidString
+    ) {
         let metadata = TerminalNotificationLogMetadata(
             identifierPrefix: identifierPrefix,
             title: title,
@@ -131,7 +174,7 @@ final class TerminalNotifier: NSObject {
         }
 
         let request = UNNotificationRequest(
-            identifier: "\(identifierPrefix).\(UUID().uuidString)",
+            identifier: "\(identifierPrefix).\(identifierSuffix)",
             content: content,
             trigger: nil
         )

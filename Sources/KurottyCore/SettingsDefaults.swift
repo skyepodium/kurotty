@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 22
+    public static let schemaVersion = 23
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. A 2px bar across the top edge of each
     /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
@@ -23,6 +23,15 @@ public enum SettingsDefaults {
     /// the mode switch is the honest way to say "never".
     public static let minimumAllowedCommandDurationSeconds = 0.0
     public static let maximumAllowedCommandDurationSeconds = 3_600.0
+    /// Live-applied and on by default. An agent that has stopped and needs the
+    /// user raises a banner for the pane it is in, but only on the transition
+    /// into that state and only while the user is elsewhere — the same focus
+    /// rule `notifyOnCommandFinish` uses. On by default because the state is
+    /// only ever reported by a producer that chose to report it, and a prompt
+    /// nobody sees is the whole cost of running agents in background panes; the
+    /// switch exists because muting Kurotty to escape these would take every
+    /// OSC 9/777/1337 notification with it.
+    public static let notifyOnAgentWaiting = true
     /// Live-applied and on by default. The window's bottom status bar is passive
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
