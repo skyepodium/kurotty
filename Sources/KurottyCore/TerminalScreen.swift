@@ -93,7 +93,19 @@ public struct TerminalScreen: Sendable {
         TerminalScreen.restoreWrappedLineMarker(in: &cells[row], wrapsToNextRow: true)
     }
 
-    public mutating func appendCombining(character: Character, row: Int, before column: Int) {
+    /// Attaches a zero-width mark to the cell that precedes `column`.
+    ///
+    /// `maximumScalarCount` bounds the cluster that cell may hold. A mark that
+    /// would push it past the bound is dropped: the cell already carries far
+    /// more marks than any script uses, so the choice is between losing a mark
+    /// nobody can read and letting one cell grow for as long as the child keeps
+    /// writing.
+    public mutating func appendCombining(
+        character: Character,
+        row: Int,
+        before column: Int,
+        maximumScalarCount: Int
+    ) {
         discardResizeHiddenRows()
         guard cells.indices.contains(row), column > 0 else { return }
         var leadColumn = min(column - 1, columns - 1)
@@ -102,9 +114,9 @@ public struct TerminalScreen: Sendable {
         }
         guard cells[row][leadColumn].character != " " else { return }
         let merged = String(cells[row][leadColumn].character) + String(character)
-        if merged.count == 1, let composed = merged.first {
-            cells[row][leadColumn].character = composed
-        }
+        guard merged.count == 1, let composed = merged.first else { return }
+        guard composed.unicodeScalars.count <= maximumScalarCount else { return }
+        cells[row][leadColumn].character = composed
     }
 
     @discardableResult
