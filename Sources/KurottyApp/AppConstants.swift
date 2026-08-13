@@ -115,6 +115,21 @@ enum AppConstants {
         /// makes 31. No script needs more — Thai, Devanagari and Vietnamese
         /// stacks and emoji ZWJ families all stay in the single digits.
         static let maximumCellGraphemeScalarCount = 31
+        /// Bound on a title handed back to the child by `CSI 20 t` / `CSI 21 t`.
+        /// The title the report returns was written by the same child through
+        /// OSC 0/1/2, so its length is the child's choice and the reply lands on
+        /// the shell's standard input: without a cap, a megabyte of title is a
+        /// megabyte typed at the prompt. 256 scalars is longer than any title a
+        /// tab or window can show, so the cap only ever trims a title nobody was
+        /// reading anyway.
+        static let maximumReportedTitleScalarCount = 256
+        /// Depth of the XTWINOPS title stack (`CSI 22 ; Ps t`). A push is child
+        /// input like any other, so an unbounded stack is a main-actor array a
+        /// program grows by writing one sequence in a loop. Past the bound the
+        /// *oldest* entry is dropped rather than the newest, so the pops that
+        /// follow still restore the titles most recently pushed — which is the
+        /// nesting a program that pushes this deep actually cares about.
+        static let maximumTitleStackDepth = 16
     }
 
     /// Domain values behind the bottom status bar. These are thresholds, units,

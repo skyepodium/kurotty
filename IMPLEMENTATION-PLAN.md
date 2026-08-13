@@ -124,17 +124,31 @@ states). Two accumulations on the same path were genuinely unbounded.
       so a payload Kurotty does not render anyway (a >4 MiB sixel frame) prints
       its tail as text. Ghostty keeps consuming to ST instead
 
-### 0.3 Title reports stay opt-in `[ ]`
+### 0.3 Title reports stay opt-in `[~] feat/title-report-optin`
 
 *From ghostty `terminal: require opt-in for title reports`.*
 
-Kurotty does not implement title reports at all, which makes this free today and
+Kurotty did not implement title reports at all, which made this free today and
 expensive later: a default-on title report lets screen content be replayed into
 the shell as typed input.
 
-- [ ] Add `terminal.titleReportsEnabled`, default `false`
-- [ ] Record the rule in `AGENTS.md`: reports off by default, and control
+- [x] Add `terminal.titleReportsEnabled`, default `false` (schema 24)
+- [x] `CSI 21 t` reports the window title as `OSC l <title> ST` and `CSI 20 t`
+      the icon title as `OSC L <title> ST`, both only while the setting is on.
+      Off, they are recognised and answered with nothing, which is what the
+      sequences did before
+- [x] Title stack: `CSI 22 ; Ps t` push, `CSI 23 ; Ps t` pop, ungated because
+      they send nothing back. One stack over the one title a surface has, with a
+      bounded depth that drops its oldest entry
+- [x] Hardening: every reported title is control-stripped (C0 including a bare
+      `ESC`, DEL, and C1) and length-capped inside the framing helper, so an
+      unsanitized report is not expressible. Verified red-first — with the strip
+      and the gate neutered, 6 of the 27 cases fail
+- [x] Record the rule in `AGENTS.md`: reports off by default, and control
       characters stripped from any title that is ever reported back
+- [ ] **Left out:** no Settings checkbox. The key is settings.json only, like
+      `terminal.notifyOnAgentWaiting`; a security opt-in nobody should reach for
+      casually does not need a row in Preferences
 
 ### 0.4 Clipboard and hyperlink trust `[ ]`
 

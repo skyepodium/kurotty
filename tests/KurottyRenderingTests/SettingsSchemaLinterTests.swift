@@ -119,6 +119,7 @@ final class SettingsSchemaLinterTests: XCTestCase {
             "menuBarExtraSchemaVersion",
             "promptNavigatorRailSchemaVersion",
             "gettingStartedSchemaVersion",
+            "agentWaitingNotificationSchemaVersion",
         ] {
             sources.appSettings = settingMigrationVersion(
                 of: constant,
@@ -137,6 +138,7 @@ final class SettingsSchemaLinterTests: XCTestCase {
             "commandProgressIndicatorSchemaVersion",
             "menuBarExtraSchemaVersion",
             "agentWaitingNotificationSchemaVersion",
+            "titleReportsSchemaVersion",
         ] {
             sources.appSettings = acknowledgingSharedVersion(of: constant, in: sources.appSettings)
         }

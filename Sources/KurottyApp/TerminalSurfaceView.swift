@@ -197,6 +197,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             self?.scrollToAbsoluteRow(absoluteRow)
         }
         scrollIndicatorCoordinator.install(in: self)
+        interpreter.titleReportsEnabled = settings.terminal.titleReportsEnabled
         interpreter.host = TerminalOutputInterpreterHost(
             sendTerminalResponse: { [weak self] text in self?.sendTerminalResponse(text) },
             respondToOscQuery: { [weak self] code in self?.respondToOscQuery(code) },
@@ -2837,6 +2838,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
+        // Live, not next-session: the switch governs how the parser answers a
+        // sequence, so turning it off must silence the next `CSI 21 t` in a pane
+        // that is already running.
+        interpreter.titleReportsEnabled = settings.terminal.titleReportsEnabled
         // Turning the setting off takes down a banner that is on screen at that
         // moment rather than leaving it parked until the agent moves on.
         updateAgentWaitingNotification()

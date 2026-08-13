@@ -814,7 +814,8 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     /// once it exists.
     func testSettingsIsOneMenuItemAndTheSchemaVersionIsPinned() throws {
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 23)
+        // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
 
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
