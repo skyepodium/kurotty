@@ -110,7 +110,16 @@ final class SettingsSchemaLinterTests: XCTestCase {
         // did arrive in that version. Usually is not a guarantee, so it has to be
         // said out loud rather than left to luck.
         var sources = try liveSources()
-        for constant in ["commandProgressIndicatorSchemaVersion", "menuBarExtraSchemaVersion"] {
+        // Everything declared between the two colliding constants and the
+        // current version moves with them. Constants are declared in version
+        // order, so leaving them behind would make the fixture fail on the
+        // ordering rule instead of on the collision it is about.
+        for constant in [
+            "commandProgressIndicatorSchemaVersion",
+            "menuBarExtraSchemaVersion",
+            "promptNavigatorRailSchemaVersion",
+            "gettingStartedSchemaVersion",
+        ] {
             sources.appSettings = settingMigrationVersion(
                 of: constant,
                 to: SettingsDefaults.schemaVersion,
@@ -121,7 +130,14 @@ final class SettingsSchemaLinterTests: XCTestCase {
         let findings = SettingsSchemaLinter.lint(sources)
         assert(findings, contains: .migrationVersionShared, mentioning: "menuBarExtraSchemaVersion")
 
-        for constant in ["commandProgressIndicatorSchemaVersion", "menuBarExtraSchemaVersion"] {
+        // The moved constants that do not already carry the directive, plus
+        // every constant that genuinely sits at the current version and was
+        // alone there until this fixture crowded it.
+        for constant in [
+            "commandProgressIndicatorSchemaVersion",
+            "menuBarExtraSchemaVersion",
+            "agentWaitingNotificationSchemaVersion",
+        ] {
             sources.appSettings = acknowledgingSharedVersion(of: constant, in: sources.appSettings)
         }
 

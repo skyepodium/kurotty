@@ -98,6 +98,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// they must never touch the filesystem.
     private var commandFinishNotificationMode: TerminalCommandFinishNotificationMode
     private var minimumCommandDurationSeconds: Double
+    /// Live mirror of `terminal.notifyOnAgentWaiting`, read on every reported
+    /// agent state and on every focus change.
+    private var notifyOnAgentWaitingEnabled: Bool
+    /// This pane's waiting-banner state machine. One per surface, so the
+    /// per-pane debounce and the outstanding-banner bookkeeping are simply its
+    /// own fields.
+    private var agentWaitingNotificationPolicy = AgentWaitingNotificationPolicy()
     private let pasteLimits = TerminalPasteLimits.default
     var automaticallyFocusesWhenAttached = true
     /// Raised once when this surface's child process is gone. The owning pane
@@ -143,6 +150,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
         let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
@@ -266,6 +274,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             object: TerminalFontZoomCoordinator.shared
         )
         observeTerminalFocusChanges()
+        observeAgentActivityForNotifications()
         observeInputSourceChanges()
         // Resolved here, on the main actor, and handed to the session before the
         // child is spawned. The hook environment is empty unless
@@ -477,7 +486,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         if didBecomeFirstResponder {
             startCursorBlinking()
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
-            reportTerminalFocusIfNeeded()
+            handleTerminalFocusStateChange()
         }
         return didBecomeFirstResponder
     }
@@ -487,7 +496,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         if didResignFirstResponder {
             stopCursorBlinking(showCursor: true)
             NotificationCenter.default.post(name: Self.focusDidChangeNotification, object: self)
-            reportTerminalFocusIfNeeded()
+            handleTerminalFocusStateChange()
         }
         return didResignFirstResponder
     }
@@ -1135,6 +1144,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     deinit {
         searchTask?.cancel()
         NotificationCenter.default.removeObserver(self)
+        // A pane that is torn down while its agent still waits would otherwise
+        // leave a banner pointing at a tab that no longer exists. Unconditional
+        // because a deinitializer may not read the policy's isolated state, and
+        // withdrawing an identifier that was never posted is a no-op.
+        let paneIdentifier = agentPaneIdentifier
+        // The notifier is main-actor isolated; deinit may run off it, so hop.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                TerminalNotifier.shared.withdrawAgentWaitingNotification(paneIdentifier: paneIdentifier)
+            }
+        }
     }
 
     private func observeInputSourceChanges() {
@@ -1168,7 +1188,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return
         }
         updateCursorBlinkStateForFocus()
+        handleTerminalFocusStateChange()
+    }
+
+    /// Everything that has to happen when the user arrives at or leaves this
+    /// pane: the program hears about it through DEC focus reporting, and a
+    /// waiting banner the user has now answered comes down.
+    private func handleTerminalFocusStateChange() {
         reportTerminalFocusIfNeeded()
+        updateAgentWaitingNotification()
     }
 
     private func reportTerminalFocusIfNeeded() {
@@ -2696,6 +2724,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         confirmMultilinePasteEnabled = settings.terminal.confirmMultilinePaste
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
+        notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
+        // Turning the setting off takes down a banner that is on screen at that
+        // moment rather than leaving it parked until the agent moves on.
+        updateAgentWaitingNotification()
         let nextFont = Self.terminalFont(for: settings)
         let previousDefaultStyle = terminalDefaultStyle
         let previousColorSchemeMode = terminalColorSchemeMode
@@ -3025,6 +3057,55 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 )
             )
         )
+    }
+
+    /// The waiting banner is driven from the registry rather than from the
+    /// pane's own OSC 9999 channel, because the loopback hook reports into the
+    /// same registry without passing through this surface's PTY at all.
+    private func observeAgentActivityForNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(agentActivityDidChangeForNotifications(_:)),
+            name: AgentActivityRegistry.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func agentActivityDidChangeForNotifications(_ notification: Notification) {
+        let changedPaneIdentifier = notification.userInfo?[
+            AgentActivityRegistry.paneIdentifierNotificationKey
+        ] as? String
+        guard changedPaneIdentifier == nil || changedPaneIdentifier == agentPaneIdentifier else {
+            return
+        }
+        updateAgentWaitingNotification()
+    }
+
+    /// Thin glue: read the pane's resolved status, ask the policy, do what it
+    /// says. Every rule about when a banner is owed lives in the policy.
+    private func updateAgentWaitingNotification() {
+        let status = AgentActivityRegistry.shared.status(for: agentPaneIdentifier)
+        switch agentWaitingNotificationPolicy.decide(
+            state: status?.state,
+            isEnabled: notifyOnAgentWaitingEnabled,
+            isFocused: isTerminalFocusedForUser,
+            now: Date()
+        ) {
+        case .doNothing:
+            return
+        case .withdraw:
+            notifier.withdrawAgentWaitingNotification(paneIdentifier: agentPaneIdentifier)
+        case .notify(let state):
+            notifier.notifyAgentWaiting(
+                content: AgentWaitingNotificationContent.make(
+                    state: state,
+                    agentName: status?.agentName,
+                    detail: status?.detail,
+                    paneTitle: notificationSessionTitle()
+                ),
+                paneIdentifier: agentPaneIdentifier
+            )
+        }
     }
 
     private func notifyCommandFinishedIfNeeded(_ context: TerminalCommandCompletionContext) {

@@ -29,6 +29,7 @@ struct AppSettings: Codable, Equatable {
             restoreScrollbackOnLaunch: Defaults.restoreScrollbackOnLaunch,
             notifyOnCommandFinish: Defaults.notifyOnCommandFinish,
             minimumCommandDurationSeconds: Defaults.minimumCommandDurationSeconds,
+            notifyOnAgentWaiting: Defaults.notifyOnAgentWaiting,
             agentStatusHookConsent: Defaults.agentStatusHookConsent,
             agentStatusCodexHookConsent: Defaults.agentStatusCodexHookConsent,
             uiTextScalePercent: Defaults.uiTextScalePercent,
@@ -67,6 +68,7 @@ struct AppSettings: Codable, Equatable {
         static let restoreScrollbackOnLaunch = SettingsDefaults.restoreScrollbackOnLaunch
         static let notifyOnCommandFinish = SettingsDefaults.notifyOnCommandFinish
         static let minimumCommandDurationSeconds = SettingsDefaults.minimumCommandDurationSeconds
+        static let notifyOnAgentWaiting = SettingsDefaults.notifyOnAgentWaiting
         static let agentStatusHookConsent = SettingsDefaults.agentStatusHookConsent
         static let agentStatusCodexHookConsent = SettingsDefaults.agentStatusCodexHookConsent
         static let uiTextScalePercent = SettingsDefaults.uiTextScalePercent
@@ -145,6 +147,13 @@ struct AppSettings: Codable, Equatable {
 /// and gate command-finish banners together: without them every background `ls`
 /// in an unfocused pane raised one, and a user who answers that by muting
 /// Kurotty loses the OSC 9/777/1337 notifications too.
+/// `notifyOnAgentWaiting` is live-applied and defaults **on**. It is the same
+/// bargain as `notifyOnCommandFinish` for a different event: a coding agent that
+/// reports it has stopped and needs the user raises one banner per transition
+/// into that state, only while the user is looking elsewhere, and the banner is
+/// withdrawn as soon as the state clears or the user reaches the pane. Nothing
+/// fires for a producer that never reports its state, so an install that gains
+/// the key gains no banners it did not already have a reporter for.
 /// `uiTextScalePercent` is live-applied and defaults to 100: it scales Kurotty's
 /// own chrome and never terminal or editor content. It lives under `terminal`
 /// rather than in a section of its own because that is where every other
@@ -188,6 +197,11 @@ struct TerminalSettings: Codable, Equatable {
     var notifyOnCommandFinish: String
     /// Commands that finish faster than this never notify, in either mode.
     var minimumCommandDurationSeconds: Double
+    /// Raises a banner for a pane whose coding agent reported that it has
+    /// stopped and needs the user. Independent of `notifyOnCommandFinish`: that
+    /// one is about a command that ended, this one is about a turn that cannot
+    /// end until someone answers it.
+    var notifyOnAgentWaiting: Bool
     /// Raw value of `AgentStatusHookConsent`: the user's one-time answer to
     /// "may Kurotty write its hook entries into your Claude Code settings?".
     /// Recorded rather than toggled — Preferences shows `agentStatusHooksEnabled`,
@@ -263,6 +277,7 @@ struct TerminalSettings: Codable, Equatable {
         case codeEditorWrapsLines
         case notifyOnCommandFinish
         case minimumCommandDurationSeconds
+        case notifyOnAgentWaiting
         case agentStatusHookConsent
         case agentStatusCodexHookConsent
         case uiTextScalePercent
@@ -291,6 +306,7 @@ struct TerminalSettings: Codable, Equatable {
         codeEditorWrapsLines: Bool = SettingsDefaults.codeEditorWrapsLines,
         notifyOnCommandFinish: String = SettingsDefaults.notifyOnCommandFinish,
         minimumCommandDurationSeconds: Double = SettingsDefaults.minimumCommandDurationSeconds,
+        notifyOnAgentWaiting: Bool = SettingsDefaults.notifyOnAgentWaiting,
         agentStatusHookConsent: String = SettingsDefaults.agentStatusHookConsent,
         agentStatusCodexHookConsent: String = SettingsDefaults.agentStatusCodexHookConsent,
         uiTextScalePercent: Double = SettingsDefaults.uiTextScalePercent,
@@ -317,6 +333,7 @@ struct TerminalSettings: Codable, Equatable {
         self.codeEditorWrapsLines = codeEditorWrapsLines
         self.notifyOnCommandFinish = notifyOnCommandFinish
         self.minimumCommandDurationSeconds = minimumCommandDurationSeconds
+        self.notifyOnAgentWaiting = notifyOnAgentWaiting
         self.agentStatusHookConsent = agentStatusHookConsent
         self.agentStatusCodexHookConsent = agentStatusCodexHookConsent
         self.uiTextScalePercent = uiTextScalePercent
@@ -378,6 +395,10 @@ struct TerminalSettings: Codable, Equatable {
             ?? SettingsDefaults.notifyOnCommandFinish
         minimumCommandDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .minimumCommandDurationSeconds)
             ?? SettingsDefaults.minimumCommandDurationSeconds
+        // Absent in schema versions below 23; those files fall back to the
+        // current default rather than failing to decode.
+        notifyOnAgentWaiting = try container.decodeIfPresent(Bool.self, forKey: .notifyOnAgentWaiting)
+            ?? SettingsDefaults.notifyOnAgentWaiting
         agentStatusHookConsent = try container.decodeIfPresent(String.self, forKey: .agentStatusHookConsent)
             ?? SettingsDefaults.agentStatusHookConsent
         agentStatusCodexHookConsent = try container
@@ -704,6 +725,8 @@ struct AppSettingsNormalizer {
         /// deliberate rather than two branches bumping to the same number.
         /// schema-lint: shared-version-ok
         static let gettingStartedSchemaVersion = 22
+        /// Schema version that introduced `terminal.notifyOnAgentWaiting`.
+        static let agentWaitingNotificationSchemaVersion = 23
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -835,6 +858,13 @@ struct AppSettingsNormalizer {
             // tab in front of an existing user on the upgrade that introduced
             // it, which is exactly the surprise the tab exists to avoid.
             next.terminal.hasSeenGettingStarted = true
+        }
+        if sourceSchemaVersion < Migration.agentWaitingNotificationSchemaVersion {
+            // Settings written before schema 23 predate agent-waiting banners,
+            // so the key carries no user intent. Migrated files land on the
+            // current default; from schema 23 on, an explicit choice in either
+            // direction is preserved.
+            next.terminal.notifyOnAgentWaiting = SettingsDefaults.notifyOnAgentWaiting
         }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)

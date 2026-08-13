@@ -315,6 +315,13 @@ enum AppConstants {
         static let blockedStaleAfterSeconds: TimeInterval = 1_800
         static let doneStaleAfterSeconds: TimeInterval = 600
 
+        /// Shortest gap between two waiting banners for the same pane. Sized
+        /// against the reporting channel rather than against human patience: an
+        /// agent that reports `waiting` and then `blocked` while it settles into
+        /// a prompt does so in well under a second, and both are the same
+        /// interruption.
+        static let waitingNotificationDebounceSeconds: TimeInterval = 10
+
         /// Environment contract injected into the PTY for hook-based reporting.
         static let paneIdentifierEnvironmentName = "KUROTTY_PANE_ID"
         static let hookPortEnvironmentName = "KUROTTY_HOOK_PORT"
@@ -503,6 +510,15 @@ enum AppConstants {
         static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"
         static let bellIdentifierPrefix = "dev.kurotty.terminal.bell"
         static let commandCompletionIdentifierPrefix = "dev.kurotty.terminal.command-completion"
+        /// Waiting banners take the pane identifier as their suffix rather than
+        /// a fresh UUID: the identifier is what withdraws the banner once the
+        /// prompt is answered, and a pane may only ever have one up.
+        static let agentWaitingIdentifierPrefix = "dev.kurotty.terminal.agent-waiting"
+        /// Shown when the producer reported no name for itself. A role, not a
+        /// product: Kurotty never names the vendor of the agent in a pane.
+        static let agentWaitingDefaultTitle = "Coding agent"
+        static let agentWaitingForInputBody = "Waiting for your input."
+        static let agentBlockedBody = "Blocked, waiting for you."
         static let defaultTitle = "Kurotty"
         static let terminalNotificationTitle = "Terminal notification"
         static let terminalAlertTitle = "Alert"
