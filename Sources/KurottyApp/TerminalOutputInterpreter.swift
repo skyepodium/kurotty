@@ -49,6 +49,10 @@ final class TerminalOutputInterpreter {
     var scrollRegionTop = 0
     var scrollRegionBottom = AppConstants.Terminal.defaultRows - 1
     var cursorVisible = true
+    /// DECSCUSR (`CSI Ps SP q`) state. Survives the alternate screen on
+    /// purpose: `vim` sets a bar on entering insert mode and restores the shape
+    /// itself on exit, so swapping screens must not undo either.
+    var cursorStyle = TerminalCursorStyle.default
     var isUsingAlternateScreen = false
     private var alternateScreenRestoresCursor = false
     var insertModeEnabled = false
@@ -581,6 +585,8 @@ final class TerminalOutputInterpreter {
             if let response = TerminalDeviceAttributes.response(for: parsed) {
                 sendTerminalResponse(response)
             }
+        case "q":
+            applyCursorStyle(rawParameters: params, parsed: parsed)
         case "t", "p":
             respondToCapabilityQuery(final: final, rawParameters: params, parsed: parsed)
         case "h":
@@ -595,6 +601,22 @@ final class TerminalOutputInterpreter {
             markDirty(row: cursorRow)
         }
         logCsi(final: final, params: params, parsed: parsed, phase: "after")
+    }
+
+    /// DECSCUSR. An unrecognised parameter leaves the cursor alone rather than
+    /// snapping it to a nearby shape, and the cursor row is only re-damaged
+    /// when the shape actually changed, so a TUI that re-asserts the same style
+    /// on every keystroke costs nothing.
+    private func applyCursorStyle(rawParameters: String, parsed: CsiParameters) {
+        guard let style = TerminalCursorStyle.decscusr(
+            rawParameters: rawParameters,
+            parsed: parsed
+        ) else {
+            return
+        }
+        guard style != cursorStyle else { return }
+        cursorStyle = style
+        markDirty(row: cursorRow)
     }
 
     private func respondToCapabilityQuery(final: Character, rawParameters: String, parsed: CsiParameters) {
@@ -843,6 +865,7 @@ final class TerminalOutputInterpreter {
         cursorRow = 0
         cursorColumn = 0
         cursorVisible = true
+        cursorStyle = .default
         insertModeEnabled = false
         originModeEnabled = false
         wraparoundModeEnabled = true

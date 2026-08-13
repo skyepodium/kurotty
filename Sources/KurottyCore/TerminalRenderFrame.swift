@@ -10,6 +10,10 @@ public struct TerminalFrame: Sendable {
     public let cursorColumn: Int
     public let cursorRow: Int
     public let cursorBlinkOn: Bool
+    /// The shape DECSCUSR selected. Defaulted in the initializer because every
+    /// frame that predates cursor shapes means "whatever this terminal draws by
+    /// default", which is exactly `TerminalCursorStyle.default`.
+    public let cursorStyle: TerminalCursorStyle
     public let markedTextColumn: Int
     public let markedText: String
     public let markedTextSelectedRange: TerminalTextSelectionRange
@@ -46,6 +50,7 @@ public struct TerminalFrame: Sendable {
         cursorColumn: Int,
         cursorRow: Int,
         cursorBlinkOn: Bool,
+        cursorStyle: TerminalCursorStyle = .default,
         markedTextColumn: Int,
         markedText: String,
         markedTextSelectedRange: TerminalTextSelectionRange,
@@ -65,6 +70,7 @@ public struct TerminalFrame: Sendable {
         self.cursorColumn = cursorColumn
         self.cursorRow = cursorRow
         self.cursorBlinkOn = cursorBlinkOn
+        self.cursorStyle = cursorStyle
         self.markedTextColumn = markedTextColumn
         self.markedText = markedText
         self.markedTextSelectedRange = markedTextSelectedRange

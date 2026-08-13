@@ -36,12 +36,16 @@ enum TerminalCursorPresentationPolicy {
         isApplicationActive && isKeyWindow && isFirstResponder
     }
 
+    /// A steady DECSCUSR style (`CSI 2 SP q` and friends) opts out of the blink
+    /// phase without stopping the shared blink timer, so switching back to a
+    /// blinking style resumes immediately and mid-phase.
     static func shouldRenderBlinkPhase(
         isFocusedForUser: Bool,
+        cursorStyleBlinks: Bool,
         cursorBlinkOn: Bool,
         hasMarkedText: Bool
     ) -> Bool {
-        !isFocusedForUser || cursorBlinkOn || hasMarkedText
+        !isFocusedForUser || !cursorStyleBlinks || cursorBlinkOn || hasMarkedText
     }
 
     static func visibleColor(

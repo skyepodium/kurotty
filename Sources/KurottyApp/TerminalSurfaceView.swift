@@ -1397,9 +1397,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             // terminal that is focused for user input follows the blink phase.
             cursorBlinkOn: TerminalCursorPresentationPolicy.shouldRenderBlinkPhase(
                 isFocusedForUser: isTerminalFocusedForUser,
+                cursorStyleBlinks: cursorStyle.blinks,
                 cursorBlinkOn: cursorBlinkOn,
                 hasMarkedText: hasMarkedText()
             ),
+            cursorStyle: cursorStyle,
             markedTextColumn: displayCursorColumn,
             markedText: compositionText,
             markedTextSelectedRange: markedTextSelectionRange(committedPrefix: committedMarkedTextPrefix),
@@ -2029,6 +2031,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             updateRendererFrame()
             return
         }
+        // A steady DECSCUSR style is drawn on every frame regardless of the
+        // phase, so advancing it would cost a full-surface redraw per tick for
+        // no visible change.
+        guard cursorStyle.blinks else { return }
         cursorBlinkOn.toggle()
         markFullDamage()
         updateRendererFrame()
@@ -3203,6 +3209,11 @@ extension TerminalSurfaceView {
     private var cursorVisible: Bool {
         get { interpreter.cursorVisible }
         set { interpreter.cursorVisible = newValue }
+    }
+
+    private var cursorStyle: TerminalCursorStyle {
+        get { interpreter.cursorStyle }
+        set { interpreter.cursorStyle = newValue }
     }
 
     private var isUsingAlternateScreen: Bool {
