@@ -29,8 +29,26 @@ drag-and-drop reordering all exist today.
 ## Status legend
 
 - `[ ]` not started
-- `[~]` in progress on a branch
-- `[x]` merged to `develop`
+- `[~]` implemented on a branch, not yet merged to `develop`
+- `[x]` done
+
+## Branches in flight
+
+All five branch off `develop` at `14097c9`. Each carries its own tests and each
+kept the full Swift suite green on its own branch.
+
+| Branch | Item | Commit |
+|---|---|---|
+| `feat/terminal-file-drop` | 0.1, plus this plan | `42e25e1` |
+| `feat/parser-resource-limits` | 0.2 | `245a62b` |
+| `feat/korean-input-fixes` | 1.1, 1.2 | `dd7004f` |
+| `feat/agent-waiting-notifications` | 2.1 | `9002cae` |
+| `feat/decscusr-cursor-shapes` | 3.3 | `321e3e3` |
+
+Merge order matters in two places: `feat/agent-waiting-notifications` is the only
+branch that changes `AppSettings.swift` (schema 22 → 23), and it shares
+`AppConstants.swift` with `feat/parser-resource-limits`. Land the parser branch
+first and the settings branch second, and the rest are disjoint.
 
 ---
 
@@ -77,20 +95,34 @@ behavior in Terminal.app, iTerm2, kitty, and ghostty.
 *From ghostty `terminal: bound OSC and grapheme allocations`,
 `terminal/kitty: limit png decoder allocations`.*
 
-Kurotty has already shipped one remote abort through this surface (`\e[99999m`,
-`docs/improvement-roadmap.md` §0). Escape-sequence buffers still accumulate
-without a cap.
+The premise this item was written on was half stale: CSI and OSC bounds already
+landed with the `\e[99999m` fix (`maximumCsiParameterBytes`,
+`maximumStringPayloadBytes`, and the `.csiDiscard` / `.oscDiscard` resync
+states). Two accumulations on the same path were genuinely unbounded.
 
-- [ ] Cap OSC, CSI, and string-control (DCS/SOS/PM/APC) accumulation
-- [ ] On overflow, discard the sequence and resync to the normal state — never
-      truncate-and-execute, never paint the payload as text
-- [ ] Cap per-cell combining-mark accumulation
-- [ ] Limits as named constants in `AppConstants`, each with a stated reason,
-      set above real OSC 8 / OSC 52 payload sizes
-- [ ] Same audit on `src/parser.zig`; Zig tests must use the testing allocator,
-      never an arena — an arena's no-op `free` cannot observe an invalid free
-- [ ] Behavioral tests: oversized payload split across feeds, nothing painted,
-      state resynced, a following sequence still parses
+- [x] Bound the DCS/SOS/PM/APC consumption path. Nothing is buffered there, so
+      the exposure is not memory: a string control whose `ESC \` never arrives
+      swallows every byte the child writes for the rest of the session, and a
+      program killed between `ESC P` and `ESC \` reaches it
+- [x] Cap per-cell combining-mark accumulation at the Stream-Safe Text Format
+      bound (UAX #15): 30 non-starters plus a base
+- [x] Limits as named constants in `AppConstants`, each with its reasoning
+- [x] Mirror the string-control bound in `src/parser.zig`; its grid stores one
+      combining mark per cell, so grapheme growth there was already bounded
+- [x] Behavioral tests: payloads split across feeds, nothing painted, state
+      resynced, a following sequence still parses. Zig tests use
+      `std.testing.allocator` — an arena's no-op `free` cannot observe an
+      invalid free
+- [x] Verified red-first: with the bounds neutered, 4 of the 9 Swift cases and
+      the Zig case fail
+- [ ] **Open divergence found here:** the Swift OSC bound is 1 MiB and
+      `src/parser.zig`'s is 4096, which would truncate a real OSC 52 clipboard
+      write. Harmless while Zig is not the render path; it becomes a bug the day
+      it is. Belongs with `docs/improvement-roadmap.md` §4.2, "decide the Zig
+      core's fate"
+- [ ] **Trade-off to revisit:** an over-long string control resyncs to normal,
+      so a payload Kurotty does not render anyway (a >4 MiB sixel frame) prints
+      its tail as text. Ghostty keeps consuming to ST instead
 
 ### 0.3 Title reports stay opt-in `[ ]`
 
@@ -126,22 +158,45 @@ and `macos: handled untrusted OSC8 hyperlinks more carefully`.*
 macOS filesystems emit NFD, so every `ls` and `git log` of a Korean filename
 arrives as separate jamo, renders scattered, and miscounts columns.
 
-- [ ] Compose jamo sequences into precomposed U+AC00 syllables at the point
+- [x] Compose jamo sequences into precomposed U+AC00 syllables at the point
       scalars become cells; width 2
-- [ ] Handle jamo split across PTY chunks, and a final consonant that arrives
-      after the syllable was already placed
-- [ ] Use the same normalization in the scrollback serializer and in terminal
-      search, or searching a Korean filename silently misses
-- [ ] Display side only — never normalize bytes sent back to the shell
-- [ ] Tests: NFD filename cells and column advance, jamo split across two feeds
+- [x] Handle jamo split across PTY chunks: write immediately and rewrite the
+      cell in place rather than buffering. A PTY has no flush signal, so a
+      buffered syllable would hold a Korean prompt's last character back
+      indefinitely
+- [x] Guard the rewrite: the cursor must still sit after the pending cell, the
+      cell must still hold what was written, and only a write that *arrived* as
+      conjoining jamo becomes pending
+- [x] Normalize the search query too — `NSString.range(of:)` folds NFD onto NFC
+      under canonical equivalence but `NSRegularExpression` compares scalars, so
+      a decomposed regex query silently found nothing
+- [x] Scrollback serializer deliberately unchanged: cells already hold composed
+      characters, and composing joined row text would merge two standalone jamo
+      that are legitimately two columns
+- [x] Display side only — never normalize bytes sent back to the shell
+- [x] Tests assert scalar signatures, not `==`: Swift's `==` compares canonical
+      equivalence, so the naive assertions pass with or without the fix
+
+Two findings worth keeping: the real column bug was the chunk split (a lone
+initial jamo is wide, a lone medial is not, so a split syllable claimed four
+columns), and `precomposedStringWithCanonicalMapping` does **not** compose
+`U+AC00 U+11A8` — exactly the cross-chunk case — which is why the arithmetic is
+hand-rolled.
 
 ### 1.2 Korean Won key → backquote `[~] feat/korean-input-fixes`
 
 *From orca `#13104`.*
 
-- [ ] Map the physical backquote key to a backtick under the Korean layout,
+- [x] Map the physical backquote key to a backtick under the Korean layout,
       keyed on `keyCode`, not on the produced character
-- [ ] A genuine `₩` from IME or paste must not be rewritten
+- [x] A genuine `₩` from IME or paste must not be rewritten. Shipped without a
+      setting: it fires only on keyCode 50 **and** a produced `₩` **and** no
+      modifiers, so there is nothing left for a setting to guard
+- [ ] Unverified: keyCode 50 is the ANSI/ISO backquote position, not checked on
+      JIS-physical hardware. And with marked text active the router offers the
+      event to `NSTextInputContext` first, so IMK commits the syllable and then
+      sends `₩` rather than a backquote — left as-is rather than reordering the
+      IME boundary
 
 ### 1.3 Kitty keyboard protocol (CSI-u) `[ ]`
 
@@ -167,14 +222,21 @@ not the kitty protocol. Agent TUIs increasingly assume it.
 `ingest native agent hooks losslessly`. Also `docs/improvement-roadmap.md` §2,
 which calls this "the actual daily win".*
 
-- [ ] Route `waitingForInput` / `blocked` into the existing typed notification
+- [x] Route `waitingForInput` / `blocked` into the existing typed notification
       path rather than a second delivery mechanism
-- [ ] Fire on transition into the state, only while unfocused, debounced per
-      pane, withdrawn when the state clears
-- [ ] Payload from hooks/OSC only; identify the pane, never the vendor
+- [x] Fire on transition into the state, only while unfocused, debounced per
+      pane (10 s), withdrawn when the state clears, when the user reaches the
+      pane, when the setting is turned off, and on pane teardown
+- [x] A focused pane records the transition without notifying, so alt-tabbing
+      away later does not fire retroactively
+- [x] Payload from hooks/OSC only; identify the pane, never the vendor
       (`AGENTS.md`: producer-neutral)
-- [ ] Decision logic in a pure policy type, mirroring
+- [x] Decision logic in a pure policy type, mirroring
       `TerminalCommandFinishNotificationPolicy`
+- [x] `terminal.notifyOnAgentWaiting`, default on; settings schema 22 → 23
+- [ ] Not proven: a real agent driven into a waiting state in an unfocused pane,
+      with the banner observed appearing and then being withdrawn. Unit tests
+      and a signed `.app` smoke test are not that gate
 
 ### 2.2 Link action popover `[ ]`
 
@@ -244,6 +306,37 @@ get right on the first try.
 
 ---
 
+### 3.3 Cursor shapes and synchronized output `[~] feat/decscusr-cursor-shapes`
+
+Baseline in ghostty and kitty, and every agent TUI sits on top of both.
+
+- [x] DECSCUSR (`CSI Ps SP q`): block / underline / bar, blinking and steady,
+      classified off the space intermediate on the raw parameter buffer the same
+      way `TerminalCapabilityReplies` reads DECRQM's `$`, which is what keeps
+      DECSCA, XTVERSION, and DECLL out of the cursor path
+- [x] An undefined `Ps` leaves the cursor alone rather than clamping
+- [x] `Ps = 0` means *this terminal's* default, as ghostty and kitty read it.
+      Kurotty's rendered default is a blinking bar, so `\e[0 q` gives that back
+      instead of silently switching every user to a block
+- [x] One `cursorPointRect` anchors all three shapes; the Metal instance, the
+      CoreGraphics fallback, and the coordinate diagnostics stopped each
+      rebuilding the rect
+- [x] No new blink timer: a steady style renders immediately instead of at the
+      next timer edge, and spends no full-surface redraw per tick
+- [x] tmux: `listPaneState` asks for `cursor_shape` and `cursor_blinking`
+      (verified against a live tmux 3.7b, not from memory) and the reattach
+      replay emits `CSI Ps SP q` after `?25h`; an older tmux replays `CSI 0 SP q`
+- [ ] Synchronized output (mode 2026) **not implemented, and nothing advertises
+      it.** The blocker is not the missing frame fence the roadmap describes —
+      see the correction below. It is that the only presentation choke point,
+      `updateRendererFrame()`, has 26 call sites, and holding it needs a
+      surface-owned timeout timer with a cleanup contract plus a decision on
+      whether user-driven presents freeze during a hold. Its natural test is
+      timer-driven, which `AGENTS.md` warns against as a release gate
+- [ ] Still no DECSTR (`CSI ! p`); the shape restores on RIS only. VT510 and
+      xterm disagree on whether DECSTR resets DECAWM, and guessing wrong there
+      regresses wraparound
+
 ## Tier 4 — Window and shell UX
 
 Each of these is roughly half a day.
@@ -266,10 +359,15 @@ Each of these is roughly half a day.
 
 - **Kitty's custom shader pipeline** — roughly half of kitty's commits this
   window, and it needs the Slang toolchain, a pipeline definition format, and an
-  animation framework. Kurotty's renderer still has no GPU/CPU reuse fence
-  (`docs/improvement-roadmap.md` §4.3); a frame semaphore and background opacity
-  buy the same visual credibility for a fraction of the cost. Revisit after the
-  renderer is fenced.
+  animation framework. Background opacity and blur buy most of the same visual
+  credibility for a fraction of the cost, and Kurotty has neither yet.
+
+  *Correction:* the first draft justified this by saying the renderer has no
+  GPU/CPU reuse fence, citing `docs/improvement-roadmap.md` §4.3. That is stale.
+  `TerminalMetalView` has `inFlightSemaphore = DispatchSemaphore(value: 3)` with
+  slot rotation and a completion-handler signal. The audit finding was fixed and
+  the roadmap was not updated — worth a pass over §4 before trusting its other
+  rows.
 - **cmux's iOS app, remote daemon, and generated SDKs** — different product.
 - **orca's stacked pull requests and Bitbucket integration** — workspace manager
   features, not terminal features.
