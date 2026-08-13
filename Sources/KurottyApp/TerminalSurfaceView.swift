@@ -18,6 +18,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private let notifier = TerminalNotifier.shared
     private let renderer: any TerminalAppKitRenderer
     private let securityPolicy = TerminalSecurityPolicy.default
+    /// Holds an OSC 52 confirmation until this pane is the one the user is
+    /// looking at. Owned by the surface and cleared on teardown, so nothing it
+    /// holds can outlive the session that produced it.
+    private var clipboardConfirmationQueue = TerminalClipboardConfirmationQueue()
     private lazy var scrollIndicatorCoordinator = TerminalScrollIndicatorCoordinator { [weak self] normalizedOffset in
         self?.setScrollbackOffset(fromNormalizedOffset: normalizedOffset)
     }
@@ -247,6 +251,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 // is flattened here and nowhere else; `onChildExit` keeps the
                 // full outcome for the pane that owns the exit banner.
                 self.tmuxControlModeDriver.transportDidExit(status: status.status.shellExitCode)
+                // The program that asked for the clipboard is gone; answering
+                // it now would write on behalf of a finished session.
+                self.clipboardConfirmationQueue.cancelPending()
                 self.onChildExit?(status)
             }
         }
@@ -523,6 +530,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
             stopCursorBlinking(showCursor: true)
+            // The pane is being torn down. A held confirmation has no window to
+            // open on and no session to answer for.
+            clipboardConfirmationQueue.cancelPending()
         }
         removeWindowScreenObserver()
     }
@@ -1303,6 +1313,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private func handleTerminalFocusStateChange() {
         reportTerminalFocusIfNeeded()
         updateAgentWaitingNotification()
+        presentDeferredClipboardConfirmationIfNeeded()
     }
 
     private func reportTerminalFocusIfNeeded() {
@@ -2458,28 +2469,30 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         controller.openEditorTab(for: target.fileURL, line: target.line)
     }
 
-    /// The ⌘-click is already the user's intent, so a trusted scheme opens
-    /// straight away. Only the schemes the policy still wants a second look at
-    /// reach the confirmation sheet.
+    /// The ⌘-click is already the user's intent, so a link whose printed text
+    /// *is* its target opens straight away under a trusted scheme. A link whose
+    /// target the program chose independently of the text — an OSC 8 label — or
+    /// one carrying a scheme, userinfo, or control characters the user cannot
+    /// read off the screen goes through the sheet, which shows the real target.
     private func activateLink(_ link: TerminalLinkRange) {
-        guard let url = URL(string: link.urlString) else { return }
-        switch securityPolicy.userActivatedLinkDecision(for: url) {
+        let decision = TerminalLinkActivation.decision(for: link, policy: securityPolicy)
+        guard let url = decision.openURL else { return }
+        switch decision.outcome {
         case .allow:
             NSWorkspace.shared.open(url)
         case .ask:
-            presentOpenLinkDialog(for: link)
+            presentOpenLinkDialog(for: decision)
         case .deny:
             break
         }
     }
 
-    private func presentOpenLinkDialog(for link: TerminalLinkRange) {
-        guard let url = URL(string: link.urlString) else { return }
-        guard securityPolicy.userActivatedLinkDecision(for: url) == .ask else { return }
+    private func presentOpenLinkDialog(for decision: TerminalLinkActivation.Decision) {
+        guard decision.requiresConfirmation, let url = decision.openURL else { return }
         let alert = NSAlert()
         alert.messageText = AppLocalization.string(.openLinkQuestion)
-        alert.informativeText = link.urlString
-        alert.alertStyle = .informational
+        alert.informativeText = openLinkDialogDetail(for: decision)
+        alert.alertStyle = decision.tier.isTrusted ? .informational : .warning
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: AppLocalization.string(url.isFileURL ? .open : .openInBrowser))
         alert.addButton(withTitle: AppLocalization.string(.cancel))
@@ -2492,6 +2505,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         } else if alert.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// The target always comes from `safeTarget`, never from the raw payload:
+    /// the host is printed on its own line so a `user:pass@host` prefix cannot
+    /// be read as the destination, and the userinfo itself is redacted.
+    private func openLinkDialogDetail(for decision: TerminalLinkActivation.Decision) -> String {
+        var lines = [decision.safeTarget.displayURLString]
+        if let host = decision.safeTarget.host {
+            lines.append(AppLocalization.format(.openLinkHost, host))
+        }
+        if case .untrusted(.displayTextMismatch) = decision.tier {
+            lines.append(AppLocalization.format(.openLinkVisibleText, decision.displayText))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func clearSelection() {
@@ -3103,16 +3130,83 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         guard case let .osc52(evaluation, base64Payload) = event else {
             return
         }
-        guard evaluation.operation == .write, evaluation.decision == .allow else {
+        guard evaluation.operation == .write else {
             return
         }
-        guard let text = TerminalOSC52Policy.decodedText(fromBase64Payload: base64Payload),
-              !text.isEmpty
-        else {
+        switch evaluation.decision {
+        case .deny:
             return
+        case .allow:
+            guard let text = TerminalOSC52Policy.decodedText(fromBase64Payload: base64Payload),
+                  !text.isEmpty
+            else {
+                return
+            }
+            writeToPasteboard(text)
+        case .ask:
+            guard let request = TerminalClipboardConfirmationRequest(
+                evaluation: evaluation,
+                base64Payload: base64Payload
+            ) else {
+                return
+            }
+            // A pane the user is not looking at must not open a sheet on the
+            // window they are working in; the request waits for focus instead.
+            switch clipboardConfirmationQueue.submit(request, isFocused: isTerminalFocusedForUser) {
+            case .present(let request):
+                presentClipboardConfirmation(request)
+            case .deferred:
+                break
+            }
         }
+    }
+
+    private func writeToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Presents a held OSC 52 confirmation, then drains whatever the coalescing
+    /// rule kept while the sheet was up.
+    private func presentClipboardConfirmation(_ request: TerminalClipboardConfirmationRequest) {
+        let alert = NSAlert()
+        alert.messageText = AppLocalization.string(.clipboardWriteQuestion)
+        // Deliberately omits the payload: a confirmation dialog is not a place
+        // to print what a program wants to put on the pasteboard.
+        alert.informativeText = AppLocalization.format(.clipboardWriteExplanation, request.byteCount)
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: AppLocalization.string(.clipboardWriteConfirm))
+        alert.addButton(withTitle: AppLocalization.string(.cancel))
+
+        let apply: (Bool) -> Void = { [weak self] approved in
+            guard let self else { return }
+            if approved {
+                writeToPasteboard(request.text)
+            }
+            if let next = clipboardConfirmationQueue.didFinishPresenting(
+                isFocused: isTerminalFocusedForUser
+            ) {
+                presentClipboardConfirmation(next)
+            }
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window) { response in
+                apply(response == .alertFirstButtonReturn)
+            }
+        } else {
+            apply(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func presentDeferredClipboardConfirmationIfNeeded() {
+        guard let request = clipboardConfirmationQueue.focusDidChange(
+            isFocused: isTerminalFocusedForUser
+        ) else {
+            return
+        }
+        presentClipboardConfirmation(request)
     }
 
     private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
