@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 /// The terminal modes and cursor state tmux keeps for a pane but does not
 /// include in `capture-pane` output.
@@ -15,6 +16,10 @@ struct TmuxPaneTerminalState: Equatable, Sendable {
     var scrollRegionLower = 23
     var tabStops = stride(from: 8, through: 992, by: 8).map { $0 }
     var cursorVisible = true
+    /// The pane's DECSCUSR shape. `nil` is tmux's own `default`, and is also
+    /// what a tmux too old to publish `cursor_shape` leaves behind; both replay
+    /// as `CSI 0 SP q`, which is the terminal default either way.
+    var cursorStyle: TerminalCursorStyle?
     var insertMode = false
     var originMode = false
     var applicationCursorKeys = false
@@ -67,6 +72,10 @@ struct TmuxPaneTerminalState: Equatable, Sendable {
             state.tabStops = tabs.split(separator: ",").compactMap { Int($0) }.filter { $0 >= 0 }
         }
         state.cursorVisible = bool(fields["cursor_flag"], fallback: true)
+        state.cursorStyle = cursorStyle(
+            shape: fields["cursor_shape"],
+            blinking: fields["cursor_blinking"]
+        )
         state.insertMode = bool(fields["insert_flag"])
         state.originMode = bool(fields["origin_flag"])
         state.applicationCursorKeys = bool(fields["keypad_cursor_flag"])
@@ -84,6 +93,23 @@ struct TmuxPaneTerminalState: Equatable, Sendable {
         ) ?? .xterm
         state.attachedClientCount = positiveInt(fields["session_attached"], fallback: 1)
         return state
+    }
+
+    /// tmux publishes the shape and the blink flag as two separate formats
+    /// (`block`/`underline`/`bar`/`default` and `0`/`1`), which is DECSCUSR's
+    /// parameter table split in half.
+    private static func cursorStyle(shape: String?, blinking: String?) -> TerminalCursorStyle? {
+        let blinks = bool(blinking)
+        switch shape {
+        case "block":
+            return TerminalCursorStyle(shape: .block, blinks: blinks)
+        case "underline":
+            return TerminalCursorStyle(shape: .underline, blinks: blinks)
+        case "bar":
+            return TerminalCursorStyle(shape: .bar, blinks: blinks)
+        default:
+            return nil
+        }
     }
 
     private static func bool(_ value: String?, fallback: Bool = false) -> Bool {
@@ -233,6 +259,9 @@ struct TmuxPaneSnapshot: Equatable, Sendable {
         sequence += "\u{1b}[\(addressedCursorY + 1);"
             + "\(min(max(0, state.cursorX), state.width - 1) + 1)H"
         sequence += state.cursorVisible ? "\u{1b}[?25h" : "\u{1b}[?25l"
+        // DECSCUSR. The replay opens with RIS, which already restored the
+        // default shape, so this only has to state the pane's own shape.
+        sequence += "\u{1b}[\(state.cursorStyle?.decscusrParameter ?? TerminalCursorStyle.DecscusrParameter.default) q"
         sequence += state.insertMode ? "\u{1b}[4h" : "\u{1b}[4l"
         sequence += state.applicationCursorKeys ? "\u{1b}[?1h" : "\u{1b}[?1l"
         sequence += state.wraparound ? "\u{1b}[?7h" : "\u{1b}[?7l"

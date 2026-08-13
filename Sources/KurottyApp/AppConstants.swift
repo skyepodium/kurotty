@@ -57,7 +57,11 @@ enum AppConstants {
         static let maximumSearchWrappedRowJoinCount = 512
         static let searchInputDebounceNanoseconds: UInt64 = 20_000_000
         static let searchContentRefreshDebounceNanoseconds: UInt64 = 35_000_000
+        /// Thickness of the two DECSCUSR line shapes. The bar keeps the width
+        /// Kurotty's cursor has always had; the underline matches it so the two
+        /// read as the same pen turned on its side.
         static let cursorWidthPX: Float = 2
+        static let cursorUnderlineHeightPX: Float = 2
         static let cursorBlinkIntervalSeconds: TimeInterval = 0.55
         static let minimumCellWidthPX: CGFloat = 8
         /// Bounds on the parser's accumulating buffers. An unterminated `ESC [`

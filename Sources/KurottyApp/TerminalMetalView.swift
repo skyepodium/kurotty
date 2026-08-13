@@ -1108,6 +1108,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             column: terminalFrame.cursorColumn,
             row: terminalFrame.cursorRow,
             blinkOn: terminalFrame.cursorBlinkOn,
+            style: terminalFrame.cursorStyle,
             markedText: terminalFrame.markedText,
             markedTextColumn: terminalFrame.markedTextColumn,
             markedTextSelectedRangeLocation: terminalFrame.markedTextSelectedRange.location,
@@ -1297,6 +1298,13 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
 
     func cachedGlyphSlotForTesting(_ character: Character) -> Int? {
         glyphs[String(character)]?.slot
+    }
+
+    /// The rect the current frame's cursor shape would fill, in view points.
+    /// The shapes only become pixels inside a GPU draw against a real drawable,
+    /// so this is the seam where DECSCUSR geometry stays checkable.
+    func cursorRectForTesting(column: Int, row: Int) -> CGRect {
+        cursorPointRect(column: column, row: row)
     }
 
     private var atlasInstanceCount: Int {
@@ -1581,13 +1589,11 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             frame: terminalFrame
         )
         let cursor = solidInstance(
-            column: max(0, terminalCursorColumn),
-            row: max(0, terminalFrame.cursorRow),
-            width: 1,
-            height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels)),
-            yOffset: 0,
-            color: visibleCursorColor,
-            overrideWidth: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX))
+            rect: cursorPointRect(
+                column: max(0, terminalCursorColumn),
+                row: max(0, terminalFrame.cursorRow)
+            ),
+            color: visibleCursorColor
         )
         lastPixelProbeDiagnostics = pixelProbes
 
@@ -1672,6 +1678,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         hasher.combine(frame.cursorColumn)
         hasher.combine(frame.cursorRow)
         hasher.combine(frame.cursorBlinkOn)
+        combineCursorStyle(frame.cursorStyle, into: &hasher)
         combineColor(TerminalCursorPresentationPolicy.visibleColor(
             preferred: cursorColor,
             frame: frame
@@ -1698,6 +1705,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         hasher.combine(diagnosticBaselineOverlayEnabled)
         hasher.combine(diagnosticGlyphQuadOverlayEnabled)
         return hasher.finalize()
+    }
+
+    private func combineCursorStyle(_ style: TerminalCursorStyle, into hasher: inout Hasher) {
+        hasher.combine(style.decscusrParameter)
     }
 
     private func combineColor(_ color: SIMD4<Float>, into hasher: inout Hasher) {
@@ -1943,12 +1954,42 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private func inputCursorRect(row: Int) -> CGRect {
-        CGRect(
-            x: terminalFrame.padding.cgX + CGFloat(max(0, terminalFrame.cursorColumn)) * terminalFrame.cellSize.cgWidth,
+        cursorPointRect(column: max(0, terminalFrame.cursorColumn), row: row)
+    }
+
+    /// The rect the cursor occupies, in view points, for the frame's DECSCUSR
+    /// shape. Every cursor draw — Metal instance, CoreGraphics fallback, and the
+    /// coordinate diagnostics — goes through here so the three cannot disagree
+    /// about where the cursor is.
+    ///
+    /// The cell rect is the anchor: `.block` is the whole cell, `.underline` is
+    /// a rule on its bottom edge, and `.bar` is a rule on its leading edge —
+    /// the shape Kurotty drew before DECSCUSR existed, and still the default.
+    private func cursorPointRect(column: Int, row: Int) -> CGRect {
+        let cell = CGRect(
+            x: terminalFrame.padding.cgX + CGFloat(column) * terminalFrame.cellSize.cgWidth,
             y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(row + 1),
-            width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
-            height: terminalFrame.cellSize.cgHeight
+            width: terminalFrame.cellSize.cgWidth,
+            height: physicalPixelsToPoints(CGFloat(fontCellMetrics.cursorHeightPixels))
         )
+        switch terminalFrame.cursorStyle.shape {
+        case .block:
+            return cell
+        case .underline:
+            return CGRect(
+                x: cell.minX,
+                y: cell.minY,
+                width: cell.width,
+                height: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorUnderlineHeightPX))
+            )
+        case .bar:
+            return CGRect(
+                x: cell.minX,
+                y: cell.minY,
+                width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
+                height: cell.height
+            )
+        }
     }
 
     private func appendBoxDrawingDecorationInstances(
@@ -2630,11 +2671,9 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 blue: CGFloat(visibleCursorColor.z),
                 alpha: CGFloat(visibleCursorColor.w)
             ).setFill()
-            NSRect(
-                x: terminalFrame.padding.cgX + CGFloat(max(0, terminalCursorColumn)) * terminalFrame.cellSize.cgWidth,
-                y: bounds.height - terminalFrame.padding.cgY - terminalFrame.cellSize.cgHeight * CGFloat(max(0, terminalFrame.cursorRow) + 1),
-                width: physicalPixelsToPoints(CGFloat(AppConstants.Terminal.cursorWidthPX)),
-                height: terminalFrame.cellSize.cgHeight
+            cursorPointRect(
+                column: max(0, terminalCursorColumn),
+                row: max(0, terminalFrame.cursorRow)
             ).fill()
         }
     }
@@ -2835,6 +2874,7 @@ private struct EncodedCursorState: Equatable {
     let column: Int
     let row: Int
     let blinkOn: Bool
+    let style: TerminalCursorStyle
     let markedText: String
     let markedTextColumn: Int
     let markedTextSelectedRangeLocation: Int
