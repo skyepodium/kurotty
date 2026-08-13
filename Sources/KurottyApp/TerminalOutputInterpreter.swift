@@ -77,6 +77,14 @@ final class TerminalOutputInterpreter {
     private var parserState = StreamState.normal
     private var csiBuffer = ""
     private var oscBuffer = ""
+    /// Payload scalars consumed by the DCS/SOS/PM/APC currently being skipped.
+    /// Nothing accumulates on that path, so this counter is the only thing that
+    /// can end a string control whose terminator never arrives.
+    private var stringControlScalarCount = 0
+    /// Whether the parser is between sequences rather than mid-escape. Tests
+    /// assert resynchronization directly instead of inferring it from what the
+    /// bytes after a discarded sequence happen to paint.
+    var isParsingBetweenSequences: Bool { parserState == .normal }
     var terminalTitle = "-zsh"
     var currentWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
     /// `user@host` when the shell reported an OSC 7 directory on another
@@ -139,10 +147,22 @@ final class TerminalOutputInterpreter {
     }
 
     private func appendPrintable(_ text: String) {
-        for character in text {
+        for rawCharacter in text {
+            // One `interpret` call can hand a whole cluster over at once, so the
+            // bound has to apply here as well as to marks arriving one at a
+            // time below.
+            let character = TerminalGraphemeBound.clamped(
+                rawCharacter,
+                maximumScalarCount: AppConstants.Terminal.maximumCellGraphemeScalarCount
+            )
             let width = character.terminalColumnWidth
             guard width > 0 else {
-                screen.appendCombining(character: character, row: cursorRow, before: cursorColumn)
+                screen.appendCombining(
+                    character: character,
+                    row: cursorRow,
+                    before: cursorColumn,
+                    maximumScalarCount: AppConstants.Terminal.maximumCellGraphemeScalarCount
+                )
                 markDirty(row: cursorRow)
                 continue
             }
@@ -306,6 +326,7 @@ final class TerminalOutputInterpreter {
                 // feature, whereas the bug is that a DECRQSS probe
                 // (`ESC P 1 $ r ... ESC \`) or a Kitty graphics envelope
                 // (`ESC _ G ... ESC \`) painted its whole payload as text.
+                stringControlScalarCount = 0
                 parserState = .stringControl
             case let scalar where TerminalEscapeSequence.beginsTwoByteDesignator(scalar):
                 parserState = .escapeDesignator
@@ -415,7 +436,9 @@ final class TerminalOutputInterpreter {
             // of the passthrough onto the screen.
             if scalar.value == 0x1b {
                 parserState = .stringEscape
+                return true
             }
+            consumeStringControlPayloadScalar()
             return true
         case .stringEscape:
             if scalar == "\\" {
@@ -425,6 +448,17 @@ final class TerminalOutputInterpreter {
             parserState = .escape
             return consumeControl(scalar)
         }
+    }
+
+    /// Drops one payload scalar of the string control being skipped, and
+    /// abandons the sequence once the payload passes its bound. The scalar that
+    /// crosses the bound is dropped with the rest: it belongs to the payload,
+    /// not to the text that follows.
+    private func consumeStringControlPayloadScalar() {
+        stringControlScalarCount += 1
+        guard stringControlScalarCount > AppConstants.Terminal.maximumStringControlScalarCount else { return }
+        stringControlScalarCount = 0
+        parserState = .normal
     }
 
     private func isCsiFinal(_ scalar: UnicodeScalar) -> Bool {

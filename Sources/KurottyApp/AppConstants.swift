@@ -83,6 +83,34 @@ enum AppConstants {
         /// graphics, whose protocol requires clients to chunk at 4096 bytes
         /// per escape.
         static let maximumStringPayloadBytes = 1024 * 1024
+        /// Bound on a DCS/SOS/PM/APC payload. Nothing is buffered on this path —
+        /// the bytes are dropped one by one — so the exposure is not memory but
+        /// the stream itself: a string control whose terminator never arrives
+        /// swallows every byte the child writes for the rest of the session, and
+        /// the pane looks frozen with no way back short of a reset. A program
+        /// killed between `ESC P` and `ESC \` is enough to reach it.
+        ///
+        /// 4 MiB is four times tmux's whole input buffer, and Kitty graphics —
+        /// the string control most likely to carry bulk data — must chunk at
+        /// 4096 bytes per escape, so no payload Kurotty is meant to understand
+        /// comes close. Past the bound the sequence is abandoned and the stream
+        /// is handed back to the user. The trade is deliberate: a payload
+        /// Kurotty does not render anyway (a single sixel frame larger than the
+        /// bound, say) prints its tail as text instead of vanishing, which is
+        /// visible and recoverable, whereas the swallowed stream is neither.
+        static let maximumStringControlScalarCount = 4 * 1024 * 1024
+        /// Bound on the grapheme cluster one cell may hold. A cell's character
+        /// is a Swift `Character`, so a base plus N combining marks stays a
+        /// single cluster and a single heap string that grows with every mark
+        /// the child writes: `printf 'a'` followed by an endless run of
+        /// U+0301 grows one cell without limit, and the shaper re-lays out the
+        /// whole cluster on every frame that touches it.
+        ///
+        /// 30 is the non-starter limit of the Unicode Stream-Safe Text Format
+        /// (UAX #15), which exists for this class of input; one base scalar
+        /// makes 31. No script needs more — Thai, Devanagari and Vietnamese
+        /// stacks and emoji ZWJ families all stay in the single digits.
+        static let maximumCellGraphemeScalarCount = 31
     }
 
     /// Domain values behind the bottom status bar. These are thresholds, units,
