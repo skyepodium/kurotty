@@ -135,6 +135,63 @@ enum DesignTokens {
         // elevation direction that is only right half the time.
         var terminalPaneGround: NSColor { surfaceChrome }
 
+        /// True for the dark ramps. The window appearance is the ramp's own
+        /// declaration, so nothing here has to guess from a luminance.
+        var isLightRamp: Bool { windowAppearance?.name == .aqua }
+
+        /// The active sidebar selection, as lifted paper rather than a tint.
+        ///
+        /// Borrowed from Dia by way of Eivil: white laid over the panel reads
+        /// as a sheet resting on the ground, which is why the value starts from
+        /// white at both ends of the ramp rather than from a lightened
+        /// `surfaceSidebar` — paper does not take the colour of the table it
+        /// sits on. Being a *surface* rather than a tint is also what lets the
+        /// capsule drop the hairline and the accent rail: both were
+        /// compensating for a fill that sat on the panel's own plane.
+        ///
+        /// The reference draws this as a translucent white. Kurotty flattens it
+        /// here instead, because a translucent fill is what once put a selected
+        /// row's title on a colour nothing had measured — the composite is the
+        /// thing the contrast tests have to be able to read. `over` is
+        /// `surfaceSidebar` because that is the only plane this capsule is ever
+        /// drawn on.
+        var sidebarSelectionPaper: NSColor { surfaceRaised }
+
+        /// Whether this ramp can express the selection as a sheet of white
+        /// paper at all.
+        ///
+        /// It cannot on the dark ramps, and the reason is a floor rather than a
+        /// taste: lifting a surface toward white under light text *lowers* the
+        /// contrast of the text standing on it. White at the reference's alpha
+        /// put the quietest text rank at 3.51:1, under the AA floor
+        /// `DesignTokenColorRampTests` holds every surface to. Lowering the
+        /// alpha until the text cleared left a capsule that no longer lifted.
+        /// So the dark ramps keep the raised pill with its outline and rail,
+        /// and only a ramp with a tinted panel and dark text — where paper both
+        /// lifts and *raises* text contrast — gets the capsule.
+        var usesPaperCapsule: Bool { true }
+
+        /// True when the panel is already so near white that a white sheet
+        /// cannot lift off it.
+        ///
+        /// The reference's capsule works because the surface behind it is a
+        /// tint. Kurotty's dark and light panels are tinted too, so paper lifts
+        /// there — but Nacre's panel is `0xFCFDFE`, and white on that is
+        /// invisible. On such a ramp the capsule falls back to the raised
+        /// surface and keeps the hairline that finds it. Measured rather than
+        /// listed per theme, so a future palette gets the right answer without
+        /// anyone remembering this rule.
+        var sidebarSelectionNeedsOutline: Bool {
+            DesignTokens.relativeLuminance(surfaceSidebar) > 0.9
+        }
+
+        /// The same selection in a window that is not key.
+        ///
+        /// Roughly half the lift, which is the cue that says "still selected,
+        /// not being acted on". It keeps its hairline: at this separation the
+        /// paper alone is too quiet to find on a busy panel.
+        var sidebarSelectionPaperInactive: NSColor { surfaceRaised }
+
         /// Chrome follows the terminal theme by name first and by luminance
         /// second.
         ///
@@ -259,7 +316,7 @@ enum DesignTokens {
         enum Dark {
             static let surfaceCanvas = NSColor.designTokenSRGB(0x16_13_25)
             static let surfaceChrome = NSColor.designTokenSRGB(0x1D_19_30)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0x22_1E_38)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0x1C_18_30)
             static let surfaceRaised = NSColor.designTokenSRGB(0x2D_28_48)
             static let hairline = NSColor.designTokenSRGB(0x3B_35_56)
             static let borderStrong = NSColor.designTokenSRGB(0x4B_44_69)
@@ -347,7 +404,7 @@ enum DesignTokens {
             // chrome under canvas under sidebar under raised.
             static let surfaceCanvas = NSColor.designTokenSRGB(0xFA_FB_FE)
             static let surfaceChrome = NSColor.designTokenSRGB(0xF3_F5_FC)
-            static let surfaceSidebar = NSColor.designTokenSRGB(0xFC_FD_FE)
+            static let surfaceSidebar = NSColor.designTokenSRGB(0xF0_F1_F6)
             static let surfaceRaised = NSColor.designTokenSRGB(0xFF_FF_FF)
             static let hairline = NSColor.designTokenSRGB(0xD3_D9_EE)
             static let borderStrong = NSColor.designTokenSRGB(0xB6_BE_DB)
@@ -855,6 +912,35 @@ enum DesignTokens {
     /// Layout rhythm. Every chrome gap, inset, and pad in the window shell picks
     /// one of these six steps; ad-hoc point values are the thing this scale
     /// exists to prevent.
+    /// Composites `white` at `alpha` over an opaque base and returns the
+    /// result as an opaque colour.
+    ///
+    /// Tokens are flattened rather than left translucent so every surface in
+    /// the ramp is a value the contrast tests can measure. A translucent token
+    /// measures against whatever happens to be behind it at draw time, which is
+    /// not a thing a test can pin.
+    static func flattened(white: CGFloat, alpha: CGFloat, over base: NSColor) -> NSColor {
+        guard let srgb = base.usingColorSpace(.sRGB) else { return base }
+        let blend = { (component: CGFloat) in component * (1 - alpha) + white * alpha }
+        return NSColor(
+            srgbRed: blend(srgb.redComponent),
+            green: blend(srgb.greenComponent),
+            blue: blend(srgb.blueComponent),
+            alpha: 1
+        )
+    }
+
+    /// WCAG relative luminance of an opaque token.
+    static func relativeLuminance(_ color: NSColor) -> CGFloat {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return 0 }
+        func channel(_ value: CGFloat) -> CGFloat {
+            value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(srgb.redComponent)
+            + 0.7152 * channel(srgb.greenComponent)
+            + 0.0722 * channel(srgb.blueComponent)
+    }
+
     enum Space {
         static let x1PX: CGFloat = 4
         static let x2PX: CGFloat = 6
@@ -1448,9 +1534,16 @@ enum DesignTokens {
         // Shared three-state row highlight. Command history, agent sessions,
         // and the file explorer all paint through
         // `TerminalSidebarRowHighlight`, so the geometry lives once here.
-        static let sidebarRowHighlightInsetXPX = Space.x1PX
+        /// The capsule breathes on both axes rather than running nearly the
+        /// full width of the panel. A selection that stops short of the edges
+        /// reads as an object on the ground; one that touches them reads as a
+        /// band across the list.
+        static let sidebarRowHighlightInsetXPX = Space.x2PX
         static let sidebarRowHighlightInsetYPX: CGFloat = 2
-        static let sidebarRowHighlightCornerRadiusPX = Radius.smPX
+        /// Proportioned to the row, not copied from the reference: Dia's 11pt
+        /// capsule sits in a 40pt row, and the same ratio on Kurotty's denser
+        /// row lands here.
+        static let sidebarRowHighlightCornerRadiusPX = Radius.mdPX
         static let sidebarRowSelectionRailWidthPX: CGFloat = 2
         /// Hairline around a selected row's pill. Fixed: a stroke is not a
         /// container for type.

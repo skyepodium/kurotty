@@ -288,6 +288,11 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         titleLabel.textColor = theme.textPrimary
         statusLabel.textColor = theme.textTertiary
         applyChromeMetrics()
+        // The nav rows paint their own capsule, so they need the ramp the same
+        // way the sidebar lists do.
+        for case let row as PreferencesNavRowButton in categoryStack.arrangedSubviews {
+            row.chromeTheme = theme
+        }
         search.applyChromeTheme(theme)
     }
 
@@ -363,11 +368,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         categoryStack.translatesAutoresizingMaskIntoConstraints = false
 
         for category in PreferencesCategory.allCases {
-            let button = NSButton(title: title(for: category), target: self, action: #selector(categorySelected(_:)))
+            let button = PreferencesNavRowButton()
+            button.title = title(for: category)
+            button.target = self
+            button.action = #selector(categorySelected(_:))
             button.tag = category.rawValue
-            button.bezelStyle = .recessed
-            button.alignment = .left
-            button.setButtonType(.toggle)
+            button.chromeTheme = chromeTheme
             button.translatesAutoresizingMaskIntoConstraints = false
             metrics.bind(button.widthAnchor.constraint(equalToConstant: 0)) {
                 Layout.navRowWidthPX
