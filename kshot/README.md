@@ -10,6 +10,7 @@ from also held unrelated windows, so they are deliberately not here.
 | --- | --- |
 | `powerline-metal.png` | The prompt drawn by the Metal renderer, enlarged. Reference. |
 | `powerline-html.png` | The same prompt drawn by the HTML renderer, after the fallback-font fix. Powerline separators resolve; before that fix they were empty boxes, because the system cascade answers `.LastResort` for those private-use codepoints and only the atlas's named Nerd Font list finds them. |
+| `claude-code-in-html-renderer.png` | Claude Code running full-screen in kurotty, drawn by the HTML renderer. A real TUI rather than a synthetic workload: its own layout, dim and coloured text, and a status line the terminal draws underneath. The top-right corner is painted over — a desktop notification was on screen and this repository is public. |
 | `tui-html.png` | The HTML renderer under the TUI workload: alternate screen, cursor home, every line rewritten in place, so every frame is full damage. This is the shape `vim` and `htop` produce and what an ssh session spends its time on. |
 
 `sample-frame.html` is the markup the renderer actually emits, written by
