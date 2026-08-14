@@ -75,6 +75,33 @@ final class TerminalHTMLRowDiffTests: XCTestCase {
         XCTAssertTrue(plan.replacesScreen)
     }
 
+    func testARepaintThatLeavesTheBottomBlankStillReplacesTheScreen() {
+        // The case the first version of this diff got wrong. A TUI redraw
+        // rewrites the rows it uses and leaves the rest of the screen alone, so
+        // "every row changed" never fires and the plan fell back to patching
+        // almost the whole screen one row at a time — measurably slower than
+        // the replacement it was avoiding.
+        let used = Fixture.rows - 3
+        var before = (0..<used).map { "before \($0)" }
+        before += Array(repeating: "", count: Fixture.rows - used)
+        var after = (0..<used).map { "after \($0)" }
+        after += Array(repeating: "", count: Fixture.rows - used)
+
+        XCTAssertTrue(TerminalHTMLRowDiff.plan(from: before, to: after).replacesScreen)
+    }
+
+    func testAMinorityOfChangedRowsIsStillPatched() {
+        var next = screen(from: 0)
+        for row in 0..<(Fixture.rows / 4) {
+            next[row] = "edited \(row)"
+        }
+
+        let plan = TerminalHTMLRowDiff.plan(from: screen(from: 0), to: next)
+
+        XCTAssertFalse(plan.replacesScreen)
+        XCTAssertEqual(plan.rows.count, Fixture.rows / 4)
+    }
+
     func testAResizedScreenReplacesItBecausePatchingCannotAddRows() {
         let plan = TerminalHTMLRowDiff.plan(from: screen(from: 0), to: screen(from: 0, count: Fixture.rows + 4))
 
@@ -111,12 +138,23 @@ final class TerminalHTMLRowDiffTests: XCTestCase {
     }
 
     /// The property that matters, stated as a property rather than a case.
-    func testAScrollNeverCostsMoreRowsThanItScrolled() {
+    ///
+    /// A scroll costs the rows it scrolled, until scrolling that far is no
+    /// cheaper than starting the screen over.
+    func testAScrollCostsTheRowsItScrolledOrElseOneReplacement() {
         for distance in 1..<Fixture.rows {
             let plan = TerminalHTMLRowDiff.plan(from: screen(from: 0), to: screen(from: distance))
 
-            XCTAssertFalse(plan.replacesScreen, "scroll of \(distance) fell back to a full rebuild")
+            guard !plan.replacesScreen else {
+                XCTAssertGreaterThanOrEqual(
+                    distance,
+                    Fixture.rows / 2,
+                    "a short scroll must never fall back to a full rebuild"
+                )
+                continue
+            }
             XCTAssertEqual(plan.rows.count, distance, "scroll of \(distance)")
+            XCTAssertEqual(plan.shift, distance, "scroll of \(distance)")
         }
     }
 }

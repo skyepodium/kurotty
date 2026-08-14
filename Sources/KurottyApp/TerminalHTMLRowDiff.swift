@@ -45,6 +45,24 @@ enum TerminalHTMLRowDiff {
         static let candidateCOUNT = 4
     }
 
+    private enum Replacement {
+        /// The share of a screen that makes replacing it cheaper than patching
+        /// it row by row.
+        ///
+        /// A patched row costs its own payload across the bridge and its own
+        /// parse; a replaced screen costs one of each for the whole thing. The
+        /// crossover was measured rather than guessed: a TUI redraw that
+        /// changed 55 of 62 rows cost 4.1-4.4ms as 55 patches and 3.05-3.12ms as
+        /// one replacement, which puts the break-even near two thirds of the
+        /// screen. Half is the conservative side of that.
+        ///
+        /// The first version of this diff had no ratio at all and replaced the
+        /// screen only when *every* row changed. A repaint almost never changes
+        /// every row — the bottom of the screen stays blank — so it fell off
+        /// the cliff on exactly the workload it was meant to help.
+        static let screenRATIO = 0.5
+    }
+
     /// The cheapest plan that produces `new` from `old`.
     ///
     /// A screen whose row count changed is replaced outright: the page's element
@@ -71,9 +89,8 @@ enum TerminalHTMLRowDiff {
             best = Plan(shift: shift, rows: rows, replacesScreen: false)
         }
 
-        // Nothing survived. Replacing the screen is one parse and one payload
-        // rather than a row's worth of each.
-        guard best.shift != 0 || best.rows.count < new.count else {
+        // Too little survived to be worth patching around.
+        guard Double(best.rows.count) < Double(new.count) * Replacement.screenRATIO else {
             return .screen
         }
 
