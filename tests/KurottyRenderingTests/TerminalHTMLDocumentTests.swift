@@ -111,8 +111,17 @@ final class TerminalHTMLDocumentTests: XCTestCase {
     // MARK: - The grid has to stay a grid
 
     func testAWideGlyphOccupiesTwoColumns() {
+        // The width is stated rather than inferred. The projector used to carry
+        // its own Unicode range table and guess; it now reads what the frame
+        // says, which is what the Zig grid decided. A fixture that does not say
+        // a glyph is wide describes a narrow glyph, and that is the point — the
+        // renderer no longer has an opinion of its own to disagree with.
         let cells = [
-            TerminalCell(character: "한", column: 0, row: 0, foreground: Fixture.white, background: Fixture.black),
+            TerminalCell(
+                character: "한", column: 0, row: 0,
+                foreground: Fixture.white, background: Fixture.black,
+                columns: TerminalCellColumns.wide
+            ),
             TerminalCell(character: "a", column: 2, row: 0, foreground: Fixture.white, background: Fixture.black),
         ]
 
@@ -131,6 +140,26 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         XCTAssertTrue(
             runs.first?.text.hasPrefix("한a") == true,
             "a wide glyph must consume its continuation cell, got \(runs.first?.text.prefix(4) ?? "")"
+        )
+    }
+
+    func testACellWidthComesFromTheFrameRatherThanTheCodepoint() {
+        // A renderer that reads the codepoint would call this two columns wide
+        // whatever the frame said. Reading the frame means one authority.
+        let narrowed = [
+            TerminalCell(
+                character: "한", column: 0, row: 0,
+                foreground: Fixture.white, background: Fixture.black,
+                columns: TerminalCellColumns.single
+            )
+        ]
+
+        let runs = TerminalHTMLDocument.runs(row: 0, frame: frame(cells: narrowed))
+
+        XCTAssertEqual(
+            runs.reduce(0) { $0 + $1.columns },
+            Fixture.columns,
+            "the row still accounts for every column when the frame calls the glyph narrow"
         )
     }
 

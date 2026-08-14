@@ -87,19 +87,30 @@ public struct TerminalCell: Sendable {
     public let row: Int
     public let foreground: SIMD4<Float>
     public let background: SIMD4<Float>
+    /// How many grid columns this cell occupies: one, or two for a wide glyph.
+    ///
+    /// Carried rather than derived. The Zig grid already decides this — see
+    /// `src/grid.zig`, which writes `.wide` when the glyph measures two, and
+    /// `kurotty_cell.width` in `docs/abi.md`, which is how it crosses the ABI.
+    /// A renderer that works it out again from a Unicode table is a second
+    /// answer to a question the core has already answered, and the two only
+    /// have to disagree once for every column after it on that line to shift.
+    public let columns: Int
 
     public init(
         character: Character,
         column: Int,
         row: Int,
         foreground: SIMD4<Float>,
-        background: SIMD4<Float>
+        background: SIMD4<Float>,
+        columns: Int = 1
     ) {
         self.character = character
         self.column = column
         self.row = row
         self.foreground = foreground
         self.background = background
+        self.columns = max(columns, 1)
     }
 }
 
@@ -726,4 +737,14 @@ public struct TerminalTextSelectionRange: Equatable, Sendable {
         self.location = location
         self.length = length
     }
+}
+
+/// Column counts a single cell can occupy.
+///
+/// Named because `2` at a call site says nothing about why, and because the
+/// values mirror `kurotty_cell.width` across the ABI, where the same numbers
+/// already have meanings.
+public enum TerminalCellColumns {
+    public static let single = 1
+    public static let wide = 2
 }

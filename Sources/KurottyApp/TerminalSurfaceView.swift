@@ -1514,12 +1514,20 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                     continue
                 }
                 if cell.character != " " {
+                    // The screen model marks the trailing half of a wide glyph
+                    // as a continuation, which is the Zig grid's answer carried
+                    // up. Passing it on means no renderer has to work the width
+                    // out from the codepoint.
+                    let isWide = column + 1 < sourceRow.count
+                        && sourceRow[column + 1].isContinuation
+
                     cells.append(TerminalCell(
                         character: cell.character,
                         column: column,
                         row: row,
                         foreground: renderedForeground,
-                        background: renderedBackground
+                        background: renderedBackground,
+                        columns: isWide ? TerminalCellColumns.wide : TerminalCellColumns.single
                     ))
                 }
             }

@@ -40,11 +40,6 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// arbitrary program, and interpolating them into source is how that
         /// program gets to write the script.
         static let applyFrame = """
-        if (cellWidth > 0) {
-            document.documentElement.style.setProperty('--cw', cellWidth + 'px');
-            document.documentElement.style.setProperty('--ch', cellHeight + 'px');
-        }
-
         if (replaceAll) {
             const screen = document.getElementById('screen');
             if (screen) { screen.innerHTML = rows.join(''); }
@@ -68,6 +63,17 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         await new Promise(resolve =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))
         );
+        """
+
+        /// The cell box every run is sized against.
+        ///
+        /// Its own call rather than a field on the frame update, because it
+        /// changes on a resize or a font change and not on the frames in
+        /// between. Sending it every frame would put two unrelated lifetimes
+        /// in one message.
+        static let setCellSize = """
+        document.documentElement.style.setProperty('--cw', width + 'px');
+        document.documentElement.style.setProperty('--ch', height + 'px');
         """
     }
 
@@ -167,50 +173,111 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     }
 
     private func draw(_ frame: TerminalFrame) {
-        let rows = TerminalHTMLDocument.rows(frame: frame)
-        let replaceAll = frame.isFullDamage || renderedRows.count != rows.count
-        var patch: [String: String] = [:]
+        publishCellSizeIfChanged(frame.cellSize)
 
-        if replaceAll {
-            renderedRows = rows
-        } else {
-            for row in frame.dirtyRows where rows.indices.contains(row) {
-                guard renderedRows[row] != rows[row] else {
-                    continue
-                }
-                renderedRows[row] = rows[row]
-                patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] =
-                    TerminalHTMLDocument.rowContents(row, frame: frame)
-            }
-
+        guard let update = update(for: frame) else {
             // Nothing visible changed. The frame still has to report itself
-            // presented or the latency metric waits forever for a paint that is
-            // not coming.
-            guard !patch.isEmpty else {
-                presentationWatchdog?.cancel()
-                presentationWatchdog = nil
-                isAwaitingPresentation = false
-                onPresented?()
-                return
-            }
+            // presented, or the latency metric waits forever for a paint that
+            // is not coming.
+            reportPresented()
+            return
         }
 
-        let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
-        cellSize = frame.cellSize
+        armPresentationWatchdog()
+        run(Script.applyFrame, arguments: update.arguments(cursor: frame))
+    }
+
+    /// What this frame changes on the page, or nothing when it changes nothing.
+    ///
+    /// Separated from `draw` so the decision — whole screen or a few rows — is
+    /// readable on its own, and so the no-change case is one `nil` rather than
+    /// an early return buried inside a branch of a branch.
+    private func update(for frame: TerminalFrame) -> ScreenUpdate? {
+        let rows = TerminalHTMLDocument.rows(frame: frame)
+
+        // A row count that changed means a resize, and the page's row elements
+        // no longer correspond to the screen's.
+        guard !frame.isFullDamage, renderedRows.count == rows.count else {
+            renderedRows = rows
+            return .wholeScreen(rows)
+        }
+
+        var patch: [String: String] = [:]
+
+        for row in frame.dirtyRows where rows.indices.contains(row) {
+            guard renderedRows[row] != rows[row] else {
+                continue
+            }
+            renderedRows[row] = rows[row]
+            patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] =
+                TerminalHTMLDocument.rowContents(row, frame: frame)
+        }
+
+        guard !patch.isEmpty else {
+            return nil
+        }
+
+        return .rows(patch)
+    }
+
+    /// One frame's worth of change to the page.
+    private enum ScreenUpdate {
+        case wholeScreen([String])
+        case rows([String: String])
+
+        func arguments(cursor frame: TerminalFrame) -> [String: Any] {
+            var arguments: [String: Any] = [
+                "cursorColumn": frame.cursorColumn,
+                "cursorRow": frame.cursorRow,
+                "cursorVisible": frame.cursorBlinkOn,
+            ]
+
+            switch self {
+            case let .wholeScreen(rows):
+                arguments["replaceAll"] = true
+                arguments["rows"] = rows
+                arguments["patch"] = [String: String]()
+            case let .rows(patch):
+                arguments["replaceAll"] = false
+                arguments["rows"] = [String]()
+                arguments["patch"] = patch
+            }
+
+            return arguments
+        }
+    }
+
+    /// Publishes the cell box the page sizes every run against.
+    ///
+    /// The document loads before any frame arrives, so its metrics start as
+    /// placeholders and every run is sized in cell units against them. Runs
+    /// were clipped mid-glyph until this was sent.
+    private func publishCellSizeIfChanged(_ size: TerminalFrameSize) {
+        guard cellSize != size || !hasPublishedCellSize else {
+            return
+        }
+
+        cellSize = size
         hasPublishedCellSize = true
 
-        armPresentationWatchdog()
-
-        run(Script.applyFrame, arguments: [
-            "cellWidth": publishesCellSize ? Double(frame.cellSize.width) : 0,
-            "cellHeight": Double(frame.cellSize.height),
-            "replaceAll": replaceAll,
-            "rows": replaceAll ? rows : [],
-            "patch": patch,
-            "cursorColumn": frame.cursorColumn,
-            "cursorRow": frame.cursorRow,
-            "cursorVisible": frame.cursorBlinkOn,
+        run(Script.setCellSize, arguments: [
+            "width": Double(size.width),
+            "height": Double(size.height),
         ])
+    }
+
+    /// Reports a frame presented exactly once, cancelling anything still
+    /// waiting to report it.
+    private func reportPresented() {
+        presentationWatchdog?.cancel()
+        presentationWatchdog = nil
+
+        guard isAwaitingPresentation else {
+            return
+        }
+
+        isAwaitingPresentation = false
+        onPresented?()
     }
 
     /// Reports the frame presented even if the page never answers.
@@ -257,18 +324,26 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
                     NSLog("terminal html renderer script failed: %@", error.localizedDescription)
                 }
 
-                // Reported on failure too. A frame that never reports leaves the
-                // latency metric waiting on a paint that will not arrive.
-                self.presentationWatchdog?.cancel()
-                self.presentationWatchdog = nil
-
-                guard self.isAwaitingPresentation else {
-                    return  // The watchdog already reported this frame.
-                }
-                self.isAwaitingPresentation = false
-                self.onPresented?()
+                // Reported on failure too. A frame that never reports leaves
+                // the latency metric waiting on a paint that will not arrive.
+                self.reportPresented()
             }
         }
+    }
+
+    private func loadShell() {
+        isDocumentLoaded = false
+        hasPublishedCellSize = false
+        renderedRows = []
+        webView.loadHTMLString(
+            TerminalHTMLStylesheet.document(
+                font: font,
+                backgroundColor: backgroundColor,
+                cursorColor: cursorColor,
+                cellSize: cellSize
+            ),
+            baseURL: nil
+        )
     }
 
     // MARK: - Appearance
@@ -299,97 +374,6 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// CoreText the same question the atlas asks keeps both renderers drawing
     /// from the same fonts, rather than hardcoding a list of font names this
     /// machine happens to have.
-    private func fontStack() -> String {
-        var families = [font.familyName ?? font.fontName]
-
-        // The same named list the glyph atlas walks, for the same reason: a
-        // powerline separator lives in the private use area, and CoreText's
-        // cascade answers `.LastResort` for it even on a machine that has a
-        // Nerd Font installed. Asking the cascade alone is what left those
-        // cells as empty boxes on this renderer's first run, while Metal drew
-        // them correctly from this list.
-        for family in TerminalGlyphFallbackFonts.installed(
-            from: TerminalGlyphFallbackFonts.general + TerminalGlyphFallbackFonts.cjk,
-            size: font.pointSize
-        ) where !families.contains(family) {
-            families.append(family)
-        }
-
-        // Generic families last, so a machine with none of the above still
-        // renders monospaced text rather than proportional.
-        let quoted = families.map { "\"\($0)\"" }.joined(separator: ", ")
-        return "\(quoted), ui-monospace, monospace"
-    }
-
-    private func loadShell() {
-        isDocumentLoaded = false
-        hasPublishedCellSize = false
-        renderedRows = []
-        webView.loadHTMLString(shellDocument(), baseURL: nil)
-    }
-
-    /// The page the rows live in.
-    ///
-    /// Everything positional is a CSS variable so a font or size change is a
-    /// variable update rather than a different document, and every row can size
-    /// its runs in cell units without knowing the pixel size.
-    private func shellDocument() -> String {
-        let background = TerminalHTMLDocument.css(backgroundColor)
-        let cursor = TerminalHTMLDocument.css(cursorColor)
-        let size = font.pointSize
-        let stack = fontStack()
-
-        return """
-        <!DOCTYPE html>
-        <html><head><meta charset="utf-8">
-        <style>
-        :root {
-            --cw: \(cellSize.width)px;
-            --ch: \(cellSize.height)px;
-        }
-        html, body {
-            margin: 0; padding: 0;
-            background: \(background);
-            overflow: hidden;
-            cursor: text;
-        }
-        #screen {
-            position: relative;
-            font-family: \(stack);
-            font-size: \(size)px;
-            line-height: var(--ch);
-            white-space: pre;
-            -webkit-font-smoothing: antialiased;
-        }
-        .\(TerminalHTMLDocument.Markup.rowClass) {
-            height: var(--ch);
-            white-space: pre;
-        }
-        .\(TerminalHTMLDocument.Markup.runClass) {
-            display: inline-block;
-            height: var(--ch);
-            vertical-align: top;
-            overflow: hidden;
-        }
-        .\(TerminalHTMLDocument.Markup.underlineClass) { text-decoration: underline; }
-        .\(TerminalHTMLDocument.Markup.strikethroughClass) { text-decoration: line-through; }
-        .\(TerminalHTMLDocument.Markup.underlineClass).\(TerminalHTMLDocument.Markup.strikethroughClass) {
-            text-decoration: underline line-through;
-        }
-        #cursor {
-            position: absolute;
-            top: 0; left: 0;
-            width: var(--cw);
-            height: var(--ch);
-            background: \(cursor);
-            mix-blend-mode: difference;
-            pointer-events: none;
-            will-change: transform;
-        }
-        </style></head>
-        <body><div id="screen"></div><div id="cursor"></div></body></html>
-        """
-    }
 }
 
 extension TerminalHTMLView: WKNavigationDelegate {
