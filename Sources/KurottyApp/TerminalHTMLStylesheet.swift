@@ -59,6 +59,10 @@ enum TerminalHTMLStylesheet {
             \(TerminalHTMLDocument.Variable.cellHeight): \(cellSize.height)px;
             \(TerminalHTMLDocument.Variable.paddingX): \(padding.x)px;
             \(TerminalHTMLDocument.Variable.paddingY): \(padding.y)px;
+            /* Seeded so a cursor drawn before the first frame is not zero-sized;
+               the frame republishes both against the display's density. */
+            \(TerminalHTMLDocument.Variable.cursorBarWidth): 1px;
+            \(TerminalHTMLDocument.Variable.cursorUnderlineHeight): 1px;
         }
         html, body {
             margin: 0; padding: 0;
@@ -108,6 +112,15 @@ enum TerminalHTMLStylesheet {
         .\(TerminalHTMLDocument.Markup.underlineClass).\(TerminalHTMLDocument.Markup.strikethroughClass) {
             text-decoration: underline line-through;
         }
+        /* The composition is drawn with the same pen as committed text, which
+           is what the glyph atlas does: the preedit's own colour already
+           distinguishes the syllable being built, and a second treatment here
+           would make the two renderers disagree about what composing looks
+           like. The class exists so that decision has one home. */
+        .\(TerminalHTMLDocument.Markup.markedClass) { text-decoration: none; }
+        /* Position, size and visibility are written per frame as one inline
+           declaration, so the shape DECSCUSR chose is decided in the pure layer
+           rather than split between a script and a rule. */
         #cursor {
             position: absolute;
             top: 0; left: 0;

@@ -24,6 +24,9 @@ enum TerminalRunCoalescer {
         var background: SIMD4<Float>
         var isUnderlined: Bool
         var isStruckThrough: Bool
+        /// Whether this is an input method's composition rather than committed
+        /// screen content.
+        var isMarked: Bool = false
         /// Non-empty for a cell drawn as geometry rather than as text.
         var shapes: [TerminalCellGeometry.Shape] = []
     }
@@ -45,6 +48,7 @@ enum TerminalRunCoalescer {
                     background: cell.background,
                     isUnderlined: cell.isUnderlined,
                     isStruckThrough: cell.isStruckThrough,
+                    isMarked: cell.isMarked,
                     shapes: cell.shapes
                 ))
                 continue
@@ -77,7 +81,13 @@ enum TerminalRunCoalescer {
         guard run.isUnderlined == cell.isUnderlined else {
             return false
         }
+        guard run.isStruckThrough == cell.isStruckThrough else {
+            return false
+        }
 
-        return run.isStruckThrough == cell.isStruckThrough
+        // A composition and the text beside it must stay separable even when
+        // they are the same colour, so a renderer can mark one and not the
+        // other.
+        return run.isMarked == cell.isMarked
     }
 }

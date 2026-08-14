@@ -16,12 +16,6 @@ enum TerminalRendererConformance {
         frame is currently unreachable — but the same omission is why the HTML \
         renderer's damageDiagnostics is always empty.
         """,
-        "cursorStyle.block": "DECSCUSR shape never reaches the page: #cursor is always a full-cell box.",
-        "cursorStyle.underline": "DECSCUSR shape never reaches the page: #cursor is always a full-cell box.",
-        "cursorStyle.bar": "DECSCUSR shape never reaches the page: #cursor is always a full-cell box.",
-        "markedText": "IME preedit is never drawn; the composing text is invisible in this renderer.",
-        "markedTextColumn": "IME preedit anchor is never read, so there is nowhere for the preedit to move.",
-        "markedTextSelectedRange": "The caret inside the preedit is never drawn.",
     ]
 
     static let probes: [TerminalConformanceProbe] = content + decorations + cursor + preedit + geometry + damage

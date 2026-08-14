@@ -23,6 +23,7 @@ struct TerminalScreenIndex {
     private(set) var underlined: Set<Int> = []
     private(set) var struckThrough: Set<Int> = []
     private(set) var shapes: [Int: [TerminalCellGeometry.Shape]] = [:]
+    private(set) var marked: Set<Int> = []
 
     let defaultForeground: SIMD4<Float>
     let defaultBackground: SIMD4<Float>
@@ -48,6 +49,8 @@ struct TerminalScreenIndex {
         for decoration in frame.decorations {
             add(decoration)
         }
+
+        overlayMarkedText(frame: frame)
     }
 
     func key(_ row: Int, _ column: Int) -> Int {
@@ -64,6 +67,7 @@ struct TerminalScreenIndex {
             background: backgrounds[index] ?? defaultBackground,
             isUnderlined: underlined.contains(index),
             isStruckThrough: struckThrough.contains(index),
+            isMarked: marked.contains(index),
             shapes: shapes[index] ?? []
         )
     }
@@ -75,7 +79,119 @@ struct TerminalScreenIndex {
         var background: SIMD4<Float>
         var isUnderlined: Bool
         var isStruckThrough: Bool
+        /// Part of an input method's composition rather than of the screen
+        /// buffer. Carried so a renderer can mark it without being told where
+        /// the composition is.
+        var isMarked: Bool
         var shapes: [TerminalCellGeometry.Shape]
+    }
+
+    // MARK: - Marked text
+
+    /// Lays the input method's preedit over the row the composition sits on.
+    ///
+    /// The frame carries the composition rather than the screen buffer, because
+    /// `setMarkedText` is preedit state and must never be written to the
+    /// terminal as committed text. Drawing it is therefore the renderer's job,
+    /// and a document renderer that skipped it left a user composing Hangul
+    /// with nothing on screen until the syllable committed.
+    ///
+    /// The cells underneath are dropped rather than drawn behind, which is what
+    /// `TerminalMetalView` does with the same range: the composition replaces
+    /// what is on the line for as long as it lasts.
+    ///
+    /// Here rather than in a renderer because it is a fact about the screen —
+    /// which cells show what — and both backends need the same answer.
+    private mutating func overlayMarkedText(frame: TerminalFrame) {
+        guard let range = frame.markedTextRenderRange, frame.cursorRow >= 0 else {
+            return
+        }
+
+        let row = frame.cursorRow
+
+        // A wide cell whose head sits just before the composition would
+        // otherwise be stepped over the first covered column and shift the
+        // preedit one cell to the right, so it goes as well.
+        if range.startColumn > 0 {
+            let head = key(row, range.startColumn - 1)
+            if (columnSpans[head] ?? TerminalCellColumns.single) > TerminalCellColumns.single {
+                erase(head)
+            }
+        }
+        for column in range.cellRange {
+            erase(key(row, column))
+        }
+
+        var column = range.startColumn
+        var characterOffset = 0
+        var utf16Offset = 0
+
+        for character in frame.markedText {
+            defer {
+                characterOffset += 1
+                utf16Offset += String(character).utf16.count
+            }
+            guard characterOffset >= range.sourceCharacterOffset else {
+                continue
+            }
+
+            // The same width function the range was laid out with. The screen's
+            // own cells carry their width from the Zig grid, but a preedit
+            // character was never in that grid — asking a second width function
+            // here would let the two disagree and run the composition off the
+            // end of its own range.
+            let width = max(character.terminalColumnWidth, TerminalCellColumns.single)
+            guard column + width <= range.endColumn else {
+                break
+            }
+
+            let index = key(row, column)
+            characters[index] = character
+            columnSpans[index] = width
+            foregrounds[index] = Self.markedForeground(
+                utf16Offset: utf16Offset,
+                utf16Length: String(character).utf16.count,
+                frame: frame
+            )
+            marked.insert(index)
+            column += width
+        }
+    }
+
+    /// The colour one preedit character is drawn in.
+    ///
+    /// The input method selects a sub-range of its own composition — in Hangul,
+    /// the syllable currently being built — and that sub-range is what tells the
+    /// user where the next keystroke lands. `TerminalMetalView` distinguishes it
+    /// by drawing it in the selection foreground while the rest of the
+    /// composition keeps the screen's; this matches that rather than inventing a
+    /// second convention.
+    static func markedForeground(
+        utf16Offset: Int,
+        utf16Length: Int,
+        frame: TerminalFrame
+    ) -> SIMD4<Float> {
+        let selection = frame.markedTextSelectedRange
+
+        guard selection.location != TerminalTextSelectionRange.notFound,
+              selection.length > 0,
+              utf16Offset < selection.location + selection.length,
+              selection.location < utf16Offset + utf16Length
+        else {
+            return frame.defaultForeground
+        }
+
+        return TerminalSelectionStyle.foregroundColor
+    }
+
+    /// Drops whatever was drawn in a cell, leaving its background alone.
+    private mutating func erase(_ index: Int) {
+        characters.removeValue(forKey: index)
+        columnSpans.removeValue(forKey: index)
+        foregrounds.removeValue(forKey: index)
+        shapes.removeValue(forKey: index)
+        underlined.remove(index)
+        struckThrough.remove(index)
     }
 
     // MARK: - Decorations

@@ -91,12 +91,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             }
         }
 
+        // Position, shape and visibility arrive as one declaration the
+        // projector wrote, so the shape DECSCUSR selected is decided in the
+        // pure layer next to everything else the frame decides.
         const cursor = document.getElementById('cursor');
-        if (cursor) {
-            cursor.style.transform =
-                `translate(calc(var(--cw) * ${cursorColumn}), calc(var(--ch) * ${cursorRow}))`;
-            cursor.style.opacity = cursorVisible ? '1' : '0';
-        }
+        if (cursor) { cursor.style.cssText = cursorStyle; }
 
         await new Promise(resolve =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))
@@ -115,6 +114,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         root.setProperty('\(TerminalHTMLDocument.Variable.cellHeight)', height + 'px');
         root.setProperty('\(TerminalHTMLDocument.Variable.paddingX)', paddingX + 'px');
         root.setProperty('\(TerminalHTMLDocument.Variable.paddingY)', paddingY + 'px');
+        root.setProperty('\(TerminalHTMLDocument.Variable.cursorBarWidth)', cursorBar);
+        root.setProperty('\(TerminalHTMLDocument.Variable.cursorUnderlineHeight)', cursorUnderline);
         """
     }
 
@@ -127,12 +128,19 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// anyway. Far beyond a frame budget: this catches a page that has
         /// stopped animating, not a page that is merely slow.
         static let presentationDeadlineSECONDS = 0.5
+        /// Assumed when the view has no window and no screen to ask. Retina is
+        /// the overwhelmingly likely answer on the Macs Kurotty runs on, and it
+        /// is the same assumption `TerminalMetalView` makes.
+        static let fallbackBackingSCALE: CGFloat = 2
     }
 
     private let webView: TerminalHTMLWebView
     private var isDocumentLoaded = false
     private var pendingFrame: TerminalFrame?
     private var renderedRows: [String] = []
+    /// The cursor declaration the page is currently showing, so a frame that
+    /// changes nothing else can still be recognised as changing the cursor.
+    private var renderedCursor = ""
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -149,6 +157,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private var hasPublishedMetrics = false
     private var presentationWatchdog: DispatchWorkItem?
     private var isAwaitingPresentation = false
+    /// The density the page's cursor thicknesses were resolved against. They
+    /// are stated in device pixels, so a view moved to a display of a different
+    /// density has to be told them again — which the next frame does, rather
+    /// than a document reload that would blank every row until something draws.
+    private var publishedBackingScale: CGFloat = 0
 
     var onPresented: (() -> Void)?
     var rendererView: NSView { self }
@@ -233,7 +246,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private func draw(_ frame: TerminalFrame) {
         publishMetricsIfChanged(cell: frame.cellSize, padding: frame.padding)
 
-        guard let update = update(for: frame) else {
+        let cursor = TerminalHTMLDocument.cursorDeclaration(frame: frame)
+        defer { renderedCursor = cursor }
+
+        guard let update = update(for: frame, cursor: cursor) else {
             // Nothing visible changed. The frame still has to report itself
             // presented, or the latency metric waits forever for a paint that
             // is not coming.
@@ -242,7 +258,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         }
 
         armPresentationWatchdog()
-        run(Script.applyFrame, arguments: update.arguments(cursor: frame))
+        run(Script.applyFrame, arguments: update.arguments(cursor: cursor))
     }
 
     /// What this frame changes on the page, or nothing when it changes nothing.
@@ -250,7 +266,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// Separated from `draw` so the decision — whole screen or a few rows — is
     /// readable on its own, and so the no-change case is one `nil` rather than
     /// an early return buried inside a branch of a branch.
-    private func update(for frame: TerminalFrame) -> ScreenUpdate? {
+    private func update(for frame: TerminalFrame, cursor: String) -> ScreenUpdate? {
         let rows = TerminalHTMLDocument.rows(frame: frame)
 
         // A row count that changed means a resize, and the page's row elements
@@ -271,7 +287,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
                 TerminalHTMLDocument.rowContents(row, frame: frame)
         }
 
-        guard !patch.isEmpty else {
+        // The cursor counts as visible change of its own: it lives outside the
+        // rows, so a frame that only moves it, blinks it or changes its DECSCUSR
+        // shape leaves every row's markup identical and would otherwise be
+        // dropped here.
+        guard !patch.isEmpty || cursor != renderedCursor else {
             return nil
         }
 
@@ -283,12 +303,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         case wholeScreen([String])
         case rows([String: String])
 
-        func arguments(cursor frame: TerminalFrame) -> [String: Any] {
-            var arguments: [String: Any] = [
-                "cursorColumn": frame.cursorColumn,
-                "cursorRow": frame.cursorRow,
-                "cursorVisible": frame.cursorBlinkOn,
-            ]
+        func arguments(cursor declaration: String) -> [String: Any] {
+            var arguments: [String: Any] = ["cursorStyle": declaration]
 
             switch self {
             case let .wholeScreen(rows):
@@ -315,12 +331,19 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// so a grid drawn at the page origin puts every glyph a padding away from
     /// the cell the pointer resolves to.
     private func publishMetricsIfChanged(cell: TerminalFrameSize, padding: TerminalFramePoint) {
-        guard cellSize != cell || self.padding != padding || !hasPublishedMetrics else {
+        let scale = backingScale
+
+        guard cellSize != cell
+            || self.padding != padding
+            || publishedBackingScale != scale
+            || !hasPublishedMetrics
+        else {
             return
         }
 
         cellSize = cell
         self.padding = padding
+        publishedBackingScale = scale
         hasPublishedMetrics = true
 
         run(Script.setMetrics, arguments: [
@@ -328,7 +351,24 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             "height": Double(cell.height),
             "paddingX": Double(padding.x),
             "paddingY": Double(padding.y),
+            "cursorBar": cssLength(devicePixels: AppConstants.Terminal.cursorWidthPX),
+            "cursorUnderline": cssLength(devicePixels: AppConstants.Terminal.cursorUnderlineHeightPX),
         ])
+    }
+
+    /// The screen the view is on, or the best guess available before it has one.
+    private var backingScale: CGFloat {
+        window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? Metrics.fallbackBackingSCALE
+    }
+
+    /// A device-pixel count as the CSS length that draws exactly that many
+    /// pixels on this screen. CSS lengths are points, so the cursor's rules
+    /// would come out twice as thick as Metal's on a Retina display if the
+    /// density were ignored.
+    private func cssLength(devicePixels: Float) -> String {
+        "\(Double(devicePixels) / Double(max(backingScale, 1)))px"
     }
 
     /// The metrics script, so a test can hold it to the variables it must
@@ -405,6 +445,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private func loadShell() {
         isDocumentLoaded = false
         hasPublishedMetrics = false
+        renderedCursor = ""
+        publishedBackingScale = 0
         renderedRows = []
         webView.loadHTMLString(
             TerminalHTMLStylesheet.document(

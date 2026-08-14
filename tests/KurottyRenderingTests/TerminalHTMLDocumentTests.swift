@@ -18,23 +18,32 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         cells: [TerminalCell],
         decorations: [TerminalDecoration] = [],
         columns: Int = Fixture.columns,
-        visibleRows: Int = Fixture.rows
+        visibleRows: Int = Fixture.rows,
+        defaultForeground: SIMD4<Float> = Fixture.white,
+        cursorColumn: Int = 0,
+        cursorRow: Int = 0,
+        cursorBlinkOn: Bool = true,
+        cursorStyle: TerminalCursorStyle = .default,
+        markedText: String = "",
+        markedTextColumn: Int = 0,
+        markedTextSelectedRange: TerminalTextSelectionRange = .none
     ) -> TerminalFrame {
         TerminalFrame(
             cells: cells,
             backgrounds: [],
             decorations: decorations,
-            defaultForeground: Fixture.white,
+            defaultForeground: defaultForeground,
             defaultBackground: Fixture.black,
             dirtyRows: [],
             dirtyRects: [],
             isFullDamage: true,
-            cursorColumn: 0,
-            cursorRow: 0,
-            cursorBlinkOn: true,
-            markedTextColumn: 0,
-            markedText: "",
-            markedTextSelectedRange: TerminalTextSelectionRange(location: 0, length: 0),
+            cursorColumn: cursorColumn,
+            cursorRow: cursorRow,
+            cursorBlinkOn: cursorBlinkOn,
+            cursorStyle: cursorStyle,
+            markedTextColumn: markedTextColumn,
+            markedText: markedText,
+            markedTextSelectedRange: markedTextSelectedRange,
             columns: columns,
             visibleRows: visibleRows,
             cellSize: TerminalFrameSize(width: 8, height: 16),
@@ -302,6 +311,221 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         // an underline on its way through.
         XCTAssertEqual(runs.filter(\.isUnderlined).reduce(0) { $0 + $1.columns }, 2)
         XCTAssertTrue(runs.contains { !$0.shapes.isEmpty }, "box drawing must arrive as geometry")
+    }
+
+    // MARK: - IME composition
+    //
+    // The frame carries the preedit because `setMarkedText` state must never be
+    // written to the terminal as committed text, which makes drawing it the
+    // renderer's job. This renderer did not do it, so a user composing Hangul
+    // saw nothing at all until the syllable committed.
+
+    func testACompositionIsDrawnOnTheCursorRow() {
+        let built = frame(
+            cells: [],
+            cursorRow: 3,
+            markedText: "안",
+            markedTextColumn: 5
+        )
+
+        let rendered = TerminalHTMLDocument.rows(frame: built)
+
+        XCTAssertTrue(rendered[3].contains("안"), "the preedit is invisible while composing")
+        XCTAssertFalse(rendered[0].contains("안"), "and belongs only on the row the composition sits on")
+    }
+
+    func testACompositionStartsAtItsAnchorColumn() {
+        let built = frame(cells: [], markedText: "안", markedTextColumn: 5)
+
+        let runs = TerminalHTMLDocument.runs(row: 0, frame: built)
+        let leading = runs.prefix { !$0.isMarked }.reduce(0) { $0 + $1.columns }
+
+        XCTAssertEqual(leading, 5, "the composition must begin where the input method anchored it")
+        XCTAssertEqual(
+            runs.first(where: \.isMarked)?.columns,
+            2,
+            "a Hangul syllable occupies two columns of the preedit"
+        )
+    }
+
+    func testTheCellsUnderACompositionAreNotDrawnBehindIt() {
+        let built = frame(
+            cells: line("abcdefgh"),
+            markedText: "가",
+            markedTextColumn: 2
+        )
+
+        let text = TerminalHTMLDocument.runs(row: 0, frame: built)
+            .map(\.text)
+            .joined()
+
+        XCTAssertTrue(text.hasPrefix("ab가efgh"), "got \(text.prefix(10))")
+    }
+
+    func testAWideCellIsDroppedWholeRatherThanBleedingUnderTheComposition() {
+        // The head of a wide cell sits one column before the composition, so a
+        // walk that kept it would step over the preedit's first column and
+        // shift the whole composition one cell to the right.
+        // The fixture states the width rather than leaving it to be guessed
+        // from the codepoint: the Zig grid is what decides a cell is wide, and
+        // the renderer reads that decision off the cell instead of re-deriving
+        // it.
+        let cells = [
+            TerminalCell(
+                character: "한", column: 1, row: 0,
+                foreground: Fixture.white, background: Fixture.black,
+                columns: TerminalCellColumns.wide
+            ),
+        ]
+        let built = frame(cells: cells, markedText: "가", markedTextColumn: 2)
+
+        let runs = TerminalHTMLDocument.runs(row: 0, frame: built)
+        let leading = runs.prefix { !$0.isMarked }.reduce(0) { $0 + $1.columns }
+
+        XCTAssertEqual(leading, 2, "the composition drifted to column \(leading)")
+        XCTAssertFalse(
+            runs.contains { $0.text.contains("한") },
+            "half of a wide cell cannot be drawn"
+        )
+    }
+
+    func testTheSelectedSubRangeOfACompositionIsDrawnInTheSelectionColour() {
+        // The input method selects the syllable the next keystroke lands in.
+        // `TerminalMetalView` draws that sub-range in the selection foreground
+        // and the rest in the screen's own; the two renderers must agree.
+        let built = frame(
+            cells: [],
+            defaultForeground: Fixture.red,
+            markedText: "안녕",
+            markedTextSelectedRange: TerminalTextSelectionRange(location: 1, length: 1)
+        )
+
+        let marked = TerminalHTMLDocument.runs(row: 0, frame: built).filter(\.isMarked)
+
+        XCTAssertEqual(marked.count, 2, "the selected sub-range must not merge into the rest of the preedit")
+        XCTAssertEqual(marked.first?.text, "안")
+        XCTAssertEqual(marked.first?.foreground, Fixture.red)
+        XCTAssertEqual(marked.last?.text, "녕")
+        XCTAssertEqual(marked.last?.foreground, TerminalSelectionStyle.foregroundColor)
+    }
+
+    func testACompositionWithoutASelectedSubRangeIsOneRun() {
+        let built = frame(cells: [], markedText: "안녕")
+
+        let marked = TerminalHTMLDocument.runs(row: 0, frame: built).filter(\.isMarked)
+
+        XCTAssertEqual(marked.count, 1, "nothing distinguishes these cells, so they are one span")
+        XCTAssertEqual(marked.first?.text, "안녕")
+    }
+
+    func testACompositionIsEscapedLikeAnyOtherContent() {
+        // Marked text is user input rather than program output, and gets the
+        // same treatment: it reaches the document as text or not at all.
+        let html = TerminalHTMLDocument.row(0, frame: frame(cells: [], markedText: "<b>&"))
+
+        XCTAssertFalse(html.contains("<b>"))
+        XCTAssertTrue(html.contains("&lt;b&gt;&amp;"))
+    }
+
+    func testACompositionCarriesTheClassThatNamesIt() {
+        let html = TerminalHTMLDocument.row(0, frame: frame(cells: [], markedText: "안"))
+
+        XCTAssertTrue(html.contains(TerminalHTMLDocument.Markup.markedClass))
+    }
+
+    func testTheCaretSitsInsideTheCompositionRatherThanAfterIt() {
+        // The surface puts `cursorColumn` past the whole preedit; the caret
+        // belongs where the input method's selection says the next keystroke
+        // lands, which is what `TerminalMetalView` draws.
+        let built = frame(
+            cells: [],
+            cursorColumn: 4,
+            markedText: "안녕",
+            markedTextColumn: 0,
+            markedTextSelectedRange: TerminalTextSelectionRange(location: 1, length: 1)
+        )
+
+        XCTAssertEqual(TerminalCursorPlacement(frame: built).column, 2)
+    }
+
+    func testTheCaretIsTheFramesOwnColumnWhenNothingIsBeingComposed() {
+        XCTAssertEqual(
+            TerminalCursorPlacement(frame: frame(cells: [], cursorColumn: 7)).column,
+            7
+        )
+    }
+
+    // MARK: - Cursor shape
+    //
+    // DECSCUSR is a per-terminal value `vim`, `fish` and `zsh`'s vi mode change
+    // on every mode switch. The frame carries it and Metal honours it; this
+    // renderer drew one hardcoded block for every case.
+
+    func testABlockCursorFillsTheCell() {
+        let declaration = TerminalHTMLDocument.cursorDeclaration(
+            frame: frame(cells: [], cursorStyle: TerminalCursorStyle(shape: .block, blinks: false))
+        )
+
+        XCTAssertTrue(declaration.contains("width:var(\(TerminalHTMLDocument.Variable.cellWidth))"), declaration)
+        XCTAssertTrue(declaration.contains("height:var(\(TerminalHTMLDocument.Variable.cellHeight))"), declaration)
+    }
+
+    func testABarCursorIsARuleOnTheLeadingEdge() {
+        let declaration = TerminalHTMLDocument.cursorDeclaration(
+            frame: frame(cells: [], cursorStyle: TerminalCursorStyle(shape: .bar, blinks: true))
+        )
+
+        XCTAssertTrue(
+            declaration.contains("width:var(\(TerminalHTMLDocument.Variable.cursorBarWidth))"),
+            "a bar drawn a cell wide is a block, got \(declaration)"
+        )
+        XCTAssertTrue(declaration.contains("height:var(\(TerminalHTMLDocument.Variable.cellHeight))"), declaration)
+    }
+
+    func testAnUnderlineCursorIsARuleOnTheBottomEdge() {
+        let declaration = TerminalHTMLDocument.cursorDeclaration(
+            frame: frame(cells: [], cursorRow: 2, cursorStyle: TerminalCursorStyle(shape: .underline, blinks: false))
+        )
+
+        XCTAssertTrue(
+            declaration.contains("height:var(\(TerminalHTMLDocument.Variable.cursorUnderlineHeight))"),
+            "an underline drawn a cell tall is a block, got \(declaration)"
+        )
+        XCTAssertTrue(
+            declaration.contains(
+                "calc(var(\(TerminalHTMLDocument.Variable.cellHeight)) * 2 "
+                    + "+ var(\(TerminalHTMLDocument.Variable.cellHeight)) "
+                    + "- var(\(TerminalHTMLDocument.Variable.cursorUnderlineHeight)))"
+            ),
+            "the rule sits on the cell's bottom edge, got \(declaration)"
+        )
+    }
+
+    func testTheCursorIsPlacedInCellUnits() {
+        let declaration = TerminalHTMLDocument.cursorDeclaration(
+            frame: frame(cells: [], cursorColumn: 9, cursorRow: 4)
+        )
+
+        XCTAssertTrue(
+            declaration.contains("translate(calc(var(\(TerminalHTMLDocument.Variable.cellWidth)) * 9)"),
+            declaration
+        )
+    }
+
+    func testACursorInItsOffBlinkPhaseIsTransparent() {
+        let off = TerminalHTMLDocument.cursorDeclaration(frame: frame(cells: [], cursorBlinkOn: false))
+        let on = TerminalHTMLDocument.cursorDeclaration(frame: frame(cells: [], cursorBlinkOn: true))
+
+        XCTAssertTrue(off.contains("opacity:0"), off)
+        XCTAssertTrue(on.contains("opacity:1"), on)
+    }
+
+    func testAHiddenCursorIsNotDrawnAtTheTopOfTheScreen() {
+        // The surface reports a hidden cursor as row -1, and a renderer that
+        // clamped that to zero would park a cursor on the first row.
+        let hidden = TerminalCursorPlacement(frame: frame(cells: [], cursorRow: -1))
+
+        XCTAssertFalse(hidden.isVisible)
     }
 }
 

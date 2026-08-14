@@ -30,6 +30,8 @@ enum TerminalHTMLDocument {
         static let cellHeight = "--ch"
         static let paddingX = "--px"
         static let paddingY = "--py"
+        static let cursorBarWidth = "--cursor-bar"
+        static let cursorUnderlineHeight = "--cursor-underline"
     }
 
     /// Class and attribute names, so the projector and the stylesheet cannot
@@ -43,6 +45,9 @@ enum TerminalHTMLDocument {
         static let runClass = "trun"
         static let underlineClass = "tul"
         static let strikethroughClass = "tst"
+        /// Names the input method's composition rather than styling it, so the
+        /// stylesheet decides what composing text looks like in one place.
+        static let markedClass = "tmk"
         static let screenID = "screen"
         static let cursorID = "cursor"
     }
@@ -100,9 +105,16 @@ enum TerminalHTMLDocument {
         if run.isStruckThrough {
             classes += " \(Markup.strikethroughClass)"
         }
+        // The class names the composition rather than styling it. Metal draws
+        // the preedit with the same pen it draws committed text with, and the
+        // two renderers disagreeing about what composing text looks like is the
+        // class of bug this whole branch keeps finding.
+        if run.isMarked {
+            classes += " \(Markup.markedClass)"
+        }
 
         let sizing = "color:\(css(run.foreground));background:\(css(run.background))"
-            + ";width:calc(var(--cw) * \(run.columns))"
+            + ";width:calc(var(\(Variable.cellWidth)) * \(run.columns))"
 
         guard !run.shapes.isEmpty else {
             return "<span class=\"\(classes)\" style=\"\(sizing)\">\(escaped(run.text))</span>"
@@ -126,6 +138,42 @@ enum TerminalHTMLDocument {
 
     private static func percent(_ value: Double) -> String {
         String(format: "%.4f%%", min(max(value, 0), 1) * 100)
+    }
+
+    // MARK: - Cursor
+
+    /// The cursor element's inline style for this frame.
+    ///
+    /// The cell is the anchor, exactly as it is in `TerminalMetalView`: a block
+    /// fills it, an underline is a rule on its bottom edge, and a bar is a rule
+    /// on its leading edge. Everything is stated in the cell-metric and
+    /// thickness custom properties, so a cursor stays the right size across a
+    /// font change without the document being rebuilt.
+    static func cursorDeclaration(frame: TerminalFrame) -> String {
+        let cursor = TerminalCursorPlacement(frame: frame)
+        let cellWidth = "var(\(Variable.cellWidth))"
+        let cellHeight = "var(\(Variable.cellHeight))"
+        let barWidth = "var(\(Variable.cursorBarWidth))"
+        let underlineHeight = "var(\(Variable.cursorUnderlineHeight))"
+
+        let x = "calc(\(cellWidth) * \(cursor.column))"
+        var y = "calc(\(cellHeight) * \(cursor.row))"
+        var width = cellWidth
+        var height = cellHeight
+
+        switch cursor.shape {
+        case .block:
+            break
+        case .underline:
+            height = underlineHeight
+            y = "calc(\(cellHeight) * \(cursor.row) + \(cellHeight) - \(underlineHeight))"
+        case .bar:
+            width = barWidth
+        }
+
+        return "transform:translate(\(x),\(y));"
+            + "width:\(width);height:\(height);"
+            + "opacity:\(cursor.isVisible ? 1 : 0)"
     }
 
     // MARK: - Formatting
