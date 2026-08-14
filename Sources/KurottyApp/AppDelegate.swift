@@ -192,7 +192,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .requiresApproval, .emptyCommand:
                     return false
                 }
-            }
+            },
+            // The window's system-drawn parts follow the terminal's theme
+            // rather than the Mac's appearance, so the palette does not arrive
+            // in a different mode from the window that opened it.
+            chromeTheme: DesignTokens.ChromeTheme.theme(for: (try? AppSettingsStore.shared.load()) ?? .default)
         )
         commandPaletteController = controller
         controller.showWindow(nil)

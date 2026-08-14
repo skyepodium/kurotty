@@ -302,3 +302,186 @@ final class KubernetesContainerRankingTests: XCTestCase {
         XCTAssertEqual(KubernetesContainerRanking.ranked(subject).first?.name, "alpha")
     }
 }
+
+/// What a picker shows, and which row Return acts on.
+final class QuickCommandPickerPresenterTests: XCTestCase {
+    private func row(
+        _ title: String,
+        detail: String = "",
+        recommended: Bool = false,
+        secondary: Bool = false
+    ) -> QuickCommandPickerRow {
+        QuickCommandPickerRow(
+            glyph: nil,
+            title: title,
+            detail: detail,
+            badge: nil,
+            isRecommended: recommended,
+            isSecondary: secondary,
+            values: ["name": title]
+        )
+    }
+
+    /// The ranking is only worth doing if Return acts on it.
+    func testTheSelectionLandsOnTheRecommendedRowRatherThanTheFirst() {
+        let presenter = QuickCommandPickerPresenter(rows: [
+            row("istio-proxy", secondary: true),
+            row("api", recommended: true),
+        ])
+
+        XCTAssertEqual(presenter.selectedRow?.title, "api")
+    }
+
+    func testWithNothingRecommendedTheFirstRowIsSelected() {
+        let presenter = QuickCommandPickerPresenter(rows: [row("api"), row("worker")])
+
+        XCTAssertEqual(presenter.selectedRow?.title, "api")
+    }
+
+    /// Someone who typed `istio` means the proxy, whatever the heuristics think
+    /// of it.
+    func testTypingOutranksTheRanking() {
+        var presenter = QuickCommandPickerPresenter(rows: [
+            row("api", recommended: true),
+            row("istio-proxy", secondary: true),
+        ])
+
+        presenter.updateQuery("istio")
+
+        XCTAssertEqual(presenter.visibleRows.map(\.title), ["istio-proxy"])
+        XCTAssertEqual(presenter.selectedRow?.title, "istio-proxy")
+    }
+
+    func testTheDetailIsSearchedAsWellAsTheTitle() {
+        var presenter = QuickCommandPickerPresenter(rows: [
+            row("sidecar", detail: "docker.io/istio/proxyv2:1.20"),
+            row("api", detail: "registry/api:2026.8"),
+        ])
+
+        presenter.updateQuery("proxyv2")
+
+        XCTAssertEqual(presenter.visibleRows.map(\.title), ["sidecar"])
+    }
+
+    func testAQueryThatMatchesNothingSelectsNothing() {
+        var presenter = QuickCommandPickerPresenter(rows: [row("api")])
+
+        presenter.updateQuery("zzz")
+
+        XCTAssertTrue(presenter.visibleRows.isEmpty)
+        XCTAssertNil(presenter.selectedRow)
+    }
+
+    /// A list this short is faster to cycle than to reverse direction in.
+    func testTheSelectionWrapsAtBothEnds() {
+        var presenter = QuickCommandPickerPresenter(rows: [row("a"), row("b"), row("c")])
+
+        presenter.moveSelection(by: -1)
+        XCTAssertEqual(presenter.selectedRow?.title, "c")
+
+        presenter.moveSelection(by: 1)
+        XCTAssertEqual(presenter.selectedRow?.title, "a")
+    }
+
+    /// A rule rather than a group: grouping would reorder, and the order is the
+    /// ranking.
+    func testTheHairlineFallsWhereInfrastructureBegins() {
+        let presenter = QuickCommandPickerPresenter(rows: [
+            row("api", recommended: true),
+            row("worker"),
+            row("istio-proxy", secondary: true),
+            row("fluent-bit", secondary: true),
+        ])
+
+        XCTAssertEqual(presenter.firstSecondaryIndex, 2)
+    }
+
+    func testWithNoInfrastructureThereIsNoHairline() {
+        let presenter = QuickCommandPickerPresenter(rows: [row("api"), row("worker")])
+
+        XCTAssertNil(presenter.firstSecondaryIndex)
+    }
+
+    /// A picker over a cluster is a network round trip, and pretending
+    /// otherwise makes an empty list look like an answer.
+    func testAnEmptyListWhileLoadingIsNotAnAnswer() {
+        var presenter = QuickCommandPickerPresenter(isLoading: true)
+        XCTAssertTrue(presenter.isLoading)
+        XCTAssertTrue(presenter.visibleRows.isEmpty)
+
+        presenter.applyRows([row("api", recommended: true)])
+
+        XCTAssertFalse(presenter.isLoading)
+        XCTAssertEqual(presenter.selectedRow?.title, "api")
+    }
+}
+
+/// The palettes' colour, type and mode.
+///
+/// A palette painted from theme tokens but left in the Mac's appearance is a
+/// window with two designs in it: chrome in the theme's colours and a scroller,
+/// a focus ring and a field fill in the system's. None of the palettes did this
+/// before, which is why they looked borrowed under a light theme.
+@MainActor
+final class PaletteAppearanceTests: XCTestCase {
+    private func themes() -> [(String, DesignTokens.ChromeTheme)] {
+        [("dark", .dark), ("light", .light), ("nacre", .nacre)]
+    }
+
+    func testThePickerTakesItsModeFromTheThemeRatherThanTheSystem() {
+        for (name, theme) in themes() {
+            let controller = QuickCommandPickerWindowController(
+                title: "Pick",
+                placeholder: "Filter",
+                chromeTheme: theme,
+                chooseHandler: { _ in }
+            )
+
+            XCTAssertEqual(
+                controller.window?.appearance,
+                theme.windowAppearance,
+                "\(name) picker did not follow its theme"
+            )
+        }
+    }
+
+    func testTheProjectFilePaletteTakesItsModeFromTheThemeToo() {
+        for (name, theme) in themes() {
+            let controller = ProjectFileQuickOpenWindowController(
+                rootDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
+                chromeTheme: theme,
+                insertPathHandler: { _ in },
+                openFileHandler: { _ in }
+            )
+
+            XCTAssertEqual(
+                controller.window?.appearance,
+                theme.windowAppearance,
+                "\(name) file palette did not follow its theme"
+            )
+        }
+    }
+
+    func testTheCommandPaletteTakesItsModeFromTheThemeToo() {
+        for (name, theme) in themes() {
+            let controller = CommandPaletteWindowController(
+                commandExecutor: { _ in },
+                chromeTheme: theme
+            )
+
+            XCTAssertEqual(
+                controller.window?.appearance,
+                theme.windowAppearance,
+                "\(name) command palette did not follow its theme"
+            )
+        }
+    }
+
+    /// The detail column is machine text — an image tag, a container id. In a
+    /// proportional face `postgres:16` and `postgres:l6` look alike, and those
+    /// are the two the eye has to tell apart.
+    func testTheDetailColumnIsMonospaced() {
+        XCTAssertTrue(DesignTokens.Typography.monoBody.font.isFixedPitch)
+        XCTAssertFalse(DesignTokens.Typography.rowTitle.font.isFixedPitch)
+    }
+}

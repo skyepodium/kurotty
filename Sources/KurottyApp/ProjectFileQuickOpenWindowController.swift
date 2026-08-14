@@ -86,6 +86,13 @@ final class ProjectFileQuickOpenWindowController: NSWindowController {
             return
         }
 
+        // The theme decides light or dark, not the system. Without this the
+        // window's system-drawn parts — the scroller, the focus ring, the
+        // field's own fill — come out in the Mac's appearance beside chrome
+        // painted from the theme's tokens, which is why this palette looked
+        // borrowed under a light theme.
+        window.appearance = chromeTheme.windowAppearance
+
         let contentView = NSView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
         window.contentView = contentView

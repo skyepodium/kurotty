@@ -1092,6 +1092,28 @@ enum DesignTokens {
         /// so the two read as one surface invoked two ways, but the row is
         /// taller: a file row is a name over its directory, which is two lines
         /// where a command row is one.
+        /// The picker is wider than the file palette because its rows carry
+        /// four things across — a glyph, a name, an image, and a state — where
+        /// a file row carries two. Narrower, and the image truncates, which is
+        /// exactly the column that distinguishes two containers with dull
+        /// names.
+        static var quickPickerWidthPX: CGFloat { UIScale.scaledMetric(660) }
+        static var quickPickerHeightPX: CGFloat { UIScale.scaledMetric(430) }
+        /// Taller than a file row: a picker row is two lines of type, and a
+        /// selection drawn as an inset pill needs room to sit inside rather
+        /// than fill.
+        static var quickPickerRowHeightPX: CGFloat { UIScale.scaledMetric(52) }
+        /// How far the selection pill sits inside its row on each side.
+        ///
+        /// The single most recognisable thing about Arc's and Dia's lists is
+        /// that a selected row is a rounded shape *within* the list rather than
+        /// a bar across it. This is the whole difference, and it is one number.
+        static var quickPickerSelectionInsetPX: CGFloat { UIScale.scaledMetric(6) }
+        /// Width of the glyph column. Fixed so every title starts at the same
+        /// x whether or not its row has a glyph — a ragged left edge is what
+        /// makes a list read as a dump rather than a table.
+        static var quickPickerGlyphColumnPX: CGFloat { UIScale.scaledMetric(30) }
+
         static let projectFilePaletteWidthPX = commandPaletteWidthPX
         static let projectFilePaletteHeightPX = commandPaletteHeightPX
         static var projectFilePaletteRowHeightPX: CGFloat { UIScale.scaledMetric(44) }

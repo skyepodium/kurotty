@@ -153,14 +153,19 @@ final class CommandPaletteWindowController: NSWindowController {
     private let commandExecutor: (TerminalCommand) -> Void
     private let commandSpanExecutor: (TerminalCommandSpanCommand) -> Bool
     private let quickCommandExecutor: (QuickCommand) -> Bool
+    /// Captured as a value rather than observed. The palette lives for one
+    /// invocation, so it cannot outlive a theme change.
+    private let chromeTheme: DesignTokens.ChromeTheme
     private var presenter: CommandPalettePresenter
 
     init(
         palette: TerminalCommandPalette = TerminalCommandPalette(includesCommandSpanCommands: true),
         commandExecutor: @escaping (TerminalCommand) -> Void,
         commandSpanExecutor: @escaping (TerminalCommandSpanCommand) -> Bool = { _ in false },
-        quickCommandExecutor: @escaping (QuickCommand) -> Bool = { _ in false }
+        quickCommandExecutor: @escaping (QuickCommand) -> Bool = { _ in false },
+        chromeTheme: DesignTokens.ChromeTheme = .dark
     ) {
+        self.chromeTheme = chromeTheme
         self.presenter = CommandPalettePresenter(palette: palette, language: AppLocalization.language)
         self.commandExecutor = commandExecutor
         self.commandSpanExecutor = commandSpanExecutor
@@ -198,6 +203,13 @@ final class CommandPaletteWindowController: NSWindowController {
         guard let window else {
             return
         }
+
+        // The theme decides light or dark, not the system. Without this the
+        // window's system-drawn parts — the scroller, the focus ring, the
+        // field's own fill — come out in the Mac's appearance beside chrome
+        // painted from the theme's tokens, which is why this palette looked
+        // borrowed under a light theme.
+        window.appearance = chromeTheme.windowAppearance
 
         let contentView = NSView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
