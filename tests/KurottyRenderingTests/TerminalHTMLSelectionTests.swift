@@ -72,6 +72,44 @@ final class TerminalHTMLSelectionTests: XCTestCase {
         XCTAssertTrue(document.contains("-webkit-user-select: none"))
     }
 
+    // MARK: - Where the pointer thinks the grid is
+
+    @MainActor
+    func testDocumentPlacesTheGridAtTheFramesPaddingRatherThanTheOrigin() {
+        let document = makeRenderer().shellDocument()
+
+        // `TerminalSurfaceView.visibleCellPosition(for:)` subtracts the padding
+        // it puts in the frame before dividing by the cell size. A document that
+        // starts row 0 at the page origin therefore draws every glyph a padding
+        // away from the cell the pointer resolves to, and a selection drag
+        // covers text the user did not point at. The origin has to be a variable
+        // the frame drives, and the rows and the cursor have to share it.
+        XCTAssertTrue(document.contains("#\(TerminalHTMLDocument.Markup.gridID)"))
+        XCTAssertTrue(document.contains("left: var(\(TerminalHTMLDocument.Variable.paddingX))"))
+        XCTAssertTrue(document.contains("top: var(\(TerminalHTMLDocument.Variable.paddingY))"))
+
+        let gridElement = "<div id=\"\(TerminalHTMLDocument.Markup.gridID)\">"
+        guard let gridStart = document.range(of: gridElement) else {
+            return XCTFail("the document must have a grid box")
+        }
+        let inside = document[gridStart.upperBound...]
+        XCTAssertTrue(inside.contains("id=\"screen\""), "rows must sit inside the offset grid box")
+        XCTAssertTrue(inside.contains("id=\"cursor\""), "the cursor must share the grid's origin")
+    }
+
+    @MainActor
+    func testEveryFrameCarriesThePaddingIntoTheDocument() {
+        // The stylesheet only seeds the variables; a resize or a font change
+        // republishes them. Both names have to travel with the frame or the
+        // grid's origin freezes at whatever the first document said.
+        let script = TerminalHTMLView.frameScriptForTesting
+
+        XCTAssertTrue(script.contains(TerminalHTMLDocument.Variable.paddingX))
+        XCTAssertTrue(script.contains(TerminalHTMLDocument.Variable.paddingY))
+        XCTAssertTrue(script.contains("paddingX"))
+        XCTAssertTrue(script.contains("paddingY"))
+    }
+
     // MARK: - The projection
 
     /// A frame shaped the way `TerminalSurfaceView.updateRendererFrame` shapes

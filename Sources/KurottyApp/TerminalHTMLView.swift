@@ -62,10 +62,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private enum Script {
         /// One frame, in one call.
         ///
-        /// Everything a frame changes travels together — cell metrics, rows,
-        /// cursor — because each `callAsyncJavaScript` is a round trip to the
-        /// web content process, and three per frame is three times the crossing
-        /// for no benefit.
+        /// Everything a frame changes travels together — cell metrics, padding,
+        /// rows, cursor — because each `callAsyncJavaScript` is a round trip to
+        /// the web content process, and three per frame is three times the
+        /// crossing for no benefit.
         ///
         /// It resolves after a double `requestAnimationFrame`, which is the
         /// closest a web view offers to "this has been composited". That is what
@@ -78,9 +78,12 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// arbitrary program, and interpolating them into source is how that
         /// program gets to write the script.
         static let applyFrame = """
-        if (cellWidth > 0) {
-            document.documentElement.style.setProperty('--cw', cellWidth + 'px');
-            document.documentElement.style.setProperty('--ch', cellHeight + 'px');
+        if (publishesMetrics) {
+            const root = document.documentElement.style;
+            root.setProperty('\(TerminalHTMLDocument.Variable.cellWidth)', cellWidth + 'px');
+            root.setProperty('\(TerminalHTMLDocument.Variable.cellHeight)', cellHeight + 'px');
+            root.setProperty('\(TerminalHTMLDocument.Variable.paddingX)', paddingX + 'px');
+            root.setProperty('\(TerminalHTMLDocument.Variable.paddingY)', paddingY + 'px');
         }
 
         if (replaceAll) {
@@ -128,9 +131,16 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
     private var cellSize = TerminalFrameSize(width: 8, height: 16)
+    /// Where row 0, column 0 begins, in the surface's coordinates.
+    ///
+    /// The renderer is not free to pick this. `TerminalSurfaceView` resolves a
+    /// click to a cell by subtracting the very padding it puts in the frame, so
+    /// drawing the grid anywhere else makes the pointer and the glyphs disagree
+    /// by exactly that much — and a selection drag then covers the wrong cells.
+    private var padding = TerminalFramePoint.zero
     /// The document is loaded with placeholder cell metrics, so the first frame
     /// must publish real ones even when they happen to match the placeholder.
-    private var hasPublishedCellSize = false
+    private var hasPublishedMetrics = false
     private var presentationWatchdog: DispatchWorkItem?
     private var isAwaitingPresentation = false
 
@@ -243,15 +253,21 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             }
         }
 
-        let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
+        let publishesMetrics = cellSize != frame.cellSize
+            || padding != frame.padding
+            || !hasPublishedMetrics
         cellSize = frame.cellSize
-        hasPublishedCellSize = true
+        padding = frame.padding
+        hasPublishedMetrics = true
 
         armPresentationWatchdog()
 
         run(Script.applyFrame, arguments: [
-            "cellWidth": publishesCellSize ? Double(frame.cellSize.width) : 0,
+            "publishesMetrics": publishesMetrics,
+            "cellWidth": Double(frame.cellSize.width),
             "cellHeight": Double(frame.cellSize.height),
+            "paddingX": frame.padding.x,
+            "paddingY": frame.padding.y,
             "replaceAll": replaceAll,
             "rows": replaceAll ? rows : [],
             "patch": patch,
@@ -259,6 +275,12 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             "cursorRow": frame.cursorRow,
             "cursorVisible": frame.cursorBlinkOn,
         ])
+    }
+
+    /// The per-frame script, so a test can hold it to the variables it must
+    /// publish without standing up a web content process.
+    static var frameScriptForTesting: String {
+        Script.applyFrame
     }
 
     /// Reports the frame presented even if the page never answers.
@@ -371,7 +393,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
 
     private func loadShell() {
         isDocumentLoaded = false
-        hasPublishedCellSize = false
+        hasPublishedMetrics = false
         renderedRows = []
         webView.loadHTMLString(shellDocument(), baseURL: nil)
     }
@@ -395,8 +417,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         <html><head><meta charset="utf-8">
         <style>
         :root {
-            --cw: \(cellSize.width)px;
-            --ch: \(cellSize.height)px;
+            \(TerminalHTMLDocument.Variable.cellWidth): \(cellSize.width)px;
+            \(TerminalHTMLDocument.Variable.cellHeight): \(cellSize.height)px;
+            \(TerminalHTMLDocument.Variable.paddingX): \(padding.x)px;
+            \(TerminalHTMLDocument.Variable.paddingY): \(padding.y)px;
         }
         html, body {
             margin: 0; padding: 0;
@@ -413,6 +437,15 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
                user sees arrives inside the frame, as cell colours. */
             user-select: none;
             -webkit-user-select: none;
+        }
+        /* The grid's origin, and the reason it is a box rather than padding on
+           the rows: the cursor is positioned absolutely and has to share the
+           origin, so both live inside one offset container and neither has to
+           add the padding itself. */
+        #\(TerminalHTMLDocument.Markup.gridID) {
+            position: absolute;
+            left: var(\(TerminalHTMLDocument.Variable.paddingX));
+            top: var(\(TerminalHTMLDocument.Variable.paddingY));
         }
         #screen {
             position: relative;
@@ -448,7 +481,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             will-change: transform;
         }
         </style></head>
-        <body><div id="screen"></div><div id="cursor"></div></body></html>
+        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen"></div><div id="cursor"></div></div></body></html>
         """
     }
 }

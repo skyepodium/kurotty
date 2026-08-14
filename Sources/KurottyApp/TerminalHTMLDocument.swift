@@ -21,9 +21,28 @@ import KurottyCore
 /// the rest of the line. Nothing here relies on the font advancing the way the
 /// glyph atlas would.
 enum TerminalHTMLDocument {
+    /// The CSS custom properties everything positional is expressed in, so the
+    /// stylesheet that declares them and the per-frame script that updates them
+    /// cannot disagree about a name.
+    ///
+    /// The padding pair is not decoration. `TerminalSurfaceView` maps a click to
+    /// a cell by subtracting the same padding it puts in the frame, so a
+    /// document that draws row 0 at the origin puts every glyph a padding away
+    /// from the cell the pointer resolves to — the selection then lands one
+    /// column left of the text under the cursor.
+    enum Variable {
+        static let cellWidth = "--cw"
+        static let cellHeight = "--ch"
+        static let paddingX = "--px"
+        static let paddingY = "--py"
+    }
+
     /// Class and attribute names, so the projector and the stylesheet cannot
     /// disagree about a string.
     enum Markup {
+        /// The box that carries the grid's origin. Rows and the cursor both
+        /// live inside it, so the frame's padding is applied exactly once.
+        static let gridID = "grid"
         static let rowClass = "trow"
         static let rowIDPrefix = "r"
         static let runClass = "trun"
