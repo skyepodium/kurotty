@@ -2,6 +2,48 @@ import AppKit
 import KurottyCore
 import WebKit
 
+/// The web view the terminal document is drawn into, and the one place the
+/// input boundary is decided.
+///
+/// **The rule: no `NSEvent` crosses into the web view. Not one.** Not a key
+/// event, not a mouse event, not a scroll. Everything is delivered to
+/// `TerminalSurfaceView`, which is the first responder for both renderers and
+/// already owns keyboard, IME, scrolling, links, and the text selection.
+///
+/// It would be tempting to let mouse-down/drag/up through, because a selection
+/// gesture is made of mouse events and the DOM would give a selection for free.
+/// Two things say no. The first is `AGENTS.md`: marked text belongs to
+/// `NSTextInputContext`, and the moment a web content process can become first
+/// responder it can own the composition — that is the `d안녕` regression, and
+/// hit-testing is far too weak a fence to bet it on, because `makeFirstResponder`
+/// and the key-view loop never consult `hitTest`. The second is that the app
+/// already *has* a selection: `TerminalSurfaceView.selectionAnchor` /
+/// `selectionFocus`, which `Cmd+C`, the context menu, Select All and search all
+/// read. A DOM selection would be a second one, drawn by a different engine over
+/// the same pixels, disagreeing about wide glyphs, scrollback rows and trailing
+/// blanks. One selection that is slightly less capable beats two that differ.
+///
+/// So the selection reaches this view the way every other pixel does — baked
+/// into `TerminalFrame` by the surface as per-cell foreground and background —
+/// and nothing here has to know what a selection is.
+///
+/// Refusing hit tests keeps the pointer flowing to the surface. Refusing first
+/// responder *and* key-view membership keeps the two paths that bypass hit
+/// testing from handing focus to the content process anyway.
+final class TerminalHTMLWebView: WKWebView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override var acceptsFirstResponder: Bool {
+        false
+    }
+
+    override var canBecomeKeyView: Bool {
+        false
+    }
+}
+
 /// A terminal renderer that draws into a web view instead of a glyph atlas.
 ///
 /// The alternative to `TerminalMetalView`, selected through
@@ -9,12 +51,8 @@ import WebKit
 /// receive the same `TerminalFrame`, damage included, so nothing above this
 /// layer knows which one is drawing.
 ///
-/// **The web view displays; it never handles input.** Keyboard, IME, mouse and
-/// scrolling stay on the AppKit path they already take, which is the design
-/// decision that protects the Hangul composition work in `AGENTS.md`: marked
-/// text belongs to `NSTextInputContext` and a web content process must not be
-/// allowed to own it. The view is therefore hit-test transparent and never
-/// becomes first responder.
+/// **The web view displays; it never handles input.** The rule is stated once,
+/// on `TerminalHTMLWebView`, and enforced there rather than event by event.
 ///
 /// Rows are patched, not rebuilt. The frame already carries the damage the
 /// surface computed, so an ordinary keystroke replaces one row's markup and
@@ -24,10 +62,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private enum Script {
         /// One frame, in one call.
         ///
-        /// Everything a frame changes travels together — cell metrics, rows,
-        /// cursor — because each `callAsyncJavaScript` is a round trip to the
-        /// web content process, and three per frame is three times the crossing
-        /// for no benefit.
+        /// Everything a frame changes travels together — cell metrics, padding,
+        /// rows, cursor — because each `callAsyncJavaScript` is a round trip to
+        /// the web content process, and three per frame is three times the
+        /// crossing for no benefit.
         ///
         /// It resolves after a double `requestAnimationFrame`, which is the
         /// closest a web view offers to "this has been composited". That is what
@@ -67,13 +105,16 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
 
         /// The cell box every run is sized against.
         ///
-        /// Its own call rather than a field on the frame update, because it
-        /// changes on a resize or a font change and not on the frames in
-        /// between. Sending it every frame would put two unrelated lifetimes
+        /// Its own call rather than a field on the frame update, because these
+        /// change on a resize or a font change and not on the frames in
+        /// between. Sending them every frame would put two unrelated lifetimes
         /// in one message.
-        static let setCellSize = """
-        document.documentElement.style.setProperty('--cw', width + 'px');
-        document.documentElement.style.setProperty('--ch', height + 'px');
+        static let setMetrics = """
+        const root = document.documentElement.style;
+        root.setProperty('\(TerminalHTMLDocument.Variable.cellWidth)', width + 'px');
+        root.setProperty('\(TerminalHTMLDocument.Variable.cellHeight)', height + 'px');
+        root.setProperty('\(TerminalHTMLDocument.Variable.paddingX)', paddingX + 'px');
+        root.setProperty('\(TerminalHTMLDocument.Variable.paddingY)', paddingY + 'px');
         """
     }
 
@@ -88,7 +129,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         static let presentationDeadlineSECONDS = 0.5
     }
 
-    private let webView: WKWebView
+    private let webView: TerminalHTMLWebView
     private var isDocumentLoaded = false
     private var pendingFrame: TerminalFrame?
     private var renderedRows: [String] = []
@@ -96,9 +137,16 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
     private var cellSize = TerminalFrameSize(width: 8, height: 16)
+    /// Where row 0, column 0 begins, in the surface's coordinates.
+    ///
+    /// The renderer is not free to pick this. `TerminalSurfaceView` resolves a
+    /// click to a cell by subtracting the very padding it puts in the frame, so
+    /// drawing the grid anywhere else makes the pointer and the glyphs disagree
+    /// by exactly that much — and a selection drag then covers the wrong cells.
+    private var padding = TerminalFramePoint.zero
     /// The document is loaded with placeholder cell metrics, so the first frame
     /// must publish real ones even when they happen to match the placeholder.
-    private var hasPublishedCellSize = false
+    private var hasPublishedMetrics = false
     private var presentationWatchdog: DispatchWorkItem?
     private var isAwaitingPresentation = false
 
@@ -127,7 +175,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.suppressesIncrementalRendering = false
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = TerminalHTMLWebView(frame: .zero, configuration: configuration)
 
         super.init(frame: .zero)
 
@@ -151,12 +199,22 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         fatalError("TerminalHTMLView is created in code, not from a nib")
     }
 
-    /// Input belongs to the surface above, not to the web content process.
+    /// The same rule as `TerminalHTMLWebView`, applied to the container.
+    ///
+    /// Both are needed and neither is redundant. The container has to be
+    /// transparent or the pointer stops here instead of reaching
+    /// `TerminalSurfaceView`, which is what makes the selection gesture work at
+    /// all; the web view has to refuse independently because a subview can be
+    /// focused without ever being hit-tested.
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
     override var acceptsFirstResponder: Bool {
+        false
+    }
+
+    override var canBecomeKeyView: Bool {
         false
     }
 
@@ -173,7 +231,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     }
 
     private func draw(_ frame: TerminalFrame) {
-        publishCellSizeIfChanged(frame.cellSize)
+        publishMetricsIfChanged(cell: frame.cellSize, padding: frame.padding)
 
         guard let update = update(for: frame) else {
             // Nothing visible changed. The frame still has to report itself
@@ -247,23 +305,36 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         }
     }
 
-    /// Publishes the cell box the page sizes every run against.
+    /// Publishes the cell box every run is sized against, and the origin the
+    /// grid is drawn from.
     ///
-    /// The document loads before any frame arrives, so its metrics start as
-    /// placeholders and every run is sized in cell units against them. Runs
-    /// were clipped mid-glyph until this was sent.
-    private func publishCellSizeIfChanged(_ size: TerminalFrameSize) {
-        guard cellSize != size || !hasPublishedCellSize else {
+    /// The document loads before any frame arrives, so these start as
+    /// placeholders. Runs were clipped mid-glyph until the cell box was sent;
+    /// the padding is the same class of error one level out — `TerminalSurfaceView`
+    /// maps a click to a cell by subtracting the padding it put in the frame,
+    /// so a grid drawn at the page origin puts every glyph a padding away from
+    /// the cell the pointer resolves to.
+    private func publishMetricsIfChanged(cell: TerminalFrameSize, padding: TerminalFramePoint) {
+        guard cellSize != cell || self.padding != padding || !hasPublishedMetrics else {
             return
         }
 
-        cellSize = size
-        hasPublishedCellSize = true
+        cellSize = cell
+        self.padding = padding
+        hasPublishedMetrics = true
 
-        run(Script.setCellSize, arguments: [
-            "width": Double(size.width),
-            "height": Double(size.height),
+        run(Script.setMetrics, arguments: [
+            "width": Double(cell.width),
+            "height": Double(cell.height),
+            "paddingX": Double(padding.x),
+            "paddingY": Double(padding.y),
         ])
+    }
+
+    /// The metrics script, so a test can hold it to the variables it must
+    /// publish without standing up a web content process.
+    static var metricsScriptForTesting: String {
+        Script.setMetrics
     }
 
     /// Reports a frame presented exactly once, cancelling anything still
@@ -333,14 +404,15 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
 
     private func loadShell() {
         isDocumentLoaded = false
-        hasPublishedCellSize = false
+        hasPublishedMetrics = false
         renderedRows = []
         webView.loadHTMLString(
             TerminalHTMLStylesheet.document(
                 font: font,
                 backgroundColor: backgroundColor,
                 cursorColor: cursorColor,
-                cellSize: cellSize
+                cellSize: cellSize,
+                padding: padding
             ),
             baseURL: nil
         )

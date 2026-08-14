@@ -35,11 +35,6 @@ enum TerminalHTMLStylesheet {
 
     /// The page the rows live in.
     ///
-    /// Everything positional is a CSS variable so a font or size change is a
-    /// variable update rather than a different document, and every row can size
-    /// its runs in cell units without knowing the pixel size.
-    /// The page the rows live in.
-    ///
     /// Everything positional is a CSS variable, so a font or size change is a
     /// variable update rather than a different document, and a row can size its
     /// runs in cell units without knowing the pixel size.
@@ -47,7 +42,8 @@ enum TerminalHTMLStylesheet {
         font: NSFont,
         backgroundColor: SIMD4<Float>,
         cursorColor: SIMD4<Float>,
-        cellSize: TerminalFrameSize
+        cellSize: TerminalFrameSize,
+        padding: TerminalFramePoint
     ) -> String {
         let background = TerminalHTMLDocument.css(backgroundColor)
         let cursor = TerminalHTMLDocument.css(cursorColor)
@@ -59,14 +55,35 @@ enum TerminalHTMLStylesheet {
         <html><head><meta charset="utf-8">
         <style>
         :root {
-            --cw: \(cellSize.width)px;
-            --ch: \(cellSize.height)px;
+            \(TerminalHTMLDocument.Variable.cellWidth): \(cellSize.width)px;
+            \(TerminalHTMLDocument.Variable.cellHeight): \(cellSize.height)px;
+            \(TerminalHTMLDocument.Variable.paddingX): \(padding.x)px;
+            \(TerminalHTMLDocument.Variable.paddingY): \(padding.y)px;
         }
         html, body {
             margin: 0; padding: 0;
             background: \(background);
             overflow: hidden;
             cursor: text;
+            /* The second half of the one-selection rule. `TerminalHTMLWebView`
+               stops a gesture from ever reaching the page; this stops the page
+               from holding a selection by any other route — a stray
+               `Select All` that escapes the responder chain, a caret WebKit
+               places on load, a future script. A DOM selection here would draw
+               a second highlight over the surface's own, and the two would
+               disagree on wide glyphs and trailing blanks. The selection the
+               user sees arrives inside the frame, as cell colours. */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* The grid's origin, and the reason it is a box rather than padding on
+           the rows: the cursor is positioned absolutely and has to share the
+           origin, so both live inside one offset container and neither has to
+           add the padding itself. */
+        #\(TerminalHTMLDocument.Markup.gridID) {
+            position: absolute;
+            left: var(\(TerminalHTMLDocument.Variable.paddingX));
+            top: var(\(TerminalHTMLDocument.Variable.paddingY));
         }
         #screen {
             position: relative;
@@ -102,7 +119,7 @@ enum TerminalHTMLStylesheet {
             will-change: transform;
         }
         </style></head>
-        <body><div id="screen"></div><div id="cursor"></div></body></html>
+        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen"></div><div id="cursor"></div></div></body></html>
         """
     }
 }

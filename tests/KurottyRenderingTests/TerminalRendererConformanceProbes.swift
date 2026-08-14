@@ -10,12 +10,6 @@ enum TerminalRendererConformance {
     /// fails the suite, so a fixed gap cannot quietly stay on the list. Each
     /// reason says what the renderer draws instead.
     static let knownGaps: [String: String] = [
-        "padding": """
-        The frame's content inset never reaches the page. Metal offsets every \
-        cell, cursor, decoration and marked-text box by frame.padding; the HTML \
-        document has `padding: 0` and positions rows from the window's top-left \
-        corner, so the two renderers put the same screen in different places.
-        """,
         "dirtyRects": """
         Rect damage is ignored; only dirtyRows patches a row. Harmless today \
         because the surface derives rects one-per-dirty-row, so a rect-only \
