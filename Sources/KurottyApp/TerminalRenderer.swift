@@ -37,18 +37,27 @@ enum TerminalRendererFactory {
         backgroundColor: SIMD4<Float>,
         cursorColor: SIMD4<Float>
     ) -> any TerminalAppKitRenderer {
-        guard isHTMLRendererRequested() else {
-            return TerminalMetalView(
+        let useHTML = isHTMLRendererRequested()
+
+        let renderer: any TerminalAppKitRenderer = useHTML
+            ? TerminalHTMLView(
                 font: font,
                 backgroundColor: backgroundColor,
                 cursorColor: cursorColor
             )
+            : TerminalMetalView(
+                font: font,
+                backgroundColor: backgroundColor,
+                cursorColor: cursorColor
+            )
+
+        guard TerminalRenderLatencyProbe.isEnabled() else {
+            return renderer
         }
 
-        return TerminalHTMLView(
-            font: font,
-            backgroundColor: backgroundColor,
-            cursorColor: cursorColor
+        return TerminalRenderLatencyProbe(
+            wrapping: renderer,
+            label: useHTML ? "html" : "metal"
         )
     }
 

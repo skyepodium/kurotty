@@ -22,41 +22,49 @@ import WebKit
 @MainActor
 final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private enum Script {
-        /// Replaces the rows named by the argument. Passed as an argument
-        /// rather than interpolated into source: screen content is bytes from
-        /// an arbitrary program, and building JavaScript by string
-        /// concatenation around it is how that program gets to write the
-        /// program.
-        static let patchRows = """
-        for (const [id, markup] of Object.entries(rows)) {
-            const row = document.getElementById(id);
-            if (row) { row.outerHTML = markup; }
+        /// One frame, in one call.
+        ///
+        /// Everything a frame changes travels together — cell metrics, rows,
+        /// cursor — because each `callAsyncJavaScript` is a round trip to the
+        /// web content process, and three per frame is three times the crossing
+        /// for no benefit.
+        ///
+        /// It resolves after a double `requestAnimationFrame`, which is the
+        /// closest a web view offers to "this has been composited". That is what
+        /// makes `onPresented` mean the same thing here as it does for Metal,
+        /// which fires it from the command buffer's completion handler. Firing
+        /// it when the script was merely *sent* would report a latency that
+        /// excludes all the work being measured.
+        ///
+        /// Screen content arrives as arguments. Terminal output is bytes from an
+        /// arbitrary program, and interpolating them into source is how that
+        /// program gets to write the script.
+        static let applyFrame = """
+        if (cellWidth > 0) {
+            document.documentElement.style.setProperty('--cw', cellWidth + 'px');
+            document.documentElement.style.setProperty('--ch', cellHeight + 'px');
         }
-        """
 
-        static let replaceScreen = """
-        const screen = document.getElementById('screen');
-        if (screen) { screen.innerHTML = rows.join(''); }
-        """
+        if (replaceAll) {
+            const screen = document.getElementById('screen');
+            if (screen) { screen.innerHTML = rows.join(''); }
+        } else {
+            for (const [id, markup] of Object.entries(patch)) {
+                const row = document.getElementById(id);
+                if (row) { row.outerHTML = markup; }
+            }
+        }
 
-        static let moveCursor = """
         const cursor = document.getElementById('cursor');
         if (cursor) {
-            cursor.style.transform = `translate(calc(var(--cw) * ${column}), calc(var(--ch) * ${row}))`;
-            cursor.style.opacity = visible ? '1' : '0';
+            cursor.style.transform =
+                `translate(calc(var(--cw) * ${cursorColumn}), calc(var(--ch) * ${cursorRow}))`;
+            cursor.style.opacity = cursorVisible ? '1' : '0';
         }
-        """
 
-        /// The cell box every run is sized against.
-        ///
-        /// Set from the frame rather than baked into the document: the shell
-        /// loads before any frame arrives, so its values are placeholders, and
-        /// a run sized against a placeholder is clipped to it. That was the
-        /// first bug this renderer had on screen — text cut off mid-glyph
-        /// because runs were 8px wide while the font drew wider.
-        static let setCellSize = """
-        document.documentElement.style.setProperty('--cw', width + 'px');
-        document.documentElement.style.setProperty('--ch', height + 'px');
+        await new Promise(resolve =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))
+        );
         """
     }
 
@@ -150,57 +158,63 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     }
 
     private func draw(_ frame: TerminalFrame) {
-        // Before any markup, because every run is sized against these.
-        if cellSize != frame.cellSize || !hasPublishedCellSize {
-            cellSize = frame.cellSize
-            hasPublishedCellSize = true
-            run(Script.setCellSize, arguments: [
-                "width": Double(frame.cellSize.width),
-                "height": Double(frame.cellSize.height),
-            ])
-        }
-
         let rows = TerminalHTMLDocument.rows(frame: frame)
+        let replaceAll = frame.isFullDamage || renderedRows.count != rows.count
+        var patch: [String: String] = [:]
 
-        // A full-damage frame is a TUI repainting its whole screen, which is
-        // the common case over ssh. Replacing the screen in one call beats
-        // twenty-four separate patches through the JavaScript bridge.
-        if frame.isFullDamage || renderedRows.count != rows.count {
+        if replaceAll {
             renderedRows = rows
-            run(Script.replaceScreen, arguments: ["rows": rows])
         } else {
-            var changed: [String: String] = [:]
-
             for row in frame.dirtyRows where rows.indices.contains(row) {
                 guard renderedRows[row] != rows[row] else {
                     continue
                 }
                 renderedRows[row] = rows[row]
-                changed["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] = rows[row]
+                patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] = rows[row]
             }
 
-            if !changed.isEmpty {
-                run(Script.patchRows, arguments: ["rows": changed])
+            // Nothing visible changed. The frame still has to report itself
+            // presented or the latency metric waits forever for a paint that is
+            // not coming.
+            guard !patch.isEmpty else {
+                onPresented?()
+                return
             }
         }
 
-        run(Script.moveCursor, arguments: [
-            "column": frame.cursorColumn,
-            "row": frame.cursorRow,
-            "visible": frame.cursorBlinkOn,
-        ])
+        let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
+        cellSize = frame.cellSize
+        hasPublishedCellSize = true
 
-        onPresented?()
+        run(Script.applyFrame, arguments: [
+            "cellWidth": publishesCellSize ? Double(frame.cellSize.width) : 0,
+            "cellHeight": Double(frame.cellSize.height),
+            "replaceAll": replaceAll,
+            "rows": replaceAll ? rows : [],
+            "patch": patch,
+            "cursorColumn": frame.cursorColumn,
+            "cursorRow": frame.cursorRow,
+            "cursorVisible": frame.cursorBlinkOn,
+        ])
     }
 
     private func run(_ body: String, arguments: [String: Any]) {
-        webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: .page) { result in
-            guard case let .failure(error) = result else {
-                return
+        webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: .page) { [weak self] result in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    return
+                }
+
+                if case let .failure(error) = result {
+                    // Never the screen's contents: terminal output is sensitive,
+                    // and a failure message quoting a row would put it in a log.
+                    NSLog("terminal html renderer script failed: %@", error.localizedDescription)
+                }
+
+                // Reported on failure too. A frame that never reports leaves the
+                // latency metric waiting on a paint that will not arrive.
+                self.onPresented?()
             }
-            // Never the screen's contents: terminal output is sensitive, and a
-            // failure message that quoted the row would put it in a log.
-            NSLog("terminal html renderer script failed: %@", error.localizedDescription)
         }
     }
 
