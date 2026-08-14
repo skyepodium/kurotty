@@ -21,8 +21,8 @@ import KurottyCore
 /// the rest of the line. Nothing here relies on the font advancing the way the
 /// glyph atlas would.
 enum TerminalHTMLDocument {
-    /// Class and attribute names, so the projector and the stylesheet cannot
-    /// disagree about a string.
+    /// Class, attribute and custom-property names, so the projector and the
+    /// stylesheet cannot disagree about a string.
     enum Markup {
         static let rowClass = "trow"
         static let rowIDPrefix = "r"
@@ -31,6 +31,16 @@ enum TerminalHTMLDocument {
         static let markedClass = "tmarked"
         static let underlineClass = "tul"
         static let strikethroughClass = "tst"
+
+        /// Cell metrics, published by the view once per size change so every
+        /// run can be measured in cell units without knowing its pixel size.
+        static let cellWidthVariable = "--cw"
+        static let cellHeightVariable = "--ch"
+        /// Thickness of the two DECSCUSR line shapes. The view resolves them
+        /// from the same constants Metal draws from, because they are stated in
+        /// device pixels and only the view knows the screen's density.
+        static let cursorBarWidthVariable = "--cursor-bar"
+        static let cursorUnderlineHeightVariable = "--cursor-underline"
     }
 
     /// A filled rectangle inside one cell, as a fraction of that cell.
@@ -64,6 +74,9 @@ enum TerminalHTMLDocument {
         var background: SIMD4<Float>
         var isUnderlined: Bool
         var isStruckThrough: Bool
+        /// True for cells the input method's preedit covers. It never merges
+        /// with committed text, so the composition is always its own span.
+        var isMarked: Bool = false
         /// Non-empty for a cell drawn as geometry rather than as text. Such a
         /// cell is always its own run: the shapes are positioned inside one
         /// cell box, so merging it with a neighbour would stretch them.
@@ -131,6 +144,7 @@ enum TerminalHTMLDocument {
         private(set) var underlines: Set<Int> = []
         private(set) var strikethroughs: Set<Int> = []
         private(set) var shapes: [Int: [Shape]] = [:]
+        private(set) var marked: Set<Int> = []
         let columns: Int
 
         init(frame: TerminalFrame) {
@@ -175,6 +189,85 @@ enum TerminalHTMLDocument {
                     }
                 }
             }
+
+            overlayMarkedText(frame: frame)
+        }
+
+        /// Lays the input method's preedit over the row the composition sits on.
+        ///
+        /// The frame carries the composition rather than the screen buffer,
+        /// because `setMarkedText` is preedit state and must never be written
+        /// to the terminal as committed text. Drawing it is therefore the
+        /// renderer's job, and until now this renderer did not do it: a user
+        /// composing Hangul saw nothing until the syllable committed.
+        ///
+        /// The cells underneath are dropped rather than drawn behind, which is
+        /// what `TerminalMetalView` does with the same range: the composition
+        /// replaces what is on the line for as long as it lasts.
+        private mutating func overlayMarkedText(frame: TerminalFrame) {
+            guard let range = frame.markedTextRenderRange,
+                  frame.cursorRow >= 0
+            else {
+                return
+            }
+
+            let row = frame.cursorRow
+
+            // A wide cell whose head sits just before the composition would
+            // otherwise be stepped over the first covered column and shift the
+            // preedit one cell to the right, so it goes as well.
+            if range.startColumn > 0 {
+                let head = key(row, range.startColumn - 1)
+                if (widths[head] ?? 1) > 1 {
+                    erase(head)
+                }
+            }
+            for column in range.cellRange {
+                erase(key(row, column))
+            }
+
+            var column = range.startColumn
+            var characterOffset = 0
+            var utf16Offset = 0
+
+            for character in frame.markedText {
+                defer {
+                    characterOffset += 1
+                    utf16Offset += String(character).utf16.count
+                }
+                guard characterOffset >= range.sourceCharacterOffset else {
+                    continue
+                }
+
+                // The same width function the range was laid out with. Asking a
+                // second one would let the two disagree and run the composition
+                // off the end of its own range.
+                let width = max(character.terminalColumnWidth, 1)
+                guard column + width <= range.endColumn else {
+                    break
+                }
+
+                let index = key(row, column)
+                characters[index] = character
+                widths[index] = width
+                foregrounds[index] = TerminalHTMLDocument.markedForeground(
+                    utf16Offset: utf16Offset,
+                    utf16Length: String(character).utf16.count,
+                    frame: frame
+                )
+                marked.insert(index)
+                column += width
+            }
+        }
+
+        /// Drops whatever was drawn in a cell, leaving its background alone.
+        private mutating func erase(_ index: Int) {
+            characters.removeValue(forKey: index)
+            widths.removeValue(forKey: index)
+            foregrounds.removeValue(forKey: index)
+            shapes.removeValue(forKey: index)
+            underlines.remove(index)
+            strikethroughs.remove(index)
         }
 
         /// Box drawing as up to four bars meeting at the centre of the cell.
@@ -261,6 +354,7 @@ enum TerminalHTMLDocument {
             let background = grid.backgrounds[index] ?? frame.defaultBackground
             let isUnderlined = grid.underlines.contains(index)
             let isStruckThrough = grid.strikethroughs.contains(index)
+            let isMarked = grid.marked.contains(index)
             let shapes = grid.shapes[index] ?? []
 
             // Extend the run in place when nothing visual changed. Comparing the
@@ -276,7 +370,8 @@ enum TerminalHTMLDocument {
                last.foreground == foreground,
                last.background == background,
                last.isUnderlined == isUnderlined,
-               last.isStruckThrough == isStruckThrough {
+               last.isStruckThrough == isStruckThrough,
+               last.isMarked == isMarked {
                 last.text.append(character)
                 last.columns += width
                 runs[runs.count - 1] = last
@@ -288,6 +383,7 @@ enum TerminalHTMLDocument {
                     background: background,
                     isUnderlined: isUnderlined,
                     isStruckThrough: isStruckThrough,
+                    isMarked: isMarked,
                     shapes: shapes
                 ))
             }
@@ -296,6 +392,103 @@ enum TerminalHTMLDocument {
         }
 
         return runs
+    }
+
+    // MARK: - Marked text
+
+    /// The colour one preedit character is drawn in.
+    ///
+    /// The input method selects a sub-range of its own composition — in Hangul,
+    /// the syllable currently being built — and that sub-range is what tells the
+    /// user where the next keystroke lands. `TerminalMetalView` distinguishes it
+    /// by drawing it in the selection foreground while the rest of the
+    /// composition keeps the screen's, and this matches that rather than
+    /// inventing a second convention.
+    static func markedForeground(
+        utf16Offset: Int,
+        utf16Length: Int,
+        frame: TerminalFrame
+    ) -> SIMD4<Float> {
+        let selection = frame.markedTextSelectedRange
+        guard selection.location != TerminalTextSelectionRange.notFound,
+              selection.length > 0,
+              utf16Offset < selection.location + selection.length,
+              selection.location < utf16Offset + utf16Length
+        else {
+            return frame.defaultForeground
+        }
+        return TerminalSelectionStyle.foregroundColor
+    }
+
+    // MARK: - Cursor
+
+    /// Where the caret sits and what shape DECSCUSR gave it.
+    ///
+    /// `blinks` is deliberately absent: the surface has already folded the blink
+    /// phase into `cursorBlinkOn` before the frame is built, so a renderer that
+    /// consulted it as well would blink the cursor twice.
+    struct Cursor: Equatable {
+        var column: Int
+        var row: Int
+        var shape: TerminalCursorStyle.Shape
+        var isVisible: Bool
+    }
+
+    static func cursor(frame: TerminalFrame) -> Cursor {
+        Cursor(
+            column: max(0, caretColumn(frame: frame)),
+            row: max(0, frame.cursorRow),
+            shape: frame.cursorStyle.shape,
+            isVisible: frame.cursorBlinkOn && frame.cursorRow >= 0
+        )
+    }
+
+    /// The cursor element's inline style for this frame.
+    ///
+    /// The cell is the anchor, exactly as it is in `TerminalMetalView`: a block
+    /// fills it, an underline is a rule on its bottom edge, and a bar is a rule
+    /// on its leading edge. Everything is stated in the cell-metric and
+    /// thickness custom properties, so a cursor stays the right size across a
+    /// font change without the document being rebuilt.
+    static func cursorDeclaration(frame: TerminalFrame) -> String {
+        let cursor = cursor(frame: frame)
+        let cellWidth = "var(\(Markup.cellWidthVariable))"
+        let cellHeight = "var(\(Markup.cellHeightVariable))"
+        let barWidth = "var(\(Markup.cursorBarWidthVariable))"
+        let underlineHeight = "var(\(Markup.cursorUnderlineHeightVariable))"
+
+        let x = "calc(\(cellWidth) * \(cursor.column))"
+        var y = "calc(\(cellHeight) * \(cursor.row))"
+        var width = cellWidth
+        var height = cellHeight
+
+        switch cursor.shape {
+        case .block:
+            break
+        case .underline:
+            height = underlineHeight
+            y = "calc(\(cellHeight) * \(cursor.row) + \(cellHeight) - \(underlineHeight))"
+        case .bar:
+            width = barWidth
+        }
+
+        return "transform:translate(\(x),\(y));"
+            + "width:\(width);height:\(height);"
+            + "opacity:\(cursor.isVisible ? 1 : 0)"
+    }
+
+    /// The column the caret occupies, which is inside the composition while one
+    /// is being typed: the input method's selected sub-range says where the next
+    /// keystroke lands, and a caret parked after the whole preedit would say
+    /// something else.
+    private static func caretColumn(frame: TerminalFrame) -> Int {
+        guard let range = frame.markedTextRenderRange else {
+            return frame.cursorColumn
+        }
+        return range.cursorColumn(
+            in: frame.markedText,
+            selectedUTF16Location: frame.markedTextSelectedRange.location
+        )
     }
 
     // MARK: - Markup
@@ -319,8 +512,16 @@ enum TerminalHTMLDocument {
         if run.isStruckThrough {
             classes += " \(Markup.strikethroughClass)"
         }
+        // The class names the composition rather than styling it. Metal draws
+        // the preedit with the same pen it draws committed text with, and the
+        // two renderers disagreeing about what composing text looks like is the
+        // class of bug this whole branch keeps finding.
+        if run.isMarked {
+            classes += " \(Markup.markedClass)"
+        }
 
-        var style = "color:\(css(run.foreground));background:\(css(run.background));width:calc(var(--cw) * \(run.columns))"
+        var style = "color:\(css(run.foreground));background:\(css(run.background));"
+            + "width:calc(var(\(Markup.cellWidthVariable)) * \(run.columns))"
 
         guard !run.shapes.isEmpty else {
             return "<span class=\"\(classes)\" style=\"\(style)\">\(escaped(run.text))</span>"

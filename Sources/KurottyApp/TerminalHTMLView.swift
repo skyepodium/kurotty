@@ -41,8 +41,16 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// program gets to write the script.
         static let applyFrame = """
         if (cellWidth > 0) {
-            document.documentElement.style.setProperty('--cw', cellWidth + 'px');
-            document.documentElement.style.setProperty('--ch', cellHeight + 'px');
+            document.documentElement.style.setProperty('\(TerminalHTMLDocument.Markup.cellWidthVariable)', cellWidth + 'px');
+            document.documentElement.style.setProperty('\(TerminalHTMLDocument.Markup.cellHeightVariable)', cellHeight + 'px');
+        }
+
+        // Non-empty only when the view has moved to a display of a different
+        // density, which is the one thing that changes what a thickness stated
+        // in device pixels means.
+        if (cursorBarWidth) {
+            document.documentElement.style.setProperty('\(TerminalHTMLDocument.Markup.cursorBarWidthVariable)', cursorBarWidth);
+            document.documentElement.style.setProperty('\(TerminalHTMLDocument.Markup.cursorUnderlineHeightVariable)', cursorUnderlineHeight);
         }
 
         if (replaceAll) {
@@ -58,12 +66,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             }
         }
 
+        // Position, shape and visibility arrive as one declaration the
+        // projector wrote, so the shape DECSCUSR selected is decided in the
+        // pure layer next to everything else the frame decides.
         const cursor = document.getElementById('cursor');
-        if (cursor) {
-            cursor.style.transform =
-                `translate(calc(var(--cw) * ${cursorColumn}), calc(var(--ch) * ${cursorRow}))`;
-            cursor.style.opacity = cursorVisible ? '1' : '0';
-        }
+        if (cursor) { cursor.style.cssText = cursorStyle; }
 
         await new Promise(resolve =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))
@@ -80,12 +87,19 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// anyway. Far beyond a frame budget: this catches a page that has
         /// stopped animating, not a page that is merely slow.
         static let presentationDeadlineSECONDS = 0.5
+        /// Assumed when the view has no window and no screen to ask. Retina is
+        /// the overwhelmingly likely answer on the Macs Kurotty runs on, and it
+        /// is the same assumption `TerminalMetalView` makes.
+        static let fallbackBackingSCALE: CGFloat = 2
     }
 
     private let webView: WKWebView
     private var isDocumentLoaded = false
     private var pendingFrame: TerminalFrame?
     private var renderedRows: [String] = []
+    /// The cursor declaration the page is currently showing, so a frame that
+    /// changes nothing else can still be recognised as changing the cursor.
+    private var renderedCursor = ""
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -95,6 +109,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private var hasPublishedCellSize = false
     private var presentationWatchdog: DispatchWorkItem?
     private var isAwaitingPresentation = false
+    /// The density the page's cursor thicknesses were resolved against. They
+    /// are stated in device pixels, so a view moved to a display of a different
+    /// density has to be told them again — which the next frame does, rather
+    /// than a document reload that would blank every row until something draws.
+    private var publishedBackingScale: CGFloat = 0
 
     var onPresented: (() -> Void)?
     var rendererView: NSView { self }
@@ -168,6 +187,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
 
     private func draw(_ frame: TerminalFrame) {
         let rows = TerminalHTMLDocument.rows(frame: frame)
+        let cursor = TerminalHTMLDocument.cursorDeclaration(frame: frame)
         let replaceAll = frame.isFullDamage || renderedRows.count != rows.count
         var patch: [String: String] = [:]
 
@@ -186,7 +206,12 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             // Nothing visible changed. The frame still has to report itself
             // presented or the latency metric waits forever for a paint that is
             // not coming.
-            guard !patch.isEmpty else {
+            //
+            // The cursor is counted as visible change of its own: it lives
+            // outside the rows, so a frame that only moves it, blinks it or
+            // changes its DECSCUSR shape leaves every row's markup identical
+            // and would otherwise be dropped here.
+            guard !patch.isEmpty || cursor != renderedCursor else {
                 presentationWatchdog?.cancel()
                 presentationWatchdog = nil
                 isAwaitingPresentation = false
@@ -196,8 +221,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         }
 
         let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
+        let publishesBackingScale = backingScale != publishedBackingScale
         cellSize = frame.cellSize
         hasPublishedCellSize = true
+        publishedBackingScale = backingScale
+        renderedCursor = cursor
 
         armPresentationWatchdog()
 
@@ -207,9 +235,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             "replaceAll": replaceAll,
             "rows": replaceAll ? rows : [],
             "patch": patch,
-            "cursorColumn": frame.cursorColumn,
-            "cursorRow": frame.cursorRow,
-            "cursorVisible": frame.cursorBlinkOn,
+            "cursorStyle": cursor,
+            "cursorBarWidth": publishesBackingScale
+                ? cssLength(devicePixels: AppConstants.Terminal.cursorWidthPX) : "",
+            "cursorUnderlineHeight": publishesBackingScale
+                ? cssLength(devicePixels: AppConstants.Terminal.cursorUnderlineHeightPX) : "",
         ])
     }
 
@@ -325,7 +355,24 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         isDocumentLoaded = false
         hasPublishedCellSize = false
         renderedRows = []
+        renderedCursor = ""
+        publishedBackingScale = backingScale
         webView.loadHTMLString(shellDocument(), baseURL: nil)
+    }
+
+    /// The screen the view is on, or the best guess available before it has one.
+    private var backingScale: CGFloat {
+        window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? Metrics.fallbackBackingSCALE
+    }
+
+    /// A device-pixel count as the CSS length that draws exactly that many
+    /// pixels on this screen. CSS lengths are points, so the cursor's two-pixel
+    /// rules would come out twice as thick as Metal's on a Retina display if
+    /// the density were ignored.
+    private func cssLength(devicePixels: Float) -> String {
+        "\(Double(devicePixels) / Double(max(backingScale, 1)))px"
     }
 
     /// The page the rows live in.
@@ -344,8 +391,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         <html><head><meta charset="utf-8">
         <style>
         :root {
-            --cw: \(cellSize.width)px;
-            --ch: \(cellSize.height)px;
+            \(TerminalHTMLDocument.Markup.cellWidthVariable): \(cellSize.width)px;
+            \(TerminalHTMLDocument.Markup.cellHeightVariable): \(cellSize.height)px;
+            \(TerminalHTMLDocument.Markup.cursorBarWidthVariable): \(cssLength(devicePixels: AppConstants.Terminal.cursorWidthPX));
+            \(TerminalHTMLDocument.Markup.cursorUnderlineHeightVariable): \(cssLength(devicePixels: AppConstants.Terminal.cursorUnderlineHeightPX));
         }
         html, body {
             margin: 0; padding: 0;
@@ -357,17 +406,17 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             position: relative;
             font-family: \(stack);
             font-size: \(size)px;
-            line-height: var(--ch);
+            line-height: var(\(TerminalHTMLDocument.Markup.cellHeightVariable));
             white-space: pre;
             -webkit-font-smoothing: antialiased;
         }
         .\(TerminalHTMLDocument.Markup.rowClass) {
-            height: var(--ch);
+            height: var(\(TerminalHTMLDocument.Markup.cellHeightVariable));
             white-space: pre;
         }
         .\(TerminalHTMLDocument.Markup.runClass) {
             display: inline-block;
-            height: var(--ch);
+            height: var(\(TerminalHTMLDocument.Markup.cellHeightVariable));
             vertical-align: top;
             overflow: hidden;
         }
@@ -376,11 +425,14 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         .\(TerminalHTMLDocument.Markup.underlineClass).\(TerminalHTMLDocument.Markup.strikethroughClass) {
             text-decoration: underline line-through;
         }
+        /* Size and position are the frame's to decide and arrive inline; a
+           block covering one cell is only what the element looks like in the
+           moment between the document loading and the first frame. */
         #cursor {
             position: absolute;
             top: 0; left: 0;
-            width: var(--cw);
-            height: var(--ch);
+            width: var(\(TerminalHTMLDocument.Markup.cellWidthVariable));
+            height: var(\(TerminalHTMLDocument.Markup.cellHeightVariable));
             background: \(cursor);
             mix-blend-mode: difference;
             pointer-events: none;
