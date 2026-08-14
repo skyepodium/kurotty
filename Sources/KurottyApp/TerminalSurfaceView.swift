@@ -186,6 +186,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         renderer.onPresented = { [weak self] in
             self?.rendererFramePresented()
         }
+        connectImageStoreToRenderer()
         addSubview(rendererView)
         NSLayoutConstraint.activate([
             rendererView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1545,10 +1546,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         let markedTextPosition = renderedMarkedTextPosition(visibleStartRow: visibleStartRow, compositionText: compositionText)
         let displayCursorRow = markedTextPosition?.row ?? cursorRow
         let displayCursorColumn = markedTextPosition?.column ?? cursorColumn
+        discardImagesScrolledOutOfTheBuffer()
+
         renderer.update(frame: TerminalFrame(
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
+            images: imagePlacements.visible(
+                from: absoluteContentRow(forRelative: visibleRowStartIndex(limit: metrics.size.rows)),
+                rows: metrics.size.rows
+            ),
             defaultForeground: terminalDefaultStyle.foreground,
             defaultBackground: nextViewportBackground,
             dirtyRows: damage.rows,
@@ -2587,6 +2594,91 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         scrollbackRows.count + screen.cells.count
     }
 
+    /// Pictures the terminal has been sent, and the bytes behind them.
+    ///
+    /// Two objects rather than one because they have different lifetimes: a
+    /// placement dies when its rows scroll out of the buffer, and the bytes die
+    /// with it *or* earlier, if a program sends more images than the store's
+    /// budget holds.
+    private let imageStore = TerminalImageStore()
+    /// Points a document renderer's image scheme at this session's store.
+    ///
+    /// Only the document renderer serves pictures from bytes; the atlas
+    /// outlines where they are and needs nothing. So this is a capability the
+    /// renderer either has or does not, rather than another method on the
+    /// protocol every renderer would have to answer for.
+    private func connectImageStoreToRenderer() {
+        guard let htmlRenderer = renderer as? TerminalHTMLView else {
+            return
+        }
+        htmlRenderer.imageSchemeHandler.provider = { [weak self] identifier in
+            self?.imageStore.entry(TerminalImageStore.Identifier(value: identifier))
+        }
+    }
+    private var imagePlacements = TerminalImagePlacements()
+
+    /// Accepts a picture at the cursor and moves the cursor past it.
+    ///
+    /// The rows an image occupies are rows the cursor has to skip, or the next
+    /// line of output is printed through the picture. Feeding newlines is how
+    /// that is done — it is what the shell would have done itself, so scrolling,
+    /// scrollback and the reported cursor position all stay the model's own
+    /// business rather than becoming a second set of rules for images.
+    private func handleInlineImage(_ payload: TerminalInlineImagePayload) {
+        let metrics = terminalMetrics()
+        guard let representation = NSImage(data: payload.data), representation.size.width > 0 else {
+            return
+        }
+        guard let identifier = imageStore.store(data: payload.data, name: payload.name) else {
+            return
+        }
+
+        let size = TerminalInlineImageLayout.size(
+            for: payload,
+            pixelSize: representation.size,
+            in: TerminalInlineImageLayout.Bounds(
+                columns: metrics.size.columns,
+                rows: metrics.size.rows,
+                cellWidthPX: metrics.cellSize.width,
+                cellHeightPX: metrics.cellSize.height
+            )
+        )
+
+        imagePlacements.insert(TerminalImagePlacements.Placement(
+            identifier: identifier,
+            contentRow: absoluteContentRow(forRelative: scrollbackRows.count + cursorRow),
+            column: cursorColumn,
+            columns: size.columns,
+            rows: size.rows,
+            name: payload.name
+        ))
+
+        interpreter.advanceRowsForInlineImage(size.rows)
+    }
+
+    /// A content row counted from the start of the session rather than from
+    /// the oldest row still kept.
+    ///
+    /// `contentRow(at:)` indexes retained rows, so its zero moves every time
+    /// bounded scrollback drops a row off the top. An image anchored to that
+    /// would slide down the buffer as the session aged — visible as a picture
+    /// drifting away from the command that produced it.
+    private func absoluteContentRow(forRelative index: Int) -> Int {
+        scrollbackRows.diagnostics.retainedRowSummary.firstRetainedRowIndex + index
+    }
+
+    /// Drops pictures whose rows have fallen off the top of the scrollback.
+    ///
+    /// Bounded scrollback means rows leave, and an image whose last row has
+    /// left is unreachable — holding its bytes would be a leak that grows with
+    /// the session's age rather than with what is on screen.
+    private func discardImagesScrolledOutOfTheBuffer() {
+        let oldest = scrollbackRows.diagnostics.retainedRowSummary.firstRetainedRowIndex
+        for identifier in imagePlacements.discardBefore(contentRow: oldest) {
+            imageStore.discard(identifier)
+        }
+    }
+
     private func contentRow(at index: Int) -> [TerminalScreenCell]? {
         guard index >= 0 else { return nil }
         if index < scrollbackRows.count {
@@ -3355,6 +3447,12 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func handleDesktopNotificationEvent(_ event: TerminalOSCDispatcher.Event) {
+        // OSC 1337 carries both, so both arrive here. An image is not a
+        // notification and takes the other path entirely.
+        if case .inlineImage(let payload) = event {
+            handleInlineImage(payload)
+            return
+        }
         guard case .desktopNotification(let content) = event else {
             return
         }

@@ -122,6 +122,34 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             }
         }
 
+        const pictures = document.getElementById('\(TerminalHTMLDocument.Markup.imagesID)');
+        if (pictures) {
+            // A source is set once, when the page first meets an identifier.
+            // The bytes then live in the page's own cache and every later frame
+            // moves an element rather than re-sending a file.
+            for (const image of newImages) {
+                let element = document.getElementById(image.element);
+                if (!element) {
+                    element = document.createElement('img');
+                    element.id = image.element;
+                    element.className = '\(TerminalHTMLDocument.Markup.imageClass)';
+                    pictures.appendChild(element);
+                }
+                element.src = image.src;
+                element.alt = image.alt;
+            }
+
+            const live = new Set();
+            for (const image of images) {
+                live.add(image.element);
+                const element = document.getElementById(image.element);
+                if (element) { element.style.cssText = image.style; }
+            }
+            for (const element of Array.from(pictures.children)) {
+                if (!live.has(element.id)) { element.remove(); }
+            }
+        }
+
         // Position, shape and visibility arrive as one declaration the projector
         // wrote, so the shape DECSCUSR selected is decided in the pure layer next
         // to everything else the frame decides.
@@ -175,6 +203,16 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// The cursor declaration the page is currently showing, so a frame that
     /// changes nothing else can still be recognised as changing the cursor.
     private var renderedCursor = ""
+    /// The picture placements the page is currently showing, keyed by the
+    /// element each one lives in. Compared rather than trusted, for the same
+    /// reason rows are: damage says what might have moved.
+    private var renderedImages: [String: String] = [:]
+    /// Identifiers the page has already fetched. An identifier leaves this set
+    /// only when the document is reloaded, which is also when the page forgets
+    /// the bytes.
+    private var fetchedImageIdentifiers: Set<Int> = []
+    /// Serves image bytes to the page. Set by whoever owns the store.
+    let imageSchemeHandler = TerminalImageSchemeHandler()
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -216,6 +254,9 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         self.cursorColor = cursorColor
 
         let configuration = WKWebViewConfiguration()
+        // Registered before the web view exists, because a scheme handler
+        // cannot be added to a configuration a web view is already using.
+        configuration.setURLSchemeHandler(imageSchemeHandler, forURLScheme: TerminalImageSchemeHandler.scheme)
         // The document runs one small script that patches rows. Nothing it
         // renders can reach the network: the stylesheet references no resource
         // and the page has no way to make a request.
@@ -286,17 +327,19 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         let rows = screen.contents()
         let plan = TerminalHTMLRowDiff.plan(from: renderedRows, to: rows)
         let cursor = TerminalHTMLDocument.cursorDeclaration(frame: frame)
+        let images = imagePlacements(in: frame)
 
         // Nothing visible changed. The frame still has to report itself
         // presented, or the latency metric waits forever for a paint that is not
         // coming.
-        guard !plan.isEmpty || cursor != renderedCursor else {
+        guard !plan.isEmpty || cursor != renderedCursor || images.placements != renderedImages else {
             reportPresented()
             return
         }
 
         renderedRows = rows
         renderedCursor = cursor
+        renderedImages = images.placements
         armPresentationWatchdog()
 
         run(Script.applyFrame, arguments: [
@@ -307,6 +350,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             "patchRows": plan.rows,
             "patchMarkup": plan.rows.map { rows[$0] },
             "cursorStyle": cursor,
+            "images": images.all,
+            "newImages": images.unseen,
         ])
     }
 
@@ -358,6 +403,41 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// density were ignored.
     private func cssLength(devicePixels: Float) -> String {
         "\(Double(devicePixels) / Double(max(backingScale, 1)))px"
+    }
+
+    /// Where every picture in this frame goes, and which of them the page has
+    /// not fetched yet.
+    ///
+    /// Separated from `draw` because the two halves have different lifetimes: a
+    /// placement changes whenever the screen scrolls, and a source is set once
+    /// per identifier for as long as the document lives.
+    private func imagePlacements(in frame: TerminalFrame) -> (
+        all: [[String: Any]],
+        unseen: [[String: Any]],
+        placements: [String: String]
+    ) {
+        var all: [[String: Any]] = []
+        var unseen: [[String: Any]] = []
+        var placements: [String: String] = [:]
+
+        for image in frame.images {
+            let element = TerminalHTMLDocument.imageElementID(image.identifier)
+            let style = TerminalHTMLDocument.imageDeclaration(image)
+            placements[element] = style
+            all.append(["element": element, "style": style])
+
+            guard !fetchedImageIdentifiers.contains(image.identifier) else {
+                continue
+            }
+            fetchedImageIdentifiers.insert(image.identifier)
+            unseen.append([
+                "element": element,
+                "src": TerminalImageSchemeHandler.url(for: image.identifier),
+                "alt": TerminalHTMLDocument.imageDescription(image),
+            ])
+        }
+
+        return (all, unseen, placements)
     }
 
     /// The metrics script, so a test can hold it to the variables it must
@@ -442,6 +522,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         isDocumentLoaded = false
         hasPublishedMetrics = false
         renderedCursor = ""
+        renderedImages = [:]
+        // The page loses its cached bytes with the document, so the identifiers
+        // it has fetched go with them or the next frame positions elements that
+        // have no source.
+        fetchedImageIdentifiers = []
         publishedBackingScale = 0
         renderedRows = []
         webView.loadHTMLString(

@@ -48,6 +48,15 @@ enum TerminalHTMLDocument {
         /// stylesheet decides what composing text looks like in one place.
         static let markedClass = "tmk"
         static let screenID = "screen"
+        /// The layer pictures live in.
+        ///
+        /// Outside the rows, like the cursor, and for the same reason: a row's
+        /// markup is replaced whenever that row changes, and an image spanning
+        /// ten rows has no row to belong to. Positioned in the grid box so it
+        /// shares the origin every cell is measured from.
+        static let imagesID = "images"
+        static let imageClass = "timg"
+        static let imageIDPrefix = "i"
         static let cursorID = "cursor"
 
         static let rowOpen = "<div class=\"\(rowClass)\">"
@@ -244,6 +253,42 @@ enum TerminalHTMLDocument {
 
     private static func percent(_ value: Double) -> String {
         fixed(min(max(value, 0), 1) * 100, decimals: Layout.percentDECIMALS) + "%"
+    }
+
+    // MARK: - Images
+
+    /// One picture's inline style, in cell units.
+    ///
+    /// Position only. The source is set once, when the page first sees the
+    /// identifier, because bytes that crossed the bridge on every frame would
+    /// be re-sent for the whole time a picture stayed on screen — and a picture
+    /// stays on screen for as long as anyone is looking at it.
+    static func imageDeclaration(_ image: TerminalFrameImage) -> String {
+        let cellWidth = "var(\(Variable.cellWidth))"
+        let cellHeight = "var(\(Variable.cellHeight))"
+
+        return "transform:translate("
+            + "calc(\(cellWidth) * \(image.column)),calc(\(cellHeight) * \(image.row))"
+            + ");width:calc(\(cellWidth) * \(image.columns))"
+            + ";height:calc(\(cellHeight) * \(image.rows))"
+    }
+
+    /// The element id the page addresses one picture by.
+    static func imageElementID(_ identifier: Int) -> String {
+        "\(Markup.imageIDPrefix)\(identifier)"
+    }
+
+    /// What a screen reader says when it reaches a picture.
+    ///
+    /// The sender's file name when there is one, because that is the only
+    /// description anything in a terminal ever carries. Without it the reader
+    /// would announce an unlabelled graphic, which is worse than announcing a
+    /// picture whose name is all anyone knows.
+    static func imageDescription(_ image: TerminalFrameImage) -> String {
+        guard let name = image.name, !name.isEmpty else {
+            return "Inline image"
+        }
+        return "Inline image: \(name)"
     }
 
     // MARK: - Cursor

@@ -118,6 +118,26 @@ enum TerminalHTMLStylesheet {
            would make the two renderers disagree about what composing looks
            like. The class exists so that decision has one home. */
         .\(TerminalHTMLDocument.Markup.markedClass) { text-decoration: none; }
+        /* Pictures sit in the grid box beside the rows, not inside them: a
+           row's markup is replaced whenever that row changes, and an image
+           spanning ten rows has no row to belong to. Pointer events go through
+           to the surface with everything else, and `object-fit` keeps a
+           picture inside the cells it was given rather than letting it decide
+           its own size from its pixels. */
+        #\(TerminalHTMLDocument.Markup.imagesID) {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .\(TerminalHTMLDocument.Markup.imageClass) {
+            position: absolute;
+            top: 0; left: 0;
+            object-fit: contain;
+            image-rendering: auto;
+            will-change: transform;
+        }
         /* Position, size and visibility are written per frame as one inline
            declaration, so the shape DECSCUSR chose is decided in the pure layer
            rather than split between a script and a rule. */
@@ -132,7 +152,7 @@ enum TerminalHTMLStylesheet {
             will-change: transform;
         }
         </style></head>
-        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen"></div><div id="cursor"></div></div></body></html>
+        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen"></div><div id="\(TerminalHTMLDocument.Markup.imagesID)"></div><div id="cursor"></div></div></body></html>
         """
     }
 }

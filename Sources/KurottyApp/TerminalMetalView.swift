@@ -1522,6 +1522,15 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
 
         var decorations: [GlyphInstance] = []
+        for image in terminalFrame.images {
+            appendInlineImagePlaceholderInstances(
+                image,
+                foreground: terminalFrame.defaultForeground,
+                visibleRows: terminalFrame.visibleRows,
+                to: &decorations
+            )
+        }
+
         decorations.reserveCapacity(terminalFrame.decorations.count)
         for decoration in terminalFrame.decorations where decoration.row >= 0 && decoration.row < terminalFrame.visibleRows {
             switch decoration.kind {
@@ -1637,6 +1646,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             hasher.combine(cell.row)
             combineColor(cell.foreground, into: &hasher)
             combineColor(cell.background, into: &hasher)
+        }
+        hasher.combine(frame.images.count)
+        for image in frame.images {
+            hasher.combine(image.identifier)
+            hasher.combine(image.column)
+            hasher.combine(image.row)
+            hasher.combine(image.columns)
+            hasher.combine(image.rows)
         }
         hasher.combine(frame.backgrounds.count)
         for background in frame.backgrounds {
@@ -1825,6 +1842,92 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
             uvSize: .zero,
             color: color
         )
+    }
+
+    /// Outlines the cells an inline image occupies.
+    ///
+    /// The atlas cannot draw a picture: it rasterises glyph masks, and a photo
+    /// is neither a glyph nor a mask. What it must not do is draw *nothing* —
+    /// a terminal that silently swallows an image the shell just sent looks
+    /// like the shell failed, and the two renderers would disagree about
+    /// whether anything happened at all rather than about how it looks.
+    ///
+    /// So the cells are outlined, using the same per-cell fills that draw box
+    /// characters. The reader sees where the picture is and how big, and can
+    /// switch renderers to see it. The alternative — filling the rectangle
+    /// solid — hides the text a program may have written around it.
+    private func appendInlineImagePlaceholderInstances(
+        _ image: TerminalFrameImage,
+        foreground: SIMD4<Float>,
+        visibleRows: Int,
+        to instances: inout [GlyphInstance]
+    ) {
+        let color = SIMD4<Float>(
+            foreground.x,
+            foreground.y,
+            foreground.z,
+            foreground.w * InlineImagePlaceholder.alphaRATIO
+        )
+        let lastRow = image.row + image.rows - 1
+        let lastColumn = image.column + image.columns - 1
+
+        for row in image.row...lastRow where row >= 0 && row < visibleRows {
+            for column in image.column...lastColumn where column >= 0 {
+                let onTop = row == image.row
+                let onBottom = row == lastRow
+                let onLeft = column == image.column
+                let onRight = column == lastColumn
+                guard onTop || onBottom || onLeft || onRight else {
+                    continue
+                }
+
+                // The frame measures y upward from the bottom of the cell, so
+                // the top edge is the far end of that axis.
+                if onTop {
+                    instances.append(blockElementInstance(
+                        column: column, row: row,
+                        x: 0, y: 1 - InlineImagePlaceholder.rowThicknessRATIO,
+                        width: 1, height: InlineImagePlaceholder.rowThicknessRATIO,
+                        color: color
+                    ))
+                }
+                if onBottom {
+                    instances.append(blockElementInstance(
+                        column: column, row: row,
+                        x: 0, y: 0,
+                        width: 1, height: InlineImagePlaceholder.rowThicknessRATIO,
+                        color: color
+                    ))
+                }
+                if onLeft {
+                    instances.append(blockElementInstance(
+                        column: column, row: row,
+                        x: 0, y: 0,
+                        width: InlineImagePlaceholder.columnThicknessRATIO, height: 1,
+                        color: color
+                    ))
+                }
+                if onRight {
+                    instances.append(blockElementInstance(
+                        column: column, row: row,
+                        x: 1 - InlineImagePlaceholder.columnThicknessRATIO, y: 0,
+                        width: InlineImagePlaceholder.columnThicknessRATIO, height: 1,
+                        color: color
+                    ))
+                }
+            }
+        }
+    }
+
+    private enum InlineImagePlaceholder {
+        /// Outline thickness as a fraction of the cell, stated per axis so the
+        /// horizontal and vertical strokes come out the same width on screen —
+        /// a cell is about twice as tall as it is wide.
+        static let rowThicknessRATIO = 0.07
+        static let columnThicknessRATIO = 0.14
+        /// How far the outline is faded from the text colour. Enough to read as
+        /// a frame around something, not enough to compete with the text.
+        static let alphaRATIO: Float = 0.45
     }
 
     private func blockElementInstance(

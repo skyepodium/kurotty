@@ -23,7 +23,7 @@ enum TerminalRendererConformance {
         """,
     ]
 
-    static let probes: [TerminalConformanceProbe] = content + decorations + cursor + preedit + geometry + damage
+    static let probes: [TerminalConformanceProbe] = content + decorations + images + cursor + preedit + geometry + damage
 
     // MARK: Content
 
@@ -95,6 +95,65 @@ enum TerminalRendererConformance {
                     )]
                 },
             ])
+        )
+    }
+
+    /// A picture on the grid, and the same grid without it.
+    ///
+    /// Three probes rather than one, because a renderer can observe that an
+    /// image exists and still put it in the wrong place or at the wrong size —
+    /// which for a picture is the whole of the feature. Each moves exactly one
+    /// number and asks whether the output followed.
+    private static let images: [TerminalConformanceProbe] = [
+        TerminalConformanceProbe(
+            name: "images",
+            members: [.images],
+            trial: .distinguishable([
+                TerminalConformanceFrame(),
+                TerminalConformanceFrame().changing {
+                    $0.images = [imageFixture(column: 0, row: 0)]
+                },
+            ])
+        ),
+        TerminalConformanceProbe(
+            name: "images.position",
+            members: [.images],
+            trial: .distinguishable([
+                TerminalConformanceFrame().changing {
+                    $0.images = [imageFixture(column: 0, row: 0)]
+                },
+                TerminalConformanceFrame().changing {
+                    $0.images = [imageFixture(column: 3, row: 2)]
+                },
+            ])
+        ),
+        TerminalConformanceProbe(
+            name: "images.size",
+            members: [.images],
+            trial: .distinguishable([
+                TerminalConformanceFrame().changing {
+                    $0.images = [imageFixture(column: 0, row: 0, columns: 2, rows: 2)]
+                },
+                TerminalConformanceFrame().changing {
+                    $0.images = [imageFixture(column: 0, row: 0, columns: 5, rows: 3)]
+                },
+            ])
+        ),
+    ]
+
+    private static func imageFixture(
+        column: Int,
+        row: Int,
+        columns: Int = 4,
+        rows: Int = 2
+    ) -> TerminalFrameImage {
+        TerminalFrameImage(
+            identifier: 1,
+            column: column,
+            row: row,
+            columns: columns,
+            rows: rows,
+            name: "chart.png"
         )
     }
 
