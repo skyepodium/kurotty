@@ -59,8 +59,27 @@ enum TerminalHTMLDocument {
         static let imageIDPrefix = "i"
         static let cursorID = "cursor"
 
-        static let rowOpen = "<div class=\"\(rowClass)\">"
+        static let rowOpen = "<div class=\"\(rowClass)\" role=\"\(Role.row)\">"
         static let rowClose = "</div>"
+    }
+
+    /// The words the assistive layer reads.
+    ///
+    /// A terminal drawn as a document is readable by a screen reader for almost
+    /// nothing. Drawn as a glyph atlas it is readable by nothing at all —
+    /// `NSAccessibility` appears nowhere in this app, so on the Metal path the
+    /// grid is a wall of pixels to VoiceOver. These four strings are the whole
+    /// difference.
+    enum Role {
+        /// The screen is a log: lines arrive at the end, and a reader is meant
+        /// to hear them as they do.
+        static let screen = "log"
+        static let row = "row"
+        /// Polite rather than assertive. A terminal produces a great deal of
+        /// output, and interrupting the reader mid-sentence for every line of a
+        /// build would make it unusable rather than accessible.
+        static let liveness = "polite"
+        static let label = "Terminal output"
     }
 
     private enum Layout {

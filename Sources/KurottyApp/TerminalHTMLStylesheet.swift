@@ -52,7 +52,7 @@ enum TerminalHTMLStylesheet {
 
         return """
         <!DOCTYPE html>
-        <html><head><meta charset="utf-8">
+        <html lang="en"><head><meta charset="utf-8">
         <style>
         :root {
             \(TerminalHTMLDocument.Variable.cellWidth): \(cellSize.width)px;
@@ -152,7 +152,7 @@ enum TerminalHTMLStylesheet {
             will-change: transform;
         }
         </style></head>
-        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen"></div><div id="\(TerminalHTMLDocument.Markup.imagesID)"></div><div id="cursor"></div></div></body></html>
+        <body><div id="\(TerminalHTMLDocument.Markup.gridID)"><div id="screen" role="\(TerminalHTMLDocument.Role.screen)" aria-live="\(TerminalHTMLDocument.Role.liveness)" aria-label="\(TerminalHTMLDocument.Role.label)"></div><div id="\(TerminalHTMLDocument.Markup.imagesID)"></div><div id="cursor" aria-hidden="true"></div></div></body></html>
         """
     }
 }

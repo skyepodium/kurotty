@@ -3504,10 +3504,16 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
         let trimmedTitle = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = trimmedTitle.isEmpty || trimmedTitle == displayPath ? "-zsh" : trimmedTitle
-        if title.contains(displayPath), displayPath != "~" {
-            return title
+        let named = title.contains(displayPath) && displayPath != "~"
+            ? title
+            : "\(displayPath) (\(title))"
+
+        // A hostname in eight-point grey is not a difference anyone notices at
+        // the moment it matters. A glyph is.
+        guard let glyph = TerminalSessionGlyph.glyph(for: interpreter.currentWorkingDirectoryLocation) else {
+            return named
         }
-        return "\(displayPath) (\(title))"
+        return "\(glyph) \(named)"
     }
 
     private func notificationSessionTitle() -> String {

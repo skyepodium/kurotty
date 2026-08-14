@@ -239,7 +239,7 @@ final class TerminalHTMLDocumentTests: XCTestCase {
 
         XCTAssertEqual(rendered.count, Fixture.rows)
         for row in rendered {
-            XCTAssertTrue(row.hasPrefix("<div class=\"\(TerminalHTMLDocument.Markup.rowClass)\">"), "got \(row)")
+            XCTAssertTrue(row.hasPrefix(TerminalHTMLDocument.Markup.rowOpen), "got \(row)")
             XCTAssertTrue(row.hasSuffix("</div>"))
         }
     }
@@ -480,6 +480,25 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         // a sub-range the input method never reported.
         XCTAssertEqual(marked.map(\.text).joined(), "안녕")
         XCTAssertEqual(Set(marked.map(\.foreground)).count, 1, "one composition, one colour")
+    }
+
+    func testEveryRowIsARowAReaderCanStepThrough() {
+        let html = TerminalHTMLDocument.row(0, frame: frame(cells: line("hello")))
+
+        XCTAssertTrue(
+            html.contains("role=\"\(TerminalHTMLDocument.Role.row)\""),
+            "a reader needs rows to step through, not one undifferentiated block"
+        )
+    }
+
+    /// A picture has no caption and no surrounding markup, so without the
+    /// sender's own file name a reader has nothing to say about it at all.
+    func testAPictureSaysWhatItIs() {
+        let named = TerminalFrameImage(identifier: 1, column: 0, row: 0, columns: 4, rows: 2, name: "chart.png")
+        XCTAssertEqual(TerminalHTMLDocument.imageDescription(named), "Inline image: chart.png")
+
+        let anonymous = TerminalFrameImage(identifier: 2, column: 0, row: 0, columns: 4, rows: 2)
+        XCTAssertEqual(TerminalHTMLDocument.imageDescription(anonymous), "Inline image")
     }
 
     func testACompositionIsEscapedLikeAnyOtherContent() {

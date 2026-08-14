@@ -221,3 +221,46 @@ final class TerminalInlineImageTests: XCTestCase {
         XCTAssertEqual(size, .init(columns: 80, rows: 24))
     }
 }
+
+/// The glyph a session wears, derived from where it is running.
+final class TerminalSessionGlyphTests: XCTestCase {
+    private func location(_ remoteHost: String?) -> TerminalWorkingDirectoryLocation {
+        TerminalWorkingDirectoryLocation(path: "/tmp", remoteHost: remoteHost)
+    }
+
+    /// Marking the ordinary case teaches the eye to ignore the mark, which is
+    /// exactly what must not happen to the warning below.
+    func testALocalShellWearsNothing() {
+        XCTAssertNil(TerminalSessionGlyph.glyph(for: location(nil)))
+    }
+
+    /// The one case that must never be missed, and the one that does not
+    /// depend on a hash: a warning that varies by host is not a warning.
+    func testARootShellAlwaysWearsTheSameWarning() {
+        XCTAssertEqual(TerminalSessionGlyph.glyph(for: location("root@prod-1")), TerminalSessionGlyph.root)
+        XCTAssertEqual(TerminalSessionGlyph.glyph(for: location("root@staging")), TerminalSessionGlyph.root)
+    }
+
+    func testAnOrdinaryRemoteShellDoesNotWearTheWarning() {
+        XCTAssertNotEqual(TerminalSessionGlyph.glyph(for: location("deploy@prod-1")), TerminalSessionGlyph.root)
+        XCTAssertNotNil(TerminalSessionGlyph.glyph(for: location("deploy@prod-1")))
+    }
+
+    /// The whole point is that two windows on the same host look alike. A
+    /// per-process hash seed would give the same box a different glyph in every
+    /// window and a different one again after a restart.
+    func testTheSameHostAlwaysWearsTheSameGlyph() {
+        let first = TerminalSessionGlyph.glyph(for: location("deploy@prod-1"))
+        let again = TerminalSessionGlyph.glyph(for: location("deploy@prod-1"))
+
+        XCTAssertEqual(first, again)
+        XCTAssertEqual(first, TerminalSessionGlyph.glyph(for: location("someone-else@prod-1")))
+    }
+
+    func testDifferentHostsGetDifferentGlyphsMostOfTheTime() {
+        let hosts = (1...16).map { "deploy@host-\($0)" }
+        let glyphs = Set(hosts.compactMap { TerminalSessionGlyph.glyph(for: location($0)) })
+
+        XCTAssertGreaterThanOrEqual(glyphs.count, 8, "sixteen hosts collapsed to \(glyphs.count) glyphs")
+    }
+}

@@ -104,6 +104,33 @@ final class TerminalHTMLSelectionTests: XCTestCase {
         )
     }
 
+    // MARK: - What a screen reader hears
+
+    /// The grid is a wall of pixels to VoiceOver on the atlas path —
+    /// `NSAccessibility` appears nowhere in this app — and a document costs
+    /// four strings to fix that. This is the only capability in the branch that
+    /// the other renderer cannot be given cheaply at all.
+    @MainActor
+    func testTheScreenIsALiveRegionAReaderCanFollow() {
+        let document = makeStylesheet()
+
+        XCTAssertTrue(document.contains("role=\"\(TerminalHTMLDocument.Role.screen)\""))
+        XCTAssertTrue(document.contains("aria-live=\"\(TerminalHTMLDocument.Role.liveness)\""))
+        XCTAssertTrue(document.contains("aria-label=\"\(TerminalHTMLDocument.Role.label)\""))
+
+        // Assertive would interrupt the reader mid-sentence for every line of a
+        // build, which makes a terminal unusable rather than accessible.
+        XCTAssertFalse(document.contains("aria-live=\"assertive\""))
+    }
+
+    /// The cursor is a painted box with no text in it. Announced, it would
+    /// interrupt every row with nothing — its position is already carried by
+    /// the text a reader is moving through.
+    @MainActor
+    func testTheCursorIsNotAnnounced() {
+        XCTAssertTrue(makeStylesheet().contains("id=\"cursor\" aria-hidden=\"true\""))
+    }
+
     // MARK: - Where the pointer thinks the grid is
 
     @MainActor
