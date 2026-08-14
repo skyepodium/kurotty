@@ -187,11 +187,28 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         XCTAssertTrue(css.hasSuffix("1.000)"), "got \(css)")
     }
 
-    func testRowsAreIdentifiedSoDamageCanPatchThem() {
+    func testEveryVisibleRowIsItsOwnElementSoDamageCanPatchOne() {
+        // Rows are addressed by position, not by identifier: the shift path
+        // moves elements, and an id assigned at build time would then name the
+        // wrong row. What the page needs is one element per row, in order.
         let rendered = TerminalHTMLDocument.rows(frame: frame(cells: line("x")))
 
-        XCTAssertTrue(rendered[0].contains("id=\"r0\""))
-        XCTAssertTrue(rendered[5].contains("id=\"r5\""))
+        XCTAssertEqual(rendered.count, Fixture.rows)
+        for row in rendered {
+            XCTAssertTrue(row.hasPrefix("<div class=\"\(TerminalHTMLDocument.Markup.rowClass)\">"), "got \(row)")
+            XCTAssertTrue(row.hasSuffix("</div>"))
+        }
+    }
+
+    func testTheScreenDocumentIsTheRowsInOrder() {
+        let built = frame(cells: line("x"))
+        let contents = TerminalHTMLDocument.rowContents(frame: built)
+
+        XCTAssertEqual(
+            TerminalHTMLDocument.document(rowContents: contents),
+            TerminalHTMLDocument.rows(frame: built).joined(),
+            "the screen's innerHTML and the per-row markup must describe the same page"
+        )
     }
 
     // MARK: - Decorations that are text styles

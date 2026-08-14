@@ -45,16 +45,32 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             document.documentElement.style.setProperty('--ch', cellHeight + 'px');
         }
 
-        if (replaceAll) {
-            const screen = document.getElementById('screen');
-            if (screen) { screen.innerHTML = rows.join(''); }
-        } else {
-            // The row element stays and only its children change. Replacing a
-            // row's `outerHTML` discards a live element and its layout box on
-            // every keystroke; this keeps the box and reparses only the spans.
-            for (const [id, markup] of Object.entries(patch)) {
-                const row = document.getElementById(id);
-                if (row) { row.innerHTML = markup; }
+        const screen = document.getElementById('screen');
+        if (screen) {
+            if (replacesScreen) {
+                screen.innerHTML = screenMarkup;
+            } else {
+                // Scrolling moves rows; it does not change them. Recycling the
+                // elements that scrolled off the near edge onto the far one
+                // turns a screen-sized reparse into `shift` of them, and the
+                // rows that survived keep their existing layout boxes.
+                for (let moved = 0; moved < shift; moved++) {
+                    screen.appendChild(screen.firstElementChild);
+                }
+                for (let moved = 0; moved > shift; moved--) {
+                    screen.insertBefore(screen.lastElementChild, screen.firstElementChild);
+                }
+
+                // Rows are addressed by position rather than by id, because a
+                // shift has just moved them and an id would now name the wrong
+                // element. The row element stays and only its children change:
+                // replacing a row's `outerHTML` discards a live element and its
+                // layout box on every keystroke.
+                const elements = screen.children;
+                for (let index = 0; index < patchRows.length; index++) {
+                    const row = elements[patchRows[index]];
+                    if (row) { row.innerHTML = patchMarkup[index]; }
+                }
             }
         }
 
@@ -85,7 +101,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private let webView: WKWebView
     private var isDocumentLoaded = false
     private var pendingFrame: TerminalFrame?
+    /// The inner markup the page is currently showing, row by row. The diff is
+    /// taken against this rather than against the frame's damage: damage says
+    /// what *might* have changed, and a blink tick says the whole screen did.
     private var renderedRows: [String] = []
+    private var renderedCursor: CursorState?
     private var font: NSFont
     private var backgroundColor: SIMD4<Float>
     private var cursorColor: SIMD4<Float>
@@ -166,36 +186,46 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         draw(frame)
     }
 
+    /// Where the cursor was left, so a frame that moved nothing else can be
+    /// recognised as such.
+    ///
+    /// The blink timer marks full damage on every tick, which used to mean the
+    /// whole screen was reparsed twice a second on an idle terminal. Comparing
+    /// rendered markup instead of trusting the damage flag makes those frames
+    /// free — but only if the cursor is compared too, or a blink would move
+    /// nothing and be dropped along with the blink.
+    private struct CursorState: Equatable {
+        var column: Int
+        var row: Int
+        var isVisible: Bool
+    }
+
     private func draw(_ frame: TerminalFrame) {
-        let rows = TerminalHTMLDocument.rows(frame: frame)
-        let replaceAll = frame.isFullDamage || renderedRows.count != rows.count
-        var patch: [String: String] = [:]
+        // One index of the frame, shared by every row. Building it per row made
+        // patching a screen quadratic.
+        var screen = TerminalHTMLDocument.Screen(frame: frame)
+        let rows = screen.contents()
+        let plan = TerminalHTMLRowDiff.plan(from: renderedRows, to: rows)
+        let cursor = CursorState(
+            column: frame.cursorColumn,
+            row: frame.cursorRow,
+            isVisible: frame.cursorBlinkOn
+        )
+        let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
 
-        if replaceAll {
-            renderedRows = rows
-        } else {
-            for row in frame.dirtyRows where rows.indices.contains(row) {
-                guard renderedRows[row] != rows[row] else {
-                    continue
-                }
-                renderedRows[row] = rows[row]
-                patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] =
-                    TerminalHTMLDocument.rowContents(row, frame: frame)
-            }
-
-            // Nothing visible changed. The frame still has to report itself
-            // presented or the latency metric waits forever for a paint that is
-            // not coming.
-            guard !patch.isEmpty else {
-                presentationWatchdog?.cancel()
-                presentationWatchdog = nil
-                isAwaitingPresentation = false
-                onPresented?()
-                return
-            }
+        // Nothing visible changed. The frame still has to report itself
+        // presented or the latency metric waits forever for a paint that is not
+        // coming.
+        guard plan.replacesScreen || !plan.isEmpty || cursor != renderedCursor || publishesCellSize else {
+            presentationWatchdog?.cancel()
+            presentationWatchdog = nil
+            isAwaitingPresentation = false
+            onPresented?()
+            return
         }
 
-        let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
+        renderedRows = rows
+        renderedCursor = cursor
         cellSize = frame.cellSize
         hasPublishedCellSize = true
 
@@ -204,9 +234,11 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         run(Script.applyFrame, arguments: [
             "cellWidth": publishesCellSize ? Double(frame.cellSize.width) : 0,
             "cellHeight": Double(frame.cellSize.height),
-            "replaceAll": replaceAll,
-            "rows": replaceAll ? rows : [],
-            "patch": patch,
+            "replacesScreen": plan.replacesScreen,
+            "screenMarkup": plan.replacesScreen ? TerminalHTMLDocument.document(rowContents: rows) : "",
+            "shift": plan.shift,
+            "patchRows": plan.rows,
+            "patchMarkup": plan.rows.map { rows[$0] },
             "cursorColumn": frame.cursorColumn,
             "cursorRow": frame.cursorRow,
             "cursorVisible": frame.cursorBlinkOn,
@@ -255,6 +287,13 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
                     // Never the screen's contents: terminal output is sensitive,
                     // and a failure message quoting a row would put it in a log.
                     NSLog("terminal html renderer script failed: %@", error.localizedDescription)
+
+                    // The page no longer matches what the diff believes it
+                    // shows, and every later frame would be patched against a
+                    // fiction. Forgetting it makes the next frame rebuild the
+                    // screen outright.
+                    self.renderedRows = []
+                    self.renderedCursor = nil
                 }
 
                 // Reported on failure too. A frame that never reports leaves the
@@ -325,6 +364,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         isDocumentLoaded = false
         hasPublishedCellSize = false
         renderedRows = []
+        renderedCursor = nil
         webView.loadHTMLString(shellDocument(), baseURL: nil)
     }
 
