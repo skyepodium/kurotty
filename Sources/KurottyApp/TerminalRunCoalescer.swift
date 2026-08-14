@@ -32,15 +32,21 @@ enum TerminalRunCoalescer {
     }
 
     /// One row as the fewest runs that describe it.
+    ///
+    /// A run is extended through the array subscript rather than through a copy
+    /// of `runs.last`. Copying the run out and back leaves its text doubly
+    /// referenced, so appending reallocates the whole string every time —
+    /// quadratic in the width of the line.
     static func runs(row: Int, in screen: TerminalScreenIndex) -> [Run] {
         var runs: [Run] = []
+        runs.reserveCapacity(Capacity.runsPerRowCOUNT)
         var column = 0
 
         while column < screen.columns {
-            let cell = screen.attributes(at: screen.key(row, column))
+            let cell = screen.attributes(row: row, column: column)
             column += cell.columns
 
-            guard var last = runs.last, canExtend(last, with: cell) else {
+            guard let last = runs.indices.last, canExtend(runs[last], with: cell) else {
                 runs.append(Run(
                     text: String(cell.character),
                     columns: cell.columns,
@@ -54,12 +60,17 @@ enum TerminalRunCoalescer {
                 continue
             }
 
-            last.text.append(cell.character)
-            last.columns += cell.columns
-            runs[runs.count - 1] = last
+            runs[last].text.append(cell.character)
+            runs[last].columns += cell.columns
         }
 
         return runs
+    }
+
+    private enum Capacity {
+        /// Starting room for one row's runs. Prose coalesces to a handful; a
+        /// syntax-highlighted line lands near this and grows past it if it must.
+        static let runsPerRowCOUNT = 32
     }
 
     /// Whether a cell can join the run before it.

@@ -9,6 +9,16 @@ import KurottyCore
 /// and column, and searching three arrays per cell is quadratic on exactly the
 /// frame a full repaint produces.
 ///
+/// **Built once per frame, not once per row.** Answering about a single row used
+/// to rebuild the whole index, so patching a screen's worth of damage rebuilt it
+/// once for every row: 97.5ms to patch a 55x200 screen against 5.2ms to build
+/// that screen in one pass. Callers hold one of these for the frame.
+///
+/// **Flat arrays rather than dictionaries.** The index is already an integer in a
+/// known range, so hashing it buys nothing, and a full screen meant tens of
+/// thousands of dictionary insertions per frame plus a hash on every lookup
+/// during coalescing.
+///
 /// Free of AppKit and of any renderer, so a second backend — a canvas path, a
 /// future Linux frontend — indexes a frame the same way rather than inventing a
 /// second answer. That is not hypothetical here: cell width was already being
@@ -16,32 +26,50 @@ import KurottyCore
 struct TerminalScreenIndex {
     let columns: Int
     let rows: Int
-    private(set) var characters: [Int: Character] = [:]
-    private(set) var columnSpans: [Int: Int] = [:]
-    private(set) var foregrounds: [Int: SIMD4<Float>] = [:]
-    private(set) var backgrounds: [Int: SIMD4<Float>] = [:]
-    private(set) var underlined: Set<Int> = []
-    private(set) var struckThrough: Set<Int> = []
-    private(set) var shapes: [Int: [TerminalCellGeometry.Shape]] = [:]
-    private(set) var marked: Set<Int> = []
 
-    let defaultForeground: SIMD4<Float>
-    let defaultBackground: SIMD4<Float>
+    private var characters: [Character]
+    private var columnSpans: [UInt8]
+    private var foregrounds: [SIMD4<Float>]
+    private var backgrounds: [SIMD4<Float>]
+    private var underlined: [Bool]
+    private var struckThrough: [Bool]
+    private var isMarked: [Bool]
+    /// Sparse on purpose: geometry cells are rare even in a box-drawing TUI, and
+    /// an array of empty arrays would cost more than it saves.
+    private var shapes: [Int: [TerminalCellGeometry.Shape]]
+
+    private enum Defaults {
+        static let character: Character = " "
+        static let columnSPAN = UInt8(TerminalCellColumns.single)
+    }
 
     init(frame: TerminalFrame) {
         columns = max(frame.columns, 1)
         rows = max(frame.visibleRows, 0)
-        defaultForeground = frame.defaultForeground
-        defaultBackground = frame.defaultBackground
+
+        let cellCOUNT = columns * rows
+        characters = Array(repeating: Defaults.character, count: cellCOUNT)
+        columnSpans = Array(repeating: Defaults.columnSPAN, count: cellCOUNT)
+        foregrounds = Array(repeating: frame.defaultForeground, count: cellCOUNT)
+        backgrounds = Array(repeating: frame.defaultBackground, count: cellCOUNT)
+        underlined = Array(repeating: false, count: cellCOUNT)
+        struckThrough = Array(repeating: false, count: cellCOUNT)
+        isMarked = Array(repeating: false, count: cellCOUNT)
+        shapes = [:]
 
         for background in frame.backgrounds {
-            backgrounds[key(background.row, background.column)] = background.color
+            guard let index = index(background.row, background.column) else {
+                continue
+            }
+            backgrounds[index] = background.color
         }
 
         for cell in frame.cells {
-            let index = key(cell.row, cell.column)
+            guard let index = index(cell.row, cell.column) else {
+                continue
+            }
             characters[index] = cell.character
-            columnSpans[index] = cell.columns
+            columnSpans[index] = UInt8(clamping: cell.columns)
             foregrounds[index] = cell.foreground
             backgrounds[index] = cell.background
         }
@@ -53,21 +81,43 @@ struct TerminalScreenIndex {
         overlayMarkedText(frame: frame)
     }
 
-    func key(_ row: Int, _ column: Int) -> Int {
-        row * columns + column
+    /// A position's index, or nil when it is off the screen.
+    ///
+    /// Bounds-checked here rather than trusted, because the arrays are sized to
+    /// the screen and a frame's cells arrive from a different process: a stale
+    /// column from a resize that crossed the boundary mid-flight would otherwise
+    /// be a crash rather than a dropped cell.
+    private func index(_ row: Int, _ column: Int) -> Int? {
+        guard row >= 0, row < rows, column >= 0, column < columns else {
+            return nil
+        }
+        return row * columns + column
     }
 
     /// What a cell looks like, with the frame's defaults already applied so no
     /// caller repeats the fallback.
-    func attributes(at index: Int) -> Attributes {
-        Attributes(
-            character: characters[index] ?? " ",
-            columns: max(columnSpans[index] ?? TerminalCellColumns.single, TerminalCellColumns.single),
-            foreground: foregrounds[index] ?? defaultForeground,
-            background: backgrounds[index] ?? defaultBackground,
-            isUnderlined: underlined.contains(index),
-            isStruckThrough: struckThrough.contains(index),
-            isMarked: marked.contains(index),
+    func attributes(row: Int, column: Int) -> Attributes {
+        guard let index = index(row, column) else {
+            return Attributes(
+                character: Defaults.character,
+                columns: TerminalCellColumns.single,
+                foreground: .zero,
+                background: .zero,
+                isUnderlined: false,
+                isStruckThrough: false,
+                isMarked: false,
+                shapes: []
+            )
+        }
+
+        return Attributes(
+            character: characters[index],
+            columns: max(Int(columnSpans[index]), TerminalCellColumns.single),
+            foreground: foregrounds[index],
+            background: backgrounds[index],
+            isUnderlined: underlined[index],
+            isStruckThrough: struckThrough[index],
+            isMarked: isMarked[index],
             shapes: shapes[index] ?? []
         )
     }
@@ -93,8 +143,8 @@ struct TerminalScreenIndex {
     /// The frame carries the composition rather than the screen buffer, because
     /// `setMarkedText` is preedit state and must never be written to the
     /// terminal as committed text. Drawing it is therefore the renderer's job,
-    /// and a document renderer that skipped it left a user composing Hangul
-    /// with nothing on screen until the syllable committed.
+    /// and a document renderer that skipped it left a user composing Hangul with
+    /// nothing on screen until the syllable committed.
     ///
     /// The cells underneath are dropped rather than drawn behind, which is what
     /// `TerminalMetalView` does with the same range: the composition replaces
@@ -112,14 +162,16 @@ struct TerminalScreenIndex {
         // A wide cell whose head sits just before the composition would
         // otherwise be stepped over the first covered column and shift the
         // preedit one cell to the right, so it goes as well.
-        if range.startColumn > 0 {
-            let head = key(row, range.startColumn - 1)
-            if (columnSpans[head] ?? TerminalCellColumns.single) > TerminalCellColumns.single {
-                erase(head)
-            }
+        if range.startColumn > 0,
+           let head = index(row, range.startColumn - 1),
+           Int(columnSpans[head]) > TerminalCellColumns.single {
+            erase(head, frame: frame)
         }
         for column in range.cellRange {
-            erase(key(row, column))
+            guard let index = index(row, column) else {
+                continue
+            }
+            erase(index, frame: frame)
         }
 
         var column = range.startColumn
@@ -144,16 +196,18 @@ struct TerminalScreenIndex {
             guard column + width <= range.endColumn else {
                 break
             }
+            guard let index = index(row, column) else {
+                break
+            }
 
-            let index = key(row, column)
             characters[index] = character
-            columnSpans[index] = width
+            columnSpans[index] = UInt8(clamping: width)
             foregrounds[index] = Self.markedForeground(
                 utf16Offset: utf16Offset,
                 utf16Length: String(character).utf16.count,
                 frame: frame
             )
-            marked.insert(index)
+            isMarked[index] = true
             column += width
         }
     }
@@ -185,13 +239,13 @@ struct TerminalScreenIndex {
     }
 
     /// Drops whatever was drawn in a cell, leaving its background alone.
-    private mutating func erase(_ index: Int) {
-        characters.removeValue(forKey: index)
-        columnSpans.removeValue(forKey: index)
-        foregrounds.removeValue(forKey: index)
+    private mutating func erase(_ index: Int, frame: TerminalFrame) {
+        characters[index] = Defaults.character
+        columnSpans[index] = Defaults.columnSPAN
+        foregrounds[index] = frame.defaultForeground
+        underlined[index] = false
+        struckThrough[index] = false
         shapes.removeValue(forKey: index)
-        underlined.remove(index)
-        struckThrough.remove(index)
     }
 
     // MARK: - Decorations
@@ -205,13 +259,15 @@ struct TerminalScreenIndex {
         let span = max(decoration.width, 1)
 
         for offset in 0..<span {
-            let index = key(decoration.row, decoration.column + offset)
+            guard let index = index(decoration.row, decoration.column + offset) else {
+                continue
+            }
 
             switch decoration.kind {
             case .underline:
-                underlined.insert(index)
+                underlined[index] = true
             case .strikethrough:
-                struckThrough.insert(index)
+                struckThrough[index] = true
             case let .blockElement(x, y, width, height):
                 shapes[index, default: []].append(
                     TerminalCellGeometry.block(

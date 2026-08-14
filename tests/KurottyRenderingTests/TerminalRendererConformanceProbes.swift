@@ -10,11 +10,16 @@ enum TerminalRendererConformance {
     /// fails the suite, so a fixed gap cannot quietly stay on the list. Each
     /// reason says what the renderer draws instead.
     static let knownGaps: [String: String] = [
-        "dirtyRects": """
-        Rect damage is ignored; only dirtyRows patches a row. Harmless today \
-        because the surface derives rects one-per-dirty-row, so a rect-only \
-        frame is currently unreachable — but the same omission is why the HTML \
-        renderer's damageDiagnostics is always empty.
+        "dirtyRows": """
+        Deliberately not consulted. The renderer diffs the markup it last put \
+        on the page against the markup it is about to, which is a stronger \
+        source of truth than the frame's damage bookkeeping: damage says what \
+        *might* have changed, and the cursor blink marks the whole screen dirty \
+        twice a second. Diffing instead makes a blink tick free and lets a \
+        scroll be recognised as rows moving rather than rows changing. The \
+        probe's own wording — "a renderer that redraws a row nobody reported \
+        dirty is not reading dirtyRows at all" — is exactly right, and is now \
+        the intended behaviour rather than a defect.
         """,
     ]
 

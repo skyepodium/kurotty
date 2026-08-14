@@ -41,7 +41,6 @@ enum TerminalHTMLDocument {
         /// live inside it, so the frame's padding is applied exactly once.
         static let gridID = "grid"
         static let rowClass = "trow"
-        static let rowIDPrefix = "r"
         static let runClass = "trun"
         static let underlineClass = "tul"
         static let strikethroughClass = "tst"
@@ -50,94 +49,201 @@ enum TerminalHTMLDocument {
         static let markedClass = "tmk"
         static let screenID = "screen"
         static let cursorID = "cursor"
+
+        static let rowOpen = "<div class=\"\(rowClass)\">"
+        static let rowClose = "</div>"
+    }
+
+    private enum Layout {
+        /// Starting capacity for one row's markup. A wide row of ordinary prose
+        /// with a few colour changes lands near this; a busier row grows the
+        /// string, which costs a reallocation rather than correctness.
+        static let rowMarkupBYTES = 512
+        /// Decimal places for a shape's position and size inside its cell.
+        static let percentDECIMALS = 4
+        /// Decimal places for a colour's alpha channel.
+        static let alphaDECIMALS = 3
+    }
+
+    // MARK: - Screens
+
+    /// One frame, indexed once, ready to answer for any row.
+    ///
+    /// Held by the renderer for the length of a frame. Every entry point that
+    /// takes a `TerminalFrame` instead builds one of these and throws it away,
+    /// which is right for a test asking about a single row and quadratic for a
+    /// renderer patching many — measured at 97.5ms against 5.2ms for a 55x200
+    /// screen.
+    struct Screen {
+        private let index: TerminalScreenIndex
+        /// CSS colour strings for the colours this frame uses.
+        ///
+        /// A screen carries thousands of runs and a handful of colours, and
+        /// formatting `rgba(...)` allocates a string every time. Per-frame
+        /// rather than global: it needs no invalidation key, no eviction policy
+        /// and no owner beyond the frame being drawn.
+        private var colors = ColorStyles()
+
+        init(frame: TerminalFrame) {
+            index = TerminalScreenIndex(frame: frame)
+        }
+
+        var rowCOUNT: Int {
+            index.rows
+        }
+
+        /// One row as the fewest runs that describe it.
+        func runs(row: Int) -> [TerminalRunCoalescer.Run] {
+            TerminalRunCoalescer.runs(row: row, in: index)
+        }
+
+        /// A row's spans, without the row element around them.
+        ///
+        /// The renderer patches a row's *children* rather than the row itself:
+        /// swapping `outerHTML` discards a live element and its layout box on
+        /// every keystroke, while `innerHTML` keeps the box and reparses only
+        /// the spans.
+        mutating func contents(row: Int) -> String {
+            var markup = ""
+            markup.reserveCapacity(Layout.rowMarkupBYTES)
+            append(row: row, to: &markup)
+            return markup
+        }
+
+        /// Every visible row's inner markup, indexed by row.
+        mutating func contents() -> [String] {
+            (0..<rowCOUNT).map { contents(row: $0) }
+        }
+
+        /// One row's complete markup, element included.
+        mutating func row(_ row: Int) -> String {
+            var markup = Markup.rowOpen
+            markup.reserveCapacity(Layout.rowMarkupBYTES)
+            append(row: row, to: &markup)
+            markup += Markup.rowClose
+            return markup
+        }
+
+        private mutating func append(row: Int, to markup: inout String) {
+            for run in runs(row: row) {
+                TerminalHTMLDocument.append(run: run, to: &markup, colors: &colors)
+            }
+        }
     }
 
     // MARK: - Rows
 
-    /// Every visible row's markup, indexed by row.
-    static func rows(frame: TerminalFrame) -> [String] {
-        let screen = TerminalScreenIndex(frame: frame)
-        return (0..<screen.rows).map { row in
-            element(row: row, contents: contents(row: row, in: screen))
+    /// Every row's markup as one string, ready to become the screen's
+    /// `innerHTML`.
+    ///
+    /// Joined here rather than in the page: an array crosses the bridge as one
+    /// JSON string per row and then has to be joined again on the other side,
+    /// and neither of those costs buys anything.
+    static func document(rowContents rows: [String]) -> String {
+        var markup = ""
+        markup.reserveCapacity(rows.count * Layout.rowMarkupBYTES)
+
+        for contents in rows {
+            markup += Markup.rowOpen
+            markup += contents
+            markup += Markup.rowClose
         }
+
+        return markup
     }
 
-    /// One row's markup, for the damage path.
+    /// Every visible row's markup, indexed by row.
+    static func rows(frame: TerminalFrame) -> [String] {
+        var screen = Screen(frame: frame)
+        return (0..<screen.rowCOUNT).map { screen.row($0) }
+    }
+
+    /// One row's markup, for a caller holding a single frame.
     static func row(_ row: Int, frame: TerminalFrame) -> String {
-        element(row: row, contents: rowContents(row, frame: frame))
+        var screen = Screen(frame: frame)
+        return screen.row(row)
     }
 
     /// A row's spans without the row element around them.
-    ///
-    /// The damage path replaces a row's *children* rather than the row itself:
-    /// swapping `outerHTML` discards a live element and its layout box on every
-    /// keystroke, while `innerHTML` keeps the box and reparses only the spans.
     static func rowContents(_ row: Int, frame: TerminalFrame) -> String {
-        contents(row: row, in: TerminalScreenIndex(frame: frame))
+        var screen = Screen(frame: frame)
+        return screen.contents(row: row)
     }
 
     /// Every visible row's inner markup, indexed by row.
     static func rowContents(frame: TerminalFrame) -> [String] {
-        let screen = TerminalScreenIndex(frame: frame)
-        return (0..<screen.rows).map { contents(row: $0, in: screen) }
+        var screen = Screen(frame: frame)
+        return screen.contents()
     }
 
     /// The runs behind a row, for tests and for anything wanting them unwrapped.
     static func runs(row: Int, frame: TerminalFrame) -> [TerminalRunCoalescer.Run] {
-        TerminalRunCoalescer.runs(row: row, in: TerminalScreenIndex(frame: frame))
-    }
-
-    private static func contents(row: Int, in screen: TerminalScreenIndex) -> String {
-        TerminalRunCoalescer.runs(row: row, in: screen).map(span(for:)).joined()
-    }
-
-    private static func element(row: Int, contents: String) -> String {
-        "<div class=\"\(Markup.rowClass)\" id=\"\(Markup.rowIDPrefix)\(row)\">\(contents)</div>"
+        Screen(frame: frame).runs(row: row)
     }
 
     // MARK: - Runs
 
-    private static func span(for run: TerminalRunCoalescer.Run) -> String {
-        var classes = Markup.runClass
+    /// One run appended in place.
+    ///
+    /// Appended rather than returned as a string per run: a screen has thousands
+    /// of runs, and each returned string would be an allocation joined into
+    /// another allocation.
+    private static func append(
+        run: TerminalRunCoalescer.Run,
+        to markup: inout String,
+        colors: inout ColorStyles
+    ) {
+        markup += "<span class=\"\(Markup.runClass)"
         if run.isUnderlined {
-            classes += " \(Markup.underlineClass)"
+            markup += " \(Markup.underlineClass)"
         }
         if run.isStruckThrough {
-            classes += " \(Markup.strikethroughClass)"
+            markup += " \(Markup.strikethroughClass)"
         }
         // The class names the composition rather than styling it. Metal draws
         // the preedit with the same pen it draws committed text with, and the
         // two renderers disagreeing about what composing text looks like is the
-        // class of bug this whole branch keeps finding.
+        // class of bug that keeps turning up here.
         if run.isMarked {
-            classes += " \(Markup.markedClass)"
+            markup += " \(Markup.markedClass)"
         }
 
-        let sizing = "color:\(css(run.foreground));background:\(css(run.background))"
-            + ";width:calc(var(\(Variable.cellWidth)) * \(run.columns))"
+        markup += "\" style=\"color:"
+        markup += colors.css(run.foreground)
+        markup += ";background:"
+        markup += colors.css(run.background)
+        markup += ";width:calc(var(\(Variable.cellWidth)) * \(run.columns))"
 
         guard !run.shapes.isEmpty else {
-            return "<span class=\"\(classes)\" style=\"\(sizing)\">\(escaped(run.text))</span>"
+            markup += "\">"
+            appendEscaped(run.text, to: &markup)
+            markup += "</span>"
+            return
         }
 
         // The cell becomes a positioning context and the shapes are laid inside
         // it as percentages, so they scale with the cell without knowing its
         // pixel size. The character itself is not drawn: the surface reports
         // geometry precisely for the characters it does not want drawn as text.
-        return "<span class=\"\(classes)\" style=\"\(sizing);position:relative\">"
-            + run.shapes.map(fill(for:)).joined()
-            + "</span>"
-    }
-
-    private static func fill(for shape: TerminalCellGeometry.Shape) -> String {
-        "<i style=\"position:absolute"
-            + ";left:\(percent(shape.x));top:\(percent(shape.y))"
-            + ";width:\(percent(shape.width));height:\(percent(shape.height))"
-            + ";background:\(css(shape.color))\"></i>"
+        markup += ";position:relative\">"
+        for shape in run.shapes {
+            markup += "<i style=\"position:absolute;left:"
+            markup += percent(shape.x)
+            markup += ";top:"
+            markup += percent(shape.y)
+            markup += ";width:"
+            markup += percent(shape.width)
+            markup += ";height:"
+            markup += percent(shape.height)
+            markup += ";background:"
+            markup += colors.css(shape.color)
+            markup += "\"></i>"
+        }
+        markup += "</span>"
     }
 
     private static func percent(_ value: Double) -> String {
-        String(format: "%.4f%%", min(max(value, 0), 1) * 100)
+        fixed(min(max(value, 0), 1) * 100, decimals: Layout.percentDECIMALS) + "%"
     }
 
     // MARK: - Cursor
@@ -188,13 +294,72 @@ enum TerminalHTMLDocument {
         let red = channel(color.x)
         let green = channel(color.y)
         let blue = channel(color.z)
-        let alpha = min(max(color.w, 0), 1)
+        let alpha = fixed(Double(min(max(color.w, 0), 1)), decimals: Layout.alphaDECIMALS)
 
-        return "rgba(\(red),\(green),\(blue),\(String(format: "%.3f", alpha)))"
+        return "rgba(\(red),\(green),\(blue),\(alpha))"
     }
 
     private static func channel(_ value: Float) -> Int {
         Int((min(max(value, 0), 1) * 255).rounded())
+    }
+
+    /// A non-negative number with a fixed number of decimal places.
+    ///
+    /// `String(format:)` goes through Foundation and a locale on every call, and
+    /// this is called several times per run on a screen that has thousands.
+    static func fixed(_ value: Double, decimals: Int) -> String {
+        var scale = 1
+        for _ in 0..<decimals {
+            scale *= 10
+        }
+
+        let scaled = Int((max(value, 0) * Double(scale)).rounded())
+        var fraction = String(scaled % scale)
+        if fraction.count < decimals {
+            fraction = String(repeating: "0", count: decimals - fraction.count) + fraction
+        }
+
+        return "\(scaled / scale).\(fraction)"
+    }
+
+    /// CSS colour strings for one frame's palette.
+    ///
+    /// Bounded because a frame is not required to have a small palette: a true
+    /// colour gradient would otherwise grow the map to one entry per cell. Past
+    /// the bound the formatting still happens, it is simply not remembered.
+    struct ColorStyles {
+        /// Comfortably above a 256-colour palette plus a theme's own colours.
+        private static let capacityCOUNT = 512
+        private var entries: [Key: String] = [:]
+
+        /// Float bit patterns rather than the vector itself, so the key is
+        /// hashable without depending on floating-point equality.
+        private struct Key: Hashable {
+            let red: UInt32
+            let green: UInt32
+            let blue: UInt32
+            let alpha: UInt32
+
+            init(_ color: SIMD4<Float>) {
+                red = color.x.bitPattern
+                green = color.y.bitPattern
+                blue = color.z.bitPattern
+                alpha = color.w.bitPattern
+            }
+        }
+
+        mutating func css(_ color: SIMD4<Float>) -> String {
+            let key = Key(color)
+            if let cached = entries[key] {
+                return cached
+            }
+
+            let formatted = TerminalHTMLDocument.css(color)
+            if entries.count < Self.capacityCOUNT {
+                entries[key] = formatted
+            }
+            return formatted
+        }
     }
 
     /// Escapes the characters that carry meaning in HTML.
@@ -203,11 +368,47 @@ enum TerminalHTMLDocument {
     /// `<script>` is ordinary content rather than an attack the renderer gets
     /// to assume away. The ampersand goes first or it escapes the escapes.
     static func escaped(_ value: String) -> String {
-        var output = value.replacingOccurrences(of: "&", with: "&amp;")
-        output = output.replacingOccurrences(of: "<", with: "&lt;")
-        output = output.replacingOccurrences(of: ">", with: "&gt;")
-        output = output.replacingOccurrences(of: "\"", with: "&quot;")
-        output = output.replacingOccurrences(of: "'", with: "&#39;")
+        var output = ""
+        appendEscaped(value, to: &output)
         return output
+    }
+
+    /// One pass, and no allocation at all when nothing needs escaping.
+    ///
+    /// The previous shape ran five `replacingOccurrences` passes over every run,
+    /// allocating five strings each time, on text that almost never contains any
+    /// of the five characters.
+    private static func appendEscaped(_ value: String, to output: inout String) {
+        var plainStart = value.startIndex
+        var index = value.startIndex
+
+        while index < value.endIndex {
+            let replacement: String
+            switch value[index] {
+            case "&": replacement = "&amp;"
+            case "<": replacement = "&lt;"
+            case ">": replacement = "&gt;"
+            case "\"": replacement = "&quot;"
+            case "'": replacement = "&#39;"
+            default:
+                index = value.index(after: index)
+                continue
+            }
+
+            if plainStart < index {
+                output += value[plainStart..<index]
+            }
+            output += replacement
+            index = value.index(after: index)
+            plainStart = index
+        }
+
+        guard plainStart != value.startIndex else {
+            output += value  // Nothing was escaped; the whole run is one append.
+            return
+        }
+        if plainStart < value.endIndex {
+            output += value[plainStart...]
+        }
     }
 }
