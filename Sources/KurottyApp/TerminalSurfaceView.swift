@@ -416,6 +416,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         contentRowCount
     }
 
+    /// The double-click gesture, without an `NSEvent`.
+    ///
+    /// `mouseDown` resolves the click to a content-absolute position and then
+    /// calls this; a test can supply the position directly and still exercise
+    /// the row lookup, which is where the gesture used to go wrong.
+    func selectWordForTesting(at position: TerminalCellPosition) {
+        selectWord(at: position)
+    }
+
     func terminalSequenceForTesting(_ selector: Selector) -> String? {
         TerminalKeyEncoder.sequence(for: selector, state: terminalKeyEncoderState)
     }
@@ -2187,12 +2196,17 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func selectWord(at position: TerminalCellPosition) {
-        let rows = visibleRowsForRendering(limit: terminalMetrics().size.rows)
-        guard rows.indices.contains(position.row) else {
+        // `position` is content-absolute — `cellPosition(for:)` adds
+        // `visibleRowStartIndex` — so the row has to be fetched from the content
+        // buffer, the same accessor `selectedText()` reads. Indexing the
+        // viewport slice with it agreed only while the buffer was shorter than
+        // the screen; the moment anything scrolled off, a double click either
+        // read the wrong row or ran past the end of the slice and cleared the
+        // selection outright.
+        guard let row = contentRow(at: position.row) else {
             clearSelection()
             return
         }
-        let row = rows[position.row]
         let cells = row.map { TerminalWordSelection.Cell(character: $0.character, isContinuation: $0.isContinuation) }
         guard let bounds = TerminalWordSelection.bounds(in: cells, clickedColumn: position.column) else {
             clearSelection()
