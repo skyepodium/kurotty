@@ -50,6 +50,26 @@ final class TerminalHTMLSelectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebViewClaimsNoDropsSoAFileStillLandsOnTheCommandLine() {
+        let webView = TerminalHTMLWebView(frame: Fixture.rendererFrame, configuration: WKWebViewConfiguration())
+
+        // Dragging is a fourth route, and the three above do not cover it: a
+        // drag destination is found by its registration, not by hit testing or
+        // by focus. A stock web view registers seventeen types because dropping
+        // a file onto a page is something pages do, and sitting over the surface
+        // it took every drop the terminal used to turn into a path.
+        XCTAssertTrue(
+            webView.registeredDraggedTypes.isEmpty,
+            "the web view claimed \(webView.registeredDraggedTypes.count) dragged types"
+        )
+
+        // The comparison is the point: this is a property of the subclass, not
+        // of web views, so the test fails if the override is ever removed.
+        let stock = WKWebView(frame: Fixture.rendererFrame, configuration: WKWebViewConfiguration())
+        XCTAssertFalse(stock.registeredDraggedTypes.isEmpty)
+    }
+
+    @MainActor
     func testRendererContainerStaysTransparentSoTheSurfaceReceivesTheGesture() {
         let renderer = makeRenderer()
         renderer.frame = Fixture.rendererFrame

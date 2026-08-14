@@ -141,14 +141,20 @@ final class TerminalHTMLDocumentTests: XCTestCase {
 
         // The total is 80 whichever width the syllable is given, because the
         // walk advances by whatever it believes — so the total cannot detect
-        // this and the text is what does. Two cells wide means the
-        // continuation at column 1 is stepped over, and `a` follows the
-        // syllable directly. One cell wide would render that continuation as a
-        // space and produce `한 a`, which is the bug: every following column on
-        // the line shifted by one.
+        // this and the text is what does. Two cells wide means the continuation
+        // at column 1 is stepped over and `a` begins the next run. One cell
+        // wide would render that continuation as a space and produce `한 a`,
+        // which is the bug: every following column on the line shifted by one.
+        //
+        // The syllable is a run of its own because a wide cell never merges —
+        // its box has to be exactly its two columns or the text after it in the
+        // same box slides left by the difference between the fallback face's
+        // advance and two cells.
+        XCTAssertEqual(runs.first?.text, "한")
+        XCTAssertEqual(runs.first?.columns, TerminalCellColumns.wide)
         XCTAssertTrue(
-            runs.first?.text.hasPrefix("한a") == true,
-            "a wide glyph must consume its continuation cell, got \(runs.first?.text.prefix(4) ?? "")"
+            runs.dropFirst().first?.text.hasPrefix("a") == true,
+            "the continuation cell must be stepped over, got \(runs.dropFirst().first?.text.prefix(4) ?? "")"
         )
     }
 
@@ -379,6 +385,42 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("ab가efgh"), "got \(text.prefix(10))")
     }
 
+    func testAWideCellStandsAloneSoItCannotDragTheCellsAfterIt() {
+        // A run declares its width in cells; the text inside flows at the
+        // font's advances. Those agree for ASCII in a monospaced face and do
+        // not agree for CJK, which falls back to another face entirely. Four
+        // Hangul syllables measured 5.5 cells inside a box declared as 8, and
+        // the bar that followed them in the same run slid left by the
+        // difference — on screen the whole tail of the line was out of column.
+        var cells: [TerminalCell] = []
+        for (offset, character) in "한글한글".enumerated() {
+            cells.append(TerminalCell(
+                character: character, column: offset * 2, row: 0,
+                foreground: Fixture.white, background: Fixture.black,
+                columns: TerminalCellColumns.wide
+            ))
+        }
+        cells.append(TerminalCell(
+            character: "|", column: 8, row: 0,
+            foreground: Fixture.white, background: Fixture.black
+        ))
+
+        let runs = TerminalHTMLDocument.runs(row: 0, frame: frame(cells: cells))
+        let wide = runs.filter { $0.columns == TerminalCellColumns.wide }
+
+        XCTAssertEqual(wide.count, 4, "each wide glyph needs a box of its own")
+        for run in wide {
+            XCTAssertEqual(run.text.count, 1, "a wide run carries exactly one glyph")
+        }
+
+        // The bar must not share a box with anything wide, or it inherits the
+        // slack left over inside it.
+        guard let bar = runs.first(where: { $0.text.contains("|") }) else {
+            return XCTFail("the bar is missing from the row")
+        }
+        XCTAssertFalse(bar.text.contains("한"), "the bar shares a box with a wide glyph")
+    }
+
     func testAWideCellIsDroppedWholeRatherThanBleedingUnderTheComposition() {
         // The head of a wide cell sits one column before the composition, so a
         // walk that kept it would step over the preedit's first column and
@@ -426,13 +468,18 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         XCTAssertEqual(marked.last?.foreground, TerminalSelectionStyle.foregroundColor)
     }
 
-    func testACompositionWithoutASelectedSubRangeIsOneRun() {
+    func testACompositionWithoutASelectedSubRangeIsDrawnInOneColour() {
         let built = frame(cells: [], markedText: "안녕")
 
         let marked = TerminalHTMLDocument.runs(row: 0, frame: built).filter(\.isMarked)
 
-        XCTAssertEqual(marked.count, 1, "nothing distinguishes these cells, so they are one span")
-        XCTAssertEqual(marked.first?.text, "안녕")
+        // Each syllable is its own run because each is two cells wide, not
+        // because anything about them differs. What must not differ is the
+        // colour: with no selected sub-range the whole preedit is drawn in the
+        // screen's own foreground, and a split that changed colour would claim
+        // a sub-range the input method never reported.
+        XCTAssertEqual(marked.map(\.text).joined(), "안녕")
+        XCTAssertEqual(Set(marked.map(\.foreground)).count, 1, "one composition, one colour")
     }
 
     func testACompositionIsEscapedLikeAnyOtherContent() {

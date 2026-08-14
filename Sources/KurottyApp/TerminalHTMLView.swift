@@ -29,7 +29,8 @@ import WebKit
 ///
 /// Refusing hit tests keeps the pointer flowing to the surface. Refusing first
 /// responder *and* key-view membership keeps the two paths that bypass hit
-/// testing from handing focus to the content process anyway.
+/// testing from handing focus to the content process anyway. Dragging is a
+/// third path, and none of those three cover it.
 final class TerminalHTMLWebView: WKWebView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -41,6 +42,20 @@ final class TerminalHTMLWebView: WKWebView {
 
     override var canBecomeKeyView: Bool {
         false
+    }
+
+    /// Drops belong to the surface, which turns a dropped file into a path on
+    /// the command line.
+    ///
+    /// A web view registers seventeen dragged types of its own, because dropping
+    /// a file onto a page is something pages do. Sitting on top of the surface,
+    /// it therefore claimed every drop the terminal used to receive — and none
+    /// of the rules above prevented it, because a drag destination is found by
+    /// its registration rather than by hit testing or by focus.
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
+        // Ignored rather than unregistered afterwards: WebKit registers during
+        // its own initialisation and re-registers when content loads, so undoing
+        // it once would only hold until the next navigation.
     }
 }
 
