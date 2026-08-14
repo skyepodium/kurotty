@@ -12,6 +12,22 @@ from also held unrelated windows, so they are deliberately not here.
 | `powerline-html.png` | The same prompt drawn by the HTML renderer, after the fallback-font fix. Powerline separators resolve; before that fix they were empty boxes, because the system cascade answers `.LastResort` for those private-use codepoints and only the atlas's named Nerd Font list finds them. |
 | `tui-html.png` | The HTML renderer under the TUI workload: alternate screen, cursor home, every line rewritten in place, so every frame is full damage. This is the shape `vim` and `htop` produce and what an ssh session spends its time on. |
 
+`sample-frame.html` is the markup the renderer actually emits, written by
+`TerminalHTMLSampleTests`. It is here because the screenshots cannot answer
+"is this really HTML?" — looking identical to Metal is the goal, so a picture
+proves nothing either way. The markup does:
+
+```html
+<div class="trow" id="r0"><span class="trun"
+  style="color:rgba(102,179,255,1.000);background:rgba(38,38,51,1.000);width:calc(var(--cw) * 10)"
+  >skyepodium</span>...
+```
+
+One `div` per row, one `span` per run of cells that share a colour, each sized
+in cell units. There is nothing in DOM text that forces it to look unstyled —
+a terminal is a grid of coloured character cells, and that is a shape CSS can
+state exactly.
+
 Which renderer produced a capture is confirmed from the run's log
 (`render latency [html|metal] probe installed`), not by eye — at this point the
 two are hard to tell apart visually, which is most of the point.

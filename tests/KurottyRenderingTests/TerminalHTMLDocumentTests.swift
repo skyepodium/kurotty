@@ -213,3 +213,50 @@ final class TerminalHTMLDocumentTests: XCTestCase {
         XCTAssertEqual(runs.filter(\.isUnderlined).reduce(0) { $0 + $1.columns }, 2)
     }
 }
+
+/// Writes the markup the renderer actually produces to `kshot/sample-frame.html`.
+///
+/// Exists because the rendered screenshots are indistinguishable from the Metal
+/// ones — which is the goal, and which also means a picture cannot answer "is
+/// this really HTML?". The markup can.
+final class TerminalHTMLSampleTests: XCTestCase {
+    func testWriteSampleMarkup() throws {
+        guard ProcessInfo.processInfo.environment["KUROTTY_WRITE_HTML_SAMPLE"] == "1" else {
+            throw XCTSkip("set KUROTTY_WRITE_HTML_SAMPLE=1 to regenerate the sample")
+        }
+
+        let prompt = "skyepodium  ~/dev  $ ls -la"
+        var cells: [TerminalCell] = []
+        for (offset, character) in prompt.enumerated() {
+            cells.append(TerminalCell(
+                character: character,
+                column: offset,
+                row: 0,
+                foreground: offset < 10 ? SIMD4<Float>(0.4, 0.7, 1, 1) : SIMD4<Float>(1, 1, 1, 1),
+                background: offset < 10 ? SIMD4<Float>(0.15, 0.15, 0.2, 1) : SIMD4<Float>(0, 0, 0, 1)
+            ))
+        }
+
+        let frame = TerminalFrame(
+            cells: cells,
+            backgrounds: [],
+            decorations: [],
+            defaultForeground: SIMD4<Float>(1, 1, 1, 1),
+            defaultBackground: SIMD4<Float>(0, 0, 0, 1),
+            dirtyRows: [], dirtyRects: [], isFullDamage: true,
+            cursorColumn: prompt.count, cursorRow: 0, cursorBlinkOn: true,
+            markedTextColumn: 0, markedText: "",
+            markedTextSelectedRange: TerminalTextSelectionRange(location: 0, length: 0),
+            columns: 60, visibleRows: 2,
+            cellSize: TerminalFrameSize(width: 12, height: 26),
+            padding: TerminalFramePoint(x: 0, y: 0)
+        )
+
+        let markup = TerminalHTMLDocument.rows(frame: frame).joined(separator: "\n")
+        let path = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("kshot/sample-frame.html")
+        try markup.write(to: path, atomically: true, encoding: .utf8)
+        print("wrote \(path.path)")
+    }
+}
