@@ -23,15 +23,41 @@ protocol TerminalAppKitRenderer: TerminalFrameRenderer {
 
 @MainActor
 enum TerminalRendererFactory {
+    /// Selects the HTML renderer instead of the Metal one.
+    ///
+    /// An environment variable rather than a settings key while the backend is
+    /// being built: a settings key is a user-facing promise that needs a
+    /// lifecycle contract and a migration, and this is not ready to make one.
+    /// It becomes a setting when the measurements say which backend should be
+    /// the default.
+    static let htmlRendererVariable = "KUROTTY_HTML_RENDERER"
+
     static func makeDefaultRenderer(
         font: NSFont,
         backgroundColor: SIMD4<Float>,
         cursorColor: SIMD4<Float>
     ) -> any TerminalAppKitRenderer {
-        TerminalMetalView(
+        guard isHTMLRendererRequested() else {
+            return TerminalMetalView(
+                font: font,
+                backgroundColor: backgroundColor,
+                cursorColor: cursorColor
+            )
+        }
+
+        return TerminalHTMLView(
             font: font,
             backgroundColor: backgroundColor,
             cursorColor: cursorColor
         )
+    }
+
+    static func isHTMLRendererRequested(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let raw = environment[htmlRendererVariable] else {
+            return false
+        }
+        return raw == "1"
     }
 }
