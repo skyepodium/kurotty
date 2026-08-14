@@ -482,24 +482,11 @@ struct TerminalRenderDamageDiagnostics {
 final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
-    private static let cjkGlyphFallbackFontNames = [
-        "Apple SD Gothic Neo",
-        "AppleGothic",
-        "Noto Sans CJK KR",
-        "Noto Sans KR",
-        "PingFang SC",
-        "Hiragino Sans",
-    ]
-    private static let glyphFallbackFontNames = [
-        "MesloLGS NF",
-        "MesloLGS Nerd Font Mono",
-        "Symbols Nerd Font Mono",
-        "Hack Nerd Font Mono",
-        "JetBrainsMono Nerd Font Mono",
-        "FiraCode Nerd Font Mono",
-        "SF Mono",
-        "Menlo",
-    ]
+    // Shared with the HTML renderer, which needs the same answer. See
+    // TerminalGlyphFallbackFonts for why the named list has to be walked before
+    // CoreText's cascade.
+    private static let cjkGlyphFallbackFontNames = TerminalGlyphFallbackFonts.cjk
+    private static let glyphFallbackFontNames = TerminalGlyphFallbackFonts.general
 
     var onPresented: (() -> Void)?
     var diagnosticCPUFallbackEnabled = false {
