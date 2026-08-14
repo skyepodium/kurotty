@@ -325,6 +325,25 @@ final class TerminalOutputInterpreter {
         pendingHangulSyllable = syllable
     }
 
+    /// Moves the cursor down as many rows as an inline image occupies.
+    ///
+    /// The rows a picture covers are rows the cursor has to skip, or the next
+    /// line of output is printed through it. This does what a run of newlines
+    /// would, but from inside — feeding the bytes back through `interpret`
+    /// re-enters the parser in the middle of the buffer it is already
+    /// consuming, and the rest of that buffer then reads a cursor that moved
+    /// under it. The first attempt did exactly that, and printed the line after
+    /// an image across the top of the picture.
+    func advanceRowsForInlineImage(_ rows: Int) {
+        guard rows > 0 else {
+            return
+        }
+        cursorColumn = 0
+        for _ in 0..<rows {
+            lineFeed()
+        }
+    }
+
     private func lineFeed() {
         markDirty(row: cursorRow)
         if cursorRow >= scrollRegionTop && cursorRow == scrollRegionBottom {

@@ -101,11 +101,17 @@ final class TerminalWindowPanelsIntegrationTests: XCTestCase {
 
         let splits = allSplitViews(from: root)
         XCTAssertGreaterThan(splits.count, 1, "an orthogonal split must create a nested split")
+        // The original hazard was a nested split keeping its default dark
+        // ground inside a light window. It cannot now, because no split paints
+        // a ground at all — the window's host owns the one field and every
+        // descendant is transparent so it shows through the gutters. Asserting
+        // transparency is the stronger form of the same guarantee: a split with
+        // no ground of its own cannot expose the wrong one.
         for split in splits {
+            let fill = try XCTUnwrap(split.layer?.backgroundColor)
             XCTAssertEqual(
-                split.layer?.backgroundColor,
-                DesignTokens.ChromeTheme.light.terminalPaneGround.cgColor,
-                "a nested split must not expose its default dark ground inside a light window"
+                fill.alpha, 0,
+                "a nested split must leave the ground to the window's host"
             )
         }
     }

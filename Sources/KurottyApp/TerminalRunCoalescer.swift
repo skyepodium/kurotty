@@ -29,6 +29,13 @@ enum TerminalRunCoalescer {
         var isMarked: Bool = false
         /// Non-empty for a cell drawn as geometry rather than as text.
         var shapes: [TerminalCellGeometry.Shape] = []
+        /// Whether this run is one wide cell.
+        ///
+        /// Stored rather than derived from `columns`, which counts the run's
+        /// total width and is greater than one for any run of more than a
+        /// single narrow cell. A wide run never grows, so this is decided when
+        /// the run is built and never changes.
+        var isWide = false
     }
 
     /// One row as the fewest runs that describe it.
@@ -55,7 +62,8 @@ enum TerminalRunCoalescer {
                     isUnderlined: cell.isUnderlined,
                     isStruckThrough: cell.isStruckThrough,
                     isMarked: cell.isMarked,
-                    shapes: cell.shapes
+                    shapes: cell.shapes,
+                    isWide: cell.columns > TerminalCellColumns.single
                 ))
                 continue
             }
@@ -82,8 +90,22 @@ enum TerminalRunCoalescer {
     /// A cell carrying geometry never merges, in either direction: its shapes
     /// are positioned inside one cell box, and a run two cells wide would
     /// stretch them across both.
+    ///
+    /// **A wide cell never merges either, and for a reason that only shows up
+    /// once a document engine lays the run out.** A run states its width in
+    /// cells and the text inside it flows at the font's own advances. For ASCII
+    /// in a monospaced face those agree, so nothing is visibly wrong. A CJK
+    /// glyph falls back to a different face whose advance is nothing like two
+    /// cells: four Hangul syllables measured 5.5 cells inside a box declared as
+    /// 8, and everything after them in the same run — including a bar, a
+    /// bracket, a caret — slid left by the difference. Alone in its own box a
+    /// wide cell cannot drag its neighbours, and the glyph sits at the left of
+    /// its two columns exactly as the atlas draws it.
     private static func canExtend(_ run: Run, with cell: TerminalScreenIndex.Attributes) -> Bool {
         guard cell.shapes.isEmpty, run.shapes.isEmpty else {
+            return false
+        }
+        guard cell.columns == TerminalCellColumns.single, !run.isWide else {
             return false
         }
         guard run.foreground == cell.foreground, run.background == cell.background else {

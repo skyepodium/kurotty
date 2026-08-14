@@ -2,6 +2,14 @@ public struct TerminalFrame: Sendable {
     public let cells: [TerminalCell]
     public let backgrounds: [TerminalBackground]
     public let decorations: [TerminalDecoration]
+    /// Pictures the terminal was sent, placed on the grid.
+    ///
+    /// Identifiers rather than bytes. A frame is a value built, copied and
+    /// handed across an isolation boundary sixty times a second; a megabyte of
+    /// PNG inside it would be copied every one of those times for as long as
+    /// the image stayed on screen. The renderer resolves the identifier against
+    /// the store that holds the bytes once.
+    public let images: [TerminalFrameImage]
     public let defaultForeground: SIMD4<Float>
     public let defaultBackground: SIMD4<Float>
     public let dirtyRows: [Int]
@@ -42,6 +50,7 @@ public struct TerminalFrame: Sendable {
         cells: [TerminalCell],
         backgrounds: [TerminalBackground],
         decorations: [TerminalDecoration],
+        images: [TerminalFrameImage] = [],
         defaultForeground: SIMD4<Float>,
         defaultBackground: SIMD4<Float>,
         dirtyRows: [Int],
@@ -62,6 +71,7 @@ public struct TerminalFrame: Sendable {
         self.cells = cells
         self.backgrounds = backgrounds
         self.decorations = decorations
+        self.images = images
         self.defaultForeground = defaultForeground
         self.defaultBackground = defaultBackground
         self.dirtyRows = dirtyRows
@@ -747,4 +757,42 @@ public struct TerminalTextSelectionRange: Equatable, Sendable {
 public enum TerminalCellColumns {
     public static let single = 1
     public static let wide = 2
+}
+
+/// One picture on the grid, addressed by identity rather than by content.
+///
+/// The rectangle is in visible-grid coordinates, already resolved from the
+/// content row the image was anchored to — so a renderer never has to know
+/// about scrollback, and an image that has scrolled off is simply absent from
+/// the frame rather than present with a negative row.
+public struct TerminalFrameImage: Equatable, Sendable {
+    /// Identifies the bytes in the session's image store. Opaque here: the
+    /// frame carries no opinion about how they are held or served.
+    public let identifier: Int
+    public let column: Int
+    public let row: Int
+    public let columns: Int
+    public let rows: Int
+    /// The sender's own file name, when it supplied one.
+    ///
+    /// Carried for accessibility rather than for drawing. An image in a
+    /// terminal has no caption and no surrounding markup, so without this a
+    /// screen reader has nothing to say about it at all.
+    public let name: String?
+
+    public init(
+        identifier: Int,
+        column: Int,
+        row: Int,
+        columns: Int,
+        rows: Int,
+        name: String? = nil
+    ) {
+        self.identifier = identifier
+        self.column = column
+        self.row = row
+        self.columns = max(columns, 1)
+        self.rows = max(rows, 1)
+        self.name = name
+    }
 }

@@ -22,6 +22,7 @@ enum TerminalFrameMember: String, CaseIterable {
     case cells
     case backgrounds
     case decorations
+    case images
     case defaultForeground
     case defaultBackground
     case dirtyRows
@@ -145,6 +146,7 @@ struct TerminalConformanceFrame {
     var cells: [TerminalCell]
     var backgrounds: [TerminalBackground] = []
     var decorations: [TerminalDecoration] = []
+    var images: [TerminalFrameImage] = []
     var defaultForeground = Baseline.defaultForeground
     var defaultBackground = Baseline.defaultBackground
     var dirtyRows: [Int] = []
@@ -194,6 +196,7 @@ struct TerminalConformanceFrame {
             cells: cells,
             backgrounds: backgrounds,
             decorations: decorations,
+            images: images,
             defaultForeground: defaultForeground,
             defaultBackground: defaultBackground,
             dirtyRows: dirtyRows,

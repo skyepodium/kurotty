@@ -74,7 +74,10 @@ final class TerminalThemeApplicationTests: XCTestCase {
 
         XCTAssertEqual(settings.terminal.colors, TerminalColorSettings.nacre)
         XCTAssertEqual(DesignTokens.ChromeTheme.theme(for: settings).surfaceChrome, DesignTokens.Color.Nacre.surfaceChrome)
-        XCTAssertNotNil(DesignTokens.ChromeTheme.theme(for: settings).groundGradient)
+        XCTAssertEqual(
+            DesignTokens.ChromeTheme.theme(for: settings).groundMesh,
+            DesignTokens.Color.Nacre.groundMesh
+        )
     }
 
     /// Chrome cannot be derived from background luminance alone once a theme
@@ -86,13 +89,18 @@ final class TerminalThemeApplicationTests: XCTestCase {
         var nacre = AppSettings.default
         nacre.terminal.theme = TerminalThemePreset.nacreName
         nacre.terminal.colors = .nacre
-        XCTAssertNotNil(DesignTokens.ChromeTheme.theme(for: nacre).groundGradient)
+        XCTAssertEqual(
+            DesignTokens.ChromeTheme.theme(for: nacre).groundMesh,
+            DesignTokens.Color.Nacre.groundMesh
+        )
 
         var custom = AppSettings.default
         custom.terminal.theme = TerminalThemePreset.customName
         custom.terminal.colors = .nacre
         let customChrome = DesignTokens.ChromeTheme.theme(for: custom)
-        XCTAssertNil(customChrome.groundGradient)
+        // A custom palette has never chosen its own chrome: it takes a ramp by
+        // luminance and takes that ramp whole, ground included.
+        XCTAssertEqual(customChrome.groundMesh, DesignTokens.Color.Light.groundMesh)
         XCTAssertEqual(customChrome.surfaceChrome, DesignTokens.Color.Light.surfaceChrome)
 
         var dark = AppSettings.default
