@@ -222,6 +222,38 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         loadShell()
     }
 
+    /// The CSS font stack: the configured font, then whatever CoreText falls
+    /// back to for the glyphs it lacks.
+    ///
+    /// Menlo is the default and has no powerline separators, yet the glyph
+    /// atlas draws them — because CoreText's cascade finds an installed font
+    /// that does. Naming only the configured family here left those cells as
+    /// missing-glyph boxes, which is what the first screenshot showed. Asking
+    /// CoreText the same question the atlas asks keeps both renderers drawing
+    /// from the same fonts, rather than hardcoding a list of font names this
+    /// machine happens to have.
+    private func fontStack() -> String {
+        var families = [font.familyName ?? font.fontName]
+
+        // The same named list the glyph atlas walks, for the same reason: a
+        // powerline separator lives in the private use area, and CoreText's
+        // cascade answers `.LastResort` for it even on a machine that has a
+        // Nerd Font installed. Asking the cascade alone is what left those
+        // cells as empty boxes on this renderer's first run, while Metal drew
+        // them correctly from this list.
+        for family in TerminalGlyphFallbackFonts.installed(
+            from: TerminalGlyphFallbackFonts.general + TerminalGlyphFallbackFonts.cjk,
+            size: font.pointSize
+        ) where !families.contains(family) {
+            families.append(family)
+        }
+
+        // Generic families last, so a machine with none of the above still
+        // renders monospaced text rather than proportional.
+        let quoted = families.map { "\"\($0)\"" }.joined(separator: ", ")
+        return "\(quoted), ui-monospace, monospace"
+    }
+
     private func loadShell() {
         isDocumentLoaded = false
         hasPublishedCellSize = false
@@ -237,8 +269,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     private func shellDocument() -> String {
         let background = TerminalHTMLDocument.css(backgroundColor)
         let cursor = TerminalHTMLDocument.css(cursorColor)
-        let family = font.fontName
         let size = font.pointSize
+        let stack = fontStack()
 
         return """
         <!DOCTYPE html>
@@ -256,7 +288,7 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         }
         #screen {
             position: relative;
-            font-family: "\(family)", ui-monospace, monospace;
+            font-family: \(stack);
             font-size: \(size)px;
             line-height: var(--ch);
             white-space: pre;
