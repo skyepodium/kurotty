@@ -33,6 +33,24 @@ enum TerminalHTMLDocument {
         static let strikethroughClass = "tst"
     }
 
+    /// A filled rectangle inside one cell, as a fraction of that cell.
+    ///
+    /// Block elements and box drawing are glyph *shapes* rather than text, and
+    /// the terminal surface hands them over as geometry precisely because no
+    /// font is involved. The atlas fills them directly; here they become
+    /// positioned boxes.
+    ///
+    /// Stored in CSS orientation — `y` from the top — because the frame reports
+    /// it from the bottom and converting once here beats converting at every
+    /// use.
+    struct Shape: Equatable {
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+        var color: SIMD4<Float>
+    }
+
     /// One run of adjacent cells sharing every visual property.
     ///
     /// Kept as a value rather than emitted directly so coalescing can be tested
@@ -46,6 +64,19 @@ enum TerminalHTMLDocument {
         var background: SIMD4<Float>
         var isUnderlined: Bool
         var isStruckThrough: Bool
+        /// Non-empty for a cell drawn as geometry rather than as text. Such a
+        /// cell is always its own run: the shapes are positioned inside one
+        /// cell box, so merging it with a neighbour would stretch them.
+        var shapes: [Shape] = []
+    }
+
+    private enum Geometry {
+        /// Line thickness for box drawing, as a fraction of the cell.
+        ///
+        /// The atlas derives its own from the font's underline thickness. This
+        /// is a fraction instead because the document is sized in cell units
+        /// and has no font metrics to ask.
+        static let boxLineRATIO = 0.09
     }
 
     // MARK: - Rows
@@ -99,6 +130,7 @@ enum TerminalHTMLDocument {
         private(set) var backgrounds: [Int: SIMD4<Float>] = [:]
         private(set) var underlines: Set<Int> = []
         private(set) var strikethroughs: Set<Int> = []
+        private(set) var shapes: [Int: [Shape]] = [:]
         let columns: Int
 
         init(frame: TerminalFrame) {
@@ -117,20 +149,61 @@ enum TerminalHTMLDocument {
             }
 
             for decoration in frame.decorations {
-                // A decoration spans cells, and box drawing and block elements
-                // are glyph shapes the atlas draws rather than text styles. Only
-                // the two that are text styles cross into HTML; the others are
-                // left to the character already in the cell.
                 let span = max(decoration.width, 1)
                 for offset in 0..<span {
                     let index = key(decoration.row, decoration.column + offset)
                     switch decoration.kind {
-                    case .underline: underlines.insert(index)
-                    case .strikethrough: strikethroughs.insert(index)
-                    case .boxDrawing, .blockElement: continue
+                    case .underline:
+                        underlines.insert(index)
+                    case .strikethrough:
+                        strikethroughs.insert(index)
+                    case let .blockElement(x, y, width, height):
+                        // The frame measures y from the bottom of the cell;
+                        // CSS measures from the top.
+                        shapes[index, default: []].append(Shape(
+                            x: x,
+                            y: 1 - y - height,
+                            width: width,
+                            height: height,
+                            color: decoration.color
+                        ))
+                    case let .boxDrawing(left, right, up, down):
+                        shapes[index, default: []].append(contentsOf: Self.boxShapes(
+                            left: left, right: right, up: up, down: down,
+                            color: decoration.color
+                        ))
                     }
                 }
             }
+        }
+
+        /// Box drawing as up to four bars meeting at the centre of the cell.
+        ///
+        /// Each arm runs from the cell edge to just past the middle, so a
+        /// corner joins without a notch where the two bars meet.
+        static func boxShapes(
+            left: Bool, right: Bool, up: Bool, down: Bool,
+            color: SIMD4<Float>
+        ) -> [Shape] {
+            let thickness = Geometry.boxLineRATIO
+            let near = (1 - thickness) / 2
+            let far = near + thickness
+            var shapes: [Shape] = []
+
+            if left {
+                shapes.append(Shape(x: 0, y: near, width: far, height: thickness, color: color))
+            }
+            if right {
+                shapes.append(Shape(x: near, y: near, width: 1 - near, height: thickness, color: color))
+            }
+            if up {
+                shapes.append(Shape(x: near, y: 0, width: thickness, height: far, color: color))
+            }
+            if down {
+                shapes.append(Shape(x: near, y: near, width: thickness, height: 1 - near, color: color))
+            }
+
+            return shapes
         }
 
         func key(_ row: Int, _ column: Int) -> Int {
@@ -188,11 +261,18 @@ enum TerminalHTMLDocument {
             let background = grid.backgrounds[index] ?? frame.defaultBackground
             let isUnderlined = grid.underlines.contains(index)
             let isStruckThrough = grid.strikethroughs.contains(index)
+            let shapes = grid.shapes[index] ?? []
 
             // Extend the run in place when nothing visual changed. Comparing the
             // colours rather than a style identifier keeps this honest: two runs
             // that merge must be indistinguishable on screen.
-            if var last = runs.last,
+            //
+            // A cell carrying geometry never merges, in either direction: its
+            // shapes are positioned inside one cell box, and a run two cells
+            // wide would stretch them across both.
+            if shapes.isEmpty,
+               var last = runs.last,
+               last.shapes.isEmpty,
                last.foreground == foreground,
                last.background == background,
                last.isUnderlined == isUnderlined,
@@ -207,7 +287,8 @@ enum TerminalHTMLDocument {
                     foreground: foreground,
                     background: background,
                     isUnderlined: isUnderlined,
-                    isStruckThrough: isStruckThrough
+                    isStruckThrough: isStruckThrough,
+                    shapes: shapes
                 ))
             }
 
@@ -239,9 +320,29 @@ enum TerminalHTMLDocument {
             classes += " \(Markup.strikethroughClass)"
         }
 
-        let style = "color:\(css(run.foreground));background:\(css(run.background));width:calc(var(--cw) * \(run.columns))"
+        var style = "color:\(css(run.foreground));background:\(css(run.background));width:calc(var(--cw) * \(run.columns))"
 
-        return "<span class=\"\(classes)\" style=\"\(style)\">\(escaped(run.text))</span>"
+        guard !run.shapes.isEmpty else {
+            return "<span class=\"\(classes)\" style=\"\(style)\">\(escaped(run.text))</span>"
+        }
+
+        // The cell becomes a positioning context and the shapes are laid inside
+        // it as percentages, so they scale with the cell without knowing its
+        // pixel size. The character itself is not drawn: the surface reports
+        // geometry precisely for the characters it does not want drawn as text.
+        style += ";position:relative"
+        let boxes = run.shapes.map { shape in
+            "<i style=\"position:absolute;"
+                + "left:\(percent(shape.x));top:\(percent(shape.y));"
+                + "width:\(percent(shape.width));height:\(percent(shape.height));"
+                + "background:\(css(shape.color))\"></i>"
+        }.joined()
+
+        return "<span class=\"\(classes)\" style=\"\(style)\">\(boxes)</span>"
+    }
+
+    private static func percent(_ value: Double) -> String {
+        String(format: "%.4f%%", min(max(value, 0), 1) * 100)
     }
 
     /// A frame colour as CSS.

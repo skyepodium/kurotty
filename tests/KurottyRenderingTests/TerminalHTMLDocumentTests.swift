@@ -196,6 +196,67 @@ final class TerminalHTMLDocumentTests: XCTestCase {
 
     // MARK: - Decorations that are text styles
 
+    func testABlockElementIsDrawnAsGeometryRatherThanDropped() {
+        // The bug this covers shipped and was caught from a screenshot: block
+        // elements were skipped entirely, so Claude Code's mascot rendered as a
+        // solid rectangle of its own background while Metal drew the artwork.
+        let decoration = TerminalDecoration(
+            column: 0, row: 0, width: 1,
+            kind: .blockElement(x: 0, y: 0.5, width: 1, height: 0.5),
+            color: Fixture.red
+        )
+
+        let html = TerminalHTMLDocument.row(0, frame: frame(cells: [], decorations: [decoration]))
+
+        XCTAssertTrue(html.contains("position:absolute"), "a block element must reach the document as a box")
+        XCTAssertTrue(html.contains("rgba(255,0,0"), "and carry the colour the frame gave it")
+    }
+
+    func testABlockElementIsFlippedIntoCSSOrientation() {
+        // The frame measures y from the bottom of the cell and CSS from the
+        // top. An upper half block is y=0.5 height=0.5 in the frame, and must
+        // come out at the top of the cell.
+        let upperHalf = TerminalDecoration(
+            column: 0, row: 0, width: 1,
+            kind: .blockElement(x: 0, y: 0.5, width: 1, height: 0.5),
+            color: Fixture.white
+        )
+
+        let html = TerminalHTMLDocument.row(0, frame: frame(cells: [], decorations: [upperHalf]))
+
+        XCTAssertTrue(html.contains("top:0.0000%"), "an upper half block sits at the top, got \(html.prefix(400))")
+    }
+
+    func testACellCarryingGeometryDoesNotMergeIntoItsNeighbours() {
+        let decoration = TerminalDecoration(
+            column: 3, row: 0, width: 1,
+            kind: .blockElement(x: 0, y: 0, width: 1, height: 1),
+            color: Fixture.red
+        )
+
+        let runs = TerminalHTMLDocument.runs(
+            row: 0,
+            frame: frame(cells: line("aaaaaaa"), decorations: [decoration])
+        )
+
+        guard let geometry = runs.first(where: { !$0.shapes.isEmpty }) else {
+            return XCTFail("the decorated cell must produce a run of its own")
+        }
+        XCTAssertEqual(geometry.columns, 1, "a wider run would stretch the shape across cells")
+    }
+
+    func testBoxDrawingBecomesBarsThatMeetInTheMiddle() {
+        let cross = TerminalDecoration(
+            column: 0, row: 0, width: 1,
+            kind: .boxDrawing(left: true, right: true, up: true, down: true),
+            color: Fixture.white
+        )
+
+        let runs = TerminalHTMLDocument.runs(row: 0, frame: frame(cells: [], decorations: [cross]))
+
+        XCTAssertEqual(runs.first?.shapes.count, 4, "four arms for a cross")
+    }
+
     func testUnderlineAndStrikethroughReachTheRunAndBoxDrawingDoesNot() {
         let decorations = [
             TerminalDecoration(column: 0, row: 0, width: 2, kind: .underline, color: Fixture.white),
@@ -208,9 +269,10 @@ final class TerminalHTMLDocumentTests: XCTestCase {
 
         XCTAssertTrue(runs.contains { $0.isUnderlined }, "underline is a text style and belongs on the run")
         XCTAssertTrue(runs.contains { $0.isStruckThrough })
-        // Box drawing is a glyph shape the atlas draws, not a style; it must not
-        // silently become an underline.
+        // Box drawing is a shape rather than a text style; it must not become
+        // an underline on its way through.
         XCTAssertEqual(runs.filter(\.isUnderlined).reduce(0) { $0 + $1.columns }, 2)
+        XCTAssertTrue(runs.contains { !$0.shapes.isEmpty }, "box drawing must arrive as geometry")
     }
 }
 
