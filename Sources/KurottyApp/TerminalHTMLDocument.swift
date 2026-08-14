@@ -67,6 +67,26 @@ enum TerminalHTMLDocument {
         html(for: runs(row: row, grid: Grid(frame: frame), frame: frame), row: row, frame: frame)
     }
 
+    /// A row's spans without the row element around them.
+    ///
+    /// The damage path replaces a row's *children* rather than the row itself.
+    /// Swapping `outerHTML` destroys the element and builds a new one, so every
+    /// keystroke discarded a live node and its layout box; setting `innerHTML`
+    /// keeps the row and replaces what is inside it.
+    static func rowContents(_ row: Int, frame: TerminalFrame) -> String {
+        runs(row: row, grid: Grid(frame: frame), frame: frame)
+            .map(span(for:))
+            .joined()
+    }
+
+    /// Every visible row's inner markup, indexed by row.
+    static func rowContents(frame: TerminalFrame) -> [String] {
+        let grid = Grid(frame: frame)
+        return (0..<max(frame.visibleRows, 0)).map { row in
+            runs(row: row, grid: grid, frame: frame).map(span(for:)).joined()
+        }
+    }
+
     /// Cells, backgrounds and decorations indexed by position.
     ///
     /// The frame carries three flat arrays in whatever order the surface built

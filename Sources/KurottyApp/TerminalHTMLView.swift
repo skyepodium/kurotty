@@ -49,9 +49,12 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             const screen = document.getElementById('screen');
             if (screen) { screen.innerHTML = rows.join(''); }
         } else {
+            // The row element stays and only its children change. Replacing a
+            // row's `outerHTML` discards a live element and its layout box on
+            // every keystroke; this keeps the box and reparses only the spans.
             for (const [id, markup] of Object.entries(patch)) {
                 const row = document.getElementById(id);
-                if (row) { row.outerHTML = markup; }
+                if (row) { row.innerHTML = markup; }
             }
         }
 
@@ -73,6 +76,10 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         /// most recent one. A queue would replay a backlog of screens nobody
         /// will see.
         static let pendingFrameCOUNT = 1
+        /// How long a frame may go unreported before the renderer reports it
+        /// anyway. Far beyond a frame budget: this catches a page that has
+        /// stopped animating, not a page that is merely slow.
+        static let presentationDeadlineSECONDS = 0.5
     }
 
     private let webView: WKWebView
@@ -86,6 +93,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
     /// The document is loaded with placeholder cell metrics, so the first frame
     /// must publish real ones even when they happen to match the placeholder.
     private var hasPublishedCellSize = false
+    private var presentationWatchdog: DispatchWorkItem?
+    private var isAwaitingPresentation = false
 
     var onPresented: (() -> Void)?
     var rendererView: NSView { self }
@@ -170,13 +179,17 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
                     continue
                 }
                 renderedRows[row] = rows[row]
-                patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] = rows[row]
+                patch["\(TerminalHTMLDocument.Markup.rowIDPrefix)\(row)"] =
+                    TerminalHTMLDocument.rowContents(row, frame: frame)
             }
 
             // Nothing visible changed. The frame still has to report itself
             // presented or the latency metric waits forever for a paint that is
             // not coming.
             guard !patch.isEmpty else {
+                presentationWatchdog?.cancel()
+                presentationWatchdog = nil
+                isAwaitingPresentation = false
                 onPresented?()
                 return
             }
@@ -185,6 +198,8 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
         let publishesCellSize = cellSize != frame.cellSize || !hasPublishedCellSize
         cellSize = frame.cellSize
         hasPublishedCellSize = true
+
+        armPresentationWatchdog()
 
         run(Script.applyFrame, arguments: [
             "cellWidth": publishesCellSize ? Double(frame.cellSize.width) : 0,
@@ -196,6 +211,37 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
             "cursorRow": frame.cursorRow,
             "cursorVisible": frame.cursorBlinkOn,
         ])
+    }
+
+    /// Reports the frame presented even if the page never answers.
+    ///
+    /// The script resolves after a double `requestAnimationFrame`, and a web
+    /// view stops servicing those when its window is occluded or minimised. On
+    /// Metal an occluded window still completes its command buffer, so the
+    /// difference is not cosmetic: without this, the app's latency accounting
+    /// waits on a paint that is never coming, and every frame after it is timed
+    /// from the wrong start.
+    ///
+    /// The deadline is generous on purpose. It exists to stop a stall, not to
+    /// cut a slow frame short, and firing it early would report a presentation
+    /// that has not happened.
+    private func armPresentationWatchdog() {
+        presentationWatchdog?.cancel()
+
+        let watchdog = DispatchWorkItem { [weak self] in
+            guard let self, self.isAwaitingPresentation else {
+                return
+            }
+            self.isAwaitingPresentation = false
+            self.onPresented?()
+        }
+
+        presentationWatchdog = watchdog
+        isAwaitingPresentation = true
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Metrics.presentationDeadlineSECONDS,
+            execute: watchdog
+        )
     }
 
     private func run(_ body: String, arguments: [String: Any]) {
@@ -213,6 +259,13 @@ final class TerminalHTMLView: NSView, TerminalAppKitRenderer {
 
                 // Reported on failure too. A frame that never reports leaves the
                 // latency metric waiting on a paint that will not arrive.
+                self.presentationWatchdog?.cancel()
+                self.presentationWatchdog = nil
+
+                guard self.isAwaitingPresentation else {
+                    return  // The watchdog already reported this frame.
+                }
+                self.isAwaitingPresentation = false
                 self.onPresented?()
             }
         }
