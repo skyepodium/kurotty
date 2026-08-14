@@ -401,33 +401,53 @@ final class DesignTokenColorRampTests: XCTestCase {
     /// surfaces, and the bottom of a grade is not a surface a rank is chosen
     /// against. Readability is not negotiable there; rank separation is already
     /// settled elsewhere.
-    func testGroundGradientStopsAreHeldToTheSameFloorsAsFlatSurfaces() throws {
+    func testGroundMeshTintsAreHeldToTheSameFloorsAsFlatSurfaces() throws {
         var checkedThemeCount = 0
         for (themeName, theme) in themes() {
-            guard let stops = theme.groundGradient else { continue }
+            let mesh = theme.groundMesh
             checkedThemeCount += 1
+
             XCTAssertEqual(
-                stops.top,
+                mesh.base,
                 theme.surfaceChrome,
-                "\(themeName) must start its grade at the chrome plane, or the tab bar shows a seam"
+                "\(themeName) must meet the tab bar at the chrome plane, or the top edge shows a seam"
             )
-            XCTAssertLessThan(
-                try relativeLuminance(of: stops.bottom),
-                try relativeLuminance(of: stops.top),
-                "\(themeName) grade must deepen downward"
-            )
+
+            // Hue is free and brightness is not. A tint that darkens or
+            // brightens the ground moves the floor under every rank of chrome
+            // text drawn on it, so each one is held to the same span the base
+            // occupies — which is what lets the mesh be three hues at once
+            // without costing a single point of legibility.
+            let baseLuminance = try relativeLuminance(of: mesh.base)
+            for tint in mesh.tints {
+                let distance = abs(try relativeLuminance(of: tint.color) - baseLuminance)
+                XCTAssertLessThanOrEqual(
+                    distance,
+                    Ground.tintLuminanceSPAN,
+                    "\(themeName) tint \(tint.color) sits \(distance) from its base in luminance"
+                )
+            }
+
             for (text, floor) in textRanks(of: theme) {
-                for (stopName, stop) in [("gradientTop", stops.top), ("gradientBottom", stops.bottom)] {
-                    let ratio = try contrastRatio(text.color, stop)
+                for tint in mesh.tints {
+                    let ratio = try contrastRatio(text.color, tint.color)
                     XCTAssertGreaterThanOrEqual(
                         ratio,
                         min(floor, WCAG.normalTextAARATIO),
-                        "\(themeName) \(text.name) on \(stopName) measured \(ratio):1"
+                        "\(themeName) \(text.name) on tint \(tint.color) measured \(ratio):1"
                     )
                 }
             }
         }
-        XCTAssertEqual(checkedThemeCount, 1, "nacre is the only graded ground so far")
+        XCTAssertEqual(checkedThemeCount, 3, "every ramp declares its own ground")
+    }
+
+    private enum Ground {
+        /// How far a tint may sit from its base in relative luminance.
+        ///
+        /// Generous enough for a hue to read and tight enough that the ground
+        /// never becomes a second surface with its own contrast problem.
+        static let tintLuminanceSPAN = 0.08
     }
 
     /// The light theme previously reused the dark status hues, which is why
