@@ -413,18 +413,22 @@ final class DesignTokenColorRampTests: XCTestCase {
                 "\(themeName) must meet the tab bar at the chrome plane, or the top edge shows a seam"
             )
 
-            // Hue is free and brightness is not. A tint that darkens or
-            // brightens the ground moves the floor under every rank of chrome
-            // text drawn on it, so each one is held to the same span the base
-            // occupies — which is what lets the mesh be three hues at once
-            // without costing a single point of legibility.
-            let baseLuminance = try relativeLuminance(of: mesh.base)
+            // Hue is free and brightness is not, in both directions. A tint
+            // far from its base stops being light on a surface and becomes a
+            // second surface; the contrast floors below only catch one of those
+            // directions, because on a dark ground a *darker* tint reads as
+            // more legible while looking like a hole.
+            //
+            // Stated as a ratio rather than a luminance distance because
+            // luminance is not perceptually even: the step that is invisible at
+            // the light end of the scale is a chasm at the dark end, and one
+            // constant cannot mean the same thing to both.
             for tint in mesh.tints {
-                let distance = abs(try relativeLuminance(of: tint.color) - baseLuminance)
+                let separation = try contrastRatio(tint.color, mesh.base)
                 XCTAssertLessThanOrEqual(
-                    distance,
-                    Ground.tintLuminanceSPAN,
-                    "\(themeName) tint \(tint.color) sits \(distance) from its base in luminance"
+                    separation,
+                    Ground.tintSeparationRATIO,
+                    "\(themeName) tint \(tint.color) reads as its own surface at \(separation):1 from the base"
                 )
             }
 
@@ -443,11 +447,13 @@ final class DesignTokenColorRampTests: XCTestCase {
     }
 
     private enum Ground {
-        /// How far a tint may sit from its base in relative luminance.
+        /// How far a tint may stand from its own base.
         ///
-        /// Generous enough for a hue to read and tight enough that the ground
-        /// never becomes a second surface with its own contrast problem.
-        static let tintLuminanceSPAN = 0.08
+        /// Generous enough for a hue to read across a window and tight enough
+        /// that the ground stays one surface. The dark ramp sits at 1.35:1,
+        /// which is where its tints stop being invisible and just short of
+        /// where tertiary chrome text drops below its floor on them.
+        static let tintSeparationRATIO = 1.5
     }
 
     /// The light theme previously reused the dark status hues, which is why

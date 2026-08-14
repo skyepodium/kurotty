@@ -364,25 +364,32 @@ enum DesignTokens {
             static let textTertiary = NSColor.designTokenSRGB(0x9F_98_B5)
             static let accent = NSColor.designTokenSRGB(0x84_6E_FF)
 
-            /// The same three directions as Nacre, at a depth where they read
-            /// as an aurora behind the panes rather than as colour. The steps
-            /// from `base` are a hundredth of a luminance point; any more and
-            /// the ground starts competing with the terminal it holds.
+            /// The same three directions as Nacre, taken as far as the
+            /// contrast floors allow.
+            ///
+            /// The first attempt kept these a hundredth of a luminance point
+            /// from the base, on the theory that a dark ground should barely
+            /// move. On screen the result was no ground at all: the user's
+            /// terminal background sits at almost the same depth, so the card
+            /// and the field it was meant to float on were the same colour and
+            /// the whole mesh showed as nothing. Each tint now sits about 1.35:1
+            /// from the base, which is the most a dark ground can lift before
+            /// tertiary chrome text drops under 4.5:1 on it.
             static let groundMesh = GroundMesh(
                 base: surfaceChrome,
                 tints: [
                     .init(
-                        color: NSColor.designTokenSRGB(0x23_20_43),
+                        color: NSColor.designTokenSRGB(0x32_2D_5C),
                         center: CGPoint(x: 0.10, y: 0.06),
                         radius: CGSize(width: 0.78, height: 0.62)
                     ),
                     .init(
-                        color: NSColor.designTokenSRGB(0x17_25_2A),
+                        color: NSColor.designTokenSRGB(0x1C_35_38),
                         center: CGPoint(x: 0.98, y: 0.38),
                         radius: CGSize(width: 0.64, height: 0.64)
                     ),
                     .init(
-                        color: NSColor.designTokenSRGB(0x2A_21_30),
+                        color: NSColor.designTokenSRGB(0x40_2E_3E),
                         center: CGPoint(x: 0.24, y: 1.04),
                         radius: CGSize(width: 0.84, height: 0.68)
                     ),
@@ -1118,7 +1125,14 @@ enum DesignTokens {
 
         /// Gap between the window's chrome edges and the outermost card. The
         /// ground shows through here, which is the whole effect.
-        static let groundInsetPX = Space.x3PX
+        ///
+        /// Widened from `x3PX` when the ground stopped being a flat fill. Eight
+        /// points is enough margin to read as a card and not enough surface to
+        /// read as a *ground*: with a mesh behind it, the tints had nowhere to
+        /// resolve and the whole field showed as a hairline of colour at the
+        /// window edge. Sixteen gives each tint room to arrive and fade, which
+        /// is what the mesh is for, and costs a little over one column.
+        static let groundInsetPX = Space.x5PX
 
         /// Gap between two adjacent cards in a split. This is the split
         /// divider's full thickness — the divider no longer draws a line, so
