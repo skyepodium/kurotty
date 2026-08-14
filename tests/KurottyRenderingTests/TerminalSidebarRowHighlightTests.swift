@@ -18,6 +18,38 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         override var highlightState: TerminalSidebarRowHighlight.State { forcedState }
     }
 
+    /// How far a resolved fill stands off the plane it is drawn on, as a
+    /// relative-luminance distance. Both surfaces are opaque tokens, so this is
+    /// a property of the ramp rather than of whatever is behind them.
+    private func separation(_ color: NSColor?, _ base: NSColor) -> CGFloat {
+        guard
+            let color = color?.usingColorSpace(.sRGB),
+            let base = base.usingColorSpace(.sRGB)
+        else {
+            return 0
+        }
+        // The hover and press fills are washes, so they only have a colour once
+        // they are composited onto the plane they wash. Comparing a wash's raw
+        // components against an opaque surface would say a 6%-alpha white is
+        // the brightest thing in the window.
+        let composited = NSColor(
+            srgbRed: base.redComponent * (1 - color.alphaComponent) + color.redComponent * color.alphaComponent,
+            green: base.greenComponent * (1 - color.alphaComponent) + color.greenComponent * color.alphaComponent,
+            blue: base.blueComponent * (1 - color.alphaComponent) + color.blueComponent * color.alphaComponent,
+            alpha: 1
+        )
+        return abs(luminance(composited) - luminance(base))
+    }
+
+    private func luminance(_ color: NSColor) -> CGFloat {
+        func channel(_ value: CGFloat) -> CGFloat {
+            value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(color.redComponent)
+            + 0.7152 * channel(color.greenComponent)
+            + 0.0722 * channel(color.blueComponent)
+    }
+
     private func appearance(
         selected: Bool = false,
         hovered: Bool = false,
@@ -60,15 +92,15 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
 
     func testHoverAndSelectionAreDistinctPaint() {
         XCTAssertNotEqual(appearance(hovered: true).fill, appearance(selected: true).fill)
-        XCTAssertNil(appearance(hovered: true).rail)
-        XCTAssertNotNil(appearance(selected: true).rail)
+        XCTAssertNil(appearance(hovered: true).shadow)
+        XCTAssertNotNil(appearance(selected: true).shadow)
     }
 
-    func testSelectedInActiveWindowIsAnElevatedRaisedSurface() {
+    func testSelectedInActiveWindowIsAnElevatedPaperCapsule() {
         let resolved = appearance(selected: true)
-        XCTAssertEqual(resolved.fill, theme.surfaceRaised)
-        XCTAssertEqual(resolved.border, theme.borderStrong)
-        XCTAssertEqual(resolved.rail, theme.accent)
+        XCTAssertEqual(resolved.fill, theme.sidebarSelectionPaper)
+        XCTAssertNil(resolved.border)
+        XCTAssertNil(resolved.rail)
         XCTAssertEqual(resolved.shadow, DesignTokens.Elevation.sidebarSelectedRowDark)
         XCTAssertNil(resolved.focusRing)
         XCTAssertEqual(resolved.titleWeight, .medium)
@@ -77,8 +109,10 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
 
     /// The pill has to be a surface, not a tint over one. A translucent fill is
     /// what made a selected row's text land on a colour nothing had measured.
+    /// The paper capsule keeps that rule: it is white *flattened over the
+    /// panel*, not white drawn at an alpha.
     func testSelectedFillIsAnOpaqueRampSurfaceInBothThemes() throws {
-        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
             for state in [
                 TerminalSidebarRowHighlight.State(isSelected: true, isWindowActive: true),
                 TerminalSidebarRowHighlight.State(isSelected: true),
@@ -86,7 +120,6 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
                 let fill = try XCTUnwrap(
                     TerminalSidebarRowHighlight.appearance(for: state, theme: theme).fill
                 )
-                XCTAssertEqual(fill, theme.surfaceRaised)
                 XCTAssertEqual(fill.alphaComponent, 1)
             }
         }
@@ -118,11 +151,11 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         )
     }
 
-    func testSelectedInInactiveWindowKeepsTheSurfaceAndDropsEverythingActive() {
+    func testSelectedInInactiveWindowKeepsAQuieterSheetAndDropsEverythingActive() {
         let resolved = appearance(selected: true, windowActive: false)
         // The surface survives so the row can still be found; what goes is
         // everything that says the user is acting on it.
-        XCTAssertEqual(resolved.fill, theme.surfaceRaised)
+        XCTAssertEqual(resolved.fill, theme.sidebarSelectionPaperInactive)
         XCTAssertNil(resolved.rail)
         XCTAssertNil(resolved.shadow)
         XCTAssertNil(resolved.focusRing)
@@ -150,28 +183,34 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
 
         // Pressing a selected row pushes it down: the pill stays, the lift goes.
         let selectedPress = appearance(selected: true, pressed: true)
-        XCTAssertEqual(selectedPress.fill, theme.surfaceRaised)
-        XCTAssertEqual(selectedPress.rail, theme.accent)
+        XCTAssertEqual(selectedPress.fill, theme.sidebarSelectionPaper)
+        XCTAssertTrue(selectedPress.isActiveSelection)
+
         XCTAssertNil(selectedPress.shadow)
     }
 
-    func testSelectionCarriesFourIndependentCues() {
+    /// Selection carries three cues, and they are independent of each other:
+    /// the sheet, the lift that says it is a sheet, and the weight.
+    ///
+    /// It used to carry four. The accent rail went with the capsule — on a
+    /// surface that already stands off the panel, the rail was a second mark
+    /// for the same fact, and it was the mark that made a quiet list look
+    /// striped once several rows had ever been selected.
+    func testSelectionCarriesThreeIndependentCues() {
         let resolved = appearance(selected: true)
         XCTAssertNotNil(resolved.fill)
-        XCTAssertNotNil(resolved.rail)
         XCTAssertNotNil(resolved.shadow)
         XCTAssertNotEqual(resolved.titleWeight, TerminalSidebarRowHighlight.Appearance.rest.titleWeight)
-        // The rail used to be accent drawn on an accent wash, which is one cue
-        // wearing two hats. On a neutral pill it is genuinely separate.
-        XCTAssertNotEqual(resolved.rail, resolved.fill)
+        XCTAssertNil(resolved.rail)
+        XCTAssertTrue(resolved.isActiveSelection)
     }
 
     // MARK: - Geometry
 
     func testHighlightGeometryMatchesSpec() {
-        let expectedInsetXPX: CGFloat = 4
+        let expectedInsetXPX: CGFloat = 6
         let expectedInsetYPX: CGFloat = 2
-        let expectedCornerRadiusPX: CGFloat = 6
+        let expectedCornerRadiusPX: CGFloat = 8
         let expectedRailWidthPX: CGFloat = 2
         let expectedRailRadiusPX: CGFloat = 1
         let expectedFocusRingWidthPX: CGFloat = 2
@@ -189,7 +228,7 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
     func testHighlightRailAndFocusRingRectsDeriveFromTheHighlightInset() {
         let rowBounds = NSRect(x: 0, y: 0, width: 200, height: 24)
         let highlight = TerminalSidebarRowHighlight.Geometry.highlightRect(in: rowBounds)
-        XCTAssertEqual(highlight, NSRect(x: 4, y: 2, width: 192, height: 20))
+        XCTAssertEqual(highlight, NSRect(x: 6, y: 2, width: 188, height: 20))
 
         let rail = TerminalSidebarRowHighlight.Geometry.railRect(in: rowBounds)
         XCTAssertEqual(rail.minX, highlight.minX)
@@ -231,27 +270,71 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         XCTAssertTrue(highlight.contains(bottom), "the rail must stay inside the pill")
     }
 
-    /// One selection language, three places.
+    /// One selection language across every surface that resolves through this
+    /// type: the sidebar lists and the sidebar's section strip.
     ///
-    /// The window used to mark selection three different ways: the terminal tab
-    /// bar raised a `surfaceRaised` tab under an accent rail, the sidebar lists
-    /// raised a `surfaceRaised` pill under an accent rail, and the sidebar's
-    /// section strip drew a bare accent underline and nothing else — the
-    /// weakest of the three, carrying the sidebar's own navigation. This pins
-    /// the surface and the accent that all three now agree on, so a change to
-    /// one that does not reach the others fails here.
-    func testEverySelectedSurfaceInTheWindowIsTheSameRaisedSurfaceAndAccent() {
-        for theme in [DesignTokens.ChromeTheme.dark, .light] {
+    /// The language is now a sheet of paper rather than a raised tint under an
+    /// accent rail. Pinning it here means a change to one surface that does not
+    /// reach the other fails.
+    ///
+    /// The terminal tab bar is **not** converted yet and still raises
+    /// `surfaceRaised`. It does not resolve through this type, and its token
+    /// doubles as the light-ramp editor background, so it needs its own pass.
+    /// That divergence is asserted rather than left implicit, so the day the
+    /// tab bar is converted this test is the thing that notices.
+    func testEverySidebarSelectionIsTheSamePaperCapsule() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
             let row = TerminalSidebarRowHighlight.appearance(
                 for: .init(isSelected: true, isWindowActive: true),
                 theme: theme
             )
-            XCTAssertEqual(row.fill, theme.surfaceRaised)
-            XCTAssertEqual(row.rail, theme.accent)
-            // The terminal tab bar's selected tab, which raises the same
-            // surface out of the chrome bar and rails it in the same accent.
+            XCTAssertEqual(row.fill, theme.sidebarSelectionPaper)
+            XCTAssertNil(row.rail, "the capsule carries the selection itself")
+            XCTAssertNil(row.border, "a capsule that lifts does not need an outline")
             XCTAssertEqual(theme.activeTabBackground, theme.surfaceRaised)
-            XCTAssertEqual(theme.activeIndicator, theme.accent)
+        }
+    }
+
+    /// The reason the outline could go.
+    ///
+    /// The border existed because a `surfaceRaised` fill sat so close to the
+    /// panel that a *hovered* row could read louder than a selected one. Paper
+    /// is lighter than the hover wash at both ends of the ramp, so the pill is
+    /// found by its lift instead of by a stroke. If a future palette change
+    /// inverts this, the outline has to come back — and this fails first.
+    func testSelectionPaperOutliftsTheHoverWash() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
+            let selected = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: true),
+                theme: theme
+            )
+            let hovered = TerminalSidebarRowHighlight.appearance(
+                for: .init(isHovered: true),
+                theme: theme
+            )
+            let selectedSeparation = separation(selected.fill, theme.surfaceSidebar)
+            let hoveredSeparation = separation(hovered.fill, theme.surfaceSidebar)
+            XCTAssertGreaterThan(
+                selectedSeparation,
+                hoveredSeparation,
+                "selection must stand further off the panel than hover, or hover reads louder"
+            )
+            XCTAssertNotNil(selected.shadow, "the lift is what replaces the outline")
+        }
+    }
+
+    /// A background window keeps a quieter sheet, and keeps its hairline: at
+    /// half the alpha the paper alone cannot be found on a busy panel.
+    func testAnInactiveWindowsSelectionKeepsItsOutline() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
+            let inactive = TerminalSidebarRowHighlight.appearance(
+                for: .init(isSelected: true, isWindowActive: false),
+                theme: theme
+            )
+            XCTAssertEqual(inactive.fill, theme.sidebarSelectionPaperInactive)
+            XCTAssertEqual(inactive.border, theme.hairline)
+            XCTAssertNil(inactive.shadow)
+            XCTAssertFalse(inactive.isActiveSelection)
         }
     }
 
@@ -475,5 +558,59 @@ final class TerminalSidebarRowHighlightTests: XCTestCase {
         // Detached from any window, the row must read as an inactive selection.
         XCTAssertFalse(rowView.highlightState.isWindowActive)
         XCTAssertFalse(rowView.highlightState.isListFocused)
+    }
+}
+
+/// The Settings pane list.
+///
+/// It used to be `NSButton(bezelStyle: .recessed)`, which draws a grey capsule
+/// behind every row and marks selection by darkening one a step — three rows
+/// that read as the same object. It paints through the shared highlight now, so
+/// these assert the property the capsule language depends on and that the
+/// row-vs-panel tests could not see: an *unselected* row must have no surface of
+/// its own, or the selected one has nothing to stand out from.
+final class PreferencesNavRowButtonTests: XCTestCase {
+    @MainActor
+    private func row(selected: Bool, hovered: Bool = false) -> PreferencesNavRowButton {
+        let button = PreferencesNavRowButton()
+        button.chromeTheme = .light
+        button.state = selected ? .on : .off
+        if hovered {
+            button.mouseEntered(with: NSEvent())
+        }
+        return button
+    }
+
+    @MainActor
+    func testAnUnselectedRowPaintsNoSurface() {
+        XCTAssertNil(row(selected: false).currentAppearance.fill)
+    }
+
+    @MainActor
+    func testTheSelectedRowIsTheSameCapsuleAsEveryOtherList() {
+        for theme in [DesignTokens.ChromeTheme.dark, .light, .nacre] {
+            let button = PreferencesNavRowButton()
+            button.chromeTheme = theme
+            button.state = .on
+            // A view built outside a window reports no key window, which is the
+            // background-selection state. The row's own job is the mapping from
+            // its control state, so the key-window case is resolved here rather
+            // than by faking a window.
+            var state = button.highlightState
+            XCTAssertTrue(state.isSelected)
+            state.isWindowActive = true
+            let resolved = TerminalSidebarRowHighlight.appearance(for: state, theme: theme)
+            XCTAssertEqual(resolved.fill, theme.sidebarSelectionPaper)
+            XCTAssertNil(resolved.rail)
+            XCTAssertNil(resolved.border)
+        }
+    }
+
+    /// The row is a button, not a list row, so it must never claim the ring the
+    /// focused list uses.
+    @MainActor
+    func testANavRowNeverCarriesAFocusRing() {
+        XCTAssertNil(row(selected: true).currentAppearance.focusRing)
+        XCTAssertFalse(row(selected: true).highlightState.isListFocused)
     }
 }

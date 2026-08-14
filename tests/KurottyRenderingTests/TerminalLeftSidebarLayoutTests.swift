@@ -244,11 +244,15 @@ final class TerminalLeftSidebarLayoutTests: XCTestCase {
     /// It matters most on the light ramp, where the demoted pill is a white
     /// surface on near-white behind a hairline that measures about 1.06:1 — the
     /// strip stopped saying which section it was showing at all.
-    func testTheStripKeepsItsAccentRailWhileTheWindowIsInTheBackground() {
+    func testTheStripKeepsItsLiftWhileTheWindowIsInTheBackground() {
         for theme in [DesignTokens.ChromeTheme.dark, .light] {
             let pill = TerminalLeftSidebarSectionSelectionView()
             pill.chromeTheme = theme
-            XCTAssertEqual(pill.currentAppearance.rail, theme.accent)
+            // The rail is gone everywhere now; what the strip refuses to give
+            // up in a background window is the capsule and its lift, which is
+            // the same refusal for the same reason.
+            XCTAssertNil(pill.currentAppearance.rail)
+            XCTAssertEqual(pill.currentAppearance.fill, theme.sidebarSelectionPaper)
             XCTAssertNotNil(pill.currentAppearance.shadow)
             // The list row it borrows its paint from does demote, which is what
             // makes this an explicit choice rather than an oversight.

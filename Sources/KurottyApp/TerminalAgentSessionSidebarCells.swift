@@ -310,7 +310,7 @@ final class TerminalAgentContextMeterView: NSView {
     /// Forwarded by the owning cell, like the count badge: the meter is a
     /// grandchild of the row view and never receives the style callback itself.
     func apply(_ appearance: TerminalSidebarRowHighlight.Appearance) {
-        let highlighted = appearance.rail != nil
+        let highlighted = appearance.isActiveSelection
         guard highlighted != isRowHighlighted else {
             return
         }
@@ -410,8 +410,8 @@ final class TerminalSidebarCountBadgeView: NSView {
     /// Forwarded by the owning cell: the badge is a grandchild of the row view,
     /// so it never receives the row's style callback directly.
     func apply(_ appearance: TerminalSidebarRowHighlight.Appearance) {
-        countLabel.textColor = appearance.rail == nil
-            ? chromeTheme.textTertiary
-            : chromeTheme.textSecondary
+        countLabel.textColor = appearance.isActiveSelection
+            ? chromeTheme.textSecondary
+            : chromeTheme.textTertiary
     }
 }

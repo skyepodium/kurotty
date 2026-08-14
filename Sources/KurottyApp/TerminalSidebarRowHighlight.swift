@@ -76,6 +76,14 @@ enum TerminalSidebarRowHighlight {
         var shadow: DesignTokens.Elevation.Shadow?
         var titleWeight: NSFont.Weight
         var titleColorRole: TitleColorRole
+        /// Whether this is the selection in a key window — the one state a cell
+        /// may restyle its own contents for.
+        ///
+        /// Stated rather than inferred. Cells used to read it off `rail != nil`,
+        /// which was true only for as long as the active selection happened to
+        /// be the one state carrying a rail; the capsule has no rail, and a
+        /// derived answer would have gone quietly wrong instead of failing.
+        var isActiveSelection = false
 
         static let rest = Appearance(
             fill: nil,
@@ -230,14 +238,15 @@ enum TerminalSidebarRowHighlight {
             )
         }
 
-        // A background window's selection is still a selection, so it keeps the
-        // raised surface: at `surfaceSidebar` it measured about 1.03:1 against
-        // the panel and simply could not be found again. What it gives up is
-        // everything that says "acting on this right now" — the accent rail, the
-        // elevation, and the title weight.
+        // A background window's selection is still a selection, so it keeps a
+        // lift: at `surfaceSidebar` it measured about 1.03:1 against the panel
+        // and simply could not be found again. It keeps its hairline too — half
+        // the paper's alpha is quiet enough to need the outline that the active
+        // capsule can do without. What it gives up is everything that says
+        // "acting on this right now": the elevation and the title weight.
         guard isActiveSelection else {
             return Appearance(
-                fill: theme.surfaceRaised,
+                fill: theme.sidebarSelectionPaperInactive,
                 border: theme.hairline,
                 rail: nil,
                 focusRing: nil,
@@ -247,17 +256,24 @@ enum TerminalSidebarRowHighlight {
             )
         }
 
+        // The active selection is a sheet of paper on the ground: a translucent
+        // white capsule with an elevation and no outline. The hairline and the
+        // accent rail are gone because the lift now does their job — a fill
+        // that is lighter than the hover wash at both ends of the ramp can be
+        // found without being drawn a border first.
+        //
         // Press takes the elevation away rather than repainting the pill: the
         // gesture is pushing the row down, and swapping the surface for a wash
         // would make a click look like the row lost its selection.
         return Appearance(
-            fill: theme.surfaceRaised,
-            border: theme.borderStrong,
-            rail: theme.accent,
+            fill: theme.sidebarSelectionPaper,
+            border: nil,
+            rail: nil,
             focusRing: isFocusedSelection ? theme.focusRing : nil,
             shadow: state.isPressed ? nil : DesignTokens.Elevation.sidebarSelectedRow(for: theme),
             titleWeight: Typography.selectedTitleWeight,
-            titleColorRole: .primary
+            titleColorRole: .primary,
+            isActiveSelection: true
         )
     }
 
