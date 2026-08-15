@@ -58,6 +58,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// stat'd by `filePathExistsProbe` off the main actor.
     private let filePathExistsCache = TerminalPathExistsCache()
     private let filePathExistsProbe = TerminalPathExistsProbe()
+    /// Per-logical-line memo for `visibleLinkRanges`; see the cache type for
+    /// its keying and invalidation contract.
+    private let visibleLinkCache = TerminalVisibleLinkCache()
     private var markedText = NSMutableAttributedString()
     private var inputSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var markedTextAnchor: TerminalCellPosition?
@@ -238,12 +241,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             return visibleText
         }
         shell.onOutput = { [weak self] text in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                // OSC 9999 is an out-of-band status channel: it is recorded and
-                // stripped here so the sequence can never reach the screen model.
-                let visibleText = self.agentStatusChannel.filter(self.outputInterceptor?(text) ?? text)
-                self.enqueueOutput(visibleText)
+            // `DarwinPTYTerminalSession` already hands output to the main queue,
+            // so re-dispatching would only add one more run-loop turn of input
+            // latency per PTY chunk. The `Thread.isMainThread` check is the
+            // proof required before `MainActor.assumeIsolated`; sessions that
+            // deliver off the main thread still get an explicit hop.
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.receiveShellOutput(text)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self?.receiveShellOutput(text)
+                }
             }
         }
         shell.onExit = { [weak self] status in
@@ -402,6 +412,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             scrollbackOffset: scrollbackOffset,
             visibleRows: visibleContentRowRange()
         )
+    }
+
+    var hasPendingOutputForTesting: Bool {
+        isOutputFlushScheduled || !pendingOutputText.isEmpty
+    }
+
+    func flushPendingOutputForTesting() {
+        guard hasPendingOutputForTesting else { return }
+        flushPendingOutput()
     }
 
     func setSelectionForTesting(anchor: TerminalCellPosition?, focus: TerminalCellPosition?) {
@@ -2000,6 +2019,13 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         !isTerminalFocusedForUser
     }
 
+    private func receiveShellOutput(_ text: String) {
+        // OSC 9999 is an out-of-band status channel: it is recorded and
+        // stripped here so the sequence can never reach the screen model.
+        let visibleText = agentStatusChannel.filter(outputInterceptor?(text) ?? text)
+        self.enqueueOutput(visibleText)
+    }
+
     private func enqueueOutput(_ text: String) {
         pendingOutputText.append(text)
         guard !isOutputFlushScheduled else { return }
@@ -2464,12 +2490,39 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             contextEndRow += 1
         }
 
-        let rows = (contextStartRow..<contextEndRow).compactMap(contentRow(at:))
-        return TerminalLinkRange.findAll(
-            in: rows,
-            startingRow: contextStartRow - visibleStartRow,
-            fileLinkContext: fileLinkContext()
-        )
+        // Detection runs per logical line so unchanged lines can reuse the
+        // memoized result; a typing echo then re-scans one line, not the whole
+        // visible band.
+        let context = fileLinkContext()
+        let workingDirectory = workingDirectoryPath
+        visibleLinkCache.beginFrame()
+        var ranges: [TerminalLinkRange] = []
+        var lineStartRow = contextStartRow
+        while lineStartRow < contextEndRow {
+            var lineEndRow = lineStartRow + 1
+            while lineEndRow < contextEndRow,
+                  contentRow(at: lineEndRow - 1)?.last?.wrapsToNextRow == true {
+                lineEndRow += 1
+            }
+            let lineRows = (lineStartRow..<lineEndRow).compactMap(contentRow(at:))
+            let key = TerminalVisibleLinkCache.Key(
+                rows: lineRows,
+                workingDirectory: workingDirectory
+            )
+            let lineRanges = visibleLinkCache.ranges(for: key) {
+                TerminalLinkRange.findAll(
+                    in: lineRows,
+                    startingRow: 0,
+                    fileLinkContext: context
+                )
+            }
+            let rowOffset = lineStartRow - visibleStartRow
+            for lineRange in lineRanges {
+                ranges.append(lineRange.shifted(byRows: rowOffset))
+            }
+            lineStartRow = lineEndRow
+        }
+        return ranges
     }
 
     /// Main-actor-safe view of the path-exists cache. Misses schedule a probe
@@ -2485,6 +2538,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                     guard let self else { return }
                     self.filePathExistsCache.record(path: probedPath, exists: exists)
                     guard exists else { return }
+                    // Existence changes file-link resolution for unchanged
+                    // text, so memoized line results are stale now.
+                    self.visibleLinkCache.removeAll()
                     self.markFullDamage()
                     self.updateRendererFrame()
                 }

@@ -225,6 +225,20 @@ struct TerminalLinkRange: Equatable {
         self.row == row && column >= startColumn && column < endColumn
     }
 
+    /// A copy moved `rowOffset` rows down, used to rebase per-logical-line
+    /// detection results onto the current viewport.
+    func shifted(byRows rowOffset: Int) -> TerminalLinkRange {
+        TerminalLinkRange(
+            row: row + rowOffset,
+            startColumn: startColumn,
+            endColumn: endColumn,
+            urlString: urlString,
+            fileTarget: fileTarget,
+            provenance: provenance,
+            displayText: displayText
+        )
+    }
+
     static func findAll(in cells: [TerminalScreenCell], row: Int) -> [TerminalLinkRange] {
         findAll(in: [cells], startingRow: row)
     }

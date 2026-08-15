@@ -482,6 +482,9 @@ struct TerminalRenderDamageDiagnostics {
 final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer {
     private static let renderTargetPixelFormat: MTLPixelFormat = .bgra8Unorm
     private static let glyphAtlasPixelFormat: MTLPixelFormat = .rgba8Unorm
+    private static let fallbackBackingScaleFactor: CGFloat = 2
+    private static let instanceBufferGrowthNumerator = 3
+    private static let instanceBufferGrowthDenominator = 2
     // Shared with the HTML renderer, which needs the same answer. See
     // TerminalGlyphFallbackFonts for why the named list has to be walked before
     // CoreText's cascade.
@@ -685,9 +688,10 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         terminalFrame = frame
         rebuildFontCellMetrics()
         synchronizeBackingScaleAndDrawableSize()
-        let shouldRebuildAtlasBuffers = atlasBuffersNeedRebuild(for: frame)
+        let nextAtlasBufferSignature = makeAtlasBufferSignature(for: frame)
+        let shouldRebuildAtlasBuffers = nextAtlasBufferSignature != lastAtlasBufferSignature
         if shouldRebuildAtlasBuffers {
-            rebuildAtlasBuffers()
+            rebuildAtlasBuffers(signature: nextAtlasBufferSignature)
         }
         logRenderingDiagnosticsIfNeeded()
         if diagnosticCPUFallbackEnabled {
@@ -844,7 +848,6 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         if isAtlasPathReadyForRendering,
            let atlasPipeline,
            let atlasVertexBuffer,
-           let atlasInstanceBuffer,
            let uniformsBuffer,
            let atlasTexture {
             if let solidPipeline,
@@ -857,12 +860,14 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: backgroundInstanceCount)
             }
 
-            encoder.setRenderPipelineState(atlasPipeline)
-            encoder.setVertexBuffer(atlasVertexBuffer, offset: 0, index: 0)
-            encoder.setVertexBuffer(atlasInstanceBuffer, offset: 0, index: 1)
-            encoder.setVertexBuffer(uniformsBuffer, offset: 0, index: 2)
-            encoder.setFragmentTexture(atlasTexture, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: atlasInstanceCount)
+            if let atlasInstanceBuffer, atlasInstanceCount > 0 {
+                encoder.setRenderPipelineState(atlasPipeline)
+                encoder.setVertexBuffer(atlasVertexBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(atlasInstanceBuffer, offset: 0, index: 1)
+                encoder.setVertexBuffer(uniformsBuffer, offset: 0, index: 2)
+                encoder.setFragmentTexture(atlasTexture, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: atlasInstanceCount)
+            }
 
             if let solidPipeline,
                let decorationInstanceBuffer,
@@ -1295,23 +1300,19 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private var atlasInstanceCount: Int {
-        guard let atlasInstanceBuffer else { return 0 }
-        return atlasInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
+        instanceBufferSets[bufferRotation.currentSlot].glyphCount
     }
 
     private var backgroundInstanceCount: Int {
-        guard let backgroundInstanceBuffer else { return 0 }
-        return backgroundInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
+        instanceBufferSets[bufferRotation.currentSlot].backgroundCount
     }
 
     private var decorationInstanceCount: Int {
-        guard let decorationInstanceBuffer else { return 0 }
-        return decorationInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
+        instanceBufferSets[bufferRotation.currentSlot].decorationCount
     }
 
     private var debugOverlayInstanceCount: Int {
-        guard let debugOverlayInstanceBuffer else { return 0 }
-        return debugOverlayInstanceBuffer.length / MemoryLayout<GlyphInstance>.stride
+        instanceBufferSets[bufferRotation.currentSlot].debugOverlayCount
     }
 
     private func configureRenderPassDescriptor(_ descriptor: MTLRenderPassDescriptor) {
@@ -1419,11 +1420,12 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         }
         let byteCount = values.count * MemoryLayout<T>.stride
         guard byteCount > 0 else {
-            buffer = nil
             return
         }
-        if buffer?.length != byteCount {
-            buffer = device.makeBuffer(length: byteCount, options: .storageModeShared)
+        if buffer == nil || (buffer?.length ?? 0) < byteCount {
+            let paddedByteCount = byteCount
+                * Self.instanceBufferGrowthNumerator / Self.instanceBufferGrowthDenominator
+            buffer = device.makeBuffer(length: paddedByteCount, options: .storageModeShared)
         }
         guard let target = buffer?.contents() else {
             buffer = nil
@@ -1463,7 +1465,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         uploadAtlas()
     }
 
-    private func rebuildAtlasBuffers() {
+    private func rebuildAtlasBuffers(signature: Int? = nil) {
         guard device != nil, bounds.width > 0, bounds.height > 0 else { return }
         resetAtlasIfBackingScaleChanged()
         resetAtlasIfCellMetricsChanged()
@@ -1604,7 +1606,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
                 useLinearGlyphSampling: diagnosticLinearGlyphSamplingEnabled ? 1 : 0
             )
         ))
-        lastAtlasBufferSignature = makeAtlasBufferSignature(for: terminalFrame)
+        lastAtlasBufferSignature = signature ?? makeAtlasBufferSignature(for: terminalFrame)
     }
 
     private func stagePendingInstancePayload(_ payload: TerminalInstancePayload) {
@@ -1622,19 +1624,18 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
         guard acquisition.requiresUpload else { return }
         var set = instanceBufferSets[acquisition.slot]
         updateSharedBuffer(&set.glyph, with: payload.glyphs)
+        set.glyphCount = payload.glyphs.count
         updateSharedBuffer(&set.background, with: payload.backgrounds)
+        set.backgroundCount = payload.backgrounds.count
         updateSharedBuffer(&set.decoration, with: payload.decorations)
+        set.decorationCount = payload.decorations.count
         updateSharedBuffer(&set.debugOverlay, with: payload.debugOverlays)
+        set.debugOverlayCount = payload.debugOverlays.count
         var cursor = payload.cursor
         updateSharedBuffer(&set.cursor, with: &cursor)
         var uniforms = payload.uniforms
         updateSharedBuffer(&set.uniforms, with: &uniforms)
         instanceBufferSets[acquisition.slot] = set
-    }
-
-    private func atlasBuffersNeedRebuild(for frame: TerminalFrame) -> Bool {
-        let nextSignature = makeAtlasBufferSignature(for: frame)
-        return nextSignature != lastAtlasBufferSignature
     }
 
     private func makeAtlasBufferSignature(for frame: TerminalFrame) -> Int {
@@ -2454,6 +2455,7 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private func synchronizeBackingScaleAndDrawableSize() {
+        refreshResolvedBackingScale()
         guard bounds.width > 0, bounds.height > 0 else { return }
         guard !isSynchronizingDisplay else { return }
         isSynchronizingDisplay = true
@@ -2554,7 +2556,16 @@ final class TerminalMetalView: MTKView, MTKViewDelegate, TerminalAppKitRenderer 
     }
 
     private var backingScale: CGFloat {
-        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        resolvedBackingScale
+    }
+
+    private var resolvedBackingScale: CGFloat = NSScreen.main?.backingScaleFactor
+        ?? TerminalMetalView.fallbackBackingScaleFactor
+
+    private func refreshResolvedBackingScale() {
+        resolvedBackingScale = window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? Self.fallbackBackingScaleFactor
     }
 
     private func pixelAlign(_ value: CGFloat, scale: CGFloat) -> CGFloat {
@@ -2935,10 +2946,14 @@ private struct TerminalUniforms {
 /// One rotation slot's worth of GPU-visible instance buffers.
 private struct TerminalInstanceBufferSet {
     var glyph: MTLBuffer?
+    var glyphCount = 0
     var background: MTLBuffer?
+    var backgroundCount = 0
     var decoration: MTLBuffer?
+    var decorationCount = 0
     var cursor: MTLBuffer?
     var debugOverlay: MTLBuffer?
+    var debugOverlayCount = 0
     var uniforms: MTLBuffer?
 }
 
