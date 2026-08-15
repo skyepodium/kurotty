@@ -101,7 +101,8 @@ final class TerminalTypingCursorHidingTests: XCTestCase {
     func testLinkHitTestingNeverStatsOnTheMainActor() throws {
         let source = try surfaceSource()
 
-        XCTAssertTrue(source.contains("fileLinkContext: fileLinkContext()"))
+        XCTAssertTrue(source.contains("let context = fileLinkContext()"))
+        XCTAssertTrue(source.contains("fileLinkContext: context"))
         XCTAssertFalse(
             source.contains("FileManager.default.fileExists"),
             "Existence checks belong on TerminalPathExistsProbe's utility queue"

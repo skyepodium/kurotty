@@ -50,6 +50,26 @@ final class TerminalHTMLSelectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebViewClaimsNoDropsSoAFileStillLandsOnTheCommandLine() {
+        let webView = TerminalHTMLWebView(frame: Fixture.rendererFrame, configuration: WKWebViewConfiguration())
+
+        // Dragging is a fourth route, and the three above do not cover it: a
+        // drag destination is found by its registration, not by hit testing or
+        // by focus. A stock web view registers seventeen types because dropping
+        // a file onto a page is something pages do, and sitting over the surface
+        // it took every drop the terminal used to turn into a path.
+        XCTAssertTrue(
+            webView.registeredDraggedTypes.isEmpty,
+            "the web view claimed \(webView.registeredDraggedTypes.count) dragged types"
+        )
+
+        // The comparison is the point: this is a property of the subclass, not
+        // of web views, so the test fails if the override is ever removed.
+        let stock = WKWebView(frame: Fixture.rendererFrame, configuration: WKWebViewConfiguration())
+        XCTAssertFalse(stock.registeredDraggedTypes.isEmpty)
+    }
+
+    @MainActor
     func testRendererContainerStaysTransparentSoTheSurfaceReceivesTheGesture() {
         let renderer = makeRenderer()
         renderer.frame = Fixture.rendererFrame
@@ -82,6 +102,33 @@ final class TerminalHTMLSelectionTests: XCTestCase {
             cellSize: TerminalFrameSize(width: 8, height: 16),
             padding: TerminalFramePoint(x: 8, y: 8)
         )
+    }
+
+    // MARK: - What a screen reader hears
+
+    /// The grid is a wall of pixels to VoiceOver on the atlas path —
+    /// `NSAccessibility` appears nowhere in this app — and a document costs
+    /// four strings to fix that. This is the only capability in the branch that
+    /// the other renderer cannot be given cheaply at all.
+    @MainActor
+    func testTheScreenIsALiveRegionAReaderCanFollow() {
+        let document = makeStylesheet()
+
+        XCTAssertTrue(document.contains("role=\"\(TerminalHTMLDocument.Role.screen)\""))
+        XCTAssertTrue(document.contains("aria-live=\"\(TerminalHTMLDocument.Role.liveness)\""))
+        XCTAssertTrue(document.contains("aria-label=\"\(TerminalHTMLDocument.Role.label)\""))
+
+        // Assertive would interrupt the reader mid-sentence for every line of a
+        // build, which makes a terminal unusable rather than accessible.
+        XCTAssertFalse(document.contains("aria-live=\"assertive\""))
+    }
+
+    /// The cursor is a painted box with no text in it. Announced, it would
+    /// interrupt every row with nothing — its position is already carried by
+    /// the text a reader is moving through.
+    @MainActor
+    func testTheCursorIsNotAnnounced() {
+        XCTAssertTrue(makeStylesheet().contains("id=\"cursor\" aria-hidden=\"true\""))
     }
 
     // MARK: - Where the pointer thinks the grid is

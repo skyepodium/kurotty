@@ -11,6 +11,48 @@ enum DesignTokens {
     /// status hues. The legacy role names (`windowBackground`,
     /// `activeTabBackground`, `textMuted`, ...) are kept as computed aliases
     /// onto the ramp so existing chrome call sites read the same tokens.
+    /// A ground built from one plane and a few tints laid over it.
+    ///
+    /// A single vertical grade — which this replaced — can only ever be one hue
+    /// travelling in one direction, and that is not what a pearlescent surface
+    /// does. The light on nacre changes *hue* across the surface while its
+    /// brightness barely moves, so the ground needs stops that sit beside each
+    /// other rather than above and below.
+    ///
+    /// Every tint stays within a couple of points of `base` in luminance, which
+    /// is not a style choice: chrome text is ranked against the ground it sits
+    /// on, and the ramp tests hold each tint to the same contrast floors as a
+    /// flat surface. Hue is free; brightness is spoken for.
+    struct GroundMesh: Equatable, Sendable {
+        /// One tint, as an ellipse fading to nothing at its edge.
+        struct Tint: Equatable, Sendable {
+            let color: NSColor
+            /// Where the tint is centred, in unit coordinates from the host's
+            /// top-left. Values outside 0...1 place a centre off-screen so only
+            /// the near edge of the tint reaches the window, which is how a
+            /// bloom arrives from beyond a corner.
+            let center: CGPoint
+            /// How far the tint reaches before it has faded out, in units of
+            /// the host's width and height.
+            let radius: CGSize
+        }
+
+        /// A mesh with no tints at all: the ground is the plane and nothing
+        /// else. This is how a theme says "flat" — there is no second code
+        /// path for it, and no optional to unwrap at every call site.
+        static func flat(_ base: NSColor) -> GroundMesh {
+            GroundMesh(base: base, tints: [])
+        }
+
+        /// The plane the tints are laid on.
+        ///
+        /// This is the colour the ground shows where no tint reaches, and the
+        /// colour the tab bar meets — so it is `surfaceChrome` in every theme
+        /// that declares a mesh, or the seam at the top edge becomes visible.
+        let base: NSColor
+        let tints: [Tint]
+    }
+
     @MainActor
     struct ChromeTheme {
         // MARK: Surfaces, back to front
@@ -66,7 +108,7 @@ enum DesignTokens {
         /// once across the whole content area rather than restarting inside
         /// every gutter — which is what a per-view gradient would do, and which
         /// reads as banding rather than as one surface.
-        let groundGradient: (top: NSColor, bottom: NSColor)?
+        let groundMesh: GroundMesh
 
         // MARK: Scrollback indicator
         //
@@ -228,7 +270,7 @@ enum DesignTokens {
             pressFill: Color.Dark.pressFill,
             focusRing: Color.Dark.focusRing,
             windowAppearance: NSAppearance(named: .darkAqua),
-            groundGradient: nil
+            groundMesh: Color.Dark.groundMesh
         )
 
         static let light = ChromeTheme(
@@ -252,7 +294,7 @@ enum DesignTokens {
             pressFill: Color.Light.pressFill,
             focusRing: Color.Light.focusRing,
             windowAppearance: NSAppearance(named: .aqua),
-            groundGradient: nil
+            groundMesh: Color.Light.groundMesh
         )
 
         static let nacre = ChromeTheme(
@@ -276,10 +318,7 @@ enum DesignTokens {
             pressFill: Color.Nacre.pressFill,
             focusRing: Color.Nacre.focusRing,
             windowAppearance: NSAppearance(named: .aqua),
-            groundGradient: (
-                top: Color.Nacre.groundGradientTop,
-                bottom: Color.Nacre.groundGradientBottom
-            )
+            groundMesh: Color.Nacre.groundMesh
         )
     }
 
@@ -324,6 +363,38 @@ enum DesignTokens {
             static let textSecondary = NSColor.designTokenSRGB(0xBF_B9_D1)
             static let textTertiary = NSColor.designTokenSRGB(0x9F_98_B5)
             static let accent = NSColor.designTokenSRGB(0x84_6E_FF)
+
+            /// The same three directions as Nacre, taken as far as the
+            /// contrast floors allow.
+            ///
+            /// The first attempt kept these a hundredth of a luminance point
+            /// from the base, on the theory that a dark ground should barely
+            /// move. On screen the result was no ground at all: the user's
+            /// terminal background sits at almost the same depth, so the card
+            /// and the field it was meant to float on were the same colour and
+            /// the whole mesh showed as nothing. Each tint now sits about 1.35:1
+            /// from the base, which is the most a dark ground can lift before
+            /// tertiary chrome text drops under 4.5:1 on it.
+            static let groundMesh = GroundMesh(
+                base: surfaceChrome,
+                tints: [
+                    .init(
+                        color: NSColor.designTokenSRGB(0x32_2D_5C),
+                        center: CGPoint(x: 0.10, y: 0.06),
+                        radius: CGSize(width: 0.78, height: 0.62)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0x1C_35_38),
+                        center: CGPoint(x: 0.98, y: 0.38),
+                        radius: CGSize(width: 0.64, height: 0.64)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0x40_2E_3E),
+                        center: CGPoint(x: 0.24, y: 1.04),
+                        radius: CGSize(width: 0.84, height: 0.68)
+                    ),
+                ]
+            )
             static let success = NSColor.designTokenSRGB(0x57_DA_A0)
             /// Sequential ramp for the daily usage strip, low -> high. One warm
             /// hue, rising in chroma, not the `error` step: a heavy day is a
@@ -359,6 +430,30 @@ enum DesignTokens {
             static let textSecondary = NSColor.designTokenSRGB(0x49_45_5F)
             static let textTertiary = NSColor.designTokenSRGB(0x5D_57_6D)
             static let accent = NSColor.designTokenSRGB(0x65_5C_EF)
+
+            /// Nacre's three directions on the light ramp's own chrome plane.
+            /// The light theme is cooler and flatter than Nacre by design, so
+            /// its tints are pulled closer to `base` than Nacre's are.
+            static let groundMesh = GroundMesh(
+                base: surfaceChrome,
+                tints: [
+                    .init(
+                        color: NSColor.designTokenSRGB(0xE9_ED_FB),
+                        center: CGPoint(x: 0.10, y: 0.06),
+                        radius: CGSize(width: 0.78, height: 0.62)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0xEA_F3_EE),
+                        center: CGPoint(x: 0.98, y: 0.38),
+                        radius: CGSize(width: 0.64, height: 0.64)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0xFB_F3_E9),
+                        center: CGPoint(x: 0.24, y: 1.04),
+                        radius: CGSize(width: 0.84, height: 0.68)
+                    ),
+                ]
+            )
             static let success = NSColor.designTokenSRGB(0x17_72_45)
             /// Light counterpart of the usage ramp. On a light ground a
             /// sequential scale runs light -> dark, so the stops darken as the
@@ -449,8 +544,30 @@ enum DesignTokens {
             /// before `textTertiary` stops clearing AA on it — 4.60:1 here,
             /// which is the binding constraint and the reason the ramp's
             /// quietest rank is darker than the light ramp's.
-            static let groundGradientTop = surfaceChrome
-            static let groundGradientBottom = NSColor.designTokenSRGB(0xCB_D7_F0)
+            /// Cool light from the upper left, a green cast off the right
+            /// edge, and warmth rising from below the bottom-left corner. The
+            /// three meet over the chrome plane, which is what a pearl does and
+            /// what a single vertical grade could not.
+            static let groundMesh = GroundMesh(
+                base: surfaceChrome,
+                tints: [
+                    .init(
+                        color: NSColor.designTokenSRGB(0xE6_EE_FF),
+                        center: CGPoint(x: 0.10, y: 0.06),
+                        radius: CGSize(width: 0.78, height: 0.62)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0xE9_F5_EF),
+                        center: CGPoint(x: 0.98, y: 0.38),
+                        radius: CGSize(width: 0.64, height: 0.64)
+                    ),
+                    .init(
+                        color: NSColor.designTokenSRGB(0xFC_F5_EA),
+                        center: CGPoint(x: 0.24, y: 1.04),
+                        radius: CGSize(width: 0.84, height: 0.68)
+                    ),
+                ]
+            )
         }
 
         // MARK: Theme-neutral chrome
@@ -1008,7 +1125,14 @@ enum DesignTokens {
 
         /// Gap between the window's chrome edges and the outermost card. The
         /// ground shows through here, which is the whole effect.
-        static let groundInsetPX = Space.x3PX
+        ///
+        /// Widened from `x3PX` when the ground stopped being a flat fill. Eight
+        /// points is enough margin to read as a card and not enough surface to
+        /// read as a *ground*: with a mesh behind it, the tints had nowhere to
+        /// resolve and the whole field showed as a hairline of colour at the
+        /// window edge. Sixteen gives each tint room to arrive and fade, which
+        /// is what the mesh is for, and costs a little over one column.
+        static let groundInsetPX = Space.x5PX
 
         /// Gap between two adjacent cards in a split. This is the split
         /// divider's full thickness — the divider no longer draws a line, so

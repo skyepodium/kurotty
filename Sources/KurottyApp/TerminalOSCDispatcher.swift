@@ -8,6 +8,8 @@ struct TerminalOSCDispatcher {
         /// notification path, and this is where they now go instead.
         case commandProgress(TerminalCommandProgressReport)
         case osc52(TerminalOSC52Policy.Evaluation, base64Payload: String)
+        /// A picture the program asked the terminal to draw where the cursor is.
+        case inlineImage(TerminalInlineImagePayload)
     }
 
     var shellIntegration: TerminalShellIntegration
@@ -60,8 +62,17 @@ struct TerminalOSCDispatcher {
             }
             return .desktopNotification(payload)
         case "1337":
-            guard parts.count == 2,
-                  let payload = TerminalNotificationPayload.contentFromOSC1337Payload(String(parts[1])) else {
+            guard parts.count == 2 else {
+                return .ignored
+            }
+            // The same sequence carries iTerm2's notifications and its inline
+            // images. The image form is checked first because it is the one
+            // with a shape — `File=…:<base64>` — and a notification payload
+            // cannot be mistaken for it.
+            if let image = TerminalInlineImagePayload.parse(String(parts[1])) {
+                return .inlineImage(image)
+            }
+            guard let payload = TerminalNotificationPayload.contentFromOSC1337Payload(String(parts[1])) else {
                 return .ignored
             }
             return .desktopNotification(payload)

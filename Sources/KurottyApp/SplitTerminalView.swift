@@ -26,7 +26,7 @@ final class SplitTerminalView: NSSplitView {
         dividerStyle = .paneSplitter
         wantsLayer = true
         layer.map(ChromeMotion.disableImplicitAnimations(on:))
-        layer?.backgroundColor = ChromeGroundGradient.descendantFill(chromeTheme).cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill.cgColor
         if let pane {
             configurePane(pane)
             addArrangedSubview(pane)
@@ -66,7 +66,7 @@ final class SplitTerminalView: NSSplitView {
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
         chromeTheme = theme
-        layer?.backgroundColor = ChromeGroundGradient.descendantFill(theme).cgColor
+        layer?.backgroundColor = ChromeGroundGradient.descendantFill.cgColor
         for subview in arrangedSubviews {
             if let pane = subview as? TerminalPaneView {
                 pane.applyChromeTheme(theme)
@@ -87,14 +87,12 @@ final class SplitTerminalView: NSSplitView {
     /// and in a four-way split the second telling is a cross through the middle
     /// of the window.
     ///
-    /// Under a graded ground the divider draws nothing at all: the one grade is
-    /// on the window's ground host, and filling the band here with a flat color
-    /// would stamp a solid bar across it.
-    override func drawDivider(in rect: NSRect) {
-        guard chromeTheme.groundGradient == nil else { return }
-        chromeTheme.terminalPaneGround.setFill()
-        rect.fill()
-    }
+    /// The divider draws nothing at all: the ground is one field on the
+    /// window's host, and filling the band here with a flat colour would stamp
+    /// a solid bar across it. The gutter is left transparent so the host shows
+    /// through, which is what makes the panes read as cards on one surface
+    /// rather than as tiles with grout between them.
+    override func drawDivider(in rect: NSRect) {}
 
     override func resetCursorRects() {
         super.resetCursorRects()
