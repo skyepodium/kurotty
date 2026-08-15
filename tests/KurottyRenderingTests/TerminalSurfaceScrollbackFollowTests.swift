@@ -15,8 +15,6 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
     private enum Fixture {
         static let frame = NSRect(x: 0, y: 0, width: 500, height: 120)
         static let filler = (0..<60).map { "row \($0)" }.joined(separator: "\r\n")
-        /// The live output path coalesces on the main queue before rendering.
-        static let outputFlushSeconds: TimeInterval = 0.12
     }
 
     private func makeSurface() -> (TerminalSurfaceView, StubSession) {
@@ -26,9 +24,10 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
         return (surface, session)
     }
 
-    private func emit(_ text: String, from session: StubSession) {
+    private func emit(_ text: String, from session: StubSession, surface: TerminalSurfaceView) {
         session.onOutput?(text)
-        RunLoop.current.run(until: Date().addingTimeInterval(Fixture.outputFlushSeconds))
+        surface.flushPendingOutputForTesting()
+        XCTAssertFalse(surface.hasPendingOutputForTesting, "test output drain left pending data")
     }
 
     private func scrollUp(_ surface: TerminalSurfaceView, rows: Int) throws {
@@ -45,7 +44,7 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
         let offsetWhileReading = surface.searchStateForTesting.scrollbackOffset
         XCTAssertGreaterThan(offsetWhileReading, 0)
 
-        emit("new line one\r\nnew line two\r\n", from: session)
+        emit("new line one\r\nnew line two\r\n", from: session, surface: surface)
 
         XCTAssertGreaterThan(
             surface.searchStateForTesting.scrollbackOffset,
@@ -61,7 +60,11 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
         try scrollUp(surface, rows: 4)
         let before = surface.searchStateForTesting.scrollbackOffset
 
-        emit((0..<3).map { "pushed \($0)" }.joined(separator: "\r\n") + "\r\n", from: session)
+        emit(
+            (0..<3).map { "pushed \($0)" }.joined(separator: "\r\n") + "\r\n",
+            from: session,
+            surface: surface
+        )
 
         XCTAssertEqual(surface.searchStateForTesting.scrollbackOffset, before + 3)
     }
@@ -71,7 +74,7 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
         let (surface, session) = makeSurface()
         XCTAssertEqual(surface.searchStateForTesting.scrollbackOffset, 0)
 
-        emit("more output\r\n", from: session)
+        emit("more output\r\n", from: session, surface: surface)
 
         XCTAssertEqual(surface.searchStateForTesting.scrollbackOffset, 0)
     }

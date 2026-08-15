@@ -666,17 +666,23 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     /// or the benchmark target the roadmap wants.
     func testPerFrameRendererWorkIsGuardedAgainstReallocationAndRedundantRebuilds() throws {
         let metalSource = try terminalMetalViewSource()
+        let updateSource = try functionBody(named: "update", in: metalSource)
+        let rebuildSource = try functionBody(named: "rebuildAtlasBuffers", in: metalSource)
         let uploadSource = try functionBody(named: "uploadPendingInstanceBuffersIfNeeded", in: metalSource)
-        let dirtySource = try functionBody(named: "atlasBuffersNeedRebuild", in: metalSource)
 
-        // Instance buffers are memcpy'd into, not reallocated, once the byte
-        // length is stable.
+        // Instance buffers retain headroom, and the draw counts stay separate
+        // from their padded byte lengths.
         XCTAssertFalse(uploadSource.contains("makeBuffer(bytes:"))
-        // The atlas rebuild is gated on a signature of the render inputs, and
-        // reading the signature must not also commit it — that would make every
-        // frame look unchanged.
-        XCTAssertTrue(dirtySource.contains("return nextSignature != lastAtlasBufferSignature"))
-        XCTAssertFalse(dirtySource.contains("lastAtlasBufferSignature = nextSignature"))
+        XCTAssertTrue(metalSource.contains("if buffer == nil || (buffer?.length ?? 0) < byteCount"))
+        XCTAssertTrue(metalSource.contains("instanceBufferGrowthNumerator"))
+        XCTAssertTrue(uploadSource.contains("set.glyphCount = payload.glyphs.count"))
+
+        // The frame signature is O(visible cells), so update computes it once
+        // and hands the same value to the rebuild for storage.
+        XCTAssertEqual(updateSource.components(separatedBy: "makeAtlasBufferSignature").count - 1, 1)
+        XCTAssertTrue(updateSource.contains("let shouldRebuildAtlasBuffers = nextAtlasBufferSignature != lastAtlasBufferSignature"))
+        XCTAssertTrue(updateSource.contains("rebuildAtlasBuffers(signature: nextAtlasBufferSignature)"))
+        XCTAssertTrue(rebuildSource.contains("lastAtlasBufferSignature = signature ?? makeAtlasBufferSignature(for: terminalFrame)"))
     }
 
     func testShellSessionStartsInHomeWithInteractiveZshUsability() throws {
