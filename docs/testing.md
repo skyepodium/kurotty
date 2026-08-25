@@ -3,6 +3,7 @@
 ## Required Local Gates
 
 ```sh
+./scripts/check-update-contract.sh
 zig build test
 zig build
 zig build bench
@@ -11,6 +12,30 @@ zig build leak-check
 swift build
 swift test
 ```
+
+## Automatic Update Regression Gate
+
+Automatic update is a shipped compatibility path. It is not covered by proving
+that the candidate DMG installs cleanly from scratch.
+
+For every change to Sparkle integration, signing, bundle metadata, appcast
+generation, release packaging, artifact verification, or local installation:
+
+1. Run `./scripts/check-update-contract.sh` before the build. It rejects
+   signature creation with `--deep`, incomplete inside-out Sparkle signing,
+   missing Team ID verification, and replacement of a live installed bundle.
+2. Run `swift test --filter ReleasePackagingSparkleSigningTests`.
+3. Build the candidate Universal DMG and run
+   `scripts/verify-release-artifact.sh` against it.
+4. Before calling the release complete, install and launch the immediately
+   previous published DMG, trigger its real Sparkle update to the candidate,
+   and verify all four observable transitions: the update downloads, the old
+   process exits, the installed bundle version advances, and the candidate app
+   relaunches.
+
+A fresh-install smoke covers packaging only. If step 4 cannot be performed,
+record the release as update-unverified; do not translate structural signing
+checks into a claim that the full user update completed.
 
 ## Coverage
 

@@ -70,6 +70,38 @@ report_dmg_styling() {
   return 0
 }
 
+signature_team_identifier() {
+  codesign -d --verbose=4 "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p' | head -1
+}
+
+verify_sparkle_signing() {
+  local app_bundle="$1"
+  local app_team
+  local target
+  local target_team
+  local targets=(
+    "$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/Current/XPCServices/Downloader.xpc"
+    "$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/Current/XPCServices/Installer.xpc"
+    "$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/Current/Updater.app"
+    "$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/Current/Autoupdate"
+    "$app_bundle/Contents/Frameworks/Sparkle.framework"
+  )
+
+  app_team="$(signature_team_identifier "$app_bundle")"
+  for target in "${targets[@]}"; do
+    [[ -e "$target" ]] || {
+      echo "release artifact verification failed: missing Sparkle component: $target" >&2
+      return 1
+    }
+    codesign --verify --strict --verbose=2 "$target"
+    target_team="$(signature_team_identifier "$target")"
+    if [[ "$target_team" != "$app_team" ]]; then
+      echo "Sparkle signing identity mismatch: $target has team '$target_team', app has '$app_team'" >&2
+      return 1
+    fi
+  done
+}
+
 [[ -f "$DMG_PATH" ]] || { echo "release artifact verification failed: missing DMG: $DMG_PATH" >&2; exit 1; }
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kurotty-release-verify.XXXXXX")"
@@ -108,6 +140,7 @@ actual_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString'
 }
 
 codesign --verify --deep --strict --verbose=2 "$COPIED_APP"
+verify_sparkle_signing "$COPIED_APP"
 lipo "$COPIED_APP/Contents/MacOS/kurotty" -verify_arch arm64 x86_64
 lipo "$COPIED_APP/Contents/Resources/libkurotty_core.dylib" -verify_arch arm64 x86_64
 "$COPIED_APP/Contents/MacOS/kurotty" --release-artifact-smoke-test

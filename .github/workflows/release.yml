@@ -16,6 +16,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Automatic update contract
+        run: ./scripts/check-update-contract.sh
+
       - name: Require tag to point at main history
         run: |
           git fetch origin main
