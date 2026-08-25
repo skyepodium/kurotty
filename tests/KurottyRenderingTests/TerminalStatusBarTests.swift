@@ -75,6 +75,31 @@ final class TerminalStatusBarTests: XCTestCase {
 
     // MARK: - Memory formatting
 
+    func testSegmentPreferencesMaskResponsiveVisibilityWithoutExpandingIt() {
+        let responsive = TerminalStatusBarVisibility(
+            showsAgentLabel: true,
+            showsAgentDetail: false,
+            showsCPUMetric: true,
+            showsMemoryValue: true,
+            showsWorktree: true,
+            showsQuota: true
+        )
+
+        let visible = responsive.applying(TerminalStatusBarSegmentPreferences(
+            showsAgent: false,
+            showsWorktree: true,
+            showsQuota: false,
+            showsResources: true
+        ))
+
+        XCTAssertFalse(visible.showsAgentLabel)
+        XCTAssertFalse(visible.showsAgentDetail)
+        XCTAssertTrue(visible.showsCPUMetric)
+        XCTAssertTrue(visible.showsMemoryValue)
+        XCTAssertTrue(visible.showsWorktree)
+        XCTAssertFalse(visible.showsQuota)
+    }
+
     func testMemoryTextUsesWholeMegabytesBelowOneGigabyte() {
         let bytes = 412 * Fixture.megabyteBYTES
 

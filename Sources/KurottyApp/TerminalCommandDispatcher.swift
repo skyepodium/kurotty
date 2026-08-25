@@ -80,14 +80,20 @@ enum TerminalCommandSpanDispatchResult: Equatable {
 enum TerminalCommandDispatcher {
     @MainActor
     static func dispatchWindowCommand(from view: NSView, event: NSEvent) -> Bool {
-        guard let command = windowCommand(for: event),
-              let controller = view.window?.windowController as? TerminalWindowController
-        else {
+        guard let controller = view.window?.windowController as? TerminalWindowController else {
             return false
         }
 
-        execute(command, on: controller)
-        return true
+        let registry = controller.commandPaletteRegistry()
+        if let command = windowCommand(for: event, registry: registry) {
+            execute(command, on: controller)
+            return true
+        }
+        if let quickCommand = registry.quickCommand(matching: event)?.quickCommand {
+            QuickCommandInvoker.invoke(quickCommand, target: controller)
+            return true
+        }
+        return false
     }
 
     static func windowCommand(for event: NSEvent, registry: TerminalCommandRegistry = .default) -> TerminalCommand? {
@@ -118,6 +124,12 @@ enum TerminalCommandDispatcher {
             controller.selectPreviousTab()
         case .selectNextTab:
             controller.selectNextTab()
+        case .createTabGroup:
+            controller.createTabGroupFromCurrentTab()
+        case .ungroupCurrentTab:
+            controller.ungroupCurrentTab()
+        case .toggleCurrentTabGroupCollapsed:
+            controller.toggleCurrentTabGroupCollapsed()
         case .findTerminalOutput:
             controller.findTerminalOutput()
         case let .jumpToPrompt(direction):

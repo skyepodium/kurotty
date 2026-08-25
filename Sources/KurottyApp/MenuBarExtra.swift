@@ -11,6 +11,7 @@ enum MenuBarExtraItem: Equatable, CaseIterable {
     /// The way back into the app, which is the row a menu-bar extra exists for.
     case openApp
     case settings
+    case keepMacAwake
     case checkForUpdates
     case separator
     case quit
@@ -31,6 +32,7 @@ enum MenuBarExtraItem: Equatable, CaseIterable {
     static let menu: [MenuBarExtraItem] = [
         .openApp,
         .settings,
+        .keepMacAwake,
         .checkForUpdates,
         .separator,
         .quit,
@@ -47,6 +49,8 @@ enum MenuBarExtraItem: Equatable, CaseIterable {
             return AppLocalization.format(.openApp, AppConstants.Bundle.displayName)
         case .settings:
             return AppLocalization.string(.settings)
+        case .keepMacAwake:
+            return AppLocalization.string(.keepMacAwake)
         case .checkForUpdates:
             return AppLocalization.string(.checkForUpdates)
         case .separator:
@@ -64,6 +68,8 @@ enum MenuBarExtraItem: Equatable, CaseIterable {
             return #selector(AppDelegate.openKurotty)
         case .settings:
             return #selector(AppDelegate.openPreferences)
+        case .keepMacAwake:
+            return #selector(AppDelegate.toggleKeepMacAwake(_:))
         case .checkForUpdates:
             return #selector(AppDelegate.checkForUpdates(_:))
         case .separator:
@@ -75,7 +81,7 @@ enum MenuBarExtraItem: Equatable, CaseIterable {
 
     var actionTarget: ActionTarget? {
         switch self {
-        case .openApp, .settings, .checkForUpdates:
+        case .openApp, .settings, .keepMacAwake, .checkForUpdates:
             return .appDelegate
         case .separator:
             return nil
@@ -93,10 +99,19 @@ enum MenuBarExtraMenuBuilder {
     /// starting. The selectors are still checked against `AppDelegate` at
     /// compile time by `MenuBarExtraItem.action`.
     @MainActor
-    static func makeMenu(appDelegate: AnyObject?, application: NSApplication) -> NSMenu {
+    static func makeMenu(
+        appDelegate: AnyObject?,
+        application: NSApplication,
+        keepMacAwakeEnabled: Bool = false
+    ) -> NSMenu {
         let menu = NSMenu()
         for item in MenuBarExtraItem.menu {
-            menu.addItem(makeMenuItem(item, appDelegate: appDelegate, application: application))
+            menu.addItem(makeMenuItem(
+                item,
+                appDelegate: appDelegate,
+                application: application,
+                keepMacAwakeEnabled: keepMacAwakeEnabled
+            ))
         }
         return menu
     }
@@ -105,7 +120,8 @@ enum MenuBarExtraMenuBuilder {
     private static func makeMenuItem(
         _ item: MenuBarExtraItem,
         appDelegate: AnyObject?,
-        application: NSApplication
+        application: NSApplication,
+        keepMacAwakeEnabled: Bool
     ) -> NSMenuItem {
         guard !item.isSeparator else {
             return .separator()
@@ -115,6 +131,9 @@ enum MenuBarExtraMenuBuilder {
         // two places.
         let menuItem = NSMenuItem(title: item.title, action: item.action, keyEquivalent: "")
         menuItem.target = target(for: item, appDelegate: appDelegate, application: application)
+        if item == .keepMacAwake {
+            menuItem.state = keepMacAwakeEnabled ? .on : .off
+        }
         return menuItem
     }
 

@@ -1754,6 +1754,7 @@ enum DesignTokens {
         /// bottom bar reads as a divider between header and terminal; a leading
         /// rail reads as "this pane".
         static let terminalPaneChromeActiveRailWidthPX: CGFloat = 2
+        static let terminalInactivePaneAlphaRATIO: CGFloat = 0.76
 
         // MARK: Child-exit banner
         //

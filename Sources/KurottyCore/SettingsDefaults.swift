@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SettingsDefaults {
-    public static let schemaVersion = 24
+    public static let schemaVersion = 25
     public static let commandHistoryEnabled = true
     /// Live-applied and on by default. A 2px bar across the top edge of each
     /// pane while a command runs, driven by the OSC 133 boundaries Kurotty
@@ -36,6 +36,20 @@ public enum SettingsDefaults {
     /// chrome; turning it off collapses the strip to zero height and stops the
     /// resource sampler entirely, so no timer and no `libproc` call remains.
     public static let statusBarEnabled = true
+    public static let statusBarShowsAgent = true
+    public static let statusBarShowsWorktree = true
+    public static let statusBarShowsQuota = true
+    public static let statusBarShowsResources = true
+    public static let panePaddingPX = 16.0
+    public static let minimumPanePaddingPX = 0.0
+    public static let maximumPanePaddingPX = 32.0
+    public static let paneBorderStyle = "none"
+    public static let inactivePaneDimmingEnabled = false
+    public static let preventSystemSleep = false
+    public static let tabGroupsEnabled = true
+    public static let screenSnapshotBridgeEnabled = true
+    public static let kittyIntegrationEnabled = true
+    public static let osc99NotificationsEnabled = true
     /// Live-applied and on by default, like every other chrome switch here.
     /// It is the one that governs a surface outside Kurotty's own window — a
     /// slot in the system menu bar, which is shared and finite — and it stays a

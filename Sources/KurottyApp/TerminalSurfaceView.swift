@@ -87,6 +87,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     private var pendingRuntimeOutputEvents: [TerminalEventLedger.RecordedEvent] = []
     private var outputFlushTraceSequence: UInt64 = 0
     private var activeOutputRuntimeEventBatch: TerminalRuntimeEventBatch?
+    private var kittyClipboard = TerminalKittyClipboardController()
+    private var kittyDragAndDrop = TerminalKittyDragAndDropController()
+    private var screenSnapshotBridgeEnabled: Bool
+    private var kittyIntegrationEnabled: Bool
+    private var osc99NotificationsEnabled: Bool
     private var outputInterceptor: ((String) -> String)?
     /// Stable identity shared by this surface, its PTY (`KUROTTY_PANE_ID`), and
     /// the agent activity registry.
@@ -161,6 +166,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
+        screenSnapshotBridgeEnabled = settings.terminal.screenSnapshotBridgeEnabled
+        kittyIntegrationEnabled = settings.terminal.kittyIntegrationEnabled
+        osc99NotificationsEnabled = settings.terminal.osc99NotificationsEnabled
         let configuredFont = Self.terminalFont(for: settings)
         font = configuredFont
         let terminalDefaultStyle = TerminalTextStyle(
@@ -302,12 +310,24 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         observeTerminalFocusChanges()
         observeAgentActivityForNotifications()
         observeInputSourceChanges()
+        TerminalScreenReadRegistry.shared.register(paneID: paneIdentifier) { [weak self] in
+            guard let self, screenSnapshotBridgeEnabled else {
+                return nil
+            }
+            return currentRenderedScreenSnapshot()
+        }
         // Resolved here, on the main actor, and handed to the session before the
         // child is spawned. The hook environment is empty unless
         // `terminal.agentStatusHooksEnabled` is on and the listener is bound.
         if let launchConfigurableShell = shell as? TerminalShellLaunchConfigurable {
-            launchConfigurableShell.agentStatusHookEnvironment =
+            var shellEnvironment =
                 AgentStatusHookCoordinator.shared.shellEnvironment(paneIdentifier: paneIdentifier)
+            if screenSnapshotBridgeEnabled {
+                for (key, value) in KurottyScreenReadBridgeEnvironment.shellEnvironment(paneIdentifier: paneIdentifier) {
+                    shellEnvironment[key] = value
+                }
+            }
+            launchConfigurableShell.agentStatusHookEnvironment = shellEnvironment
             launchConfigurableShell.perProjectHistoryEnabled = settings.shell.perProjectHistoryEnabled
         }
         shell.start(workingDirectory: settings.shell.workingDirectory)
@@ -326,6 +346,26 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     func writeSession(_ text: String) {
         shell.write(text)
+    }
+
+    func currentRenderedScreenSnapshot() -> KurottyScreenReadSnapshot {
+        let metrics = terminalMetrics()
+        let visibleRowCount = min(max(1, metrics.size.rows), AppConstants.ScreenRead.maximumRows)
+        let visibleColumnCount = min(max(1, screen.columns), AppConstants.ScreenRead.maximumColumns)
+        let boundedRows = visibleRowsForRendering(limit: visibleRowCount).map { row in
+            Array(row.prefix(visibleColumnCount))
+        }
+        return KurottyScreenReadSnapshot(
+            version: KurottyScreenReadSnapshot.currentVersion,
+            paneID: agentPaneIdentifier,
+            rows: boundedRows.count,
+            columns: visibleColumnCount,
+            cursorRow: scrollbackOffset == 0 ? min(cursorRow, visibleRowCount - 1) : -1,
+            cursorColumn: scrollbackOffset == 0 ? min(cursorColumn, visibleColumnCount - 1) : -1,
+            scrollbackOffset: scrollbackOffset,
+            alternateScreen: isUsingAlternateScreen,
+            lines: TerminalRenderedScreenText.lines(from: boundedRows)
+        )
     }
 
     var currentTerminalSize: TerminalSize {
@@ -906,14 +946,23 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     /// the size limit, and the PTY backpressure pacing all apply — a drop of a
     /// thousand files is a paste, and is treated like one.
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        fileDropOperation(for: sender)
+        if kittyIntegrationEnabled, kittyDragAndDrop.acceptsDrops {
+            return kittyDragAndDropOperation(for: sender)
+        }
+        return fileDropOperation(for: sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        fileDropOperation(for: sender)
+        if kittyIntegrationEnabled, kittyDragAndDrop.acceptsDrops {
+            return kittyDragAndDropOperation(for: sender)
+        }
+        return fileDropOperation(for: sender)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
+        if kittyIntegrationEnabled, kittyDragAndDrop.acceptsDrops {
+            sendTerminalResponse(kittyDragAndDrop.leaveDrop())
+        }
         setFileDropHighlighted(false)
     }
 
@@ -925,6 +974,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         setFileDropHighlighted(false)
         let urls = droppedFileURLs(from: sender)
         guard !urls.isEmpty else { return false }
+        if kittyIntegrationEnabled, kittyDragAndDrop.acceptsDrops {
+            window?.makeFirstResponder(self)
+            sendTerminalResponse(kittyDragAndDrop.beginDrop(urls: urls))
+            return true
+        }
         guard let text = TerminalFileDropFormatter.text(
             for: urls,
             style: TerminalFileDropModifiers.style(for: NSEvent.modifierFlags),
@@ -943,6 +997,15 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         setFileDropHighlighted(true)
         // Copy, not link or move: nothing on disk is touched, and `.copy` is the
         // operation Finder's own drag feedback promises for this gesture.
+        return .copy
+    }
+
+    private func kittyDragAndDropOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard !droppedFileURLs(from: sender).isEmpty else {
+            setFileDropHighlighted(false)
+            return []
+        }
+        setFileDropHighlighted(true)
         return .copy
     }
 
@@ -1302,6 +1365,7 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         // The notifier is main-actor isolated; deinit may run off it, so hop.
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
+                TerminalScreenReadRegistry.shared.unregister(paneID: paneIdentifier)
                 TerminalNotifier.shared.withdrawAgentWaitingNotification(paneIdentifier: paneIdentifier)
             }
         }
@@ -3036,6 +3100,9 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         commandFinishNotificationMode = settings.terminal.commandFinishNotificationMode
         minimumCommandDurationSeconds = settings.terminal.minimumCommandDurationSeconds
         notifyOnAgentWaitingEnabled = settings.terminal.notifyOnAgentWaiting
+        screenSnapshotBridgeEnabled = settings.terminal.screenSnapshotBridgeEnabled
+        kittyIntegrationEnabled = settings.terminal.kittyIntegrationEnabled
+        osc99NotificationsEnabled = settings.terminal.osc99NotificationsEnabled
         // Live, not next-session: the switch governs how the parser answers a
         // sequence, so turning it off must silence the next `CSI 21 t` in a pane
         // that is already running.
@@ -3290,19 +3357,35 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
 
     private func dispatchTerminalIntegrationOsc(_ command: String) -> TerminalOSCDispatcher.Event {
+        if !kittyIntegrationEnabled,
+           command.hasPrefix("5522;") || command.hasPrefix("72;") {
+            return .ignored
+        }
+        if !osc99NotificationsEnabled,
+           command.hasPrefix("99;") {
+            return .ignored
+        }
         var dispatcher = TerminalOSCDispatcher(
             osc52Policy: TerminalOSC52Policy(policy: securityPolicy),
-            shellIntegration: shellIntegration
+            shellIntegration: shellIntegration,
+            kittyClipboard: kittyClipboard,
+            kittyDragAndDrop: kittyDragAndDrop
         )
         // The attached PTY runs a locally spawned shell session; remote origin
         // classification requires session-level transport awareness that this
         // surface does not have yet.
         let event = dispatcher.dispatch(command, origin: .local)
         shellIntegration = dispatcher.shellIntegration
+        kittyClipboard = dispatcher.kittyClipboard
+        kittyDragAndDrop = dispatcher.kittyDragAndDrop
         return event
     }
 
     private func handleClipboardWriteEvent(_ event: TerminalOSCDispatcher.Event) {
+        if case .kittyClipboard(let kittyEvent) = event {
+            handleKittyClipboardEvent(kittyEvent)
+            return
+        }
         guard case let .osc52(evaluation, base64Payload) = event else {
             return
         }
@@ -3335,6 +3418,48 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
                 break
             }
         }
+    }
+
+    private func handleKittyClipboardEvent(_ event: TerminalKittyClipboardController.Event) {
+        switch event {
+        case .ignored:
+            return
+        case .respond(let response):
+            sendTerminalResponse(response)
+        case .read(let request):
+            sendTerminalResponse(kittyClipboardReadResponse(for: request))
+        case .write(let request):
+            writeToPasteboard(request.preferredText)
+            sendTerminalResponse(
+                TerminalKittyClipboardController.response(
+                    op: "write",
+                    status: .done,
+                    id: request.id
+                )
+            )
+        }
+    }
+
+    private func kittyClipboardReadResponse(for request: TerminalKittyClipboardController.ReadRequest) -> String {
+        guard request.location == .clipboard else {
+            return TerminalKittyClipboardController.response(op: "read", status: .unavailable, id: request.id)
+        }
+        let availableMimes = ["text/plain"]
+        if request.listsTypesOnly {
+            return TerminalKittyClipboardController.readSuccessResponses(
+                id: request.id,
+                contents: [(mime: ".", data: Data(availableMimes.joined(separator: " ").utf8))]
+            )
+        }
+        guard request.mimes.contains(where: { availableMimes.contains($0) }),
+              let text = NSPasteboard.general.string(forType: .string)
+        else {
+            return TerminalKittyClipboardController.response(op: "read", status: .unavailable, id: request.id)
+        }
+        return TerminalKittyClipboardController.readSuccessResponses(
+            id: request.id,
+            contents: [(mime: "text/plain", data: Data(text.utf8))]
+        )
     }
 
     private func writeToPasteboard(_ text: String) {
@@ -3386,6 +3511,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
     }
 
     private func handleTerminalIntegrationEvent(_ event: TerminalOSCDispatcher.Event) {
+        if case .kittyDragAndDrop(let kittyEvent) = event {
+            handleKittyDragAndDropEvent(kittyEvent)
+            return
+        }
         if case .commandProgress(let report) = event {
             onCommandProgress?(.reported(report))
             return
@@ -3410,6 +3539,19 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
             notifyCommandFinishedIfNeeded(context)
         default:
             break
+        }
+    }
+
+    private func handleKittyDragAndDropEvent(_ event: TerminalKittyDragAndDropController.Event) {
+        switch event {
+        case .ignored:
+            return
+        case .response(let response):
+            sendTerminalResponse(response)
+        case .requestData(let index):
+            sendTerminalResponse(kittyDragAndDrop.dataResponse(index: index))
+        case .complete:
+            setFileDropHighlighted(false)
         }
     }
 

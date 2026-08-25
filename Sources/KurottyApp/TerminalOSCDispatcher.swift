@@ -8,19 +8,27 @@ struct TerminalOSCDispatcher {
         /// notification path, and this is where they now go instead.
         case commandProgress(TerminalCommandProgressReport)
         case osc52(TerminalOSC52Policy.Evaluation, base64Payload: String)
+        case kittyClipboard(TerminalKittyClipboardController.Event)
+        case kittyDragAndDrop(TerminalKittyDragAndDropController.Event)
         /// A picture the program asked the terminal to draw where the cursor is.
         case inlineImage(TerminalInlineImagePayload)
     }
 
     var shellIntegration: TerminalShellIntegration
+    var kittyClipboard: TerminalKittyClipboardController
+    var kittyDragAndDrop: TerminalKittyDragAndDropController
     private let osc52Policy: TerminalOSC52Policy
 
     init(
         osc52Policy: TerminalOSC52Policy,
-        shellIntegration: TerminalShellIntegration = TerminalShellIntegration()
+        shellIntegration: TerminalShellIntegration = TerminalShellIntegration(),
+        kittyClipboard: TerminalKittyClipboardController = TerminalKittyClipboardController(),
+        kittyDragAndDrop: TerminalKittyDragAndDropController = TerminalKittyDragAndDropController()
     ) {
         self.osc52Policy = osc52Policy
         self.shellIntegration = shellIntegration
+        self.kittyClipboard = kittyClipboard
+        self.kittyDragAndDrop = kittyDragAndDrop
     }
 
     @discardableResult
@@ -50,6 +58,17 @@ struct TerminalOSCDispatcher {
             return .desktopNotification(payload)
         case "52":
             return dispatchOSC52(parts.count == 2 ? String(parts[1]) : "", origin: origin)
+        case "72":
+            guard parts.count == 2 else {
+                return .ignored
+            }
+            return .kittyDragAndDrop(kittyDragAndDrop.dispatch(String(parts[1])))
+        case "99":
+            guard parts.count == 2,
+                  let payload = TerminalNotificationPayload.contentFromOSC99Payload(String(parts[1])) else {
+                return .ignored
+            }
+            return .desktopNotification(payload)
         case "7", "133":
             guard let event = shellIntegration.consumeOsc(command) else {
                 return .ignored
@@ -76,6 +95,17 @@ struct TerminalOSCDispatcher {
                 return .ignored
             }
             return .desktopNotification(payload)
+        case "5522":
+            guard parts.count == 2 else {
+                return .ignored
+            }
+            return .kittyClipboard(
+                kittyClipboard.dispatch(
+                    String(parts[1]),
+                    policy: osc52Policy.policy,
+                    origin: origin
+                )
+            )
         default:
             return .ignored
         }

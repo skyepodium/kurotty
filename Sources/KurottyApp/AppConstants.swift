@@ -225,6 +225,23 @@ enum AppConstants {
         static let systemApplicationSupportDirectoryName = "Application Support"
     }
 
+    /// Local, explicit current-screen reads. This is intentionally separate
+    /// from diagnostics and AI command context exports: callers must name a
+    /// live pane, and the reply is bounded to the currently rendered viewport.
+    enum ScreenRead {
+        static let bridgeSocketFileName = "screen-read.sock"
+        static let bridgeSocketBacklog: Int32 = 8
+        static let bridgeSocketDirectoryPermissions = 0o700
+        static let bridgeSocketPermissions = 0o600
+        static let bridgeCommandEnvironmentName = "KUROTTY_SCREEN_READ_COMMAND"
+        static let bridgeSocketEnvironmentName = "KUROTTY_SCREEN_READ_SOCKET"
+        static let paneIdentifierEnvironmentName = AgentStatus.paneIdentifierEnvironmentName
+        static let maximumRequestBytes = 1024
+        static let maximumResponseBytes = 512 * 1024
+        static let maximumRows = 256
+        static let maximumColumns = 512
+    }
+
     enum Settings {
         static let fileName = "settings.json"
         static let directoryName = Storage.applicationSupportDirectoryName
@@ -552,6 +569,7 @@ enum AppConstants {
     enum Notifications {
         static let categoryIdentifier = "dev.kurotty.terminal"
         static let osc9IdentifierPrefix = "dev.kurotty.terminal.osc9"
+        static let osc99IdentifierPrefix = "dev.kurotty.terminal.osc99"
         static let osc777IdentifierPrefix = "dev.kurotty.terminal.osc777"
         static let osc1337IdentifierPrefix = "dev.kurotty.terminal.osc1337"
         static let bridgeIdentifierPrefix = "dev.kurotty.terminal.bridge"

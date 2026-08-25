@@ -129,6 +129,26 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         target: self,
         action: #selector(statusBarToggled(_:))
     )
+    lazy var statusBarAgentCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(statusBarSegmentToggled(_:))
+    )
+    lazy var statusBarWorktreeCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(statusBarSegmentToggled(_:))
+    )
+    lazy var statusBarQuotaCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(statusBarSegmentToggled(_:))
+    )
+    lazy var statusBarResourcesCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(statusBarSegmentToggled(_:))
+    )
     lazy var commandProgressCheckbox = NSButton(
         checkboxWithTitle: "",
         target: self,
@@ -151,6 +171,14 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
     )
     lazy var uiTextScaleSlider = NSSlider()
     lazy var uiTextScaleValueLabel = NSTextField(labelWithString: "")
+    lazy var panePaddingField = NSTextField()
+    lazy var panePaddingStepper = NSStepper()
+    lazy var paneBorderPopup = NSPopUpButton()
+    lazy var inactivePaneDimmingCheckbox = NSButton(
+        checkboxWithTitle: "",
+        target: self,
+        action: #selector(inactivePaneDimmingToggled(_:))
+    )
     lazy var themePopup = NSPopUpButton()
     lazy var importThemeButton = NSButton(
         title: "",
@@ -600,6 +628,29 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         scheduleAutosave()
     }
 
+    @objc private func statusBarSegmentToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.statusBarShowsAgent = statusBarAgentCheckbox.state == .on
+        settings.terminal.statusBarShowsWorktree = statusBarWorktreeCheckbox.state == .on
+        settings.terminal.statusBarShowsQuota = statusBarQuotaCheckbox.state == .on
+        settings.terminal.statusBarShowsResources = statusBarResourcesCheckbox.state == .on
+        scheduleAutosave()
+    }
+
+    @objc func paneBorderChanged(_ sender: NSPopUpButton) {
+        guard !isUpdatingControls else { return }
+        let styles = TerminalPaneBorderStyle.allCases
+        guard styles.indices.contains(sender.indexOfSelectedItem) else { return }
+        settings.terminal.paneBorderStyle = styles[sender.indexOfSelectedItem].rawValue
+        scheduleAutosave()
+    }
+
+    @objc private func inactivePaneDimmingToggled(_ sender: NSButton) {
+        guard !isUpdatingControls else { return }
+        settings.terminal.inactivePaneDimmingEnabled = sender.state == .on
+        scheduleAutosave()
+    }
+
     /// Live-applied: every open pane hears the change, so a bar that is on
     /// screen at that moment goes away with it instead of finishing its command.
     @objc private func commandProgressToggled(_ sender: NSButton) {
@@ -723,11 +774,12 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         switch sender {
         case fontSizeStepper: fontSizeField.doubleValue = sender.doubleValue
         case scrollbackStepper: scrollbackField.integerValue = sender.integerValue
+        case panePaddingStepper: panePaddingField.doubleValue = sender.doubleValue
         case windowWidthStepper: windowWidthField.doubleValue = sender.doubleValue
         case windowHeightStepper: windowHeightField.doubleValue = sender.doubleValue
         default: return
         }
-        textFieldChanged(fontSizeField)
+        textFieldChanged(sender === panePaddingStepper ? panePaddingField : fontSizeField)
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
@@ -741,6 +793,7 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         settings.terminal.codeEditorFontSize = codeEditorFontSizeField.doubleValue
         settings.terminal.codeEditorWrapsLines = codeEditorWrapCheckbox.state == .on
         settings.terminal.scrollbackLines = scrollbackField.integerValue
+        settings.terminal.panePaddingPX = panePaddingField.doubleValue
         settings.window.width = windowWidthField.doubleValue
         settings.window.height = windowHeightField.doubleValue
         settings = AppSettingsNormalizer.normalized(settings)
@@ -765,6 +818,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         confirmMultilinePasteCheckbox.state = settings.terminal.confirmMultilinePaste ? .on : .off
         confirmCloseCheckbox.state = settings.terminal.confirmCloseRunningProcess ? .on : .off
         statusBarCheckbox.state = settings.terminal.statusBarEnabled ? .on : .off
+        statusBarAgentCheckbox.state = settings.terminal.statusBarShowsAgent ? .on : .off
+        statusBarWorktreeCheckbox.state = settings.terminal.statusBarShowsWorktree ? .on : .off
+        statusBarQuotaCheckbox.state = settings.terminal.statusBarShowsQuota ? .on : .off
+        statusBarResourcesCheckbox.state = settings.terminal.statusBarShowsResources ? .on : .off
         commandProgressCheckbox.state = settings.terminal.commandProgressIndicatorEnabled ? .on : .off
         menuBarExtraCheckbox.state = settings.terminal.menuBarExtraEnabled ? .on : .off
         promptNavigatorRailCheckbox.state = settings.terminal.promptNavigatorRailEnabled ? .on : .off
@@ -775,6 +832,10 @@ final class PreferencesView: NSView, NSTextFieldDelegate {
         restoreScrollbackCheckbox.state = settings.terminal.restoreScrollbackOnLaunch ? .on : .off
         uiTextScaleSlider.doubleValue = settings.terminal.uiTextScalePercent
         uiTextScaleValueLabel.stringValue = "\(Int(settings.terminal.uiTextScalePercent.rounded()))%"
+        panePaddingField.doubleValue = settings.terminal.panePaddingPX
+        panePaddingStepper.doubleValue = settings.terminal.panePaddingPX
+        paneBorderPopup.selectItem(at: TerminalPaneBorderStyle.allCases.firstIndex(of: settings.terminal.paneBorderStyleValue) ?? 0)
+        inactivePaneDimmingCheckbox.state = settings.terminal.inactivePaneDimmingEnabled ? .on : .off
         windowWidthField.doubleValue = settings.window.width
         windowWidthStepper.doubleValue = settings.window.width
         windowHeightField.doubleValue = settings.window.height

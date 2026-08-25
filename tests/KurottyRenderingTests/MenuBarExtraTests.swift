@@ -61,10 +61,10 @@ final class MenuBarExtraTests: XCTestCase {
 
     // MARK: - Item set and order
 
-    func testTheMenuIsTheFourOrcaRowsWithQuitBehindASeparator() {
+    func testTheMenuRowsIncludeKeepAwakeWithQuitBehindASeparator() {
         XCTAssertEqual(
             MenuBarExtraItem.menu,
-            [.openApp, .settings, .checkForUpdates, .separator, .quit]
+            [.openApp, .settings, .keepMacAwake, .checkForUpdates, .separator, .quit]
         )
     }
 
@@ -123,6 +123,7 @@ final class MenuBarExtraTests: XCTestCase {
     func testEachRowClaimsTheActionItsTitleImplies() {
         XCTAssertEqual(MenuBarExtraItem.openApp.action, #selector(AppDelegate.openKurotty))
         XCTAssertEqual(MenuBarExtraItem.settings.action, #selector(AppDelegate.openPreferences))
+        XCTAssertEqual(MenuBarExtraItem.keepMacAwake.action, #selector(AppDelegate.toggleKeepMacAwake(_:)))
         XCTAssertEqual(MenuBarExtraItem.checkForUpdates.action, #selector(AppDelegate.checkForUpdates(_:)))
         XCTAssertEqual(MenuBarExtraItem.quit.action, #selector(NSApplication.terminate(_:)))
         XCTAssertNil(MenuBarExtraItem.separator.action)
@@ -170,6 +171,22 @@ final class MenuBarExtraTests: XCTestCase {
         let menu = makeMenu(target: ActionTargetStub())
 
         XCTAssertEqual(menu.items.map(\.keyEquivalent), Array(repeating: "", count: menu.items.count))
+    }
+
+    func testKeepAwakeRowReflectsCurrentSessionState() {
+        let offMenu = MenuBarExtraMenuBuilder.makeMenu(
+            appDelegate: ActionTargetStub(),
+            application: .shared,
+            keepMacAwakeEnabled: false
+        )
+        let onMenu = MenuBarExtraMenuBuilder.makeMenu(
+            appDelegate: ActionTargetStub(),
+            application: .shared,
+            keepMacAwakeEnabled: true
+        )
+
+        XCTAssertEqual(offMenu.items[2].state, .off)
+        XCTAssertEqual(onMenu.items[2].state, .on)
     }
 
     // MARK: - The mark
@@ -359,7 +376,7 @@ final class MenuBarExtraTests: XCTestCase {
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertTrue(SettingsDefaults.menuBarExtraEnabled)
         XCTAssertTrue(AppSettings.default.terminal.menuBarExtraEnabled)
     }
@@ -371,7 +388,7 @@ final class MenuBarExtraTests: XCTestCase {
         // Schema versions added since are unrelated keys, so what this pins is
         // that the menu-bar migration still guards 20 and the flip added no
         // second branch of its own.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
     }
 
     func testTheKeyIsLiveApplied() {

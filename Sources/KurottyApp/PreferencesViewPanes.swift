@@ -35,6 +35,14 @@ extension PreferencesView {
         addRow(copy(.confirmClose), control: confirmCloseCheckbox, to: textSection)
         statusBarCheckbox.title = copy(.statusBarCheckboxTitle)
         addRow(copy(.statusBar), control: statusBarCheckbox, to: textSection)
+        statusBarAgentCheckbox.title = copy(.statusBarAgentCheckboxTitle)
+        addRow(copy(.statusBarAgent), control: statusBarAgentCheckbox, to: textSection)
+        statusBarWorktreeCheckbox.title = copy(.statusBarWorktreeCheckboxTitle)
+        addRow(copy(.statusBarWorktree), control: statusBarWorktreeCheckbox, to: textSection)
+        statusBarQuotaCheckbox.title = copy(.statusBarQuotaCheckboxTitle)
+        addRow(copy(.statusBarQuota), control: statusBarQuotaCheckbox, to: textSection)
+        statusBarResourcesCheckbox.title = copy(.statusBarResourcesCheckboxTitle)
+        addRow(copy(.statusBarResources), control: statusBarResourcesCheckbox, to: textSection)
         commandProgressCheckbox.title = copy(.commandProgressCheckboxTitle)
         addRow(copy(.commandProgress), control: commandProgressCheckbox, to: textSection)
         menuBarExtraCheckbox.title = copy(.menuBarExtraCheckboxTitle)
@@ -119,6 +127,22 @@ extension PreferencesView {
         )
         configureUITextScaleSlider()
         addRow(copy(.uiTextScale), control: uiTextScaleControl(), to: interfaceSection)
+        configureNumericField(
+            panePaddingField,
+            stepper: panePaddingStepper,
+            minimum: SettingsDefaults.minimumPanePaddingPX,
+            maximum: SettingsDefaults.maximumPanePaddingPX,
+            increment: 2
+        )
+        addRow(
+            copy(.panePadding),
+            control: numericControl(field: panePaddingField, stepper: panePaddingStepper, suffix: "px"),
+            to: interfaceSection
+        )
+        configurePaneBorderPopup()
+        addRow(copy(.paneBorder), control: paneBorderPopup, to: interfaceSection)
+        inactivePaneDimmingCheckbox.title = copy(.inactivePaneDimmingCheckboxTitle)
+        addRow(copy(.inactivePaneDimming), control: inactivePaneDimmingCheckbox, to: interfaceSection)
 
         configureCustomColors()
     }
@@ -158,6 +182,17 @@ extension PreferencesView {
         uiTextScaleSlider.widthAnchor.constraint(
             equalToConstant: DesignTokens.Component.preferencesControlWidthPX
         ).isActive = true
+    }
+
+    private func configurePaneBorderPopup() {
+        paneBorderPopup.removeAllItems()
+        paneBorderPopup.addItems(withTitles: [
+            copy(.paneBorderNone),
+            copy(.paneBorderHairline),
+            copy(.paneBorderActive),
+        ])
+        paneBorderPopup.target = self
+        paneBorderPopup.action = #selector(paneBorderChanged(_:))
     }
 
     func buildWindowPage() {

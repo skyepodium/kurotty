@@ -102,6 +102,9 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
         let shellPath = TerminalShellIntegrationBootstrap.loginShellPath()
         let launchConfiguration = TerminalShellIntegrationBootstrap.bundledConfiguration(shellPath: shellPath)
         let notificationBridgeEnvironment = KurottyNotificationBridgeEnvironment.shellEnvironment()
+        let screenReadBridgeEnvironment = KurottyScreenReadBridgeEnvironment.shellEnvironment(
+            paneIdentifier: agentStatusHookEnvironment[AppConstants.ScreenRead.paneIdentifierEnvironmentName] ?? ""
+        )
         // Derived at the launch boundary: the `.git` walk needs the filesystem
         // and must not run inside the forked child. Directory creation is left
         // to the child, which is off the main actor by construction.
@@ -141,6 +144,7 @@ final class DarwinPTYTerminalSession: TerminalSession, TerminalShellLaunchConfig
                 shellPath: shellPath,
                 launchConfiguration: launchConfiguration,
                 notificationBridgeEnvironment: notificationBridgeEnvironment,
+                screenReadBridgeEnvironment: screenReadBridgeEnvironment,
                 workingDirectory: workingDirectory,
                 perProjectHistoryFilePath: perProjectHistoryFilePath,
                 mayExportGlobalHistoryFallback: mayExportGlobalHistoryFallback,
@@ -630,6 +634,7 @@ private func runChildShell(
     shellPath: String,
     launchConfiguration: TerminalShellLaunchConfiguration,
     notificationBridgeEnvironment: [String: String],
+    screenReadBridgeEnvironment: [String: String],
     workingDirectory: String,
     perProjectHistoryFilePath: String?,
     mayExportGlobalHistoryFallback: Bool,
@@ -676,6 +681,9 @@ private func runChildShell(
         setenv(key, value, 1)
     }
     for (key, value) in notificationBridgeEnvironment {
+        setenv(key, value, 1)
+    }
+    for (key, value) in screenReadBridgeEnvironment {
         setenv(key, value, 1)
     }
     for (key, value) in agentStatusHookEnvironment {
