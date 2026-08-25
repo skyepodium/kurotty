@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Automatic update contract
+        run: ./scripts/check-update-contract.sh
       # First, and before anything that takes minutes: a bad settings merge is
       # visible in the source text alone, and this answers in seconds without
       # needing the package to compile.
