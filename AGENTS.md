@@ -301,6 +301,7 @@ OSC 0/1/2 window-title sequences, including BEL-terminated title sequences, are 
 
 - Review diffs before handoff. Remove accidental source, generated, build artifact, and cache changes.
 - Check public contracts separately: C ABI, settings schema, shader buffer layouts, terminal protocol behavior, and user-visible preferences.
+- Create pull requests as ready for review, never as drafts, unless the user explicitly requests a draft.
 - Every PR summary should include intent, changed files, verification commands, and remaining risk.
 - PR descriptions for AI-assisted work should include a short Participants section naming human and AI contributors or agents involved.
 - Review comments require technical validation. If a suggestion is not applied, document the reason briefly.
