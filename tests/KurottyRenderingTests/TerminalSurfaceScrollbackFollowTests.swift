@@ -132,6 +132,87 @@ final class TerminalSurfaceScrollbackFollowTests: XCTestCase {
         XCTAssertEqual(surface.selectionForTesting.focus, focus)
     }
 
+    /// A drag near the viewport edge scrolls the viewport, but the selection
+    /// endpoints are already content-absolute. Rewriting the anchor with the
+    /// viewport delta teleports it toward row zero and makes the highlight
+    /// appear to slide across most of the screen.
+    func testSelectionAnchorStaysOnItsContentRowDuringDragAutoscroll() throws {
+        let (surface, _) = makeSurface()
+        try scrollUp(surface, rows: 4)
+        let offsetBeforeDrag = surface.searchStateForTesting.scrollbackOffset
+        XCTAssertGreaterThan(offsetBeforeDrag, 0)
+
+        let anchor = TerminalCellPosition(row: 40, column: 3)
+        surface.setSelectionForTesting(
+            anchor: anchor,
+            focus: TerminalCellPosition(row: 41, column: 7)
+        )
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 20, y: 0),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        surface.autoscrollSelectionForTesting(with: event)
+
+        XCTAssertLessThan(surface.searchStateForTesting.scrollbackOffset, offsetBeforeDrag)
+        XCTAssertEqual(surface.selectionForTesting.anchor, anchor)
+    }
+
+    /// The first and last visible text rows are still part of the viewport.
+    /// Merely dragging through them must not repeatedly scroll the content out
+    /// from under the pointer; autoscroll starts only beyond the content edge.
+    func testDraggingInsideBottomVisibleRowDoesNotAutoscroll() throws {
+        let (surface, _) = makeSurface()
+        try scrollUp(surface, rows: 4)
+        let offsetBeforeDrag = surface.searchStateForTesting.scrollbackOffset
+        XCTAssertGreaterThan(offsetBeforeDrag, 0)
+
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 20, y: 10),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        surface.autoscrollSelectionForTesting(with: event)
+
+        XCTAssertEqual(surface.searchStateForTesting.scrollbackOffset, offsetBeforeDrag)
+    }
+
+    func testDraggingInsideTopVisibleRowDoesNotAutoscroll() throws {
+        let (surface, _) = makeSurface()
+        try scrollUp(surface, rows: 4)
+        let offsetBeforeDrag = surface.searchStateForTesting.scrollbackOffset
+
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: NSPoint(x: 20, y: Fixture.frame.height - 10),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        surface.autoscrollSelectionForTesting(with: event)
+
+        XCTAssertEqual(surface.searchStateForTesting.scrollbackOffset, offsetBeforeDrag)
+    }
+
     private func discreteScrollEvent(deltaY: CGFloat) throws -> NSEvent {
         try XCTUnwrap(
             CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: Int32(deltaY), wheel2: 0, wheel3: 0)
