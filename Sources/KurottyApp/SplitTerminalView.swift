@@ -79,6 +79,16 @@ final class SplitTerminalView: NSSplitView {
         needsDisplay = true
     }
 
+    func applyPaneAppearanceSettings(_ settings: AppSettings) {
+        for subview in arrangedSubviews {
+            if let pane = subview as? TerminalPaneView {
+                pane.applyPaneAppearanceSettings(settings)
+            } else if let splitView = subview as? SplitTerminalView {
+                splitView.applyPaneAppearanceSettings(settings)
+            }
+        }
+    }
+
     /// The divider is ground, and only ground.
     ///
     /// It used to fill the band and then draw a hairline down the middle of it.
@@ -452,6 +462,7 @@ final class SplitTerminalView: NSSplitView {
 
         let nestedSplit = SplitTerminalView(axis: direction.axis, pane: nil, paneDragCoordinator: paneDragCoordinator)
         nestedSplit.applyChromeTheme(chromeTheme)
+        nestedSplit.applyPaneAppearanceSettings((try? AppSettingsStore.shared.load()) ?? .default)
         configurePane(newPane)
         if direction.insertsAfterActivePane {
             nestedSplit.addArrangedSubview(pane)
@@ -473,6 +484,7 @@ final class SplitTerminalView: NSSplitView {
     private func splitFallback(direction: TerminalPaneSplitDirection) {
         let axis = direction.axis
         let newPane = TerminalPaneView()
+        newPane.applyPaneAppearanceSettings((try? AppSettingsStore.shared.load()) ?? .default)
         configurePane(newPane)
         if arrangedSubviews.isEmpty || isVertical == (axis == .vertical) {
             if direction.insertsAfterActivePane {
@@ -511,6 +523,7 @@ final class SplitTerminalView: NSSplitView {
     }
 
     func configurePane(_ pane: TerminalPaneView) {
+        pane.applyPaneAppearanceSettings((try? AppSettingsStore.shared.load()) ?? .default)
         pane.closeRequested = { [weak self] pane in
             guard let self else {
                 return

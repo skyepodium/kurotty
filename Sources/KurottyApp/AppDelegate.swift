@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let paneDragCoordinator = TerminalPaneDragCoordinator()
     private let updateController = UpdateController()
     private let notificationBridge = KurottyNotificationBridgeServer()
+    private let keepAwakeController = KeepAwakeController()
+    private let screenReadBridge = KurottyScreenReadBridgeServer()
     private var windowController: TerminalWindowController?
     private var commandPaletteController: CommandPaletteWindowController?
     /// Built at launch rather than in a property initializer because its menu
@@ -19,6 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installApplicationIcon()
         TerminalNotifier.shared.requestAuthorization()
         notificationBridge.start()
+        applyScreenReadBridgeSetting((try? AppSettingsStore.shared.load()) ?? .default)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange(_:)),
+            name: AppSettingsStore.didChangeNotification,
+            object: AppSettingsStore.shared
+        )
         if DebugOptions.testNotification {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Application.initialNotificationDelaySeconds) {
                 TerminalNotifier.shared.notifyTestNotification()
@@ -33,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // hook variables when the setting is on. A no-op while it is off, and on
         // a fresh install it asks for consent before writing anything.
         AgentStatusHookCoordinator.shared.applyStoredSetting()
-        MainMenu.install(target: self)
+        installMainMenu()
         installMenuBarExtra()
         openNewWindow()
         // After the first window, so a fresh install lands on Getting Started
@@ -62,8 +71,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        keepAwakeController.invalidate()
         notificationBridge.stop()
+        screenReadBridge.stop()
         captureWorkspaceSnapshotOnTermination()
+    }
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        guard let settings = notification.userInfo?[AppSettingsStore.notificationSettingsKey] as? AppSettings else {
+            return
+        }
+        applyScreenReadBridgeSetting(settings)
+    }
+
+    private func applyScreenReadBridgeSetting(_ settings: AppSettings) {
+        if settings.terminal.screenSnapshotBridgeEnabled {
+            screenReadBridge.start()
+        } else {
+            screenReadBridge.stop()
+        }
     }
 
     /// Last snapshot of the session. Failures are swallowed — a quit must not be
@@ -148,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         AppLocalization.preference = preference
-        MainMenu.install(target: self)
+        installMainMenu()
         menuBarExtraController?.refreshLocalization()
         activeTerminalWindowController?.refreshSettingsTabLocalization()
         activeTerminalWindowController?.refreshGettingStartedTabLocalization()
@@ -263,6 +289,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateController.checkForUpdates(sender)
     }
 
+    @objc func toggleKeepMacAwake(_ sender: Any?) {
+        let nextValue = !keepAwakeController.isEnabled
+        _ = keepAwakeController.setEnabled(nextValue)
+        refreshMenus()
+    }
+
     var canCheckForUpdates: Bool {
         updateController.canCheckForUpdates
     }
@@ -296,6 +328,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func selectPreviousTab() {
         activeTerminalWindowController?.selectPreviousTab()
+    }
+
+    @objc func createTabGroupFromCurrentTab() {
+        activeTerminalWindowController?.createTabGroupFromCurrentTab()
+    }
+
+    @objc func ungroupCurrentTab() {
+        activeTerminalWindowController?.ungroupCurrentTab()
+    }
+
+    @objc func toggleCurrentTabGroupCollapsed() {
+        activeTerminalWindowController?.toggleCurrentTabGroupCollapsed()
     }
 
     @objc func splitVertically() {
@@ -364,6 +408,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return controller
         }
         return windowController
+    }
+
+    private func installMainMenu() {
+        MainMenu.install(target: self, keepMacAwakeEnabled: keepAwakeController.isEnabled)
+    }
+
+    private func refreshMenus() {
+        installMainMenu()
+        menuBarExtraController?.setKeepMacAwakeEnabled(keepAwakeController.isEnabled)
     }
 
     private func workspaceSnapshotURL() -> URL {

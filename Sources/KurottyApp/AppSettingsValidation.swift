@@ -37,6 +37,18 @@ enum AppSettingKey: String, Codable, Hashable {
     /// `terminalCloseOnChildExit`: a `Bool` decodes to one of two valid values,
     /// so there is no out-of-range state for `report(for:)` to find.
     case terminalCommandProgressIndicatorEnabled
+    case terminalStatusBarShowsAgent
+    case terminalStatusBarShowsWorktree
+    case terminalStatusBarShowsQuota
+    case terminalStatusBarShowsResources
+    case terminalPanePaddingPX
+    case terminalPaneBorderStyle
+    case terminalInactivePaneDimmingEnabled
+    case terminalPreventSystemSleep
+    case terminalTabGroupsEnabled
+    case terminalScreenSnapshotBridgeEnabled
+    case terminalKittyIntegrationEnabled
+    case terminalOSC99NotificationsEnabled
     /// Declared for its lifecycle contract only, like
     /// `terminalCommandProgressIndicatorEnabled`. Named for the menu bar rather
     /// than for a status item so it cannot be mistaken for a sibling of the
@@ -109,6 +121,18 @@ enum AppSettingsValidation {
              .terminalCloseOnChildExit,
              .terminalUITextScalePercent,
              .terminalCommandProgressIndicatorEnabled,
+             .terminalStatusBarShowsAgent,
+             .terminalStatusBarShowsWorktree,
+             .terminalStatusBarShowsQuota,
+             .terminalStatusBarShowsResources,
+             .terminalPanePaddingPX,
+             .terminalPaneBorderStyle,
+             .terminalInactivePaneDimmingEnabled,
+             .terminalPreventSystemSleep,
+             .terminalTabGroupsEnabled,
+             .terminalScreenSnapshotBridgeEnabled,
+             .terminalKittyIntegrationEnabled,
+             .terminalOSC99NotificationsEnabled,
              .terminalMenuBarExtraEnabled,
              .terminalPromptNavigatorRailEnabled,
              .terminalTitleReportsEnabled,
@@ -168,6 +192,14 @@ enum AppSettingsValidation {
             unit: "%",
             issues: &issues
         )
+        validateRange(
+            key: .terminalPanePaddingPX,
+            value: settings.terminal.panePaddingPX,
+            minimum: SettingsDefaults.minimumPanePaddingPX,
+            maximum: SettingsDefaults.maximumPanePaddingPX,
+            unit: "px",
+            issues: &issues
+        )
         // Parsing stays with the enum so the report cannot disagree with what
         // the normalizer will accept.
         validateSupportedValue(
@@ -186,6 +218,12 @@ enum AppSettingsValidation {
             key: .terminalAgentStatusCodexHookConsent,
             isSupported: AgentStatusHookConsent.parse(settings.terminal.agentStatusCodexHookConsent) != nil,
             supported: AgentStatusHookConsent.allCases.map(\.rawValue),
+            issues: &issues
+        )
+        validateSupportedValue(
+            key: .terminalPaneBorderStyle,
+            isSupported: TerminalPaneBorderStyle(rawValue: settings.terminal.paneBorderStyle) != nil,
+            supported: TerminalPaneBorderStyle.allCases.map(\.rawValue),
             issues: &issues
         )
         validateRange(

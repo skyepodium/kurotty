@@ -211,7 +211,7 @@ final class TerminalChildExitTests: XCTestCase {
         // Schema 24 today; `closeOnChildExit` arrived in 18 and its default is
         // unchanged by the keys added since, `terminal.titleReportsEnabled`
         // included.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertEqual(SettingsDefaults.closeOnChildExit, .onCleanExit)
         XCTAssertEqual(AppSettings.default.terminal.closeOnChildExit, .onCleanExit)
     }

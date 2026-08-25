@@ -32,6 +32,8 @@ final class TerminalPaneView: NSView {
     private var isChromeActive = false
     private var isChromeHovered = false
     private var isTmuxDisplayTitleManaged = false
+    private var paneBorderStyle = TerminalPaneBorderStyle.default
+    private var inactivePaneDimmingEnabled = SettingsDefaults.inactivePaneDimmingEnabled
     /// Stable identity for the agent activity channel and for the
     /// `KUROTTY_PANE_ID` value injected into this pane's PTY. Generated here so
     /// the pane, its PTY, and the registry always agree.
@@ -365,7 +367,9 @@ final class TerminalPaneView: NSView {
         setChromeVisible(false)
         updateChromeAppearance()
         updateAgentActivityIndicator()
-        applyCommandProgressSetting((try? AppSettingsStore.shared.load()) ?? .default)
+        let settings = (try? AppSettingsStore.shared.load()) ?? .default
+        applyCommandProgressSetting(settings)
+        applyPaneAppearanceSettings(settings)
     }
 
     override func viewDidMoveToWindow() {
@@ -426,6 +430,13 @@ final class TerminalPaneView: NSView {
         agentActivityIndicatorView.applyChromeTheme(theme)
         commandProgressBarView.applyChromeTheme(theme)
         updateChromeAppearance()
+        updatePaneCardAppearance()
+    }
+
+    func applyPaneAppearanceSettings(_ settings: AppSettings) {
+        paneBorderStyle = settings.terminal.paneBorderStyleValue
+        inactivePaneDimmingEnabled = settings.terminal.inactivePaneDimmingEnabled
+        updatePaneCardAppearance()
     }
 
     /// The pane's child process is gone: decide between closing the pane and
@@ -473,6 +484,7 @@ final class TerminalPaneView: NSView {
     func setChromeActive(_ isActive: Bool) {
         isChromeActive = isActive
         updateChromeAppearance()
+        updatePaneCardAppearance()
     }
 
     @objc private func closeButtonPressed(_ sender: NSButton) {
@@ -553,6 +565,29 @@ final class TerminalPaneView: NSView {
 
     private func applyCommandProgressSetting(_ settings: AppSettings) {
         commandProgressBarView.setEnabled(settings.terminal.commandProgressIndicatorEnabled)
+        applyPaneAppearanceSettings(settings)
+    }
+
+    private func updatePaneCardAppearance() {
+        guard let layer else {
+            return
+        }
+        switch paneBorderStyle {
+        case .none:
+            layer.borderWidth = 0
+            layer.borderColor = nil
+        case .hairline:
+            layer.borderWidth = DesignTokens.Component.hairlinePX
+            layer.borderColor = chromeTheme.hairline.withAlphaComponent(0.72).cgColor
+        case .active:
+            layer.borderWidth = DesignTokens.Component.hairlinePX
+            layer.borderColor = (isChromeActive ? chromeTheme.accent : chromeTheme.hairline)
+                .withAlphaComponent(isChromeActive ? 0.85 : 0.45)
+                .cgColor
+        }
+        alphaValue = inactivePaneDimmingEnabled && !isChromeActive
+            ? DesignTokens.Component.terminalInactivePaneAlphaRATIO
+            : 1
     }
 
     private func observeAgentActivity() {

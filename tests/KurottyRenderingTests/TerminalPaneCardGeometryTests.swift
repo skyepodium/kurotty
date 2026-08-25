@@ -40,6 +40,20 @@ final class TerminalPaneCardGeometryTests: XCTestCase {
         func stop() {}
     }
 
+    func testPaneAppearanceSettingsApplyBorderAndInactiveDimming() {
+        let pane = TerminalPaneView(frame: NSRect(origin: .zero, size: Fixture.paneSizes[0]), session: RecordingSession())
+        var settings = AppSettings.default
+        settings.terminal.paneBorderStyle = TerminalPaneBorderStyle.active.rawValue
+        settings.terminal.inactivePaneDimmingEnabled = true
+
+        pane.applyPaneAppearanceSettings(settings)
+
+        XCTAssertEqual(pane.layer?.borderWidth, DesignTokens.Component.hairlinePX)
+        XCTAssertLessThan(pane.alphaValue, 1)
+        pane.setChromeActive(true)
+        XCTAssertEqual(pane.alphaValue, 1)
+    }
+
     private enum Fixture {
         /// Pane rects that stand in for the split configurations a user hits: a
         /// full-width single pane, one half of a side-by-side split, one

@@ -16,12 +16,18 @@ enum PreferencesCopy {
         case agentStatusHooks, agentStatusHooksCheckboxTitle
         case restoreScrollback, restoreScrollbackCheckboxTitle
         case statusBar, statusBarCheckboxTitle
+        case statusBarAgent, statusBarAgentCheckboxTitle
+        case statusBarWorktree, statusBarWorktreeCheckboxTitle
+        case statusBarQuota, statusBarQuotaCheckboxTitle
+        case statusBarResources, statusBarResourcesCheckboxTitle
         case commandProgress, commandProgressCheckboxTitle
         case menuBarExtra, menuBarExtraCheckboxTitle
         case promptNavigatorRail, promptNavigatorRailCheckboxTitle
         case quickCommandsSection, quickCommandsSectionHelp, quickCommands, quickCommandsButtonTitle
         case appearanceTitle, appearanceSubtitle, themeSection, themeSectionHelp, theme
         case interfaceSection, interfaceSectionHelp, uiTextScale
+        case panePadding, paneBorder, paneBorderNone, paneBorderHairline, paneBorderActive
+        case inactivePaneDimming, inactivePaneDimmingCheckboxTitle
         case themeKurotty, themeLightty, themeNacre, themeCustom, customColors, customColorsHelp
         case importThemeButtonTitle, themeImported, themeImportFailed
         case themeImportUnrecognized, themeImportIncomplete
@@ -63,6 +69,10 @@ enum PreferencesCopy {
             .agentStatusHooks: "Agent status hooks", .agentStatusHooksCheckboxTitle: "Let Claude Code and Codex report status through Kurotty's local hook (asks once per agent before editing its settings)",
             .restoreScrollback: "Restore scrollback", .restoreScrollbackCheckboxTitle: "Restore each pane's scrollback text at launch (display only, applies next launch)",
             .statusBar: "Status bar", .statusBarCheckboxTitle: "Show the bottom status bar with agent state and pane resource usage",
+            .statusBarAgent: "Status agent", .statusBarAgentCheckboxTitle: "Show agent state in the status bar",
+            .statusBarWorktree: "Status worktree", .statusBarWorktreeCheckboxTitle: "Show the active pane's git worktree in the status bar",
+            .statusBarQuota: "Status quota", .statusBarQuotaCheckboxTitle: "Show indexed agent quota in the status bar",
+            .statusBarResources: "Status resources", .statusBarResourcesCheckboxTitle: "Show memory and CPU in the status bar",
             .commandProgress: "Command progress", .commandProgressCheckboxTitle: "Show a progress bar at the top of a pane while a command runs",
             .menuBarExtra: "Menu bar", .menuBarExtraCheckboxTitle: "Show a Kurotty icon in the macOS menu bar",
             .promptNavigatorRail: "Prompt navigator", .promptNavigatorRailCheckboxTitle: "Mark each command on a rail down the terminal's right edge",
@@ -72,6 +82,8 @@ enum PreferencesCopy {
             .themeSection: "Terminal theme", .themeSectionHelp: "The sample shows how foreground, ANSI colors, background, and cursor work together.", .theme: "Theme",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeNacre: "Nacre", .themeCustom: "Custom",
             .interfaceSection: "Interface", .interfaceSectionHelp: "Scales Kurotty's own sidebar, tabs, status bar, and this window. Terminal text keeps its own size.", .uiTextScale: "UI text size",
+            .panePadding: "Pane padding", .paneBorder: "Pane border", .paneBorderNone: "None", .paneBorderHairline: "Hairline", .paneBorderActive: "Active accent",
+            .inactivePaneDimming: "Inactive panes", .inactivePaneDimmingCheckboxTitle: "Dim panes that do not have focus",
             .customColors: "Custom colors", .customColorsHelp: "Changing any color keeps the full palette as a custom theme.",
             .importThemeButtonTitle: "Import Theme…",
             .themeImported: "Imported \"%@\" as the custom theme.",
@@ -99,6 +111,10 @@ enum PreferencesCopy {
             .perProjectHistory: "셸 기록", .perProjectHistoryCheckboxTitle: "프로젝트별로 셸 기록을 분리해서 저장 (새 세션부터)",
             .restoreScrollback: "스크롤백 복원", .restoreScrollbackCheckboxTitle: "실행 시 각 패널의 스크롤백 텍스트를 복원 (표시 전용, 다음 실행부터 적용)",
             .statusBar: "상태 표시줄", .statusBarCheckboxTitle: "에이전트 상태와 패널 리소스 사용량을 보여주는 하단 상태 표시줄 표시",
+            .statusBarAgent: "상태 에이전트", .statusBarAgentCheckboxTitle: "상태 표시줄에 에이전트 상태 표시",
+            .statusBarWorktree: "상태 워크트리", .statusBarWorktreeCheckboxTitle: "상태 표시줄에 활성 패널의 git 워크트리 표시",
+            .statusBarQuota: "상태 할당량", .statusBarQuotaCheckboxTitle: "상태 표시줄에 색인된 에이전트 할당량 표시",
+            .statusBarResources: "상태 리소스", .statusBarResourcesCheckboxTitle: "상태 표시줄에 메모리와 CPU 표시",
             .commandProgress: "명령 진행 표시", .commandProgressCheckboxTitle: "명령이 실행되는 동안 패널 상단에 진행 막대 표시",
             .menuBarExtra: "메뉴 막대", .menuBarExtraCheckboxTitle: "macOS 메뉴 막대에 Kurotty 아이콘 표시",
             .promptNavigatorRail: "프롬프트 내비게이터", .promptNavigatorRailCheckboxTitle: "터미널 오른쪽 가장자리 레일에 명령마다 표시 남기기",
@@ -109,6 +125,8 @@ enum PreferencesCopy {
             .themeSection: "터미널 테마", .themeSectionHelp: "미리보기에서 글자, ANSI 색상, 배경과 커서가 어떻게 적용되는지 확인할 수 있습니다.", .theme: "테마",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeNacre: "Nacre", .themeCustom: "커스텀",
             .interfaceSection: "인터페이스", .interfaceSectionHelp: "Kurotty의 사이드바, 탭, 상태 표시줄과 이 창의 크기를 조절합니다. 터미널 글자 크기는 그대로 유지됩니다.", .uiTextScale: "UI 글자 크기",
+            .panePadding: "패널 여백", .paneBorder: "패널 테두리", .paneBorderNone: "없음", .paneBorderHairline: "가는 선", .paneBorderActive: "활성 강조",
+            .inactivePaneDimming: "비활성 패널", .inactivePaneDimmingCheckboxTitle: "포커스가 없는 패널을 어둡게 표시",
             .customColors: "커스텀 색상", .customColorsHelp: "색상을 하나라도 변경하면 전체 팔레트를 커스텀 테마로 보관합니다.",
             .importThemeButtonTitle: "테마 가져오기…",
             .themeImported: "\"%@\"을(를) 커스텀 테마로 가져왔습니다.",
@@ -136,6 +154,10 @@ enum PreferencesCopy {
             .perProjectHistory: "シェル履歴", .perProjectHistoryCheckboxTitle: "プロジェクトごとにシェル履歴を分ける（新しいセッションから）",
             .restoreScrollback: "スクロールバックを復元", .restoreScrollbackCheckboxTitle: "起動時に各ペインのスクロールバックを復元 (表示のみ、次回起動から適用)",
             .statusBar: "ステータスバー", .statusBarCheckboxTitle: "エージェント状態とペインのリソース使用量を表示する下部ステータスバーを表示",
+            .statusBarAgent: "ステータスのエージェント", .statusBarAgentCheckboxTitle: "ステータスバーにエージェント状態を表示",
+            .statusBarWorktree: "ステータスのワークツリー", .statusBarWorktreeCheckboxTitle: "ステータスバーにアクティブペインのgitワークツリーを表示",
+            .statusBarQuota: "ステータスの割り当て", .statusBarQuotaCheckboxTitle: "ステータスバーにインデックス済みエージェント割り当てを表示",
+            .statusBarResources: "ステータスのリソース", .statusBarResourcesCheckboxTitle: "ステータスバーにメモリとCPUを表示",
             .commandProgress: "コマンドの進行状況", .commandProgressCheckboxTitle: "コマンドの実行中にペイン上部へ進行バーを表示",
             .menuBarExtra: "メニューバー", .menuBarExtraCheckboxTitle: "macOSのメニューバーにKurottyのアイコンを表示",
             .promptNavigatorRail: "プロンプトナビゲータ", .promptNavigatorRailCheckboxTitle: "ターミナル右端のレールにコマンドごとの目印を表示",
@@ -146,6 +168,8 @@ enum PreferencesCopy {
             .themeSection: "ターミナルテーマ", .themeSectionHelp: "プレビューで文字、ANSIカラー、背景、カーソルの適用を確認できます。", .theme: "テーマ",
             .themeKurotty: "Kurotty", .themeLightty: "Lightty", .themeNacre: "Nacre", .themeCustom: "カスタム",
             .interfaceSection: "インターフェース", .interfaceSectionHelp: "Kurotty自身のサイドバー、タブ、ステータスバー、そしてこの画面の大きさを調整します。ターミナルの文字サイズはそのままです。", .uiTextScale: "UIの文字サイズ",
+            .panePadding: "ペイン余白", .paneBorder: "ペイン境界線", .paneBorderNone: "なし", .paneBorderHairline: "細線", .paneBorderActive: "アクティブアクセント",
+            .inactivePaneDimming: "非アクティブペイン", .inactivePaneDimmingCheckboxTitle: "フォーカスしていないペインを暗く表示",
             .customColors: "カスタムカラー", .customColorsHelp: "いずれかの色を変更すると、パレット全体をカスタムテーマとして保持します。",
             .importThemeButtonTitle: "テーマを読み込む…",
             .themeImported: "\"%@\"をカスタムテーマとして読み込みました。",

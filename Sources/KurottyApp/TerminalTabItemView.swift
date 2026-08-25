@@ -18,8 +18,11 @@ final class TerminalTabItemView: NSView {
     /// hover reads the same on the selected and unselected tab and can never be
     /// mistaken for the accent.
     private let hoverOverlayView = NSView()
+    private let groupStripeView = NSView()
     private let selected: Bool
     private let chromeTheme: DesignTokens.ChromeTheme
+    private let groupColor: NSColor?
+    private let menuProvider: (() -> NSMenu?)?
     private var isHovered = false
     private let onSelect: () -> Void
     private let onClose: () -> Void
@@ -28,11 +31,15 @@ final class TerminalTabItemView: NSView {
         title: String,
         isSelected: Bool,
         chromeTheme: DesignTokens.ChromeTheme,
+        groupColor: NSColor? = nil,
+        menuProvider: (() -> NSMenu?)? = nil,
         onSelect: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         selected = isSelected
         self.chromeTheme = chromeTheme
+        self.groupColor = groupColor
+        self.menuProvider = menuProvider
         self.onSelect = onSelect
         self.onClose = onClose
         super.init(frame: .zero)
@@ -59,6 +66,10 @@ final class TerminalTabItemView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard event.type != .rightMouseDown else {
+            NSMenu.popUpContextMenu(menuProvider?() ?? NSMenu(), with: event, for: self)
+            return
+        }
         let location = convert(event.locationInWindow, from: nil)
         if Self.closesTab(
             atLocation: location,
@@ -69,6 +80,10 @@ final class TerminalTabItemView: NSView {
             return
         }
         onSelect()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        NSMenu.popUpContextMenu(menuProvider?() ?? NSMenu(), with: event, for: self)
     }
 
     override func updateTrackingAreas() {
@@ -116,6 +131,13 @@ final class TerminalTabItemView: NSView {
         hoverOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hoverOverlayView)
 
+        groupStripeView.wantsLayer = true
+        groupStripeView.layer.map(ChromeMotion.disableImplicitAnimations(on:))
+        groupStripeView.layer?.backgroundColor = groupColor?.cgColor
+        groupStripeView.translatesAutoresizingMaskIntoConstraints = false
+        groupStripeView.isHidden = groupColor == nil
+        addSubview(groupStripeView)
+
         titleField.stringValue = title
         titleField.lineBreakMode = .byTruncatingMiddle
         titleField.maximumNumberOfLines = 1
@@ -144,6 +166,11 @@ final class TerminalTabItemView: NSView {
             hoverOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
             hoverOverlayView.topAnchor.constraint(equalTo: topAnchor),
             hoverOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            groupStripeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            groupStripeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            groupStripeView.topAnchor.constraint(equalTo: topAnchor),
+            groupStripeView.heightAnchor.constraint(equalToConstant: DesignTokens.Component.hairlinePX * 2),
 
             titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesignTokens.Component.terminalTabTitleLeadingPX),
             titleField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -DesignTokens.Component.terminalTabTitleCloseGapPX),

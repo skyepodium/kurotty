@@ -60,6 +60,8 @@ final class TerminalNotifier: NSObject {
         switch source {
         case .osc9:
             return AppConstants.Notifications.osc9IdentifierPrefix
+        case .osc99:
+            return AppConstants.Notifications.osc99IdentifierPrefix
         case .osc777:
             return AppConstants.Notifications.osc777IdentifierPrefix
         case .osc1337:

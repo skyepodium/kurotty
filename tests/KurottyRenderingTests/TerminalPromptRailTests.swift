@@ -803,7 +803,7 @@ final class TerminalPromptRailTests: XCTestCase {
         // `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertTrue(SettingsDefaults.promptNavigatorRailEnabled)
         XCTAssertTrue(AppSettings.default.terminal.promptNavigatorRailEnabled)
     }
