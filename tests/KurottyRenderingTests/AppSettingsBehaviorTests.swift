@@ -633,7 +633,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 22, which added `terminal.hasSeenGettingStarted`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertTrue(SettingsDefaults.hideMouseCursorWhileTyping)
         XCTAssertTrue(SettingsDefaults.perProjectHistoryEnabled)
         XCTAssertTrue(
@@ -777,7 +777,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertTrue(SettingsDefaults.restoreScrollbackOnLaunch)
         XCTAssertTrue(AppSettings.default.terminal.restoreScrollbackOnLaunch)
         XCTAssertEqual(
@@ -846,7 +846,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertTrue(SettingsDefaults.statusBarEnabled)
         XCTAssertTrue(AppSettings.default.terminal.statusBarEnabled)
     }
@@ -898,7 +898,7 @@ final class AppSettingsBehaviorTests: XCTestCase {
         // Re-pointed at schema 22, which added `terminal.promptNavigatorRailEnabled`.
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
         XCTAssertEqual(SettingsDefaults.uiTextScalePercent, 100)
         XCTAssertEqual(AppSettings.default.terminal.uiTextScalePercent, 100)
     }
@@ -1097,6 +1097,71 @@ final class AppSettingsBehaviorTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
         XCTAssertFalse(decoded.terminal.hasSeenGettingStarted)
+    }
+
+    func testSchemaTwentyFiveAddsPaneAndStatusAppearanceDefaults() {
+        var settings = AppSettings.default
+        settings.schemaVersion = 24
+        settings.terminal.statusBarShowsAgent = false
+        settings.terminal.statusBarShowsWorktree = false
+        settings.terminal.statusBarShowsQuota = false
+        settings.terminal.statusBarShowsResources = false
+        settings.terminal.panePaddingPX = SettingsDefaults.maximumPanePaddingPX
+        settings.terminal.paneBorderStyle = TerminalPaneBorderStyle.active.rawValue
+        settings.terminal.inactivePaneDimmingEnabled = true
+        settings.terminal.preventSystemSleep = true
+        settings.terminal.tabGroupsEnabled = false
+        settings.terminal.screenSnapshotBridgeEnabled = false
+        settings.terminal.kittyIntegrationEnabled = false
+        settings.terminal.osc99NotificationsEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertEqual(normalized.schemaVersion, SettingsDefaults.schemaVersion)
+        XCTAssertTrue(normalized.terminal.statusBarShowsAgent)
+        XCTAssertTrue(normalized.terminal.statusBarShowsWorktree)
+        XCTAssertTrue(normalized.terminal.statusBarShowsQuota)
+        XCTAssertTrue(normalized.terminal.statusBarShowsResources)
+        XCTAssertEqual(normalized.terminal.panePaddingPX, SettingsDefaults.panePaddingPX)
+        XCTAssertEqual(normalized.terminal.paneBorderStyle, SettingsDefaults.paneBorderStyle)
+        XCTAssertFalse(normalized.terminal.inactivePaneDimmingEnabled)
+        XCTAssertEqual(normalized.terminal.preventSystemSleep, SettingsDefaults.preventSystemSleep)
+        XCTAssertEqual(normalized.terminal.tabGroupsEnabled, SettingsDefaults.tabGroupsEnabled)
+        XCTAssertEqual(normalized.terminal.screenSnapshotBridgeEnabled, SettingsDefaults.screenSnapshotBridgeEnabled)
+        XCTAssertEqual(normalized.terminal.kittyIntegrationEnabled, SettingsDefaults.kittyIntegrationEnabled)
+        XCTAssertEqual(normalized.terminal.osc99NotificationsEnabled, SettingsDefaults.osc99NotificationsEnabled)
+    }
+
+    func testCurrentSchemaPreservesPaneAndStatusAppearanceChoices() {
+        var settings = AppSettings.default
+        settings.schemaVersion = SettingsDefaults.schemaVersion
+        settings.terminal.statusBarShowsAgent = false
+        settings.terminal.statusBarShowsWorktree = false
+        settings.terminal.statusBarShowsQuota = false
+        settings.terminal.statusBarShowsResources = false
+        settings.terminal.panePaddingPX = SettingsDefaults.maximumPanePaddingPX + 10
+        settings.terminal.paneBorderStyle = "bogus"
+        settings.terminal.inactivePaneDimmingEnabled = true
+        settings.terminal.preventSystemSleep = true
+        settings.terminal.tabGroupsEnabled = false
+        settings.terminal.screenSnapshotBridgeEnabled = false
+        settings.terminal.kittyIntegrationEnabled = false
+        settings.terminal.osc99NotificationsEnabled = false
+
+        let normalized = AppSettingsNormalizer.normalized(settings)
+
+        XCTAssertFalse(normalized.terminal.statusBarShowsAgent)
+        XCTAssertFalse(normalized.terminal.statusBarShowsWorktree)
+        XCTAssertFalse(normalized.terminal.statusBarShowsQuota)
+        XCTAssertFalse(normalized.terminal.statusBarShowsResources)
+        XCTAssertEqual(normalized.terminal.panePaddingPX, SettingsDefaults.maximumPanePaddingPX)
+        XCTAssertEqual(normalized.terminal.paneBorderStyle, TerminalPaneBorderStyle.default.rawValue)
+        XCTAssertTrue(normalized.terminal.inactivePaneDimmingEnabled)
+        XCTAssertTrue(normalized.terminal.preventSystemSleep)
+        XCTAssertFalse(normalized.terminal.tabGroupsEnabled)
+        XCTAssertFalse(normalized.terminal.screenSnapshotBridgeEnabled)
+        XCTAssertFalse(normalized.terminal.kittyIntegrationEnabled)
+        XCTAssertFalse(normalized.terminal.osc99NotificationsEnabled)
     }
 
     private func customColorsJSON() -> String {

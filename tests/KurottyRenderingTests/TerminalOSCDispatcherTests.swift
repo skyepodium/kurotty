@@ -115,6 +115,74 @@ final class TerminalOSCDispatcherTests: XCTestCase {
         )
     }
 
+    func testOSC99RoutesSimpleKittyDesktopNotification() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        let event = dispatcher.dispatch("99;;Build finished", origin: .local)
+
+        XCTAssertEqual(
+            event,
+            .desktopNotification(
+                TerminalNotificationPayload.Content(
+                    source: .osc99,
+                    title: "",
+                    subtitle: "",
+                    body: "Build finished"
+                )
+            )
+        )
+    }
+
+    func testKittyClipboardWriteKeepsTransactionStateAcrossPackets() throws {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+        let mime = try XCTUnwrap("text/plain".data(using: .utf8)).base64EncodedString()
+        let chunk = try XCTUnwrap("hello".data(using: .utf8)).base64EncodedString()
+
+        XCTAssertEqual(dispatcher.dispatch("5522;type=write:id=copy1", origin: .local), .kittyClipboard(.ignored))
+        XCTAssertEqual(
+            dispatcher.dispatch("5522;type=wdata:mime=\(mime);\(chunk)", origin: .local),
+            .kittyClipboard(.ignored)
+        )
+        let event = dispatcher.dispatch("5522;type=wdata", origin: .local)
+
+        XCTAssertEqual(
+            event,
+            .kittyClipboard(
+                .write(
+                    TerminalKittyClipboardController.WriteRequest(
+                        id: "copy1",
+                        location: .clipboard,
+                        preferredText: "hello",
+                        byteCount: 5
+                    )
+                )
+            )
+        )
+    }
+
+    func testKittyClipboardReadWithDefaultAskPolicyReturnsPermissionDenied() throws {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+        let mimeList = try XCTUnwrap("text/plain".data(using: .utf8)).base64EncodedString()
+
+        let event = dispatcher.dispatch("5522;type=read:id=read1;\(mimeList)", origin: .local)
+
+        XCTAssertEqual(
+            event,
+            .kittyClipboard(
+                .respond("\u{1b}]5522;type=read:status=EPERM:id=read1\u{1b}\\")
+            )
+        )
+    }
+
+    func testKittyDragAndDropAcceptanceAndRequestRouteThroughState() {
+        var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
+
+        XCTAssertEqual(dispatcher.dispatch("72;t=a;text/uri-list", origin: .local), .kittyDragAndDrop(.ignored))
+        XCTAssertTrue(dispatcher.kittyDragAndDrop.acceptsDrops)
+        XCTAssertEqual(dispatcher.dispatch("72;t=m:o=1;text/uri-list", origin: .local), .kittyDragAndDrop(.ignored))
+        XCTAssertEqual(dispatcher.dispatch("72;t=r:x=1", origin: .local), .kittyDragAndDrop(.requestData(index: 1)))
+    }
+
     func testWindowTitleOSCIsNotMisclassifiedAsTaskNotification() {
         var dispatcher = TerminalOSCDispatcher(osc52Policy: TerminalOSC52Policy(policy: .default))
 

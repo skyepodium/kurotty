@@ -6,7 +6,7 @@ enum MainMenu {
     private static let selectAllMenuTitle = "Select All"
 
     @MainActor
-    static func install(target: AppDelegate) {
+    static func install(target: AppDelegate, keepMacAwakeEnabled: Bool = false) {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
@@ -18,6 +18,9 @@ enum MainMenu {
         checkForUpdates.target = target
         appMenu.addItem(checkForUpdates)
         appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings), action: #selector(AppDelegate.openPreferences), keyEquivalent: ","))
+        let keepMacAwake = NSMenuItem(title: AppLocalization.string(.keepMacAwake), action: #selector(AppDelegate.toggleKeepMacAwake(_:)), keyEquivalent: "")
+        keepMacAwake.state = keepMacAwakeEnabled ? .on : .off
+        appMenu.addItem(keepMacAwake)
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: AppLocalization.format(.quit, AppConstants.Bundle.displayName), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
@@ -40,6 +43,10 @@ enum MainMenu {
         let nextTab = NSMenuItem(title: AppLocalization.string(.nextTab), action: #selector(AppDelegate.selectNextTab), keyEquivalent: "]")
         nextTab.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(nextTab)
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(title: AppLocalization.string(.createTabGroup), action: #selector(AppDelegate.createTabGroupFromCurrentTab), keyEquivalent: ""))
+        fileMenu.addItem(NSMenuItem(title: AppLocalization.string(.ungroupCurrentTab), action: #selector(AppDelegate.ungroupCurrentTab), keyEquivalent: ""))
+        fileMenu.addItem(NSMenuItem(title: AppLocalization.string(.toggleTabGroupCollapsed), action: #selector(AppDelegate.toggleCurrentTabGroupCollapsed), keyEquivalent: ""))
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(
             title: AppLocalization.string(.findTerminalOutput),

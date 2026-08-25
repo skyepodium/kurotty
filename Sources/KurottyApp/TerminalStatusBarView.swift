@@ -48,6 +48,7 @@ final class TerminalStatusBarView: NSView {
     private var chromeTheme = DesignTokens.ChromeTheme.dark
     private var heightConstraint: NSLayoutConstraint?
     private var visibility = TerminalStatusBarVisibility.full
+    private var segmentPreferences = TerminalStatusBarSegmentPreferences.default
     private var lastAppliedWidthPX: CGFloat = 0
     private var activePopover: NSPopover?
     private var worktreeSnapshot: TerminalGitWorktreeSnapshot?
@@ -145,6 +146,14 @@ final class TerminalStatusBarView: NSView {
         startSampling()
     }
 
+    func setSegmentPreferences(_ preferences: TerminalStatusBarSegmentPreferences) {
+        guard segmentPreferences != preferences else {
+            return
+        }
+        segmentPreferences = preferences
+        refreshAllSegments()
+    }
+
     /// Starts the sampling timer. Call from `windowDidBecomeMain`/`showWindow`.
     func startSampling() {
         guard isEnabled else {
@@ -191,7 +200,7 @@ final class TerminalStatusBarView: NSView {
             areStatusHooksInstalled: areStatusHooksInstalledProvider(),
             hasEverReported: hasEverReported()
         )
-        agentSegmentView.update(summary: summary, visibility: visibility)
+        agentSegmentView.update(summary: summary, visibility: effectiveVisibility)
     }
 
     /// Recomputes the worktree segment for the active pane's working directory.
@@ -224,7 +233,7 @@ final class TerminalStatusBarView: NSView {
         worktreeSnapshot = snapshot
         worktreeDirectoryPath = directoryPath
         currentWorktreeSummary = TerminalStatusBarWorktreeComposer.summary(snapshot: snapshot)
-        worktreeSegmentView.update(summary: currentWorktreeSummary, visibility: visibility)
+        worktreeSegmentView.update(summary: currentWorktreeSummary, visibility: effectiveVisibility)
     }
 
     func applyChromeTheme(_ theme: DesignTokens.ChromeTheme) {
@@ -340,6 +349,18 @@ final class TerminalStatusBarView: NSView {
         agentSegmentView.update(summary: agentSegmentView.currentSummary, visibility: visibility)
         worktreeSegmentView.update(summary: worktreeSegmentView.currentSummary, visibility: visibility)
         quotaSegmentView.update(summary: quotaSegmentView.currentSummary, visibility: visibility)
+        refreshAllSegments()
+    }
+
+    private var effectiveVisibility: TerminalStatusBarVisibility {
+        visibility.applying(segmentPreferences)
+    }
+
+    private func refreshAllSegments() {
+        let visibility = effectiveVisibility
+        agentSegmentView.update(summary: agentSegmentView.currentSummary, visibility: visibility)
+        worktreeSegmentView.update(summary: worktreeSegmentView.currentSummary, visibility: visibility)
+        quotaSegmentView.update(summary: quotaSegmentView.currentSummary, visibility: visibility)
         resourceSegmentView.update(usage: sampler.latestUsage, visibility: visibility)
     }
 
@@ -365,7 +386,7 @@ final class TerminalStatusBarView: NSView {
                 self.detectedAgentNames = nextDetectedAgentNames
                 self.refreshAgentSegment()
             }
-            self.resourceSegmentView.update(usage: usage, visibility: self.visibility)
+            self.resourceSegmentView.update(usage: usage, visibility: self.effectiveVisibility)
         }
     }
 
@@ -408,7 +429,7 @@ final class TerminalStatusBarView: NSView {
         )
         quotaSegmentView.update(
             summary: TerminalStatusBarQuotaComposer.summary(for: currentQuotaSummary, now: now),
-            visibility: visibility
+            visibility: effectiveVisibility
         )
     }
 

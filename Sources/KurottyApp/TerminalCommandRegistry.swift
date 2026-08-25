@@ -19,6 +19,9 @@ enum TerminalWindowCommandID: String, CaseIterable {
     case focusPaneDown = "window.focusPane.down"
     case selectNextTab = "window.selectNextTab"
     case selectPreviousTab = "window.selectPreviousTab"
+    case createTabGroup = "window.tabGroup.create"
+    case ungroupCurrentTab = "window.tabGroup.ungroupCurrent"
+    case toggleCurrentTabGroupCollapsed = "window.tabGroup.toggleCollapsed"
     case findTerminalOutput = "terminal.findOutput"
     case jumpToPreviousPrompt = "terminal.jumpToPreviousPrompt"
     case jumpToNextPrompt = "terminal.jumpToNextPrompt"
@@ -50,6 +53,9 @@ enum TerminalWindowCommandAction: Equatable {
     case focusPane(TerminalPaneFocusDirection)
     case selectNextTab
     case selectPreviousTab
+    case createTabGroup
+    case ungroupCurrentTab
+    case toggleCurrentTabGroupCollapsed
     case findTerminalOutput
     case jumpToPrompt(TerminalPromptRailNavigation.Direction)
     case toggleCommandHistoryPanel
@@ -300,6 +306,12 @@ struct TerminalCommandRegistry {
         quickCommands.first { $0.quickCommand.id == id }?.quickCommand
     }
 
+    func quickCommand(matching event: NSEvent) -> TerminalQuickCommandRegistryEntry? {
+        quickCommands.first { entry in
+            QuickCommandShortcutParser.shortcut(from: entry.quickCommand.keyboardShortcut)?.matches(event) == true
+        }
+    }
+
     func windowCommand(matching event: NSEvent) -> TerminalCommand? {
         windowCommands.first { command in
             command.shortcut?.matches(event) == true
@@ -520,6 +532,30 @@ struct TerminalCommandRegistry {
             action: .selectNextTab,
             searchTokens: ["next window", "tab next", "forward tab"]
         ),
+        TerminalCommand(
+            id: .createTabGroup,
+            title: AppLocalization.string(.createTabGroup, language: language),
+            category: .tabs,
+            shortcut: nil,
+            action: .createTabGroup,
+            searchTokens: ["tab group", "group current tab", "new tab group"]
+        ),
+        TerminalCommand(
+            id: .ungroupCurrentTab,
+            title: AppLocalization.string(.ungroupCurrentTab, language: language),
+            category: .tabs,
+            shortcut: nil,
+            action: .ungroupCurrentTab,
+            searchTokens: ["remove tab from group", "ungroup tab"]
+        ),
+        TerminalCommand(
+            id: .toggleCurrentTabGroupCollapsed,
+            title: AppLocalization.string(.toggleTabGroupCollapsed, language: language),
+            category: .tabs,
+            shortcut: nil,
+            action: .toggleCurrentTabGroupCollapsed,
+            searchTokens: ["collapse tab group", "expand tab group", "fold tabs"]
+        ),
     ] }
 
     private static func tmuxWindowCommands(language: AppLanguage) -> [TerminalCommand] { [
@@ -559,4 +595,77 @@ struct TerminalCommandRegistry {
             searchTokens: ["rerun command", "run command again", "repeat command", "rerun safely"]
         ),
     ] }
+}
+
+enum QuickCommandShortcutParser {
+    static func shortcut(from label: String?) -> TerminalCommandShortcut? {
+        guard let label else {
+            return nil
+        }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        if trimmed.contains("+") {
+            return plusSeparatedShortcut(from: trimmed)
+        }
+        return glyphShortcut(from: trimmed)
+    }
+
+    private static func glyphShortcut(from label: String) -> TerminalCommandShortcut? {
+        var modifiers: NSEvent.ModifierFlags = []
+        var key = ""
+        for character in label.filter({ !$0.isWhitespace }) {
+            switch character {
+            case "⌃":
+                modifiers.insert(.control)
+            case "⌥":
+                modifiers.insert(.option)
+            case "⇧":
+                modifiers.insert(.shift)
+            case "⌘":
+                modifiers.insert(.command)
+            default:
+                key.append(character)
+            }
+        }
+        return shortcut(key: key, modifiers: modifiers)
+    }
+
+    private static func plusSeparatedShortcut(from label: String) -> TerminalCommandShortcut? {
+        let tokens = label
+            .split(separator: "+")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard let key = tokens.last else {
+            return nil
+        }
+        var modifiers: NSEvent.ModifierFlags = []
+        for token in tokens.dropLast() {
+            switch token.lowercased() {
+            case "cmd", "command", "⌘":
+                modifiers.insert(.command)
+            case "shift", "⇧":
+                modifiers.insert(.shift)
+            case "opt", "option", "alt", "⌥":
+                modifiers.insert(.option)
+            case "ctrl", "control", "⌃":
+                modifiers.insert(.control)
+            default:
+                return nil
+            }
+        }
+        return shortcut(key: key, modifiers: modifiers)
+    }
+
+    private static func shortcut(key: String, modifiers: NSEvent.ModifierFlags) -> TerminalCommandShortcut? {
+        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedKey.count == 1, !modifiers.isEmpty else {
+            return nil
+        }
+        return TerminalCommandShortcut(
+            keyEquivalent: normalizedKey.lowercased(),
+            modifiers: modifiers
+        )
+    }
 }

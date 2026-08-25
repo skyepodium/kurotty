@@ -19,6 +19,7 @@ enum TerminalSubmittedCommandSummary {
 enum TerminalNotificationPayload {
     enum Source: Equatable {
         case osc9
+        case osc99
         case osc777
         case osc1337
     }
@@ -63,6 +64,33 @@ enum TerminalNotificationPayload {
             title: "",
             subtitle: "",
             body: body
+        )
+    }
+
+    static func contentFromOSC99Payload(_ payload: String) -> Content? {
+        let parts = TerminalKittyOSC.metadataAndPayload(payload)
+        let metadata = TerminalKittyOSC.metadata(parts.metadata) ?? [:]
+        let property = metadata["p"] ?? "body"
+        guard property == "body" || property == "title" else {
+            return nil
+        }
+        let decodedPayload: String
+        if metadata["e"] == "1" {
+            guard let text = TerminalKittyOSC.decodedBase64Text(parts.payload) else {
+                return nil
+            }
+            decodedPayload = text
+        } else {
+            decodedPayload = parts.payload
+        }
+        guard let body = body(fromExplicitPayload: decodedPayload) else {
+            return nil
+        }
+        return Content(
+            source: .osc99,
+            title: property == "title" ? body : "",
+            subtitle: "",
+            body: property == "body" ? body : body
         )
     }
 

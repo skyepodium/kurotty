@@ -20,6 +20,18 @@ struct AppSettings: Codable, Equatable {
             colors: TerminalColorSettings.default,
             commandHistoryEnabled: Defaults.commandHistoryEnabled,
             statusBarEnabled: Defaults.statusBarEnabled,
+            statusBarShowsAgent: Defaults.statusBarShowsAgent,
+            statusBarShowsWorktree: Defaults.statusBarShowsWorktree,
+            statusBarShowsQuota: Defaults.statusBarShowsQuota,
+            statusBarShowsResources: Defaults.statusBarShowsResources,
+            panePaddingPX: Defaults.panePaddingPX,
+            paneBorderStyle: Defaults.paneBorderStyle,
+            inactivePaneDimmingEnabled: Defaults.inactivePaneDimmingEnabled,
+            preventSystemSleep: Defaults.preventSystemSleep,
+            tabGroupsEnabled: Defaults.tabGroupsEnabled,
+            screenSnapshotBridgeEnabled: Defaults.screenSnapshotBridgeEnabled,
+            kittyIntegrationEnabled: Defaults.kittyIntegrationEnabled,
+            osc99NotificationsEnabled: Defaults.osc99NotificationsEnabled,
             confirmMultilinePaste: Defaults.confirmMultilinePaste,
             confirmCloseRunningProcess: Defaults.confirmCloseRunningProcess,
             closeOnChildExit: Defaults.closeOnChildExit,
@@ -59,6 +71,18 @@ struct AppSettings: Codable, Equatable {
         static let shellWorkingDirectory = SettingsDefaults.shellWorkingDirectory
         static let commandHistoryEnabled = SettingsDefaults.commandHistoryEnabled
         static let statusBarEnabled = SettingsDefaults.statusBarEnabled
+        static let statusBarShowsAgent = SettingsDefaults.statusBarShowsAgent
+        static let statusBarShowsWorktree = SettingsDefaults.statusBarShowsWorktree
+        static let statusBarShowsQuota = SettingsDefaults.statusBarShowsQuota
+        static let statusBarShowsResources = SettingsDefaults.statusBarShowsResources
+        static let panePaddingPX = SettingsDefaults.panePaddingPX
+        static let paneBorderStyle = SettingsDefaults.paneBorderStyle
+        static let inactivePaneDimmingEnabled = SettingsDefaults.inactivePaneDimmingEnabled
+        static let preventSystemSleep = SettingsDefaults.preventSystemSleep
+        static let tabGroupsEnabled = SettingsDefaults.tabGroupsEnabled
+        static let screenSnapshotBridgeEnabled = SettingsDefaults.screenSnapshotBridgeEnabled
+        static let kittyIntegrationEnabled = SettingsDefaults.kittyIntegrationEnabled
+        static let osc99NotificationsEnabled = SettingsDefaults.osc99NotificationsEnabled
         static let confirmMultilinePaste = SettingsDefaults.confirmMultilinePaste
         static let confirmCloseRunningProcess = SettingsDefaults.confirmCloseRunningProcess
         static let closeOnChildExit = SettingsDefaults.closeOnChildExit
@@ -179,6 +203,18 @@ struct TerminalSettings: Codable, Equatable {
     var colors: TerminalColorSettings
     var commandHistoryEnabled: Bool
     var statusBarEnabled: Bool
+    var statusBarShowsAgent: Bool
+    var statusBarShowsWorktree: Bool
+    var statusBarShowsQuota: Bool
+    var statusBarShowsResources: Bool
+    var panePaddingPX: Double
+    var paneBorderStyle: String
+    var inactivePaneDimmingEnabled: Bool
+    var preventSystemSleep: Bool
+    var tabGroupsEnabled: Bool
+    var screenSnapshotBridgeEnabled: Bool
+    var kittyIntegrationEnabled: Bool
+    var osc99NotificationsEnabled: Bool
     var confirmMultilinePaste: Bool
     var confirmCloseRunningProcess: Bool
     var closeOnChildExit: TerminalCloseOnChildExitMode
@@ -244,6 +280,10 @@ struct TerminalSettings: Codable, Equatable {
         TerminalCommandFinishNotificationMode.parse(notifyOnCommandFinish) ?? .default
     }
 
+    var paneBorderStyleValue: TerminalPaneBorderStyle {
+        TerminalPaneBorderStyle(rawValue: paneBorderStyle) ?? .default
+    }
+
     func agentStatusHookConsentChoice(for target: AgentStatusHookTarget) -> AgentStatusHookConsent {
         AgentStatusHookConsent.parse(rawAgentStatusHookConsent(for: target)) ?? .default
     }
@@ -274,6 +314,18 @@ struct TerminalSettings: Codable, Equatable {
         case colors
         case commandHistoryEnabled
         case statusBarEnabled
+        case statusBarShowsAgent
+        case statusBarShowsWorktree
+        case statusBarShowsQuota
+        case statusBarShowsResources
+        case panePaddingPX
+        case paneBorderStyle
+        case inactivePaneDimmingEnabled
+        case preventSystemSleep
+        case tabGroupsEnabled
+        case screenSnapshotBridgeEnabled
+        case kittyIntegrationEnabled
+        case osc99NotificationsEnabled
         case confirmMultilinePaste
         case confirmCloseRunningProcess
         case closeOnChildExit
@@ -304,6 +356,18 @@ struct TerminalSettings: Codable, Equatable {
         colors: TerminalColorSettings,
         commandHistoryEnabled: Bool = SettingsDefaults.commandHistoryEnabled,
         statusBarEnabled: Bool = SettingsDefaults.statusBarEnabled,
+        statusBarShowsAgent: Bool = SettingsDefaults.statusBarShowsAgent,
+        statusBarShowsWorktree: Bool = SettingsDefaults.statusBarShowsWorktree,
+        statusBarShowsQuota: Bool = SettingsDefaults.statusBarShowsQuota,
+        statusBarShowsResources: Bool = SettingsDefaults.statusBarShowsResources,
+        panePaddingPX: Double = SettingsDefaults.panePaddingPX,
+        paneBorderStyle: String = SettingsDefaults.paneBorderStyle,
+        inactivePaneDimmingEnabled: Bool = SettingsDefaults.inactivePaneDimmingEnabled,
+        preventSystemSleep: Bool = SettingsDefaults.preventSystemSleep,
+        tabGroupsEnabled: Bool = SettingsDefaults.tabGroupsEnabled,
+        screenSnapshotBridgeEnabled: Bool = SettingsDefaults.screenSnapshotBridgeEnabled,
+        kittyIntegrationEnabled: Bool = SettingsDefaults.kittyIntegrationEnabled,
+        osc99NotificationsEnabled: Bool = SettingsDefaults.osc99NotificationsEnabled,
         confirmMultilinePaste: Bool = SettingsDefaults.confirmMultilinePaste,
         confirmCloseRunningProcess: Bool = SettingsDefaults.confirmCloseRunningProcess,
         closeOnChildExit: TerminalCloseOnChildExitMode = SettingsDefaults.closeOnChildExit,
@@ -332,6 +396,18 @@ struct TerminalSettings: Codable, Equatable {
         self.colors = colors
         self.commandHistoryEnabled = commandHistoryEnabled
         self.statusBarEnabled = statusBarEnabled
+        self.statusBarShowsAgent = statusBarShowsAgent
+        self.statusBarShowsWorktree = statusBarShowsWorktree
+        self.statusBarShowsQuota = statusBarShowsQuota
+        self.statusBarShowsResources = statusBarShowsResources
+        self.panePaddingPX = panePaddingPX
+        self.paneBorderStyle = paneBorderStyle
+        self.inactivePaneDimmingEnabled = inactivePaneDimmingEnabled
+        self.preventSystemSleep = preventSystemSleep
+        self.tabGroupsEnabled = tabGroupsEnabled
+        self.screenSnapshotBridgeEnabled = screenSnapshotBridgeEnabled
+        self.kittyIntegrationEnabled = kittyIntegrationEnabled
+        self.osc99NotificationsEnabled = osc99NotificationsEnabled
         self.confirmMultilinePaste = confirmMultilinePaste
         self.confirmCloseRunningProcess = confirmCloseRunningProcess
         self.closeOnChildExit = closeOnChildExit
@@ -367,6 +443,30 @@ struct TerminalSettings: Codable, Equatable {
         // current default rather than failing to decode.
         statusBarEnabled = try container.decodeIfPresent(Bool.self, forKey: .statusBarEnabled)
             ?? SettingsDefaults.statusBarEnabled
+        statusBarShowsAgent = try container.decodeIfPresent(Bool.self, forKey: .statusBarShowsAgent)
+            ?? SettingsDefaults.statusBarShowsAgent
+        statusBarShowsWorktree = try container.decodeIfPresent(Bool.self, forKey: .statusBarShowsWorktree)
+            ?? SettingsDefaults.statusBarShowsWorktree
+        statusBarShowsQuota = try container.decodeIfPresent(Bool.self, forKey: .statusBarShowsQuota)
+            ?? SettingsDefaults.statusBarShowsQuota
+        statusBarShowsResources = try container.decodeIfPresent(Bool.self, forKey: .statusBarShowsResources)
+            ?? SettingsDefaults.statusBarShowsResources
+        panePaddingPX = try container.decodeIfPresent(Double.self, forKey: .panePaddingPX)
+            ?? SettingsDefaults.panePaddingPX
+        paneBorderStyle = try container.decodeIfPresent(String.self, forKey: .paneBorderStyle)
+            ?? SettingsDefaults.paneBorderStyle
+        inactivePaneDimmingEnabled = try container.decodeIfPresent(Bool.self, forKey: .inactivePaneDimmingEnabled)
+            ?? SettingsDefaults.inactivePaneDimmingEnabled
+        preventSystemSleep = try container.decodeIfPresent(Bool.self, forKey: .preventSystemSleep)
+            ?? SettingsDefaults.preventSystemSleep
+        tabGroupsEnabled = try container.decodeIfPresent(Bool.self, forKey: .tabGroupsEnabled)
+            ?? SettingsDefaults.tabGroupsEnabled
+        screenSnapshotBridgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .screenSnapshotBridgeEnabled)
+            ?? SettingsDefaults.screenSnapshotBridgeEnabled
+        kittyIntegrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .kittyIntegrationEnabled)
+            ?? SettingsDefaults.kittyIntegrationEnabled
+        osc99NotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .osc99NotificationsEnabled)
+            ?? SettingsDefaults.osc99NotificationsEnabled
         confirmMultilinePaste = try container.decodeIfPresent(Bool.self, forKey: .confirmMultilinePaste)
             ?? SettingsDefaults.confirmMultilinePaste
         // Absent in schema versions below 17; those files fall back to the
@@ -449,6 +549,14 @@ struct TerminalSettings: Codable, Equatable {
         hasSeenGettingStarted = try container.decodeIfPresent(Bool.self, forKey: .hasSeenGettingStarted)
             ?? SettingsDefaults.hasSeenGettingStarted
     }
+}
+
+enum TerminalPaneBorderStyle: String, Codable, CaseIterable, Equatable {
+    case none
+    case hairline
+    case active
+
+    static let `default` = TerminalPaneBorderStyle(rawValue: SettingsDefaults.paneBorderStyle) ?? .none
 }
 
 /// Launch/default-window size; existing windows may apply it when settings are reloaded.
@@ -748,6 +856,16 @@ struct AppSettingsNormalizer {
         static let agentWaitingNotificationSchemaVersion = 23
         /// Schema version that introduced `terminal.titleReportsEnabled`.
         static let titleReportsSchemaVersion = 24
+        /// Schema version that introduced `terminal.statusBarShowsAgent`,
+        /// `terminal.statusBarShowsWorktree`, `terminal.statusBarShowsQuota`,
+        /// `terminal.statusBarShowsResources`, `terminal.panePaddingPX`,
+        /// `terminal.paneBorderStyle`, and
+        /// `terminal.inactivePaneDimmingEnabled`. It also introduced
+        /// `terminal.preventSystemSleep`, `terminal.tabGroupsEnabled`,
+        /// `terminal.screenSnapshotBridgeEnabled`,
+        /// `terminal.kittyIntegrationEnabled`, and
+        /// `terminal.osc99NotificationsEnabled`.
+        static let paneAppearanceSchemaVersion = 25
         // Schema 21 introduced `terminal.agentStatusCodexHookConsent`. It has no
         // migration branch for the same reason `terminal.agentStatusHookConsent`
         // has none: it records an answer the user gave, not a preference with a
@@ -894,6 +1012,24 @@ struct AppSettingsNormalizer {
             // default says. From schema 24 on, an explicit opt-in is preserved.
             next.terminal.titleReportsEnabled = SettingsDefaults.titleReportsEnabled
         }
+        if sourceSchemaVersion < Migration.paneAppearanceSchemaVersion {
+            // Settings written before schema 25 predate pane/status appearance
+            // tuning, so the keys carry no user intent. Migrated files land on
+            // values that match the window they already had; from schema 25 on,
+            // explicit display and chrome choices are preserved.
+            next.terminal.statusBarShowsAgent = SettingsDefaults.statusBarShowsAgent
+            next.terminal.statusBarShowsWorktree = SettingsDefaults.statusBarShowsWorktree
+            next.terminal.statusBarShowsQuota = SettingsDefaults.statusBarShowsQuota
+            next.terminal.statusBarShowsResources = SettingsDefaults.statusBarShowsResources
+            next.terminal.panePaddingPX = SettingsDefaults.panePaddingPX
+            next.terminal.paneBorderStyle = SettingsDefaults.paneBorderStyle
+            next.terminal.inactivePaneDimmingEnabled = SettingsDefaults.inactivePaneDimmingEnabled
+            next.terminal.preventSystemSleep = SettingsDefaults.preventSystemSleep
+            next.terminal.tabGroupsEnabled = SettingsDefaults.tabGroupsEnabled
+            next.terminal.screenSnapshotBridgeEnabled = SettingsDefaults.screenSnapshotBridgeEnabled
+            next.terminal.kittyIntegrationEnabled = SettingsDefaults.kittyIntegrationEnabled
+            next.terminal.osc99NotificationsEnabled = SettingsDefaults.osc99NotificationsEnabled
+        }
         normalizeTheme(&next, sourceSchemaVersion: sourceSchemaVersion)
         next.terminal.fontName = next.terminal.fontName.trimmingCharacters(in: .whitespacesAndNewlines)
         if next.terminal.fontName.isEmpty {
@@ -928,6 +1064,11 @@ struct AppSettingsNormalizer {
         next.terminal.uiTextScalePercent = SettingsDefaults.clampedUITextScalePercent(
             next.terminal.uiTextScalePercent
         )
+        next.terminal.panePaddingPX = min(
+            SettingsDefaults.maximumPanePaddingPX,
+            max(SettingsDefaults.minimumPanePaddingPX, next.terminal.panePaddingPX)
+        )
+        next.terminal.paneBorderStyle = next.terminal.paneBorderStyleValue.rawValue
         next.window.width = min(
             SettingsDefaults.maximumWindowWidthPX,
             max(SettingsDefaults.minimumWindowWidthPX, next.window.width)

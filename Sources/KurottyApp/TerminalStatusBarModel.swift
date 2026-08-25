@@ -1,4 +1,5 @@
 import Foundation
+import KurottyCore
 
 #if os(macOS)
 import Darwin
@@ -412,6 +413,31 @@ struct TerminalStatusBarVisibility: Equatable, Sendable {
         showsMemoryValue: true,
         showsWorktree: true,
         showsQuota: true
+    )
+
+    func applying(_ preferences: TerminalStatusBarSegmentPreferences) -> TerminalStatusBarVisibility {
+        TerminalStatusBarVisibility(
+            showsAgentLabel: showsAgentLabel && preferences.showsAgent,
+            showsAgentDetail: showsAgentDetail && preferences.showsAgent,
+            showsCPUMetric: showsCPUMetric && preferences.showsResources,
+            showsMemoryValue: showsMemoryValue && preferences.showsResources,
+            showsWorktree: showsWorktree && preferences.showsWorktree,
+            showsQuota: showsQuota && preferences.showsQuota
+        )
+    }
+}
+
+struct TerminalStatusBarSegmentPreferences: Equatable, Sendable {
+    var showsAgent: Bool
+    var showsWorktree: Bool
+    var showsQuota: Bool
+    var showsResources: Bool
+
+    static let `default` = TerminalStatusBarSegmentPreferences(
+        showsAgent: SettingsDefaults.statusBarShowsAgent,
+        showsWorktree: SettingsDefaults.statusBarShowsWorktree,
+        showsQuota: SettingsDefaults.statusBarShowsQuota,
+        showsResources: SettingsDefaults.statusBarShowsResources
     )
 }
 

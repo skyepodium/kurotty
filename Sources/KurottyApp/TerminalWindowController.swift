@@ -108,6 +108,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     /// collapsed bar gives every point back to the terminal content.
     let statusBarView = TerminalStatusBarView(frame: .zero)
     private var tabBarHeightConstraint: NSLayoutConstraint?
+    private var panePaddingConstraints: [NSLayoutConstraint] = []
     private var isTrafficLightAlignmentScheduled = false
     private var hasAlignedTrafficLights = false
     /// Sidebar width constraints stay active only while the panel is shown: a
@@ -130,6 +131,8 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     private let chromeMetrics = ChromeMetricBindings()
     private var lastAppliedWindowSettings: WindowSettings
     private var tmuxCoordinators: [TmuxNativeSessionCoordinator] = []
+    private var tabGroups = TerminalTabGroupState()
+    private var tabGroupsEnabled: Bool
     var suppressesTmuxSelectionCallbacks = false
     var openCommandPaletteRequested: (() -> Void)?
 
@@ -146,6 +149,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         let settings = (try? AppSettingsStore.shared.load()) ?? .default
         chromeTheme = DesignTokens.ChromeTheme.theme(for: settings)
         lastAppliedWindowSettings = settings.window
+        tabGroupsEnabled = settings.terminal.tabGroupsEnabled
         // Launch-only: the flag is read once here and gates both capture and
         // restore for this window's lifetime.
         scrollbackSnapshotCoordinator = TerminalScrollbackSnapshotCoordinator.makeDefault(
@@ -163,11 +167,13 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         window.titlebarSeparatorStyle = .none
         window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = true
+        KurottyWindowCollectionBehavior.apply(to: window)
         window.center()
         super.init(window: window)
         window.delegate = self
         configureTabs(initialPane: initialPane)
         statusBarView.setEnabled(settings.terminal.statusBarEnabled)
+        applyPaneAppearanceSettings(settings)
         applyChromeTheme(chromeTheme)
         observeSettings()
         observeTerminalTitles()
@@ -208,6 +214,7 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             splitView.appendDetachedPaneAsTabRoot(TerminalPaneView())
         }
         splitView.applyChromeTheme(chromeTheme)
+        splitView.applyPaneAppearanceSettings((try? AppSettingsStore.shared.load()) ?? .default)
         let item = NSTabViewItem(identifier: identifier)
         item.label = pane?.displayTitle ?? defaultTabLabel()
         item.view = splitView
@@ -383,6 +390,36 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         if selectedTmuxCoordinator == nil { currentSplitView()?.focusFirstPane() }
     }
 
+    func createTabGroupFromCurrentTab() {
+        guard tabGroupsEnabled,
+              let selectedItem = tabView.selectedTabViewItem,
+              isGroupableTab(selectedItem),
+              let tabID = selectedItem.identifier as? String
+        else { return }
+        _ = tabGroups.createGroup(containing: tabID)
+        reconcileTabGroupOrder()
+        updateTabBar()
+    }
+
+    func ungroupCurrentTab() {
+        guard tabGroupsEnabled,
+              let selectedItem = tabView.selectedTabViewItem,
+              let tabID = selectedItem.identifier as? String
+        else { return }
+        tabGroups.remove(tabID: tabID)
+        updateTabBar()
+    }
+
+    func toggleCurrentTabGroupCollapsed() {
+        guard tabGroupsEnabled,
+              let selectedItem = tabView.selectedTabViewItem,
+              let tabID = selectedItem.identifier as? String,
+              let group = tabGroups.group(containing: tabID)
+        else { return }
+        tabGroups.toggleCollapsed(groupID: group.id, activeTabID: tabID)
+        updateTabBar()
+    }
+
     private func configureTabs(initialPane: TerminalPaneView?) {
         rootView.translatesAutoresizingMaskIntoConstraints = false
         rootView.wantsLayer = true
@@ -465,6 +502,21 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
 
         let tabBarHeightConstraint = tabBarView.heightAnchor.constraint(equalToConstant: 0)
         self.tabBarHeightConstraint = tabBarHeightConstraint
+        let tabLeadingConstraint = tabView.leadingAnchor.constraint(equalTo: terminalContentHostView.leadingAnchor)
+        let tabTrailingConstraint = tabView.trailingAnchor.constraint(equalTo: terminalContentHostView.trailingAnchor)
+        let tabTopConstraint = tabView.topAnchor.constraint(equalTo: terminalContentHostView.topAnchor)
+        let tabBottomConstraint = tabView.bottomAnchor.constraint(equalTo: terminalContentHostView.bottomAnchor)
+        tabLeadingConstraint.identifier = "panePadding.leading"
+        tabTrailingConstraint.identifier = "panePadding.trailing"
+        tabTopConstraint.identifier = "panePadding.top"
+        tabBottomConstraint.identifier = "panePadding.bottom"
+        panePaddingConstraints = [
+            tabLeadingConstraint,
+            tabTrailingConstraint,
+            tabTopConstraint,
+            tabBottomConstraint,
+        ]
+
         NSLayoutConstraint.activate([
             tabBarView.leadingAnchor.constraint(
                 equalTo: rootView.leadingAnchor,
@@ -508,22 +560,10 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             // outermost pane card floats clear of the tab bar, the status bar,
             // the window edge, and whichever sidebar is open, instead of butting
             // into them.
-            tabView.leadingAnchor.constraint(
-                equalTo: terminalContentHostView.leadingAnchor,
-                constant: DesignTokens.TerminalPaneCard.groundInsetPX
-            ),
-            tabView.trailingAnchor.constraint(
-                equalTo: terminalContentHostView.trailingAnchor,
-                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
-            ),
-            tabView.topAnchor.constraint(
-                equalTo: terminalContentHostView.topAnchor,
-                constant: DesignTokens.TerminalPaneCard.groundInsetPX
-            ),
-            tabView.bottomAnchor.constraint(
-                equalTo: terminalContentHostView.bottomAnchor,
-                constant: -DesignTokens.TerminalPaneCard.groundInsetPX
-            ),
+            tabLeadingConstraint,
+            tabTrailingConstraint,
+            tabTopConstraint,
+            tabBottomConstraint,
         ])
         // Mounted before the split configuration because the split's bottom
         // constraint is pinned to `statusBarView.topAnchor`: Auto Layout
@@ -626,6 +666,14 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
         // Live-applied: the bar collapses or expands in place, and a collapsed
         // bar tears its sampling timer down instead of idling.
         statusBarView.setEnabled(settings.terminal.statusBarEnabled)
+        if tabGroupsEnabled != settings.terminal.tabGroupsEnabled {
+            tabGroupsEnabled = settings.terminal.tabGroupsEnabled
+            if !tabGroupsEnabled {
+                tabGroups = TerminalTabGroupState()
+            }
+            updateTabBar()
+        }
+        applyPaneAppearanceSettings(settings)
         applyWindowSettingsIfChanged(settings)
     }
 
@@ -680,6 +728,28 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             // Deliberately not the settings tab: it is the surface that caused
             // the theme change, and it repaints itself the moment the save
             // lands. Repainting it from here would rebuild its pane mid-edit.
+        }
+    }
+
+    private func applyPaneAppearanceSettings(_ settings: AppSettings) {
+        let paddingPX = CGFloat(settings.terminal.panePaddingPX)
+        for constraint in panePaddingConstraints {
+            constraint.constant = constraint.identifier?.hasSuffix(".trailing") == true
+                || constraint.identifier?.hasSuffix(".bottom") == true
+                ? -paddingPX
+                : paddingPX
+        }
+        statusBarView.setSegmentPreferences(TerminalStatusBarSegmentPreferences(
+            showsAgent: settings.terminal.statusBarShowsAgent,
+            showsWorktree: settings.terminal.statusBarShowsWorktree,
+            showsQuota: settings.terminal.statusBarShowsQuota,
+            showsResources: settings.terminal.statusBarShowsResources
+        ))
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard let splitView = tabView.tabViewItem(at: index).view as? SplitTerminalView else {
+                continue
+            }
+            splitView.applyPaneAppearanceSettings(settings)
         }
     }
 
@@ -817,10 +887,23 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             view.removeFromSuperview()
         }
 
-        for index in 0..<tabView.numberOfTabViewItems {
-            let item = tabView.tabViewItem(at: index)
-            let tabItemView = makeTabItemView(title: item.label, index: index, isSelected: item === tabView.selectedTabViewItem)
-            tabStackView.addArrangedSubview(tabItemView)
+        tabGroups.removeMissingTabs(keeping: tabIdentifiersInOrder)
+        reconcileTabGroupOrder()
+
+        for item in tabBarItemsInDisplayOrder() {
+            switch item {
+            case let .groupHeader(group):
+                tabStackView.addArrangedSubview(makeTabGroupHeaderView(for: group))
+            case let .tab(id):
+                guard let index = tabIndex(forID: id) else { continue }
+                let item = tabView.tabViewItem(at: index)
+                let tabItemView = makeTabItemView(
+                    title: item.label,
+                    index: index,
+                    isSelected: item === tabView.selectedTabViewItem
+                )
+                tabStackView.addArrangedSubview(tabItemView)
+            }
         }
 
         let addButton = ChromeIconButton(
@@ -986,10 +1069,17 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func makeTabItemView(title: String, index: Int, isSelected: Bool) -> NSView {
+        let item = tabView.tabViewItem(at: index)
+        let group = (item.identifier as? String).flatMap { tabGroups.group(containing: $0) }
         let tab = TerminalTabItemView(
             title: title,
             isSelected: isSelected,
             chromeTheme: chromeTheme,
+            groupColor: group.map { TerminalTabGroupPalette.color(for: $0, theme: chromeTheme) },
+            menuProvider: { [weak self, weak item] in
+                guard let self, let item else { return nil }
+                return self.tabContextMenu(for: item)
+            },
             onSelect: { [weak self] in self?.selectTab(at: index) },
             onClose: { [weak self] in self?.closeTab(at: index) }
         )
@@ -1003,6 +1093,153 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
             tab.bottomAnchor.constraint(equalTo: slot.bottomAnchor),
         ])
         return slot
+    }
+
+    private func makeTabGroupHeaderView(for group: TerminalTabGroup) -> NSView {
+        let header = TerminalTabGroupHeaderView(
+            group: group,
+            chromeTheme: chromeTheme,
+            onToggleCollapsed: { [weak self] in
+                self?.toggleTabGroupCollapsed(groupID: group.id)
+            },
+            menuProvider: { [weak self] in
+                self?.tabGroupContextMenu(for: group)
+            }
+        )
+        let slot = NSView()
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        slot.addSubview(header)
+        NSLayoutConstraint.activate([
+            slot.heightAnchor.constraint(equalToConstant: DesignTokens.Component.terminalTabBarHeightPX),
+            header.leadingAnchor.constraint(equalTo: slot.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: slot.trailingAnchor),
+            header.bottomAnchor.constraint(equalTo: slot.bottomAnchor),
+        ])
+        return slot
+    }
+
+    private func tabBarItemsInDisplayOrder() -> [TerminalTabBarItem] {
+        tabGroups.visibleItems(
+            for: tabIdentifiersInOrder,
+            activeTabID: tabView.selectedTabViewItem?.identifier as? String
+        )
+    }
+
+    private func reconcileTabGroupOrder() {
+        let currentIDs = tabIdentifiersInOrder
+        let orderedIDs = tabGroups.orderedTabIDs(for: currentIDs)
+        guard orderedIDs != currentIDs else { return }
+        let selectedItem = tabView.selectedTabViewItem
+        let itemsByID = Dictionary(uniqueKeysWithValues: (0..<tabView.numberOfTabViewItems).compactMap { index -> (String, NSTabViewItem)? in
+            let item = tabView.tabViewItem(at: index)
+            guard let id = item.identifier as? String else { return nil }
+            return (id, item)
+        })
+        for id in orderedIDs {
+            guard let item = itemsByID[id] else { continue }
+            tabView.removeTabViewItem(item)
+        }
+        for (index, id) in orderedIDs.enumerated() {
+            guard let item = itemsByID[id] else { continue }
+            tabView.insertTabViewItem(item, at: index)
+        }
+        if let selectedItem {
+            tabView.selectTabViewItem(selectedItem)
+        }
+    }
+
+    private func tabIndex(forID id: String) -> Int? {
+        for index in 0..<tabView.numberOfTabViewItems {
+            guard tabView.tabViewItem(at: index).identifier as? String == id else { continue }
+            return index
+        }
+        return nil
+    }
+
+    private func isGroupableTab(_ item: NSTabViewItem) -> Bool {
+        item.view is SplitTerminalView
+            && tmuxCoordinator(managing: item) == nil
+            && !hasActiveTmuxProjection(hosting: item)
+    }
+
+    private func tabContextMenu(for item: NSTabViewItem) -> NSMenu {
+        let menu = NSMenu()
+        let tabID = item.identifier as? String
+        let group = tabID.flatMap { tabGroups.group(containing: $0) }
+
+        let createItem = NSMenuItem(
+            title: AppLocalization.string(.createTabGroup),
+            action: #selector(createTabGroupFromCurrentTabMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        createItem.target = self
+        createItem.representedObject = item
+        createItem.isEnabled = tabGroupsEnabled && group == nil && isGroupableTab(item)
+        menu.addItem(createItem)
+
+        if let group {
+            let toggleItem = NSMenuItem(
+                title: AppLocalization.string(group.isCollapsed ? .expandTabGroup : .collapseTabGroup),
+                action: #selector(toggleTabGroupMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            toggleItem.target = self
+            toggleItem.representedObject = group.id
+            menu.addItem(toggleItem)
+
+            let ungroupItem = NSMenuItem(
+                title: AppLocalization.string(.ungroupCurrentTab),
+                action: #selector(ungroupTabMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            ungroupItem.target = self
+            ungroupItem.representedObject = item
+            menu.addItem(ungroupItem)
+        }
+        return menu
+    }
+
+    private func tabGroupContextMenu(for group: TerminalTabGroup) -> NSMenu {
+        let menu = NSMenu()
+        let toggleItem = NSMenuItem(
+            title: AppLocalization.string(group.isCollapsed ? .expandTabGroup : .collapseTabGroup),
+            action: #selector(toggleTabGroupMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        toggleItem.target = self
+        toggleItem.representedObject = group.id
+        menu.addItem(toggleItem)
+        return menu
+    }
+
+    @objc private func createTabGroupFromCurrentTabMenuItem(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? NSTabViewItem else { return }
+        tabView.selectTabViewItem(item)
+        createTabGroupFromCurrentTab()
+    }
+
+    @objc private func ungroupTabMenuItem(_ sender: NSMenuItem) {
+        guard tabGroupsEnabled,
+              let item = sender.representedObject as? NSTabViewItem,
+              let tabID = item.identifier as? String
+        else { return }
+        tabGroups.remove(tabID: tabID)
+        updateTabBar()
+    }
+
+    @objc private func toggleTabGroupMenuItem(_ sender: NSMenuItem) {
+        guard tabGroupsEnabled,
+              let groupID = sender.representedObject as? String else { return }
+        toggleTabGroupCollapsed(groupID: groupID)
+    }
+
+    private func toggleTabGroupCollapsed(groupID: String) {
+        guard tabGroupsEnabled else { return }
+        tabGroups.toggleCollapsed(
+            groupID: groupID,
+            activeTabID: tabView.selectedTabViewItem?.identifier as? String
+        )
+        updateTabBar()
     }
 
     private func selectTab(at index: Int) {
@@ -1058,6 +1295,9 @@ final class TerminalWindowController: NSWindowController, NSTabViewDelegate, NSW
     }
 
     private func closeTab(_ item: NSTabViewItem) {
+        if let tabID = item.identifier as? String {
+            tabGroups.remove(tabID: tabID)
+        }
         tabView.removeTabViewItem(item)
         updateTabBar()
         refreshStatusBarPanes()

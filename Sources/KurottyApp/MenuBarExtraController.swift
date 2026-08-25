@@ -69,6 +69,7 @@ final class MenuBarExtraController: NSObject {
     /// back at the delegate.
     private weak var actionTarget: AnyObject?
     private var isEnabled = false
+    private var keepMacAwakeEnabled = false
 
     init(
         actionTarget: AnyObject?,
@@ -128,10 +129,19 @@ final class MenuBarExtraController: NSObject {
         presentSlot()
     }
 
+    func setKeepMacAwakeEnabled(_ isEnabled: Bool) {
+        keepMacAwakeEnabled = isEnabled
+        refreshLocalization()
+    }
+
     private func presentSlot() {
         slot.present(
             image: MenuBarExtraGlyph.makeImage(),
-            menu: MenuBarExtraMenuBuilder.makeMenu(appDelegate: actionTarget, application: application),
+            menu: MenuBarExtraMenuBuilder.makeMenu(
+                appDelegate: actionTarget,
+                application: application,
+                keepMacAwakeEnabled: keepMacAwakeEnabled
+            ),
             accessibilityDescription: MenuBarExtraGlyph.accessibilityDescription
         )
     }

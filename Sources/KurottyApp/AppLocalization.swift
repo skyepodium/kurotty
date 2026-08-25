@@ -42,8 +42,9 @@ enum AppLanguageResolver {
 }
 
 enum L10nKey: String, CaseIterable {
-    case about, checkForUpdates, settings, quit
+    case about, checkForUpdates, settings, keepMacAwake, quit
     case shell, newWindow, newTab, closePaneOrTab, splitVertically, splitHorizontally, previousTab, nextTab
+    case createTabGroup, ungroupCurrentTab, toggleTabGroupCollapsed, collapseTabGroup, expandTabGroup
     case commandPalette, findTerminalOutput, findTerminalOutputPlaceholder
     case previousSearchMatch, nextSearchMatch, closeSearch
     case matchCase, useRegularExpression
@@ -229,9 +230,11 @@ enum AppLocalization {
 
     private static let translations: [AppLanguage: [L10nKey: String]] = [
         .english: [
-            .about: "About %@", .checkForUpdates: "Check for Updates...", .settings: "Settings...", .quit: "Quit %@",
+            .about: "About %@", .checkForUpdates: "Check for Updates...", .settings: "Settings...",
+            .keepMacAwake: "Keep Mac Awake", .quit: "Quit %@",
             .shell: "Shell", .newWindow: "New Window", .newTab: "New Tab", .closePaneOrTab: "Close Pane or Tab",
             .splitVertically: "Split Vertically", .splitHorizontally: "Split Horizontally", .previousTab: "Previous Tab", .nextTab: "Next Tab",
+            .createTabGroup: "Create Tab Group", .ungroupCurrentTab: "Ungroup Current Tab", .toggleTabGroupCollapsed: "Collapse or Expand Tab Group", .collapseTabGroup: "Collapse Tab Group", .expandTabGroup: "Expand Tab Group",
             .commandPalette: "Command Palette", .findTerminalOutput: "Find Terminal Output", .findTerminalOutputPlaceholder: "Find",
             .previousSearchMatch: "Previous Match", .nextSearchMatch: "Next Match", .closeSearch: "Close Search",
             .matchCase: "Match Case", .useRegularExpression: "Use Regular Expression",
@@ -367,9 +370,11 @@ enum AppLocalization {
             .gettingStartedCommandCopied: "Copied",
         ],
         .korean: [
-            .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...", .quit: "%@ 종료",
+            .about: "%@ 정보", .checkForUpdates: "업데이트 확인...", .settings: "설정...",
+            .keepMacAwake: "Mac 잠자기 방지", .quit: "%@ 종료",
             .shell: "셸", .newWindow: "새 윈도우", .newTab: "새 탭", .closePaneOrTab: "패널 또는 탭 닫기",
             .splitVertically: "좌우로 분할", .splitHorizontally: "상하로 분할", .previousTab: "이전 탭", .nextTab: "다음 탭",
+            .createTabGroup: "탭 그룹 만들기", .ungroupCurrentTab: "현재 탭 그룹 해제", .toggleTabGroupCollapsed: "탭 그룹 접기 또는 펼치기", .collapseTabGroup: "탭 그룹 접기", .expandTabGroup: "탭 그룹 펼치기",
             .commandPalette: "명령 팔레트", .findTerminalOutput: "터미널 출력 찾기", .findTerminalOutputPlaceholder: "찾기",
             .previousSearchMatch: "이전 일치 항목", .nextSearchMatch: "다음 일치 항목", .closeSearch: "검색 닫기",
             .matchCase: "대소문자 구분", .useRegularExpression: "정규 표현식 사용",
@@ -505,9 +510,11 @@ enum AppLocalization {
             .gettingStartedCommandCopied: "복사됨",
         ],
         .japanese: [
-            .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...", .quit: "%@を終了",
+            .about: "%@について", .checkForUpdates: "アップデートを確認...", .settings: "設定...",
+            .keepMacAwake: "Macのスリープを防止", .quit: "%@を終了",
             .shell: "シェル", .newWindow: "新規ウインドウ", .newTab: "新規タブ", .closePaneOrTab: "ペインまたはタブを閉じる",
             .splitVertically: "左右に分割", .splitHorizontally: "上下に分割", .previousTab: "前のタブ", .nextTab: "次のタブ",
+            .createTabGroup: "タブグループを作成", .ungroupCurrentTab: "現在のタブをグループ解除", .toggleTabGroupCollapsed: "タブグループを折りたたむ/展開", .collapseTabGroup: "タブグループを折りたたむ", .expandTabGroup: "タブグループを展開",
             .commandPalette: "コマンドパレット", .findTerminalOutput: "ターミナル出力を検索", .findTerminalOutputPlaceholder: "検索",
             .previousSearchMatch: "前の一致", .nextSearchMatch: "次の一致", .closeSearch: "検索を閉じる",
             .matchCase: "大文字と小文字を区別", .useRegularExpression: "正規表現を使用",

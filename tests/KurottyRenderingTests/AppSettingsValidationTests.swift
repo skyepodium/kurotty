@@ -49,6 +49,9 @@ final class AppSettingsValidationTests: XCTestCase {
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .terminalScrollbackLines), .liveApplied)
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .windowWidth), .liveApplied)
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .windowHeight), .liveApplied)
+        XCTAssertEqual(AppSettingsValidation.lifecycle(for: .terminalPreventSystemSleep), .liveApplied)
+        XCTAssertEqual(AppSettingsValidation.lifecycle(for: .terminalKittyIntegrationEnabled), .liveApplied)
+        XCTAssertEqual(AppSettingsValidation.lifecycle(for: .terminalOSC99NotificationsEnabled), .liveApplied)
         XCTAssertEqual(AppSettingsValidation.lifecycle(for: .shellWorkingDirectory), .launchOnly)
     }
 

@@ -821,7 +821,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
     func testSettingsIsOneMenuItemAndTheSchemaVersionIsPinned() throws {
         // Re-pointed at schema 23, which added `terminal.notifyOnAgentWaiting`.
         // Re-pointed at schema 24, which added `terminal.titleReportsEnabled`.
-        XCTAssertEqual(SettingsDefaults.schemaVersion, 24)
+        XCTAssertEqual(SettingsDefaults.schemaVersion, 25)
 
         let menuSource = try mainMenuSource()
         XCTAssertTrue(menuSource.contains("appMenu.addItem(NSMenuItem(title: AppLocalization.string(.settings)"))
@@ -1014,7 +1014,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         // The chrome bar hosts the sidebar toggles, so it no longer collapses with a single tab.
         XCTAssertTrue(windowSource.contains("tabBarHeightConstraint?.constant = DesignTokens.Component.terminalTabBarHeightPX"))
         XCTAssertTrue(windowSource.contains("tabBarView.isHidden = false"))
-        XCTAssertTrue(windowSource.contains("makeTabItemView(title: item.label, index: index, isSelected:"))
+        XCTAssertTrue(windowSource.contains("let tabItemView = makeTabItemView("))
         XCTAssertTrue(windowSource.contains("final class TerminalTabItemView: NSView"))
         // Re-pointed 2026-08: the tab add/close affordances were text glyphs
         // ("+" / "×") typed into a button title. They are now SF Symbols from
@@ -1154,7 +1154,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(dispatcherSource.contains("case right"))
         XCTAssertTrue(dispatcherSource.contains("case up"))
         XCTAssertTrue(dispatcherSource.contains("case down"))
-        XCTAssertTrue(dispatcherSource.contains("windowCommand(for: event)"))
+        XCTAssertTrue(dispatcherSource.contains("windowCommand(for: event, registry: registry)"))
         XCTAssertTrue(dispatcherSource.contains("TerminalCommandRegistry = .default"))
         XCTAssertTrue(registrySource.contains("enum TerminalWindowCommandID"))
         XCTAssertTrue(registrySource.contains("case newTab = \"window.newTab\""))
@@ -1667,7 +1667,7 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(try appConstantsSource().contains("codexTaskCompletedBody"))
         XCTAssertTrue(try debugOptionsSource().contains("static let testNotification"))
 
-        XCTAssertTrue(readmeSource.contains("terminal-generated notifications"))
+        XCTAssertTrue(readmeSource.contains("macOS may ask for notification permission"))
         XCTAssertFalse(readmeSource.contains("printf '\\e]9;Task finished\\a'"))
     }
 
@@ -1771,13 +1771,11 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(packageSource.contains("rm -rf \"$WORK_DIR\"/swift-* \"$WORK_DIR\"/zig-* \"$ICONSET_DIR\" \"$DMG_ROOT\" \"$DMG_RW\" \"$APPCAST_WORK_DIR\""))
 
         XCTAssertTrue(readmeSource.contains("GitHub Releases"))
-        XCTAssertTrue(readmeSource.contains("[Download](#download)"))
-        XCTAssertTrue(readmeSource.contains("## Download"))
+        XCTAssertTrue(readmeSource.contains("## Install"))
         XCTAssertTrue(readmeSource.contains("https://github.com/skyepodium/kurotty/releases/latest/download/kurotty-macos-universal.dmg"))
         XCTAssertTrue(readmeSource.contains("kurotty-macos-universal.dmg"))
-        XCTAssertTrue(readmeSource.contains("curl -fL -o kurotty-macos-universal.dmg"))
-        XCTAssertTrue(readmeSource.contains("./scripts/package-release.sh"))
-        XCTAssertTrue(readmeSource.contains("Intel and Apple Silicon Macs"))
+        XCTAssertTrue(readmeSource.contains("Drag `kurotty.app` into the `Applications` folder"))
+        XCTAssertTrue(readmeSource.contains("Apple Silicon and Intel Macs"))
         XCTAssertFalse(readmeSource.contains("kurotty-<version>-macos-universal.dmg"))
         XCTAssertFalse(readmeSource.contains("shasum -a 256 -c SHA256SUMS"))
         XCTAssertFalse(readmeSource.contains("git tag \"v$(cat VERSION)\""))

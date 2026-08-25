@@ -202,6 +202,50 @@ final class TerminalCommandRegistryTests: XCTestCase {
         )
     }
 
+    func testQuickCommandShortcutLookupUsesUserConfiguredChord() throws {
+        let quickCommand = QuickCommand(
+            id: "deploy",
+            name: "Deploy",
+            keyboardShortcut: "⌘⇧R",
+            action: .terminalCommand(text: "make deploy", appendEnter: false)
+        )
+        let registry = TerminalCommandRegistry.default.registering(
+            quickCommands: [quickCommand],
+            workingDirectory: nil
+        )
+
+        let entry = registry.quickCommand(
+            matching: try keyEvent(
+                "R",
+                modifiers: [.command, .shift],
+                charactersIgnoringModifiers: "r"
+            )
+        )
+
+        XCTAssertEqual(entry?.quickCommand.id, "deploy")
+        XCTAssertEqual(entry?.shortcutLabel, "⌘⇧R")
+    }
+
+    func testQuickCommandShortcutLookupAcceptsPlusSeparatedChord() throws {
+        let quickCommand = QuickCommand(
+            id: "status",
+            name: "Status",
+            keyboardShortcut: "Command+Option+S",
+            action: .terminalCommand(text: "git status", appendEnter: false)
+        )
+        let registry = TerminalCommandRegistry.default.registering(
+            quickCommands: [quickCommand],
+            workingDirectory: nil
+        )
+
+        XCTAssertEqual(
+            registry.quickCommand(
+                matching: try keyEvent("s", modifiers: [.command, .option])
+            )?.quickCommand.id,
+            "status"
+        )
+    }
+
     func testDispatcherUsesRegistryCommandMapping() throws {
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("t", modifiers: .command))?.id, .newTab)
         XCTAssertEqual(TerminalCommandDispatcher.windowCommand(for: try keyEvent("f", modifiers: .command))?.action, .findTerminalOutput)
