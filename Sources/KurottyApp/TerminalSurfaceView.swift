@@ -432,6 +432,10 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         (selectionAnchor, selectionFocus)
     }
 
+    func autoscrollSelectionForTesting(with event: NSEvent) {
+        autoscrollSelectionIfNeeded(with: event)
+    }
+
     var contentRowCountForTesting: Int {
         contentRowCount
     }
@@ -2277,16 +2281,14 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
 
     private func autoscrollSelectionIfNeeded(with event: NSEvent) {
         guard !scrollbackRows.isEmpty else { return }
-        let metrics = terminalMetrics()
         let location = convert(event.locationInWindow, from: nil)
-        let threshold = max(CGFloat(metrics.cellSize.height), 18)
         let topEdge = bounds.height - padding.top
         let bottomEdge = padding.bottom
 
         let rowDelta: Int
-        if location.y > topEdge - threshold {
+        if location.y > topEdge {
             rowDelta = 1
-        } else if location.y < bottomEdge + threshold {
+        } else if location.y < bottomEdge {
             rowDelta = -1
         } else {
             return
@@ -2296,12 +2298,11 @@ final class TerminalSurfaceView: NSView, @preconcurrency NSTextInputClient, Term
         scrollbackOffset = max(0, min(scrollbackRows.count, scrollbackOffset + rowDelta))
         guard scrollbackOffset != previousOffset else { return }
 
-        // Keep the anchor attached to the same visible text while scrollback moves
-        // under an active drag; otherwise selection appears to slide away.
-        if let anchor = selectionAnchor {
-            let clampedRow = max(0, min(metrics.size.rows - 1, anchor.row + scrollbackOffset - previousOffset))
-            selectionAnchor = TerminalCellPosition(row: clampedRow, column: anchor.column)
-        }
+        // Selection endpoints are content-absolute, just like the position
+        // returned by `cellPosition(for:)`. Moving the viewport must not rewrite
+        // the anchor: applying the offset again converts it as though it were a
+        // screen-relative row, and clamping that value to the viewport teleports
+        // selections in scrollback toward row zero during an edge drag.
         updateScrollIndicator()
     }
 
