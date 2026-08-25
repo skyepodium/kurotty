@@ -54,6 +54,7 @@ fi
 
 source "$ROOT_DIR/scripts/iconset.sh"
 source "$ROOT_DIR/scripts/dmg-style.sh"
+source "$ROOT_DIR/scripts/sign-app-bundle.sh"
 
 generate_sparkle_appcast() {
   local archives_dir="$1"
@@ -193,12 +194,7 @@ fi)
 </plist>
 PLIST
 
-codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_BUNDLE/Contents/Resources/libkurotty_core.dylib"
-if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  codesign --force --deep --sign - "$APP_BUNDLE"
-else
-  codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
-fi
+sign_kurotty_app_bundle "$APP_BUNDLE" "$SIGN_IDENTITY"
 
 "$ROOT_DIR/scripts/verify-icon-bundle.sh" "$APP_BUNDLE"
 lipo "$APP_BUNDLE/Contents/MacOS/kurotty" -verify_arch arm64 x86_64

@@ -1687,7 +1687,9 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(iconsetSource.contains("icon_512x512@2x.png"))
         XCTAssertTrue(installSource.contains("iconutil -c icns \"$ICONSET_DIR\" -o \"$APP_BUNDLE/Contents/Resources/kurotty.icns\""))
         XCTAssertTrue(installSource.contains("<string>kurotty.icns</string>"))
-        XCTAssertTrue(installSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
+        XCTAssertTrue(installSource.contains("source \"$ROOT_DIR/scripts/sign-app-bundle.sh\""))
+        XCTAssertTrue(installSource.contains("sign_kurotty_app_bundle \"$APP_BUNDLE\" \"$SIGN_IDENTITY\""))
+        XCTAssertFalse(installSource.contains("--deep"))
         XCTAssertTrue(installSource.contains("LaunchServices.framework/Support/lsregister"))
         XCTAssertTrue(installSource.contains("\"$LSREGISTER\" -f \"$INSTALLED_APP\""))
         XCTAssertTrue(installSource.contains("\"$ROOT_DIR/scripts/verify-icon-bundle.sh\" \"$INSTALLED_APP\""))
@@ -1712,9 +1714,35 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(constantsSource.contains("static let installedIconExtension = \"icns\""))
     }
 
+    func testAppSigningPreservesSparkleHelpersWithoutDeepSigning() throws {
+        let signingSource = try scriptSource(named: "sign-app-bundle")
+
+        XCTAssertFalse(signingSource.contains("codesign --force --deep"))
+        XCTAssertTrue(signingSource.contains("--preserve-metadata=identifier,entitlements"))
+        XCTAssertTrue(signingSource.contains("$sparkle_framework/Versions/Current/XPCServices/Downloader.xpc"))
+        XCTAssertTrue(signingSource.contains("$sparkle_framework/Versions/Current/XPCServices/Installer.xpc"))
+        XCTAssertTrue(signingSource.contains("$sparkle_framework/Versions/Current/Updater.app"))
+        XCTAssertTrue(signingSource.contains("$sparkle_framework/Versions/Current/Autoupdate"))
+        XCTAssertTrue(signingSource.contains("--timestamp --options runtime"))
+        XCTAssertTrue(signingSource.contains("sign_sparkle_component \"$sparkle_framework\""))
+        XCTAssertTrue(signingSource.contains("sign_code \"$app_bundle\""))
+    }
+
+    func testLocalInstallNeverReplacesTheBundleUnderARunningProcess() throws {
+        let installSource = try installAppScriptSource()
+
+        XCTAssertTrue(installSource.contains("running_app_pids"))
+        XCTAssertTrue(installSource.contains("Refusing to replace a running app bundle"))
+        XCTAssertLessThan(
+            try XCTUnwrap(installSource.range(of: "Refusing to replace a running app bundle")).lowerBound,
+            try XCTUnwrap(installSource.range(of: "rm -rf \"$INSTALLED_APP\"")).lowerBound
+        )
+    }
+
     func testReleasePackagingProducesUniversalDmgAndChecksumFromVerifiedAppBundle() throws {
         let packageSource = try scriptSource(named: "package-release")
         let installSource = try scriptSource(named: "install-app")
+        let verifyReleaseSource = try scriptSource(named: "verify-release-artifact")
         let readmeSource = try readmeSource()
         let releaseWorkflowSource = try workflowSource(named: "release")
         let agentsSource = try agentsSource()
@@ -1755,11 +1783,14 @@ final class GlyphRenderingRegressionTests: XCTestCase {
         // forces: Finder can still hold the styled volume for a moment.
         XCTAssertTrue(packageSource.contains("detach_kurotty_dmg"))
         XCTAssertTrue(packageSource.contains("scripts/verify-icon-bundle.sh"))
-        XCTAssertTrue(packageSource.contains("codesign --force --deep --options runtime --sign \"$SIGN_IDENTITY\" \"$APP_BUNDLE\""))
-        XCTAssertTrue(packageSource.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
+        XCTAssertTrue(packageSource.contains("source \"$ROOT_DIR/scripts/sign-app-bundle.sh\""))
+        XCTAssertTrue(packageSource.contains("sign_kurotty_app_bundle \"$APP_BUNDLE\" \"$SIGN_IDENTITY\""))
+        XCTAssertFalse(packageSource.contains("codesign --force --deep"))
         XCTAssertTrue(packageSource.contains("xcrun notarytool submit"))
         XCTAssertTrue(packageSource.contains("xcrun stapler staple"))
         XCTAssertTrue(packageSource.contains("scripts/verify-release-artifact.sh"))
+        XCTAssertTrue(verifyReleaseSource.contains("Sparkle signing identity mismatch"))
+        XCTAssertTrue(verifyReleaseSource.contains("codesign --verify --strict --verbose=2 \"$target\""))
         XCTAssertTrue(packageSource.contains("KUROTTY_REQUIRE_NOTARIZATION"))
         XCTAssertTrue(packageSource.contains("shasum -a 256 \"$DMG_NAME\" \"$DMG_LATEST_NAME\""))
         XCTAssertTrue(packageSource.contains("SHA256SUMS"))

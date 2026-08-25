@@ -9,6 +9,7 @@ VERSION="$(kurotty_resolve_version "${1:-}")"
 APP_BUNDLE="$ROOT_DIR/.build/${APP_NAME}.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALLED_APP="$INSTALL_DIR/${APP_NAME}.app"
+APP_BUNDLE_ID="dev.kurotty.app"
 RESOURCE_BUNDLE="Kurotty_KurottyApp.bundle"
 ICONSET_DIR="$APP_BUNDLE/Contents/Resources/kurotty.iconset"
 SPARKLE_FEED_URL="${KUROTTY_SPARKLE_FEED_URL:-https://github.com/skyepodium/kurotty/releases/latest/download/appcast.xml}"
@@ -24,6 +25,22 @@ fi
 SIGN_IDENTITY="${KUROTTY_LOCAL_SIGN_IDENTITY:-${KUROTTY_RELEASE_SIGN_IDENTITY:-${SIGN_IDENTITY:--}}}"
 
 source "$ROOT_DIR/scripts/iconset.sh"
+source "$ROOT_DIR/scripts/sign-app-bundle.sh"
+
+if [[ ! -d "$INSTALL_DIR" ]]; then
+  echo "Install directory does not exist: $INSTALL_DIR" >&2
+  exit 1
+fi
+
+running_app_pids() {
+  ps -axo pid=,command= | awk -v executable="$INSTALLED_APP/Contents/MacOS/$APP_NAME" '$2 == executable { print $1 }'
+}
+
+if [[ -n "$(running_app_pids)" ]]; then
+  echo "Refusing to replace a running app bundle: $INSTALLED_APP" >&2
+  echo "Quit Kurotty, run this installer from another terminal, then reopen Kurotty." >&2
+  exit 1
+fi
 
 cd "$ROOT_DIR"
 
@@ -66,7 +83,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key>
   <string>kurotty.icns</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.kurotty.app</string>
+  <string>$APP_BUNDLE_ID</string>
   <key>CFBundleName</key>
   <string>kurotty</string>
   <key>CFBundlePackageType</key>
@@ -99,20 +116,8 @@ fi)
 </plist>
 PLIST
 
-# Sign the completed bundle, not just the Swift-built executable. UserNotifications
-# relies on macOS resolving the app identity from the final .app bundle.
-if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  echo "No signing identity configured; installing with ad-hoc signature."
-  codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
-else
-  echo "Signing app bundle with '$SIGN_IDENTITY'."
-  codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE" >/dev/null
-fi
-
-if [[ ! -d "$INSTALL_DIR" ]]; then
-  echo "Install directory does not exist: $INSTALL_DIR" >&2
-  exit 1
-fi
+echo "Signing app bundle with '$SIGN_IDENTITY'."
+sign_kurotty_app_bundle "$APP_BUNDLE" "$SIGN_IDENTITY" >/dev/null
 
 rm -rf "$INSTALLED_APP"
 cp -R "$APP_BUNDLE" "$INSTALLED_APP"
